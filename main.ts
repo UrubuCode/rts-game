@@ -41,10 +41,10 @@ const fptr = buffer.ptr(fbuf);
 
 // ── câmera (fly) — estado top-level ─────────────────────────────────────────
 let camX: f64 = 0.0;
-let camY: f64 = 3.0;
-let camZ: f64 = -10.0;
+let camY: f64 = 7.0;
+let camZ: f64 = -16.0;
 let camYaw: f64 = 0.0;
-let camPitch: f64 = 0.18;
+let camPitch: f64 = 0.35;
 const FOV: f64 = 1.05;
 const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);   // p/ framebuffer
 const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
@@ -52,10 +52,10 @@ const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
 // ── cena (estilo Unity) ─────────────────────────────────────────────────────
 const scene = new Scene("Main");
 
-// carrega a cena de demonstração (scenes/demo.json) — mesmo formato das portas de
+// carrega a cena de demonstração (scenes/solar.json) — mesmo formato das portas de
 // controle; se não existir, começa vazio (use +Cubo/+Esfera na toolbar).
-if (fs.exists("scenes/demo.json")) {
-  const data = JSON.parse(fs.read_text("scenes/demo.json"));
+if (fs.exists("scenes/solar.json")) {
+  const data = JSON.parse(fs.read_text("scenes/solar.json"));
   const arr = data.objects;
   let ci = 0;
   while (ci < arr.length) {
@@ -126,6 +126,13 @@ while (app.running()) {
   if (kRt !== 0) camYaw = camYaw + lookSpeed;
   if (kUp !== 0) camPitch = camPitch - lookSpeed;
   if (kDn !== 0) camPitch = camPitch + lookSpeed;
+  // olhar com o BOTÃO DIREITO do mouse (mouse-look estilo Unity fly)
+  const mvdx: f64 = input.mouseDeltaX(WIN);
+  const mvdy: f64 = input.mouseDeltaY(WIN);
+  if (input.mouseDown(WIN, 1) !== 0) {
+    camYaw = camYaw + mvdx * 0.005;
+    camPitch = camPitch + mvdy * 0.005;
+  }
   if (camPitch > 1.4) camPitch = 1.4;
   if (camPitch < 0 - 1.4) camPitch = 0 - 1.4;
 
@@ -250,7 +257,7 @@ while (app.running()) {
   let modeS = "EDIT";
   if (playing !== 0) modeS = "PLAY";
   app.text(500, 15, "modo: " + modeS + "   fps " + math.floor(app.fps()), 0xC8D2E0FF, 15);
-  app.text(W - 340, 15, "WASD mover | setas olhar | espaco subir | clique = selecionar", 0x8896A8FF, 12);
+  app.text(W - 340, 15, "WASD move | botao DIR = girar camera | espaco sobe | clique arrasta objeto", 0x8896A8FF, 12);
 
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
   app.box(0, BAR_H, HIER_W, H - BAR_H, 0x121826FF, 0, 0, 0);
