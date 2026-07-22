@@ -96,6 +96,7 @@ let selected = 0;
 let frames = 0;
 let spawnN = 0;
 let dragging = 0;
+let hierDrag = 0 - 1;
 let lastMx: f64 = 0.0;
 let lastMy: f64 = 0.0;
 
@@ -256,34 +257,72 @@ while (app.running()) {
   app.line(HIER_W, BAR_H, HIER_W, H, 1, 0x2A3546FF);
   app.text(14, BAR_H + 12, "HIERARQUIA", 0x6FA8DCFF, 15);
   app.text(HIER_W - 60, BAR_H + 13, scene.objects.length + " obj", 0x5E6B7EFF, 12);
-  // TREEVIEW: cada objeto indentado pela profundidade (cadeia de pais); filhos
-  // aparecem aninhados sob o pai com um conector, estilo Unity Hierarchy.
+
+  app.text(14, BAR_H + 34, "arraste: meio = filho | topo/base = irmao", 0x5E6B7EFF, 11);
+
+  // TREEVIEW com SLOTS de inserção (estilo Unity): por linha, o terço de cima =
+  // soltar ANTES (irmão), o meio = virar FILHO, o de baixo = soltar DEPOIS (irmão).
+  let dropIdx = 0 - 1;
+  let dropMode = 0;          // 1 = antes, 2 = filho, 3 = depois
+  let dropLineY: f64 = 0.0;
   let hi = 0;
   while (hi < scene.objects.length) {
     const obj = scene.objects[hi];
-    // profundidade = quantos ancestrais o objeto tem
     let depth = 0;
     let pp = obj.parent;
     while (pp >= 0 && depth < 8) { depth = depth + 1; pp = scene.objects[pp].parent; }
     const indent = depth * 16;
-    const ry0 = BAR_H + 40 + hi * 27;
-    const st = app.clickable(100 + hi, 8 + indent, ry0, HIER_W - 16 - indent, 24);
+    const ry0 = BAR_H + 52 + hi * 26;
+    const inRow = mx < HIER_W && my >= ry0 && my < ry0 + 26;
+    if (mPressed !== 0 && inRow) { hierDrag = hi; selected = hi; }
+    // detecta a zona de drop enquanto arrasta
+    if (hierDrag >= 0 && inRow) {
+      const local: f64 = my - ry0;
+      if (local < 8.0) { dropIdx = hi; dropMode = 1; dropLineY = ry0; }
+      else if (local >= 18.0) { dropIdx = hi; dropMode = 3; dropLineY = ry0 + 26; }
+      else { dropIdx = hi; dropMode = 2; }
+    }
     let fill = 0x1A2230FF;
     if (hi === selected) fill = 0x2C4A72FF;
-    if (st === 1) fill = 0x202A3AFF;
-    app.box(8 + indent, ry0, HIER_W - 16 - indent, 24, fill, 0, 0, 5);
-    // conector do galho pros filhos
-    if (depth > 0) {
-      app.text(8 + indent - 12, ry0 + 3, "└", 0x556377FF, 14);
-    }
-    // ícone do tipo de mesh
+    if (hierDrag < 0 && inRow) fill = 0x202A3AFF;
+    if (hierDrag >= 0 && dropMode === 2 && dropIdx === hi && hi !== hierDrag) fill = 0x2E5A3AFF; // vira filho
+    app.box(8 + indent, ry0 + 1, HIER_W - 16 - indent, 24, fill, 0, 0, 5);
+    if (depth > 0) app.text(8 + indent - 12, ry0 + 5, "└", 0x556377FF, 14);
     let icon = "[C]";
     if (obj.meshKind === 2) icon = "[P]";
     if (obj.meshKind === 3) icon = "[O]";
     if (obj.meshKind === 4) icon = "[S]";
-    app.text(14 + indent, ry0 + 4, icon + " " + obj.name, 0xDCE4F0FF, 13);
-    if (st === 3) selected = hi;
+    app.text(14 + indent, ry0 + 6, icon + " " + obj.name, 0xDCE4F0FF, 13);
     hi = hi + 1;
+  }
+  // linha de inserção (irmão antes/depois)
+  if (hierDrag >= 0 && (dropMode === 1 || dropMode === 3)) {
+    app.box(10, dropLineY - 1, HIER_W - 20, 3, 0x77DD99FF, 0, 0, 0);
+  }
+  // soltar → aplica o move (reordena + reparenta a subárvore)
+  if (hierDrag >= 0 && mDownNow === 0) {
+    if (dropMode !== 0 && dropIdx >= 0 && dropIdx !== hierDrag) {
+      const dref = scene.objects[hierDrag];
+      if (dropMode === 2) {
+        scene.moveSubtree(hierDrag, dropIdx + 1, dropIdx);       // filho do alvo
+      } else {
+        const tp = scene.objects[dropIdx].parent;                // irmão do alvo
+        let bidx = dropIdx;
+        if (dropMode === 3) bidx = dropIdx + 1;
+        scene.moveSubtree(hierDrag, bidx, tp);
+      }
+      // re-seleciona o arrastado na nova posição
+      let f2 = 0;
+      while (f2 < scene.objects.length) {
+        if (scene.objects[f2] === dref) { selected = f2; f2 = scene.objects.length; } else f2 = f2 + 1;
+      }
+    }
+    hierDrag = 0 - 1;
+  }
+  // GHOST: o item arrastado segue o cursor
+  if (hierDrag >= 0 && hierDrag < scene.objects.length) {
+    app.box(mx + 12, my - 9, 150, 22, 0x2E4E86EE, 1, 0x88BBFFFF, 5);
+    app.text(mx + 18, my - 5, ">> " + scene.objects[hierDrag].name, 0xFFFFFFFF, 13);
   }
 
   // ── inspector (direita) ─────────────────────────────────────────────────────
@@ -292,8 +331,16 @@ while (app.running()) {
   app.line(ix, BAR_H, ix, H, 1, 0x2A3546FF);
   app.text(ix + 14, BAR_H + 12, "INSPECTOR", 0x6FA8DCFF, 15);
   const sel = scene.objects[selected];
-  app.text(ix + 14, BAR_H + 40, sel.name, 0xFFFFFFFF, 16);
-  app.text(ix + 14, BAR_H + 70, "Position", 0x9AA6B6FF, 13);
+  app.text(ix + 14, BAR_H + 38, sel.name, 0xFFFFFFFF, 16);
+  // pai + desaninhar
+  if (sel.parent >= 0 && sel.parent < scene.objects.length) {
+    app.text(ix + 14, BAR_H + 62, "Pai: " + scene.objects[sel.parent].name, 0x8A96A6FF, 12);
+    const bUn = app.button(ix + INSP_W - 108, BAR_H + 58, 94, 20, "Desaninhar");
+    if (bUn) sel.parent = 0 - 1;
+  } else {
+    app.text(ix + 14, BAR_H + 62, "Pai: (raiz)", 0x66707EFF, 12);
+  }
+  app.text(ix + 14, BAR_H + 82, "Position", 0x9AA6B6FF, 13);
   app.text(ix + 14, BAR_H + 90, "X", 0xC8D2E0FF, 13);
   sel.transform.px = app.slider(ix + 34, BAR_H + 88, INSP_W - 60, sel.transform.px, -8, 8);
   app.text(ix + 14, BAR_H + 118, "Y", 0xC8D2E0FF, 13);

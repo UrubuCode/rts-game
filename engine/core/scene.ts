@@ -37,6 +37,98 @@ export class Scene {
     this.objects = [];
   }
 
+  /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
+  /// índice `beforeIdx`, com novo pai `newParentIdx` (-1 = raiz). Reordena o array
+  /// e remapeia todos os índices de parent por REFERÊNCIA (estável). É o backend do
+  /// drag-drop com slots de inserção do editor. No-op se criar ciclo.
+  moveSubtree(dragIdx: number, beforeIdx: number, newParentIdx: number): void {
+    const n = this.objects.length;
+    if (dragIdx < 0 || dragIdx >= n) return;
+    // flags: quem está na subárvore do arrastado (ele + descendentes)
+    const inSub: number[] = [];
+    let i = 0;
+    while (i < n) {
+      let a = i; let sub = 0; let g = 0;
+      while (a >= 0 && g < 128) {
+        if (a === dragIdx) { sub = 1; a = 0 - 1; } else { a = this.objects[a].parent; }
+        g = g + 1;
+      }
+      inSub.push(sub);
+      i = i + 1;
+    }
+    // ciclo: novo pai não pode estar na subárvore
+    if (newParentIdx >= 0 && newParentIdx < n && inSub[newParentIdx] === 1) return;
+    // ref do pai de cada objeto (sentinela = ele mesmo quando raiz)
+    const pref: GameObject[] = [];
+    const hasP: number[] = [];
+    i = 0;
+    while (i < n) {
+      const o = this.objects[i];
+      if (o.parent >= 0 && o.parent < n) { pref.push(this.objects[o.parent]); hasP.push(1); }
+      else { pref.push(o); hasP.push(0); }
+      i = i + 1;
+    }
+    const dragged = this.objects[dragIdx];
+    let npRef = dragged; let npHas = 0;
+    if (newParentIdx >= 0 && newParentIdx < n) { npRef = this.objects[newParentIdx]; npHas = 1; }
+    // posição de inserção entre os NÃO-movendo
+    let insertPos = 0;
+    i = 0;
+    while (i < beforeIdx && i < n) { if (inSub[i] === 0) insertPos = insertPos + 1; i = i + 1; }
+    // monta nova ordem
+    const order: GameObject[] = [];
+    const opref: GameObject[] = [];
+    const ohasP: number[] = [];
+    let restCount = 0;
+    let inserted = 0;
+    let k = 0;
+    while (k < n) {
+      if (inserted === 0 && restCount === insertPos) {
+        let b = 0;
+        while (b < n) {
+          if (inSub[b] === 1) {
+            order.push(this.objects[b]);
+            if (this.objects[b] === dragged) { opref.push(npRef); ohasP.push(npHas); }
+            else { opref.push(pref[b]); ohasP.push(hasP[b]); }
+          }
+          b = b + 1;
+        }
+        inserted = 1;
+      }
+      if (inSub[k] === 0) {
+        order.push(this.objects[k]); opref.push(pref[k]); ohasP.push(hasP[k]);
+        restCount = restCount + 1;
+      }
+      k = k + 1;
+    }
+    if (inserted === 0) {
+      let b = 0;
+      while (b < n) {
+        if (inSub[b] === 1) {
+          order.push(this.objects[b]);
+          if (this.objects[b] === dragged) { opref.push(npRef); ohasP.push(npHas); }
+          else { opref.push(pref[b]); ohasP.push(hasP[b]); }
+        }
+        b = b + 1;
+      }
+    }
+    // aplica + remapeia parent por referência
+    this.objects = order;
+    let j = 0;
+    while (j < order.length) {
+      const o = order[j];
+      if (ohasP[j] === 0) { o.parent = 0 - 1; }
+      else {
+        let pj = 0; let found = 0 - 1;
+        while (pj < order.length) {
+          if (order[pj] === opref[j]) { found = pj; pj = order.length; } else pj = pj + 1;
+        }
+        o.parent = found;
+      }
+      j = j + 1;
+    }
+  }
+
   /// Remove o objeto no índice `i`, corrigindo os índices de parent dos demais
   /// (quem apontava pra i vira raiz; quem apontava depois de i decrementa).
   removeAt(i: number): void {
@@ -60,31 +152,48 @@ export class Scene {
   /// Assume pai com índice MENOR que o filho (pais adicionados antes). Chame a
   /// cada frame antes do render.
   computeWorld(): void {
-    let i = 0;
-    while (i < this.objects.length) {
-      const o = this.objects[i];
-      if (o.parent < 0 || o.parent >= i) {
-        o.transform.wx = o.transform.px;
-        o.transform.wy = o.transform.py;
-        o.transform.wz = o.transform.pz;
-        o.transform.wrx = o.transform.rx;
-        o.transform.wry = o.transform.ry;
-      } else {
-        const p = this.objects[o.parent];
-        const pyaw: f64 = p.transform.wry;   // yaw de MUNDO do pai (aninhamento correto)
-        const c: f64 = math.cos(pyaw);
-        const s: f64 = math.sin(pyaw);
-        const lx: f64 = o.transform.px;
-        const ly: f64 = o.transform.py;
-        const lz: f64 = o.transform.pz;
-        o.transform.wx = p.transform.wx + (lx * c + lz * s);
-        o.transform.wy = p.transform.wy + ly;
-        o.transform.wz = p.transform.wz + (0 - lx * s + lz * c);
-        // herda a rotação do pai (euler aditivo — o filho gira junto E orbita)
-        o.transform.wrx = p.transform.wrx + o.transform.rx;
-        o.transform.wry = p.transform.wry + o.transform.ry;
+    const n = this.objects.length;
+    // flags de "já computado" — resolve em qualquer ORDEM de parent (reparent na
+    // árvore pode fazer o pai ter índice MAIOR que o filho).
+    const done: number[] = [];
+    let k = 0;
+    while (k < n) { done.push(0); k = k + 1; }
+    let pass = 0;
+    while (pass <= n) {
+      let left = 0;
+      let i = 0;
+      while (i < n) {
+        if (done[i] === 0) {
+          const o = this.objects[i];
+          if (o.parent < 0 || o.parent >= n) {
+            o.transform.wx = o.transform.px;
+            o.transform.wy = o.transform.py;
+            o.transform.wz = o.transform.pz;
+            o.transform.wrx = o.transform.rx;
+            o.transform.wry = o.transform.ry;
+            done[i] = 1;
+          } else if (done[o.parent] === 1) {
+            const p = this.objects[o.parent];
+            const pyaw: f64 = p.transform.wry;
+            const c: f64 = math.cos(pyaw);
+            const s: f64 = math.sin(pyaw);
+            const lx: f64 = o.transform.px;
+            const ly: f64 = o.transform.py;
+            const lz: f64 = o.transform.pz;
+            o.transform.wx = p.transform.wx + (lx * c + lz * s);
+            o.transform.wy = p.transform.wy + ly;
+            o.transform.wz = p.transform.wz + (0 - lx * s + lz * c);
+            o.transform.wrx = p.transform.wrx + o.transform.rx;
+            o.transform.wry = p.transform.wry + o.transform.ry;
+            done[i] = 1;
+          } else {
+            left = 1;   // pai ainda não resolvido — próxima passada
+          }
+        }
+        i = i + 1;
       }
-      i = i + 1;
+      if (left === 0) pass = n + 1;
+      else pass = pass + 1;
     }
   }
 
