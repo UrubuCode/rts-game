@@ -33,6 +33,7 @@ import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
 import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
+import { Rigidbody } from "./scripts/rigidbody";
 import { clearFB, drawFloor } from "./engine/render/raster";
 import { drawMeshSolid } from "./engine/render/mesh";
 import { asciiFrame, dumpObject, dumpCamera, countLit, savePPM } from "./engine/testkit/dump";
@@ -131,6 +132,14 @@ while (running !== 0) {
     const o = scene.objects[i];
     o.addBehavior(new Bobber(amp, freq, o.transform.py));
     io.print("[ok] bob #" + i);
+  } else if (cmd === "rigid") {
+    const i = parseFloat(parts[1]) | 0;
+    let g: f64 = -9.8;
+    let bounce: f64 = 0.5;
+    if (np > 2) g = parseFloat(parts[2]);
+    if (np > 3) bounce = parseFloat(parts[3]);
+    scene.objects[i].addBehavior(new Rigidbody(g, bounce));
+    io.print("[ok] rigid #" + i + " g=" + g + " bounce=" + bounce);
   } else if (cmd === "select") {
     selected = parseFloat(parts[1]) | 0;
     io.print("[ok] select #" + selected);
@@ -272,6 +281,7 @@ while (running !== 0) {
         const t = sd.type;
         if (t === "spin") go.addBehavior(new Spinner(sd.sy, sd.sx));
         if (t === "bob") go.addBehavior(new Bobber(sd.amp, sd.freq, sd.base));
+        if (t === "rigidbody") go.addBehavior(new Rigidbody(sd.g, sd.bounce));
         si = si + 1;
       }
       scene.add(go);
