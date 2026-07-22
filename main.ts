@@ -131,7 +131,7 @@ while (app.running()) {
   const mvdy: f64 = input.mouseDeltaY(WIN);
   if (input.mouseDown(WIN, 1) !== 0) {
     camYaw = camYaw + mvdx * 0.005;
-    camPitch = camPitch + mvdy * 0.005;
+    camPitch = camPitch - mvdy * 0.005;
   }
   if (camPitch > 1.4) camPitch = 1.4;
   if (camPitch < 0 - 1.4) camPitch = 0 - 1.4;
