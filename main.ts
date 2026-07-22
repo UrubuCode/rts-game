@@ -11,7 +11,8 @@ import input from "rts:input";
 
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
-import { clearFB, drawCubeSolid, drawFloor } from "./engine/render/raster";
+import { clearFB, drawFloor } from "./engine/render/raster";
+import { drawMeshSolid } from "./engine/render/mesh";
 import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
 
@@ -53,15 +54,15 @@ cubeA.transform.setPosition(0, 1.5, 0);
 cubeA.addBehavior(new Spinner(1.1, 0.4));
 scene.add(cubeA);
 
-const cubeB = new GameObject("Cube.Bob");
-cubeB.setMesh(1, 240, 150, 70);
+const cubeB = new GameObject("Pyra.Bob");
+cubeB.setMesh(2, 240, 150, 70);
 cubeB.transform.setPosition(-3, 1.5, 2);
-cubeB.transform.setScale(0.8);
+cubeB.transform.setScale(0.9);
 cubeB.addBehavior(new Bobber(0.8, 2.0, 1.5));
 scene.add(cubeB);
 
-const cubeC = new GameObject("Cube.SpinBob");
-cubeC.setMesh(1, 120, 220, 120);
+const cubeC = new GameObject("Octa.SpinBob");
+cubeC.setMesh(3, 120, 220, 120);
 cubeC.transform.setPosition(3, 1.5, -1);
 cubeC.transform.setScale(1.2);
 cubeC.addBehavior(new Spinner(0.6, 0.0));
@@ -128,7 +129,7 @@ while (app.running()) {
     let pi = 0;
     while (pi < scene.objects.length) {
       const po = scene.objects[pi];
-      if (po.meshKind === 1) {
+      if (po.meshKind !== 0) {
         const dx = po.transform.px - camX;
         const dy = po.transform.py - camY;
         const dz = po.transform.pz - camZ;
@@ -156,12 +157,12 @@ while (app.running()) {
   let oi = 0;
   while (oi < scene.objects.length) {
     const o = scene.objects[oi];
-    if (o.active !== 0 && o.meshKind === 1) {
+    if (o.active !== 0 && o.meshKind !== 0) {
       let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
       if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
-      drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+      drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
         o.transform.px, o.transform.py, o.transform.pz,
-        o.transform.rx, o.transform.ry, o.transform.sx, rr, gg, bbv);
+        o.transform.rx, o.transform.ry, o.transform.sx, o.meshKind, rr, gg, bbv);
     }
     oi = oi + 1;
   }

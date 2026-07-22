@@ -33,7 +33,8 @@ import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
 import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
-import { clearFB, drawCubeSolid, drawFloor } from "./engine/render/raster";
+import { clearFB, drawFloor } from "./engine/render/raster";
+import { drawMeshSolid } from "./engine/render/mesh";
 import { asciiFrame, dumpObject, dumpCamera, countLit, savePPM } from "./engine/testkit/dump";
 
 const RW = 240;
@@ -161,12 +162,12 @@ while (running !== 0) {
     let roi = 0;
     while (roi < scene.objects.length) {
       const ro = scene.objects[roi];
-      if (ro.active !== 0 && ro.meshKind === 1) {
+      if (ro.active !== 0 && ro.meshKind !== 0) {
         let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
-        drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+        drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
           ro.transform.px, ro.transform.py, ro.transform.pz,
-          ro.transform.rx, ro.transform.ry, ro.transform.sx, rr, gg, bbv);
+          ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
     }
@@ -187,12 +188,12 @@ while (running !== 0) {
     let roi = 0;
     while (roi < scene.objects.length) {
       const ro = scene.objects[roi];
-      if (ro.active !== 0 && ro.meshKind === 1) {
+      if (ro.active !== 0 && ro.meshKind !== 0) {
         let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
-        drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+        drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
           ro.transform.px, ro.transform.py, ro.transform.pz,
-          ro.transform.rx, ro.transform.ry, ro.transform.sx, rr, gg, bbv);
+          ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
     }
@@ -204,17 +205,21 @@ while (running !== 0) {
     let roi = 0;
     while (roi < scene.objects.length) {
       const ro = scene.objects[roi];
-      if (ro.active !== 0 && ro.meshKind === 1) {
+      if (ro.active !== 0 && ro.meshKind !== 0) {
         let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
-        drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+        drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
           ro.transform.px, ro.transform.py, ro.transform.pz,
-          ro.transform.rx, ro.transform.ry, ro.transform.sx, rr, gg, bbv);
+          ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
     }
     savePPM(parts[1], fbuf, RW, RH, 160, 96);
     io.print("[ok] save " + parts[1]);
+  } else if (cmd === "mesh") {
+    const i = parseFloat(parts[1]) | 0;
+    scene.objects[i].meshKind = parseFloat(parts[2]) | 0;
+    io.print("[ok] mesh #" + i + " kind=" + (parseFloat(parts[2]) | 0));
   } else if (cmd === "savescene") {
     // monta a árvore de objetos simples e deixa o JSON.stringify do motor formatar
     const objs: any[] = [];

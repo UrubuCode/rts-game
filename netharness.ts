@@ -24,7 +24,8 @@ import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
 import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
-import { clearFB, drawCubeSolid, drawFloor } from "./engine/render/raster";
+import { clearFB, drawFloor } from "./engine/render/raster";
+import { drawMeshSolid } from "./engine/render/mesh";
 import { asciiFrameStr } from "./engine/testkit/dump";
 
 const PORT = "127.0.0.1:7777";
@@ -159,12 +160,12 @@ if (listener === 0) {
           let roi = 0;
           while (roi < scene.objects.length) {
             const ro = scene.objects[roi];
-            if (ro.active !== 0 && ro.meshKind === 1) {
+            if (ro.active !== 0 && ro.meshKind !== 0) {
               let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
               if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
-              drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+              drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
                 ro.transform.px, ro.transform.py, ro.transform.pz,
-                ro.transform.rx, ro.transform.ry, ro.transform.sx, rr, gg, bbv);
+                ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
             }
             roi = roi + 1;
           }
@@ -184,6 +185,10 @@ if (listener === 0) {
             }
             sendStr(stream, "[lit] " + lit + "/" + NPIX + "\n");
           }
+        } else if (cmd === "mesh") {
+          const i = parseFloat(parts[1]) | 0;
+          scene.objects[i].meshKind = parseFloat(parts[2]) | 0;
+          sendStr(stream, "[ok] mesh #" + i + " kind=" + (parseFloat(parts[2]) | 0) + "\n");
         } else if (cmd === "savescene") {
           const objs: any[] = [];
           let oi = 0;
@@ -249,12 +254,12 @@ if (listener === 0) {
         let doi = 0;
         while (doi < scene.objects.length) {
           const dobj = scene.objects[doi];
-          if (dobj.active !== 0 && dobj.meshKind === 1) {
+          if (dobj.active !== 0 && dobj.meshKind !== 0) {
             let rr = dobj.cr | 0; let gg = dobj.cg | 0; let bbv = dobj.cb | 0;
             if (doi === selected) { rr = 255; gg = 230; bbv = 120; }
-            drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+            drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
               dobj.transform.px, dobj.transform.py, dobj.transform.pz,
-              dobj.transform.rx, dobj.transform.ry, dobj.transform.sx, rr, gg, bbv);
+              dobj.transform.rx, dobj.transform.ry, dobj.transform.sx, dobj.meshKind, rr, gg, bbv);
           }
           doi = doi + 1;
         }
