@@ -69,6 +69,13 @@ cubeC.addBehavior(new Spinner(0.6, 0.0));
 cubeC.addBehavior(new Bobber(0.5, 1.3, 1.5));
 scene.add(cubeC);
 
+const ball = new GameObject("Sphere.Bob");
+ball.setMesh(4, 230, 90, 140);
+ball.transform.setPosition(6, 1.5, 1);
+ball.transform.setScale(1.4);
+ball.addBehavior(new Bobber(0.6, 1.6, 1.5));
+scene.add(ball);
+
 // ── estado do editor ────────────────────────────────────────────────────────
 let playing = 1;
 let selected = 0;
