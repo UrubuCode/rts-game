@@ -1,7 +1,7 @@
-// Engine RTS — Xform: posição, rotação (euler, radianos) e escala.
+// Engine RTS — Transform: posição, rotação (euler, radianos) e escala.
 // Campos planos (px..sz) — dispatch provado no motor, evita aninhar Vec3.
 
-export class Xform {
+export class Transform {
   px: f64; py: f64; pz: f64;   // posição no mundo
   rx: f64; ry: f64; rz: f64;   // rotação euler (rad)
   sx: f64; sy: f64; sz: f64;   // escala

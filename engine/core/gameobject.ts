@@ -1,14 +1,14 @@
 // Engine RTS — GameObject: a unidade da cena, estilo Unity. TUDO é GameObject.
-// Tem Xform, um tipo de mesh pro render pass, cor, e uma lista de Behaviors
+// Tem Transform, um tipo de mesh pro render pass, cor, e uma lista de Behaviors
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
-import { Xform } from "./transform";
+import { Transform } from "./transform";
 import { Behavior } from "./behavior";
 
 // meshKind: 0 = vazio (só nó), 1 = cubo. (grid/luz/câmera entram depois)
 export class GameObject {
   name: string;
-  transform: Xform;
+  transform: Transform;
   behaviors: Behavior[];
   meshKind: number;
   cr: number; cg: number; cb: number;  // cor do mesh (0..255)
@@ -16,7 +16,7 @@ export class GameObject {
 
   constructor(name: string) {
     this.name = name;
-    this.transform = new Xform();
+    this.transform = new Transform();
     this.behaviors = [];
     this.meshKind = 0;
     this.cr = 120; this.cg = 180; this.cb = 255;

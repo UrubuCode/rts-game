@@ -6,19 +6,19 @@
 // o render é um passe separado (engine/render/draw.ts), como o Renderer do
 // Unity é dirigido pelo motor, não pelo script.
 
-import { Xform } from "./transform";
+import { Transform } from "./transform";
 
 export class Behavior {
-  host: Xform;   // transform do GameObject dono (setado no attach)
+  host: Transform;   // transform do GameObject dono (setado no attach)
   enabled: number;
 
   constructor() {
-    this.host = new Xform();
+    this.host = new Transform();
     this.enabled = 1;
   }
 
   /// Liga o script ao transform do GameObject dono.
-  attach(t: Xform): void {
+  attach(t: Transform): void {
     this.host = t;
   }
 
