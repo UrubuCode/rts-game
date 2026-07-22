@@ -1,0 +1,29 @@
+// Engine RTS — Behavior: o "MonoBehaviour". Todo script de gameplay estende
+// isto e sobrescreve mount()/update(dt). Rodam num array polimórfico no
+// GameObject (dispatch virtual provado no motor).
+//
+// REGRA: um Behavior só mexe no próprio transform (host). Ele NÃO desenha —
+// o render é um passe separado (engine/render/draw.ts), como o Renderer do
+// Unity é dirigido pelo motor, não pelo script.
+
+import { Xform } from "./transform";
+
+export class Behavior {
+  host: Xform;   // transform do GameObject dono (setado no attach)
+  enabled: number;
+
+  constructor() {
+    this.host = new Xform();
+    this.enabled = 1;
+  }
+
+  /// Liga o script ao transform do GameObject dono.
+  attach(t: Xform): void {
+    this.host = t;
+  }
+
+  /// Chamado uma vez quando o objeto entra na cena (Awake/Start do Unity).
+  mount(): void {}
+  /// Chamado todo frame com o delta em SEGUNDOS.
+  update(dt: f64): void {}
+}
