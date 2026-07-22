@@ -115,7 +115,7 @@ while (app.running()) {
   if (kSp !== 0) camY = camY + moveSpeed;
 
   // ── UPDATE da cena (só quando playing) ────────────────────────────────────
-  if (playing !== 0) scene.update(dts);
+  if (playing !== 0) { scene.update(dts); scene.resolveCollisions(); }
 
   // ── PICKING: clique no viewport seleciona o cubo mais próximo do mouse ─────
   const clicked = input.mouseClicked(WIN, 0);

@@ -148,7 +148,7 @@ if (listener === 0) {
           if (np > 1) cnt = parseFloat(parts[1]) | 0;
           let k = 0;
           while (k < cnt) {
-            if (playing !== 0) scene.update(0.016);
+            if (playing !== 0) { scene.update(0.016); scene.resolveCollisions(); }
             frame = frame + 1;
             k = k + 1;
           }
