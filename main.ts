@@ -138,11 +138,14 @@ while (app.running()) {
 
   const cyw = math.cos(camYaw);
   const syw = math.sin(camYaw);
+  const cpM = math.cos(camPitch);
+  const spM = math.sin(camPitch);
   const moveSpeed: f64 = 6.0 * dts;
-  const fx = syw; const fz = cyw;
-  const rxv = cyw; const rzv = 0 - syw;
-  if (kW !== 0) { camX = camX + fx * moveSpeed; camZ = camZ + fz * moveSpeed; }
-  if (kS !== 0) { camX = camX - fx * moveSpeed; camZ = camZ - fz * moveSpeed; }
+  // forward = direção que a câmera olha (inclui o pitch); W/S voam nessa direção
+  const fx = syw * cpM; const fy = 0 - spM; const fz = cyw * cpM;
+  const rxv = cyw; const rzv = 0 - syw;   // strafe (A/D) no plano horizontal
+  if (kW !== 0) { camX = camX + fx * moveSpeed; camY = camY + fy * moveSpeed; camZ = camZ + fz * moveSpeed; }
+  if (kS !== 0) { camX = camX - fx * moveSpeed; camY = camY - fy * moveSpeed; camZ = camZ - fz * moveSpeed; }
   if (kD !== 0) { camX = camX + rxv * moveSpeed; camZ = camZ + rzv * moveSpeed; }
   if (kA !== 0) { camX = camX - rxv * moveSpeed; camZ = camZ - rzv * moveSpeed; }
   if (kSp !== 0) camY = camY + moveSpeed;
