@@ -13,7 +13,8 @@ export class GameObject {
   meshKind: number;
   cr: number; cg: number; cb: number;  // cor do mesh (0..255)
   active: number;
-  parent: number;   // índice do pai em scene.objects (-1 = raiz)
+  parent: number;      // índice do pai em scene.objects (-1 = raiz)
+  stationary: number;  // 1 = estático (a colisão não o empurra) — tipo static/kinematic
 
   constructor(name: string) {
     this.name = name;
@@ -23,6 +24,7 @@ export class GameObject {
     this.cr = 120; this.cg = 180; this.cb = 255;
     this.active = 1;
     this.parent = 0 - 1;
+    this.stationary = 0;
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.

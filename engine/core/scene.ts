@@ -109,18 +109,23 @@ export class Scene {
             const dz: f64 = b.transform.pz - a.transform.pz;
             const d2: f64 = dx * dx + dy * dy + dz * dz;
             const rs: f64 = ra + rb;
-            if (d2 < rs * rs && d2 > 0.0001) {
+            if (d2 < rs * rs && d2 > 0.0001 && (a.stationary === 0 || b.stationary === 0)) {
               const d: f64 = math.sqrt(d2);
               const nx: f64 = dx / d;
               const ny: f64 = dy / d;
               const nz: f64 = dz / d;
-              const push: f64 = (rs - d) * 0.5;
-              a.transform.px = a.transform.px - nx * push;
-              a.transform.py = a.transform.py - ny * push;
-              a.transform.pz = a.transform.pz - nz * push;
-              b.transform.px = b.transform.px + nx * push;
-              b.transform.py = b.transform.py + ny * push;
-              b.transform.pz = b.transform.pz + nz * push;
+              const overlap: f64 = rs - d;
+              // reparte o empurrão: estático não se move (o outro absorve tudo).
+              let pushA: f64 = overlap * 0.5;
+              let pushB: f64 = overlap * 0.5;
+              if (a.stationary !== 0) { pushA = 0.0; pushB = overlap; }
+              else if (b.stationary !== 0) { pushA = overlap; pushB = 0.0; }
+              a.transform.px = a.transform.px - nx * pushA;
+              a.transform.py = a.transform.py - ny * pushA;
+              a.transform.pz = a.transform.pz - nz * pushA;
+              b.transform.px = b.transform.px + nx * pushB;
+              b.transform.py = b.transform.py + ny * pushB;
+              b.transform.pz = b.transform.pz + nz * pushB;
               // contato vertical → zera a velocidade que empurra pra dentro
               if (ny > 0.5) {
                 if (b.transform.vy < 0) b.transform.vy = 0.0;

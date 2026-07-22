@@ -218,6 +218,12 @@ if (listener === 0) {
         } else if (cmd === "ambient") {
           setAmbient(parseFloat(parts[1]));
           sendStr(stream, "[ok] ambient\n");
+        } else if (cmd === "static") {
+          const i = parseFloat(parts[1]) | 0;
+          let v = 1;
+          if (np > 2) v = parseFloat(parts[2]) | 0;
+          scene.objects[i].stationary = v;
+          sendStr(stream, "[ok] static #" + i + "\n");
         } else if (cmd === "delete") {
           const i = parseFloat(parts[1]) | 0;
           scene.removeAt(i);
@@ -256,7 +262,7 @@ if (listener === 0) {
               bi = bi + 1;
             }
             objs.push({
-              name: o.name, parent: o.parent, mesh: o.meshKind,
+              name: o.name, parent: o.parent, stationary: o.stationary, mesh: o.meshKind,
               color: [o.cr | 0, o.cg | 0, o.cb | 0],
               pos: [o.transform.px, o.transform.py, o.transform.pz],
               rot: [o.transform.rx, o.transform.ry],
@@ -276,6 +282,7 @@ if (listener === 0) {
             const od = arr[ci];
             const go = new GameObject(od.name);
             if (od.parent !== undefined) go.parent = od.parent;
+            if (od.stationary !== undefined) go.stationary = od.stationary;
             const col = od.color;
             go.setMesh(od.mesh, col[0], col[1], col[2]);
             const p = od.pos; const r = od.rot;

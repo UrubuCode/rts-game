@@ -252,6 +252,12 @@ while (running !== 0) {
   } else if (cmd === "ambient") {
     setAmbient(parseFloat(parts[1]));
     io.print("[ok] ambient " + parseFloat(parts[1]));
+  } else if (cmd === "static") {
+    const i = parseFloat(parts[1]) | 0;
+    let v = 1;
+    if (np > 2) v = parseFloat(parts[2]) | 0;
+    scene.objects[i].stationary = v;
+    io.print("[ok] static #" + i + " " + v);
   } else if (cmd === "delete") {
     const i = parseFloat(parts[1]) | 0;
     scene.removeAt(i);
@@ -291,7 +297,7 @@ while (running !== 0) {
         bi = bi + 1;
       }
       objs.push({
-        name: o.name, parent: o.parent,
+        name: o.name, parent: o.parent, stationary: o.stationary,
         mesh: o.meshKind,
         color: [o.cr | 0, o.cg | 0, o.cb | 0],
         pos: [o.transform.px, o.transform.py, o.transform.pz],
@@ -315,6 +321,7 @@ while (running !== 0) {
       const od = arr[ci];
       const go = new GameObject(od.name);
       if (od.parent !== undefined) go.parent = od.parent;
+      if (od.stationary !== undefined) go.stationary = od.stationary;
       const col = od.color;
       go.setMesh(od.mesh, col[0], col[1], col[2]);
       const p = od.pos;
