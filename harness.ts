@@ -34,6 +34,8 @@ import { GameObject } from "./engine/core/gameobject";
 import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
 import { Rigidbody } from "./scripts/rigidbody";
+import { Mover } from "./scripts/mover";
+import { Pulse } from "./scripts/pulse";
 import { clearFB, drawFloor } from "./engine/render/raster";
 import { drawMeshSolid, setLight, setAmbient } from "./engine/render/mesh";
 import { asciiFrame, dumpObject, dumpCamera, countLit, savePPM } from "./engine/testkit/dump";
@@ -235,6 +237,15 @@ while (running !== 0) {
     const i = parseFloat(parts[1]) | 0;
     scene.objects[i].meshKind = parseFloat(parts[2]) | 0;
     io.print("[ok] mesh #" + i + " kind=" + (parseFloat(parts[2]) | 0));
+  } else if (cmd === "mover") {
+    const i = parseFloat(parts[1]) | 0;
+    scene.objects[i].addBehavior(new Mover(parseFloat(parts[2]), parseFloat(parts[3]), parseFloat(parts[4])));
+    io.print("[ok] mover #" + i);
+  } else if (cmd === "pulse") {
+    const i = parseFloat(parts[1]) | 0;
+    const o = scene.objects[i];
+    o.addBehavior(new Pulse(parseFloat(parts[2]), parseFloat(parts[3]), o.transform.sx));
+    io.print("[ok] pulse #" + i);
   } else if (cmd === "light") {
     setLight(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]));
     io.print("[ok] light");
@@ -320,6 +331,8 @@ while (running !== 0) {
         if (t === "spin") go.addBehavior(new Spinner(sd.sy, sd.sx));
         if (t === "bob") go.addBehavior(new Bobber(sd.amp, sd.freq, sd.base));
         if (t === "rigidbody") go.addBehavior(new Rigidbody(sd.g, sd.bounce));
+        if (t === "mover") go.addBehavior(new Mover(sd.vx, sd.vy, sd.vz));
+        if (t === "pulse") go.addBehavior(new Pulse(sd.amp, sd.freq, sd.base));
         si = si + 1;
       }
       scene.add(go);
