@@ -95,6 +95,9 @@ let playing = 1;
 let selected = 0;
 let frames = 0;
 let spawnN = 0;
+let dragging = 0;
+let lastMx: f64 = 0.0;
+let lastMy: f64 = 0.0;
 
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos (raster solido)");
 
@@ -140,13 +143,15 @@ while (app.running()) {
   if (playing !== 0) { scene.update(dts); scene.resolveCollisions(); }
   scene.computeWorld();
 
-  // ── PICKING: clique no viewport seleciona o cubo mais próximo do mouse ─────
-  const clicked = input.mouseClicked(WIN, 0);
+  // ── PICKING + DRAG: pressionar seleciona; segurando, ARRASTA o objeto ───────
+  const mPressed = input.mousePressed(WIN, 0);
+  const mDownNow = input.mouseDown(WIN, 0);
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
   const inViewport = mx > HIER_W && mx < W - INSP_W && my > BAR_H;
-  if (clicked !== 0 && inViewport) {
-    const cpt2 = math.cos(camPitch); const spt2 = math.sin(camPitch);
+  const cpt2 = math.cos(camPitch); const spt2 = math.sin(camPitch);
+  if (mPressed !== 0 && inViewport) {
+    // seleciona o objeto projetado mais perto do mouse e começa o drag
     let best = 0 - 1;
     let bestD: f64 = 1e30;
     let pi = 0;
@@ -163,14 +168,32 @@ while (app.running()) {
         if (z2 > 0.2) {
           const psx = W * 0.5 + (x1 / z2) * focalW;
           const psy = H * 0.5 - (y2 / z2) * focalW;
-          const ddx = psx - mx; const ddy = psy - my;
-          const d2 = ddx * ddx + ddy * ddy;
-          if (d2 < bestD && d2 < 3600) { bestD = d2; best = pi; }
+          const ex = psx - mx; const ey = psy - my;
+          const d2 = ex * ex + ey * ey;
+          if (d2 < bestD && d2 < 4000) { bestD = d2; best = pi; }
         }
       }
       pi = pi + 1;
     }
-    if (best >= 0) selected = best;
+    if (best >= 0) { selected = best; dragging = 1; }
+    lastMx = mx; lastMy = my;
+  }
+  if (mDownNow === 0) dragging = 0;
+  // enquanto arrasta: move o selecionado no plano da tela (direita da câmera + Y)
+  if (dragging !== 0 && mDownNow !== 0 && inViewport && scene.objects.length > 0) {
+    const so = scene.objects[selected];
+    const dxo = so.transform.wx - camX;
+    const dzo = so.transform.wz - camZ;
+    const z1o = dxo * syw + dzo * cyw;
+    let depth: f64 = (so.transform.wy - camY) * spt2 + z1o * cpt2;
+    if (depth < 1.0) depth = 1.0;
+    const perPx: f64 = depth / focalW;   // unidades de mundo por pixel de tela
+    const mdx: f64 = (mx - lastMx) * perPx;
+    const mdy: f64 = (my - lastMy) * perPx;
+    so.transform.px = so.transform.px + cyw * mdx;
+    so.transform.pz = so.transform.pz + (0 - syw) * mdx;
+    so.transform.py = so.transform.py - mdy;
+    lastMx = mx; lastMy = my;
   }
 
   // ── RENDER DE CENA (rasteriza no framebuffer, depois blita) ────────────────
@@ -280,6 +303,35 @@ while (app.running()) {
   app.text(ix + 14, BAR_H + 180, "Scale", 0x9AA6B6FF, 13);
   const nsc = app.slider(ix + 34, BAR_H + 200, INSP_W - 60, sel.transform.sx, 0.2, 3);
   sel.transform.sx = nsc; sel.transform.sy = nsc; sel.transform.sz = nsc;
+  app.text(ix + 14, BAR_H + 226, "Rot Y", 0x9AA6B6FF, 13);
+  sel.transform.ry = app.slider(ix + 60, BAR_H + 226, INSP_W - 86, sel.transform.ry, -3.14, 3.14);
+
+  // ── mesh + estático ─────────────────────────────────────────────────────────
+  let meshName = "Cubo";
+  if (sel.meshKind === 2) meshName = "Piramide";
+  if (sel.meshKind === 3) meshName = "Octaedro";
+  if (sel.meshKind === 4) meshName = "Esfera";
+  app.text(ix + 14, BAR_H + 258, "Mesh: " + meshName, 0xC8D2E0FF, 13);
+  const bMesh = app.button(ix + 14, BAR_H + 278, 104, 26, "Trocar");
+  if (bMesh) { sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1; }
+  sel.stationary = app.checkbox(ix + 134, BAR_H + 281, sel.stationary, "Estatico");
+
+  // ── componentes (scripts) do objeto — estilo Inspector do Unity ─────────────
+  app.text(ix + 14, BAR_H + 320, "COMPONENTES", 0x6FA8DCFF, 14);
+  let bc = 0;
+  let cyc = BAR_H + 344;
+  while (bc < sel.behaviors.length) {
+    const d = sel.behaviors[bc].toData();
+    let tn = "script";
+    if (d !== null) tn = d.type;
+    app.box(ix + 14, cyc, INSP_W - 28, 22, 0x1A2230FF, 1, 0x2A3546FF, 4);
+    app.text(ix + 22, cyc + 3, "> " + tn, 0xC8D2E0FF, 13);
+    cyc = cyc + 26;
+    bc = bc + 1;
+  }
+  if (sel.behaviors.length === 0) {
+    app.text(ix + 22, cyc, "(nenhum)", 0x66707EFF, 12);
+  }
 
   app.endFrame();
 }
