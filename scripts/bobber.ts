@@ -22,4 +22,8 @@ export class Bobber extends Behavior {
     this.t = this.t + dt;
     this.host.py = this.baseY + math.sin(this.t * this.freq) * this.amp;
   }
+
+  toData(): any {
+    return { type: "bob", amp: this.amp, freq: this.freq, base: this.baseY };
+  }
 }

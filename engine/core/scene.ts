@@ -30,4 +30,9 @@ export class Scene {
   count(): number {
     return this.objects.length;
   }
+
+  /// Esvazia a cena (pra carregar outra por cima).
+  clear(): void {
+    this.objects = [];
+  }
 }

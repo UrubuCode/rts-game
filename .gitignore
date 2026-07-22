@@ -1,2 +1,4 @@
 rts.exe
 *.log
+
+assets/*.scene.json

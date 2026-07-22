@@ -17,4 +17,8 @@ export class Spinner extends Behavior {
     this.host.ry = this.host.ry + this.speedY * dt;
     this.host.rx = this.host.rx + this.speedX * dt;
   }
+
+  toData(): any {
+    return { type: "spin", sy: this.speedY, sx: this.speedX };
+  }
 }

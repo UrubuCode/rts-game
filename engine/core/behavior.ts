@@ -26,4 +26,11 @@ export class Behavior {
   mount(): void {}
   /// Chamado todo frame com o delta em SEGUNDOS.
   update(dt: f64): void {}
+
+  /// Devolve os dados do script como objeto simples (pra JSON.stringify da cena).
+  /// `null` = não serializa. Subclasses sobrescrevem (o componente se descreve
+  /// sozinho); o objeto é o que vai pro array `scripts` da cena.
+  toData(): any {
+    return null;
+  }
 }

@@ -27,6 +27,7 @@
 import io from "rts:io";
 import math from "rts:math";
 import buffer from "rts:buffer";
+import fs from "rts:fs";
 
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
@@ -214,6 +215,64 @@ while (running !== 0) {
     }
     savePPM(parts[1], fbuf, RW, RH, 160, 96);
     io.print("[ok] save " + parts[1]);
+  } else if (cmd === "savescene") {
+    // monta a árvore de objetos simples e deixa o JSON.stringify do motor formatar
+    const objs: any[] = [];
+    let oi = 0;
+    while (oi < scene.objects.length) {
+      const o = scene.objects[oi];
+      const scripts: any[] = [];
+      let bi = 0;
+      while (bi < o.behaviors.length) {
+        const d = o.behaviors[bi].toData();
+        if (d !== null) scripts.push(d);
+        bi = bi + 1;
+      }
+      objs.push({
+        name: o.name,
+        mesh: o.meshKind,
+        color: [o.cr | 0, o.cg | 0, o.cb | 0],
+        pos: [o.transform.px, o.transform.py, o.transform.pz],
+        rot: [o.transform.rx, o.transform.ry],
+        scale: o.transform.sx,
+        scripts: scripts
+      });
+      oi = oi + 1;
+    }
+    const doc = { scene: scene.name, objects: objs };
+    fs.write(parts[1], JSON.stringify(doc));
+    io.print("[ok] savescene " + parts[1] + " (" + scene.objects.length + " objetos)");
+  } else if (cmd === "loadscene") {
+    const src = fs.read_text(parts[1]);
+    const data = JSON.parse(src);
+    const arr = data.objects;
+    scene.clear();
+    selected = 0;
+    let ci = 0;
+    while (ci < arr.length) {
+      const od = arr[ci];
+      const go = new GameObject(od.name);
+      const col = od.color;
+      go.setMesh(od.mesh, col[0], col[1], col[2]);
+      const p = od.pos;
+      const r = od.rot;
+      go.transform.setPosition(p[0], p[1], p[2]);
+      go.transform.rx = r[0];
+      go.transform.ry = r[1];
+      go.transform.setScale(od.scale);
+      const scr = od.scripts;
+      let si = 0;
+      while (si < scr.length) {
+        const sd = scr[si];
+        const t = sd.type;
+        if (t === "spin") go.addBehavior(new Spinner(sd.sy, sd.sx));
+        if (t === "bob") go.addBehavior(new Bobber(sd.amp, sd.freq, sd.base));
+        si = si + 1;
+      }
+      scene.add(go);
+      ci = ci + 1;
+    }
+    io.print("[ok] loadscene " + parts[1] + " -> " + scene.objects.length + " objetos");
   } else {
     io.print("[erro] comando desconhecido: " + cmd);
   }
