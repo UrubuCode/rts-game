@@ -177,7 +177,7 @@ if (listener === 0) {
               if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
               drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
                 ro.transform.wx, ro.transform.wy, ro.transform.wz,
-                ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
+                ro.transform.wrx, ro.transform.wry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
             }
             roi = roi + 1;
           }
@@ -273,7 +273,7 @@ if (listener === 0) {
             if (doi === selected) { rr = 255; gg = 230; bbv = 120; }
             drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
               dobj.transform.wx, dobj.transform.wy, dobj.transform.wz,
-              dobj.transform.rx, dobj.transform.ry, dobj.transform.sx, dobj.meshKind, rr, gg, bbv);
+              dobj.transform.wrx, dobj.transform.wry, dobj.transform.sx, dobj.meshKind, rr, gg, bbv);
           }
           doi = doi + 1;
         }

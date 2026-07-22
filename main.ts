@@ -170,7 +170,7 @@ while (app.running()) {
       if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
       drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
         o.transform.wx, o.transform.wy, o.transform.wz,
-        o.transform.rx, o.transform.ry, o.transform.sx, o.meshKind, rr, gg, bbv);
+        o.transform.wrx, o.transform.wry, o.transform.sx, o.meshKind, rr, gg, bbv);
     }
     oi = oi + 1;
   }

@@ -7,6 +7,7 @@ export class Transform {
   sx: f64; sy: f64; sz: f64;   // escala
   vy: f64;                     // velocidade vertical (física: Rigidbody + colisão)
   wx: f64; wy: f64; wz: f64;   // posição de MUNDO (computada por Scene.computeWorld)
+  wrx: f64; wry: f64;          // rotação de MUNDO (herdada do pai)
 
   constructor() {
     this.px = 0.0; this.py = 0.0; this.pz = 0.0;
@@ -14,6 +15,7 @@ export class Transform {
     this.sx = 1.0; this.sy = 1.0; this.sz = 1.0;
     this.vy = 0.0;
     this.wx = 0.0; this.wy = 0.0; this.wz = 0.0;
+    this.wrx = 0.0; this.wry = 0.0;
   }
 
   setPosition(x: f64, y: f64, z: f64): void {

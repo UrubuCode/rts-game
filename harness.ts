@@ -180,7 +180,7 @@ while (running !== 0) {
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
         drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
           ro.transform.wx, ro.transform.wy, ro.transform.wz,
-          ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
+          ro.transform.wrx, ro.transform.wry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
     }
@@ -192,7 +192,7 @@ while (running !== 0) {
     while (si < scene.objects.length) {
       const o = scene.objects[si];
       dumpObject(si, o.name, o.transform.px, o.transform.py, o.transform.pz,
-        o.transform.rx, o.transform.ry, o.transform.sx, o.meshKind);
+        o.transform.wrx, o.transform.wry, o.transform.sx, o.meshKind);
       io.print("       world(" + o.transform.wx + "," + o.transform.wy + "," + o.transform.wz + ") parent=" + o.parent);
       si = si + 1;
     }
@@ -208,7 +208,7 @@ while (running !== 0) {
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
         drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
           ro.transform.wx, ro.transform.wy, ro.transform.wz,
-          ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
+          ro.transform.wrx, ro.transform.wry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
     }
@@ -225,7 +225,7 @@ while (running !== 0) {
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
         drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
           ro.transform.wx, ro.transform.wy, ro.transform.wz,
-          ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
+          ro.transform.wrx, ro.transform.wry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
     }

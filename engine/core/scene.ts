@@ -50,9 +50,11 @@ export class Scene {
         o.transform.wx = o.transform.px;
         o.transform.wy = o.transform.py;
         o.transform.wz = o.transform.pz;
+        o.transform.wrx = o.transform.rx;
+        o.transform.wry = o.transform.ry;
       } else {
         const p = this.objects[o.parent];
-        const pyaw: f64 = p.transform.ry;
+        const pyaw: f64 = p.transform.wry;   // yaw de MUNDO do pai (aninhamento correto)
         const c: f64 = math.cos(pyaw);
         const s: f64 = math.sin(pyaw);
         const lx: f64 = o.transform.px;
@@ -61,6 +63,9 @@ export class Scene {
         o.transform.wx = p.transform.wx + (lx * c + lz * s);
         o.transform.wy = p.transform.wy + ly;
         o.transform.wz = p.transform.wz + (0 - lx * s + lz * c);
+        // herda a rotação do pai (euler aditivo — o filho gira junto E orbita)
+        o.transform.wrx = p.transform.wrx + o.transform.rx;
+        o.transform.wry = p.transform.wry + o.transform.ry;
       }
       i = i + 1;
     }
