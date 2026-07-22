@@ -35,7 +35,7 @@ import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
 import { Rigidbody } from "./scripts/rigidbody";
 import { clearFB, drawFloor } from "./engine/render/raster";
-import { drawMeshSolid } from "./engine/render/mesh";
+import { drawMeshSolid, setLight, setAmbient } from "./engine/render/mesh";
 import { asciiFrame, dumpObject, dumpCamera, countLit, savePPM } from "./engine/testkit/dump";
 
 const RW = 240;
@@ -235,6 +235,12 @@ while (running !== 0) {
     const i = parseFloat(parts[1]) | 0;
     scene.objects[i].meshKind = parseFloat(parts[2]) | 0;
     io.print("[ok] mesh #" + i + " kind=" + (parseFloat(parts[2]) | 0));
+  } else if (cmd === "light") {
+    setLight(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]));
+    io.print("[ok] light");
+  } else if (cmd === "ambient") {
+    setAmbient(parseFloat(parts[1]));
+    io.print("[ok] ambient " + parseFloat(parts[1]));
   } else if (cmd === "delete") {
     const i = parseFloat(parts[1]) | 0;
     scene.removeAt(i);

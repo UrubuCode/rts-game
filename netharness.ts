@@ -26,7 +26,7 @@ import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
 import { Rigidbody } from "./scripts/rigidbody";
 import { clearFB, drawFloor } from "./engine/render/raster";
-import { drawMeshSolid } from "./engine/render/mesh";
+import { drawMeshSolid, setLight, setAmbient } from "./engine/render/mesh";
 import { asciiFrameStr } from "./engine/testkit/dump";
 
 const PORT = "127.0.0.1:7777";
@@ -201,6 +201,12 @@ if (listener === 0) {
           const i = parseFloat(parts[1]) | 0;
           scene.objects[i].meshKind = parseFloat(parts[2]) | 0;
           sendStr(stream, "[ok] mesh #" + i + " kind=" + (parseFloat(parts[2]) | 0) + "\n");
+        } else if (cmd === "light") {
+          setLight(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]));
+          sendStr(stream, "[ok] light\n");
+        } else if (cmd === "ambient") {
+          setAmbient(parseFloat(parts[1]));
+          sendStr(stream, "[ok] ambient\n");
         } else if (cmd === "delete") {
           const i = parseFloat(parts[1]) | 0;
           scene.removeAt(i);

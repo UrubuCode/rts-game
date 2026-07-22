@@ -12,7 +12,7 @@ import input from "rts:input";
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
 import { clearFB, drawFloor } from "./engine/render/raster";
-import { drawMeshSolid } from "./engine/render/mesh";
+import { drawMeshSolid, setLight, setAmbient } from "./engine/render/mesh";
 import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
 

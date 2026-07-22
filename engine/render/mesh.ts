@@ -77,6 +77,20 @@ buildSphere();
 // ── scratch por vértice (nível de módulo, reusado a cada chamada) ────────────
 const MAXV = 160;
 function zerosF(n: number): f64[] { const a: f64[] = []; let i = 0; while (i < n) { a.push(0.0); i = i + 1; } return a; }
+// ── luz direcional + ambiente (controláveis) ─────────────────────────────────
+let LGX: f64 = 0.40; let LGY: f64 = 0.82; let LGZ: f64 = 0.41;  // direção da luz (norm.)
+let AMBIENT: f64 = 0.28;   // piso de iluminação (0 = sombra preta, 1 = sem sombra)
+
+/// Define a direção da luz direcional (será normalizada). Estilo Directional Light.
+export function setLight(x: f64, y: f64, z: f64): void {
+  const len: f64 = math.sqrt(x * x + y * y + z * z);
+  if (len > 0.0001) { LGX = x / len; LGY = y / len; LGZ = z / len; }
+}
+/// Define o nível de luz ambiente (0..1).
+export function setAmbient(a: f64): void {
+  AMBIENT = a;
+}
+
 const sxA: f64[] = zerosF(MAXV);
 const syA: f64[] = zerosF(MAXV);
 const czA: f64[] = zerosF(MAXV);
@@ -129,7 +143,7 @@ export function drawMeshSolid(
     i = i + 1;
   }
 
-  const lgx: f64 = 0.40; const lgy: f64 = 0.82; const lgz: f64 = 0.41;
+
 
   let f = 0;
   while (f < nf) {
@@ -151,9 +165,9 @@ export function drawMeshSolid(
       const wnx = rn1x;
       const len: f64 = math.sqrt(wnx * wnx + wny * wny + wnz * wnz);
       let sh: f64 = 0.0;
-      if (len > 0.0001) sh = (wnx * lgx + wny * lgy + wnz * lgz) / len;
+      if (len > 0.0001) sh = (wnx * LGX + wny * LGY + wnz * LGZ) / len;
       if (sh < 0) sh = 0;
-      const lit: f64 = 0.28 + 0.72 * sh;
+      const lit: f64 = AMBIENT + (1.0 - AMBIENT) * sh;
       let cr = br * lit; let cg = bg * lit; let cbv = bb * lit;
       if (cr > 255) cr = 255; if (cg > 255) cg = 255; if (cbv > 255) cbv = 255;
       const col = (cr | 0) | ((cg | 0) << 8) | ((cbv | 0) << 16) | (0xFF << 24);
