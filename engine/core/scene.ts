@@ -37,6 +37,23 @@ export class Scene {
     this.objects = [];
   }
 
+  /// Remove o objeto no índice `i`, corrigindo os índices de parent dos demais
+  /// (quem apontava pra i vira raiz; quem apontava depois de i decrementa).
+  removeAt(i: number): void {
+    const next: GameObject[] = [];
+    let k = 0;
+    while (k < this.objects.length) {
+      if (k !== i) {
+        const o = this.objects[k];
+        if (o.parent === i) o.parent = 0 - 1;
+        else if (o.parent > i) o.parent = o.parent - 1;
+        next.push(o);
+      }
+      k = k + 1;
+    }
+    this.objects = next;
+  }
+
   /// Computa a posição de MUNDO (wx,wy,wz) de cada objeto a partir do local
   /// (px,py,pz) e do pai: raiz → mundo = local; filho → mundo do pai + offset
   /// local ROTACIONADO pelo yaw (ry) do pai (o filho orbita quando o pai gira).

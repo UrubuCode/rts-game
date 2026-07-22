@@ -235,6 +235,31 @@ while (running !== 0) {
     const i = parseFloat(parts[1]) | 0;
     scene.objects[i].meshKind = parseFloat(parts[2]) | 0;
     io.print("[ok] mesh #" + i + " kind=" + (parseFloat(parts[2]) | 0));
+  } else if (cmd === "delete") {
+    const i = parseFloat(parts[1]) | 0;
+    scene.removeAt(i);
+    if (selected >= scene.objects.length) selected = scene.objects.length - 1;
+    if (selected < 0) selected = 0;
+    io.print("[ok] delete #" + i + " -> " + scene.objects.length + " objetos");
+  } else if (cmd === "dup") {
+    const i = parseFloat(parts[1]) | 0;
+    const src = scene.objects[i];
+    const go = new GameObject(src.name + ".copy");
+    go.setMesh(src.meshKind, src.cr, src.cg, src.cb);
+    go.transform.setPosition(src.transform.px + 1.0, src.transform.py, src.transform.pz);
+    go.transform.setScale(src.transform.sx);
+    go.transform.rx = src.transform.rx; go.transform.ry = src.transform.ry;
+    scene.add(go);
+    io.print("[ok] dup #" + i + " -> #" + (scene.objects.length - 1));
+  } else if (cmd === "color") {
+    const i = parseFloat(parts[1]) | 0;
+    const o = scene.objects[i];
+    o.cr = parseFloat(parts[2]) | 0; o.cg = parseFloat(parts[3]) | 0; o.cb = parseFloat(parts[4]) | 0;
+    io.print("[ok] color #" + i);
+  } else if (cmd === "name") {
+    const i = parseFloat(parts[1]) | 0;
+    scene.objects[i].name = parts[2];
+    io.print("[ok] name #" + i + " " + parts[2]);
   } else if (cmd === "savescene") {
     // monta a árvore de objetos simples e deixa o JSON.stringify do motor formatar
     const objs: any[] = [];
