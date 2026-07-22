@@ -80,6 +80,7 @@ scene.add(ball);
 let playing = 1;
 let selected = 0;
 let frames = 0;
+let spawnN = 0;
 
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos (raster solido)");
 
@@ -183,9 +184,34 @@ while (app.running()) {
   if (bPlay) playing = 1;
   const bPause = app.button(110, 8, 90, 30, "Pause");
   if (bPause) playing = 0;
+  // GameObject menu (add/delete)
+  const bCube = app.button(214, 8, 82, 30, "+ Cubo");
+  if (bCube) {
+    const g = new GameObject("Cube." + spawnN);
+    g.setMesh(1, 150, 180, 220);
+    g.transform.setPosition(0, 1.5, 0);
+    scene.add(g);
+    selected = scene.objects.length - 1;
+    spawnN = spawnN + 1;
+  }
+  const bSph = app.button(302, 8, 92, 30, "+ Esfera");
+  if (bSph) {
+    const g = new GameObject("Sphere." + spawnN);
+    g.setMesh(4, 220, 140, 180);
+    g.transform.setPosition(0, 1.5, 0);
+    scene.add(g);
+    selected = scene.objects.length - 1;
+    spawnN = spawnN + 1;
+  }
+  const bDel = app.button(400, 8, 84, 30, "Deletar");
+  if (bDel && scene.objects.length > 0) {
+    scene.removeAt(selected);
+    if (selected >= scene.objects.length) selected = scene.objects.length - 1;
+    if (selected < 0) selected = 0;
+  }
   let modeS = "EDIT";
   if (playing !== 0) modeS = "PLAY";
-  app.text(220, 15, "modo: " + modeS + "   fps " + math.floor(app.fps()), 0xC8D2E0FF, 15);
+  app.text(500, 15, "modo: " + modeS + "   fps " + math.floor(app.fps()), 0xC8D2E0FF, 15);
   app.text(W - 340, 15, "WASD mover | setas olhar | espaco subir | clique = selecionar", 0x8896A8FF, 12);
 
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
