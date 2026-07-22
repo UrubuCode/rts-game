@@ -8,6 +8,7 @@ import math from "rts:math";
 import buffer from "rts:buffer";
 import render from "rts:render";
 import input from "rts:input";
+import fs from "rts:fs";
 
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
@@ -15,6 +16,9 @@ import { clearFB, drawFloor } from "./engine/render/raster";
 import { drawMeshSolid, setLight, setAmbient } from "./engine/render/mesh";
 import { Spinner } from "./scripts/spinner";
 import { Bobber } from "./scripts/bobber";
+import { Rigidbody } from "./scripts/rigidbody";
+import { Mover } from "./scripts/mover";
+import { Pulse } from "./scripts/pulse";
 
 // ── janela ────────────────────────────────────────────────────────────────
 const W = 1200;
@@ -48,33 +52,43 @@ const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
 // ── cena (estilo Unity) ─────────────────────────────────────────────────────
 const scene = new Scene("Main");
 
-const cubeA = new GameObject("Cube.Spin");
-cubeA.setMesh(1, 90, 150, 240);
-cubeA.transform.setPosition(0, 1.5, 0);
-cubeA.addBehavior(new Spinner(1.1, 0.4));
-scene.add(cubeA);
-
-const cubeB = new GameObject("Pyra.Bob");
-cubeB.setMesh(2, 240, 150, 70);
-cubeB.transform.setPosition(-3, 1.5, 2);
-cubeB.transform.setScale(0.9);
-cubeB.addBehavior(new Bobber(0.8, 2.0, 1.5));
-scene.add(cubeB);
-
-const cubeC = new GameObject("Octa.SpinBob");
-cubeC.setMesh(3, 120, 220, 120);
-cubeC.transform.setPosition(3, 1.5, -1);
-cubeC.transform.setScale(1.2);
-cubeC.addBehavior(new Spinner(0.6, 0.0));
-cubeC.addBehavior(new Bobber(0.5, 1.3, 1.5));
-scene.add(cubeC);
-
-const ball = new GameObject("Sphere.Bob");
-ball.setMesh(4, 230, 90, 140);
-ball.transform.setPosition(6, 1.5, 1);
-ball.transform.setScale(1.4);
-ball.addBehavior(new Bobber(0.6, 1.6, 1.5));
-scene.add(ball);
+// carrega a cena de demonstração (scenes/demo.json) — mesmo formato das portas de
+// controle; se não existir, começa vazio (use +Cubo/+Esfera na toolbar).
+if (fs.exists("scenes/demo.json")) {
+  const data = JSON.parse(fs.read_text("scenes/demo.json"));
+  const arr = data.objects;
+  let ci = 0;
+  while (ci < arr.length) {
+    const od = arr[ci];
+    const go = new GameObject(od.name);
+    if (od.parent !== undefined) go.parent = od.parent;
+    if (od.stationary !== undefined) go.stationary = od.stationary;
+    const col = od.color;
+    go.setMesh(od.mesh, col[0], col[1], col[2]);
+    const p = od.pos;
+    const r = od.rot;
+    go.transform.setPosition(p[0], p[1], p[2]);
+    go.transform.rx = r[0];
+    go.transform.ry = r[1];
+    go.transform.setScale(od.scale);
+    const scr = od.scripts;
+    let si = 0;
+    while (si < scr.length) {
+      const sd = scr[si];
+      const t = sd.type;
+      if (t === "spin") go.addBehavior(new Spinner(sd.sy, sd.sx));
+      if (t === "bob") go.addBehavior(new Bobber(sd.amp, sd.freq, sd.base));
+      if (t === "rigidbody") go.addBehavior(new Rigidbody(sd.g, sd.bounce));
+      if (t === "mover") go.addBehavior(new Mover(sd.vx, sd.vy, sd.vz));
+      if (t === "pulse") go.addBehavior(new Pulse(sd.amp, sd.freq, sd.base));
+      si = si + 1;
+    }
+    scene.add(go);
+    ci = ci + 1;
+  }
+  setLight(0.35, 1.0, 0.25);
+  setAmbient(0.2);
+}
 
 // ── estado do editor ────────────────────────────────────────────────────────
 let playing = 1;
