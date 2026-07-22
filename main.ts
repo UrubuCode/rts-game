@@ -116,6 +116,7 @@ while (app.running()) {
 
   // ── UPDATE da cena (só quando playing) ────────────────────────────────────
   if (playing !== 0) { scene.update(dts); scene.resolveCollisions(); }
+  scene.computeWorld();
 
   // ── PICKING: clique no viewport seleciona o cubo mais próximo do mouse ─────
   const clicked = input.mouseClicked(WIN, 0);
@@ -130,9 +131,9 @@ while (app.running()) {
     while (pi < scene.objects.length) {
       const po = scene.objects[pi];
       if (po.meshKind !== 0) {
-        const dx = po.transform.px - camX;
-        const dy = po.transform.py - camY;
-        const dz = po.transform.pz - camZ;
+        const dx = po.transform.wx - camX;
+        const dy = po.transform.wy - camY;
+        const dz = po.transform.wz - camZ;
         const x1 = dx * cyw - dz * syw;
         const z1 = dx * syw + dz * cyw;
         const y2 = dy * cpt2 - z1 * spt2;
@@ -151,7 +152,7 @@ while (app.running()) {
   }
 
   // ── RENDER DE CENA (rasteriza no framebuffer, depois blita) ────────────────
-  clearFB(fbuf, zbuf, NPIX, 0xFF201810);   // fundo (ABGR: azul-acinzentado escuro)
+  scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);   // fundo (ABGR: azul-acinzentado escuro)
   drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
 
   let oi = 0;
@@ -161,7 +162,7 @@ while (app.running()) {
       let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
       if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
       drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
-        o.transform.px, o.transform.py, o.transform.pz,
+        o.transform.wx, o.transform.wy, o.transform.wz,
         o.transform.rx, o.transform.ry, o.transform.sx, o.meshKind, rr, gg, bbv);
     }
     oi = oi + 1;

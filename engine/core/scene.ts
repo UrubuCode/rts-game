@@ -37,6 +37,35 @@ export class Scene {
     this.objects = [];
   }
 
+  /// Computa a posição de MUNDO (wx,wy,wz) de cada objeto a partir do local
+  /// (px,py,pz) e do pai: raiz → mundo = local; filho → mundo do pai + offset
+  /// local ROTACIONADO pelo yaw (ry) do pai (o filho orbita quando o pai gira).
+  /// Assume pai com índice MENOR que o filho (pais adicionados antes). Chame a
+  /// cada frame antes do render.
+  computeWorld(): void {
+    let i = 0;
+    while (i < this.objects.length) {
+      const o = this.objects[i];
+      if (o.parent < 0 || o.parent >= i) {
+        o.transform.wx = o.transform.px;
+        o.transform.wy = o.transform.py;
+        o.transform.wz = o.transform.pz;
+      } else {
+        const p = this.objects[o.parent];
+        const pyaw: f64 = p.transform.ry;
+        const c: f64 = math.cos(pyaw);
+        const s: f64 = math.sin(pyaw);
+        const lx: f64 = o.transform.px;
+        const ly: f64 = o.transform.py;
+        const lz: f64 = o.transform.pz;
+        o.transform.wx = p.transform.wx + (lx * c + lz * s);
+        o.transform.wy = p.transform.wy + ly;
+        o.transform.wz = p.transform.wz + (0 - lx * s + lz * c);
+      }
+      i = i + 1;
+    }
+  }
+
   /// Colisão esfera-esfera entre objetos (raio = escala*0.5). Sobreposição:
   /// empurra o par pra fora (metade cada) e amortece a velocidade vertical no
   /// contato — assim corpos com Rigidbody empilham/espalham em vez de atravessar.

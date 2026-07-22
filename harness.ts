@@ -140,6 +140,10 @@ while (running !== 0) {
     if (np > 3) bounce = parseFloat(parts[3]);
     scene.objects[i].addBehavior(new Rigidbody(g, bounce));
     io.print("[ok] rigid #" + i + " g=" + g + " bounce=" + bounce);
+  } else if (cmd === "parent") {
+    const ci = parseFloat(parts[1]) | 0;
+    scene.objects[ci].parent = parseFloat(parts[2]) | 0;
+    io.print("[ok] parent #" + ci + " -> #" + (parseFloat(parts[2]) | 0));
   } else if (cmd === "select") {
     selected = parseFloat(parts[1]) | 0;
     io.print("[ok] select #" + selected);
@@ -166,7 +170,7 @@ while (running !== 0) {
     let cols = 64; let rows = 26;
     if (np > 1) cols = parseFloat(parts[1]) | 0;
     if (np > 2) rows = parseFloat(parts[2]) | 0;
-    clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
     drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
     let roi = 0;
     while (roi < scene.objects.length) {
@@ -175,24 +179,26 @@ while (running !== 0) {
         let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
         drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
-          ro.transform.px, ro.transform.py, ro.transform.pz,
+          ro.transform.wx, ro.transform.wy, ro.transform.wz,
           ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
     }
     asciiFrame(fbuf, RW, RH, cols, rows);
   } else if (cmd === "state") {
+    scene.computeWorld();
     io.print("[state] frame=" + frame + " playing=" + playing + " objetos=" + scene.objects.length + " selecionado=" + selected);
     let si = 0;
     while (si < scene.objects.length) {
       const o = scene.objects[si];
       dumpObject(si, o.name, o.transform.px, o.transform.py, o.transform.pz,
         o.transform.rx, o.transform.ry, o.transform.sx, o.meshKind);
+      io.print("       world(" + o.transform.wx + "," + o.transform.wy + "," + o.transform.wz + ") parent=" + o.parent);
       si = si + 1;
     }
     dumpCamera(camX, camY, camZ, camYaw, camPitch);
   } else if (cmd === "lit") {
-    clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
     drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
     let roi = 0;
     while (roi < scene.objects.length) {
@@ -201,7 +207,7 @@ while (running !== 0) {
         let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
         drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
-          ro.transform.px, ro.transform.py, ro.transform.pz,
+          ro.transform.wx, ro.transform.wy, ro.transform.wz,
           ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
@@ -209,7 +215,7 @@ while (running !== 0) {
     const lit = countLit(fbuf, RW, RH, 12.0);
     io.print("[lit] " + lit + " pixels desenhados de " + NPIX);
   } else if (cmd === "save") {
-    clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
     drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
     let roi = 0;
     while (roi < scene.objects.length) {
@@ -218,7 +224,7 @@ while (running !== 0) {
         let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
         if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
         drawMeshSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
-          ro.transform.px, ro.transform.py, ro.transform.pz,
+          ro.transform.wx, ro.transform.wy, ro.transform.wz,
           ro.transform.rx, ro.transform.ry, ro.transform.sx, ro.meshKind, rr, gg, bbv);
       }
       roi = roi + 1;
@@ -243,7 +249,7 @@ while (running !== 0) {
         bi = bi + 1;
       }
       objs.push({
-        name: o.name,
+        name: o.name, parent: o.parent,
         mesh: o.meshKind,
         color: [o.cr | 0, o.cg | 0, o.cb | 0],
         pos: [o.transform.px, o.transform.py, o.transform.pz],
@@ -266,6 +272,7 @@ while (running !== 0) {
     while (ci < arr.length) {
       const od = arr[ci];
       const go = new GameObject(od.name);
+      if (od.parent !== undefined) go.parent = od.parent;
       const col = od.color;
       go.setMesh(od.mesh, col[0], col[1], col[2]);
       const p = od.pos;

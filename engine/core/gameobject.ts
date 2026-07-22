@@ -13,6 +13,7 @@ export class GameObject {
   meshKind: number;
   cr: number; cg: number; cb: number;  // cor do mesh (0..255)
   active: number;
+  parent: number;   // índice do pai em scene.objects (-1 = raiz)
 
   constructor(name: string) {
     this.name = name;
@@ -21,6 +22,7 @@ export class GameObject {
     this.meshKind = 0;
     this.cr = 120; this.cg = 180; this.cb = 255;
     this.active = 1;
+    this.parent = 0 - 1;
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.
