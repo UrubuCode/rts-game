@@ -1,0 +1,222 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Engine RTS — PORTA DE CONTROLE via TCP (socket) + janela ao vivo.
+//
+// Abre uma janela (viewport) E um socket TCP. Uma IA/cliente conecta na porta,
+// manda comandos (mesmos do harness.ts) e recebe respostas/estado/preview ASCII
+// de volta pelo socket. A cada comando a janela reapresenta a cena — dá pra VER
+// o que o controle remoto está fazendo.
+//
+//   ./rts.exe run netharness.ts          # servidor (fica ouvindo em :7777)
+//   (noutro terminal) um cliente TCP conecta em 127.0.0.1:7777 e envia linhas.
+//
+// recv/accept são BLOQUEANTES: entre comandos a janela fica estática (sem pump),
+// mas mostra o último frame. Controle ao vivo TOTAL (janela responsiva enquanto
+// espera) exigiria um thread leitor — próximo passo.
+// ═══════════════════════════════════════════════════════════════════════════
+import io from "rts:io";
+import math from "rts:math";
+import buffer from "rts:buffer";
+import render from "rts:render";
+import net from "rts:net";
+
+import { Scene } from "./engine/core/scene";
+import { GameObject } from "./engine/core/gameobject";
+import { Spinner } from "./scripts/spinner";
+import { Bobber } from "./scripts/bobber";
+import { clearFB, drawCubeSolid, drawFloor } from "./engine/render/raster";
+import { asciiFrameStr } from "./engine/testkit/dump";
+
+const PORT = "127.0.0.1:7777";
+const RW = 240;
+const RH = 144;
+const NPIX = RW * RH;
+const fbuf = buffer.alloc(NPIX * 4);
+const zbuf = buffer.alloc(NPIX * 8);
+const fptr = buffer.ptr(fbuf);
+const FOV: f64 = 1.05;
+const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);
+
+// buffer de recv do socket
+const cmdbuf = buffer.alloc_zeroed(1024);
+const cptr = buffer.ptr(cmdbuf);
+
+// tcp_send(stream, data: string) aceita a string direto — só um wrapper de nome.
+function sendStr(stream: i64, s: string): void {
+  net.tcp_send(stream, s);
+}
+
+// câmera + estado
+let camX: f64 = 0.0; let camY: f64 = 3.0; let camZ: f64 = -10.0;
+let camYaw: f64 = 0.0; let camPitch: f64 = 0.18;
+const scene = new Scene("TCP");
+let playing = 1;
+let selected = 0;
+let frame = 0;
+
+function spawnColor(i: number, ch: number): number {
+  let base = 120;
+  if (ch === 0) { if (i % 3 === 0) base = 90; if (i % 3 === 1) base = 240; if (i % 3 === 2) base = 120; }
+  if (ch === 1) { if (i % 3 === 0) base = 150; if (i % 3 === 1) base = 150; if (i % 3 === 2) base = 220; }
+  if (ch === 2) { if (i % 3 === 0) base = 240; if (i % 3 === 1) base = 70; if (i % 3 === 2) base = 120; }
+  return base;
+}
+
+// ── janela ao vivo ──────────────────────────────────────────────────────────
+const app = createAppAt("Engine RTS — controle TCP", 960, 600, 160, 120);
+const WIN = app._win;
+
+// ── socket ──────────────────────────────────────────────────────────────────
+const listener = net.tcp_listen(PORT);
+if (listener === 0) {
+  io.print("[net] FALHA ao ouvir em " + PORT);
+} else {
+  io.print("[net] ouvindo em " + PORT + " — aguardando conexao...");
+  const stream = net.tcp_accept(listener);   // BLOQUEIA até um cliente conectar
+  io.print("[net] cliente conectado");
+  sendStr(stream, "[engine] conectado. comandos: spawn/move/rot/spin/bob/select/cam/play/pause/step/state/frame/lit/quit\n");
+
+  let running = 1;
+  while (running !== 0) {
+    const n = net.tcp_recv(stream, cptr, 1024);
+    if (n <= 0) { running = 0; }
+    else {
+      const full = buffer.to_string(cmdbuf);
+      const chunk = full.substring(0, n);
+      const lines = chunk.split("\n");
+      let li = 0;
+      while (li < lines.length) {
+        const raw = lines[li];
+        const line = raw.split("\r")[0];   // tolera CRLF
+        const parts = line.split(" ");
+        const cmd = parts[0];
+        const np = parts.length;
+
+        if (cmd === "quit" || cmd === "exit") {
+          sendStr(stream, "[ok] bye\n"); running = 0;
+        } else if (cmd === "" || cmd === "#") {
+          // ignora linha vazia
+        } else if (cmd === "spawn") {
+          const idx = scene.objects.length;
+          const go = new GameObject(parts[1]);
+          go.setMesh(1, spawnColor(idx, 0), spawnColor(idx, 1), spawnColor(idx, 2));
+          go.transform.setPosition(parseFloat(parts[2]), parseFloat(parts[3]), parseFloat(parts[4]));
+          if (np > 5) go.transform.setScale(parseFloat(parts[5]));
+          scene.add(go);
+          sendStr(stream, "[ok] spawn #" + idx + " " + parts[1] + "\n");
+        } else if (cmd === "move") {
+          const i = parseFloat(parts[1]) | 0;
+          const o = scene.objects[i];
+          o.transform.px = parseFloat(parts[2]); o.transform.py = parseFloat(parts[3]); o.transform.pz = parseFloat(parts[4]);
+          sendStr(stream, "[ok] move #" + i + "\n");
+        } else if (cmd === "rot") {
+          const i = parseFloat(parts[1]) | 0;
+          const o = scene.objects[i];
+          o.transform.rx = parseFloat(parts[2]); o.transform.ry = parseFloat(parts[3]);
+          sendStr(stream, "[ok] rot #" + i + "\n");
+        } else if (cmd === "spin") {
+          const i = parseFloat(parts[1]) | 0;
+          let sx: f64 = 0.0;
+          if (np > 3) sx = parseFloat(parts[3]);
+          scene.objects[i].addBehavior(new Spinner(parseFloat(parts[2]), sx));
+          sendStr(stream, "[ok] spin #" + i + "\n");
+        } else if (cmd === "bob") {
+          const i = parseFloat(parts[1]) | 0;
+          const o = scene.objects[i];
+          o.addBehavior(new Bobber(parseFloat(parts[2]), parseFloat(parts[3]), o.transform.py));
+          sendStr(stream, "[ok] bob #" + i + "\n");
+        } else if (cmd === "select") {
+          selected = parseFloat(parts[1]) | 0;
+          sendStr(stream, "[ok] select #" + selected + "\n");
+        } else if (cmd === "cam") {
+          camX = parseFloat(parts[1]); camY = parseFloat(parts[2]); camZ = parseFloat(parts[3]);
+          camYaw = parseFloat(parts[4]); camPitch = parseFloat(parts[5]);
+          sendStr(stream, "[ok] cam\n");
+        } else if (cmd === "play") { playing = 1; sendStr(stream, "[ok] play\n"); }
+        else if (cmd === "pause") { playing = 0; sendStr(stream, "[ok] pause\n"); }
+        else if (cmd === "step") {
+          let cnt = 1;
+          if (np > 1) cnt = parseFloat(parts[1]) | 0;
+          let k = 0;
+          while (k < cnt) {
+            if (playing !== 0) scene.update(0.016);
+            frame = frame + 1;
+            k = k + 1;
+          }
+          sendStr(stream, "[ok] step " + cnt + " -> frame " + frame + "\n");
+        } else if (cmd === "state") {
+          let msg = "[state] frame=" + frame + " playing=" + playing + " objetos=" + scene.objects.length + " selecionado=" + selected + "\n";
+          let si = 0;
+          while (si < scene.objects.length) {
+            const o = scene.objects[si];
+            msg = msg + "  [" + si + "] " + o.name + " pos(" + o.transform.px + "," + o.transform.py + "," + o.transform.pz + ") ry=" + o.transform.ry + " sc=" + o.transform.sx + "\n";
+            si = si + 1;
+          }
+          sendStr(stream, msg);
+        } else if (cmd === "frame" || cmd === "lit") {
+          clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+          drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
+          let roi = 0;
+          while (roi < scene.objects.length) {
+            const ro = scene.objects[roi];
+            if (ro.active !== 0 && ro.meshKind === 1) {
+              let rr = ro.cr | 0; let gg = ro.cg | 0; let bbv = ro.cb | 0;
+              if (roi === selected) { rr = 255; gg = 230; bbv = 120; }
+              drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+                ro.transform.px, ro.transform.py, ro.transform.pz,
+                ro.transform.rx, ro.transform.ry, ro.transform.sx, rr, gg, bbv);
+            }
+            roi = roi + 1;
+          }
+          if (cmd === "frame") {
+            let cols = 60; let rows = 22;
+            if (np > 1) cols = parseFloat(parts[1]) | 0;
+            if (np > 2) rows = parseFloat(parts[2]) | 0;
+            sendStr(stream, asciiFrameStr(fbuf, RW, RH, cols, rows));
+          } else {
+            let lit = 0; let pi = 0;
+            while (pi < NPIX) {
+              const px = buffer.read_i32(fbuf, pi * 4);
+              const lr = px & 255; const lg = (px >> 8) & 255; const lb = (px >> 16) & 255;
+              const lum: f64 = lr * 0.30 + lg * 0.59 + lb * 0.11;
+              if (lum > 20) lit = lit + 1;
+              pi = pi + 1;
+            }
+            sendStr(stream, "[lit] " + lit + "/" + NPIX + "\n");
+          }
+        } else {
+          sendStr(stream, "[erro] desconhecido: " + cmd + "\n");
+        }
+        li = li + 1;
+      }
+
+      // ── reapresenta a cena na janela (pump 1x + blit) ──────────────────────
+      const goOn = app.beginFrame();
+      if (goOn) {
+        clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+        drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
+        let doi = 0;
+        while (doi < scene.objects.length) {
+          const dobj = scene.objects[doi];
+          if (dobj.active !== 0 && dobj.meshKind === 1) {
+            let rr = dobj.cr | 0; let gg = dobj.cg | 0; let bbv = dobj.cb | 0;
+            if (doi === selected) { rr = 255; gg = 230; bbv = 120; }
+            drawCubeSolid(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR,
+              dobj.transform.px, dobj.transform.py, dobj.transform.pz,
+              dobj.transform.rx, dobj.transform.ry, dobj.transform.sx, rr, gg, bbv);
+          }
+          doi = doi + 1;
+        }
+        render.image(WIN, 0, 0, 960, 600, fptr, RW, RH);
+        app.text(10, 8, "controle TCP :7777  |  objs " + scene.objects.length + "  frame " + frame, 0xFFFFFFE6, 14);
+        app.endFrame();
+      }
+    }
+  }
+
+  io.print("[net] sessao encerrada (frame=" + frame + ")");
+  net.tcp_close(stream);
+  net.tcp_close(listener);
+}
+
+buffer.free(fbuf); buffer.free(zbuf); buffer.free(cmdbuf);
+app.close();

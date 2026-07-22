@@ -45,6 +45,33 @@ export function asciiFrame(fbuf: i64, RW: number, RH: number, cols: number, rows
   io.print("+" + dashes(cols) + "+");
 }
 
+/// Como asciiFrame, mas DEVOLVE a string (pra mandar por socket em vez de stdout).
+export function asciiFrameStr(fbuf: i64, RW: number, RH: number, cols: number, rows: number): string {
+  let out = "+" + dashes(cols) + "+\n";
+  let ry = 0;
+  while (ry < rows) {
+    let line = "|";
+    let rx = 0;
+    while (rx < cols) {
+      const sxp = math.floor((rx / cols) * RW);
+      const syp = math.floor((ry / rows) * RH);
+      const px = buffer.read_i32(fbuf, (syp * RW + sxp) * 4);
+      const r = px & 255;
+      const g = (px >> 8) & 255;
+      const b = (px >> 16) & 255;
+      const lum: f64 = r * 0.30 + g * 0.59 + b * 0.11;
+      let idx = math.floor(lum / 25.6);
+      if (idx > 9) idx = 9;
+      if (idx < 0) idx = 0;
+      line = line + RAMP[idx];
+      rx = rx + 1;
+    }
+    out = out + line + "|\n";
+    ry = ry + 1;
+  }
+  return out + "+" + dashes(cols) + "+\n";
+}
+
 function dashes(n: number): string {
   let s = "";
   let i = 0;

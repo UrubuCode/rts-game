@@ -62,3 +62,26 @@ backend de socket depois (o `net` namespace existe), se um controle *ao vivo*
 printf 'spawn a 0 1 0\nstep 5\nlit\nquit\n' | ./rts.exe run harness.ts | grep '\[lit\]'
 # espera: [lit] <N> pixels desenhados ...  com N > 0
 ```
+
+---
+
+# Porta de controle via TCP (socket) — `netharness.ts`
+
+Além do stdin, há um servidor TCP que abre uma **janela ao vivo** E aceita
+comandos por socket na porta `7777`. A cada comando a janela reapresenta a cena.
+
+```bash
+./rts.exe run netharness.ts        # servidor (ouve em 127.0.0.1:7777)
+# noutro terminal:
+python tools/control_client.py     # interativo
+echo -e 'spawn a 0 1 0\nspin 0 1\nstep 30\nframe\nquit' | python tools/control_client.py
+```
+
+Mesmos comandos do protocolo stdin (spawn/move/rot/spin/bob/select/cam/play/
+pause/step/state/frame/lit/quit). As respostas (acks, estado, preview ASCII)
+voltam pelo socket.
+
+**Limitação atual:** `recv`/`accept` são bloqueantes, então entre comandos a
+janela fica estática (mostra o último frame, sem processar input). Controle *ao
+vivo total* (janela responsiva enquanto espera comandos) precisa de um thread
+leitor empurrando comandos numa fila — próximo passo.
