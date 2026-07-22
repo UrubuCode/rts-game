@@ -232,16 +232,33 @@ while (app.running()) {
   app.box(0, BAR_H, HIER_W, H - BAR_H, 0x121826FF, 0, 0, 0);
   app.line(HIER_W, BAR_H, HIER_W, H, 1, 0x2A3546FF);
   app.text(14, BAR_H + 12, "HIERARQUIA", 0x6FA8DCFF, 15);
+  app.text(HIER_W - 60, BAR_H + 13, scene.objects.length + " obj", 0x5E6B7EFF, 12);
+  // TREEVIEW: cada objeto indentado pela profundidade (cadeia de pais); filhos
+  // aparecem aninhados sob o pai com um conector, estilo Unity Hierarchy.
   let hi = 0;
   while (hi < scene.objects.length) {
     const obj = scene.objects[hi];
-    const ry0 = BAR_H + 40 + hi * 30;
-    const st = app.clickable(100 + hi, 8, ry0, HIER_W - 16, 26);
+    // profundidade = quantos ancestrais o objeto tem
+    let depth = 0;
+    let pp = obj.parent;
+    while (pp >= 0 && depth < 8) { depth = depth + 1; pp = scene.objects[pp].parent; }
+    const indent = depth * 16;
+    const ry0 = BAR_H + 40 + hi * 27;
+    const st = app.clickable(100 + hi, 8 + indent, ry0, HIER_W - 16 - indent, 24);
     let fill = 0x1A2230FF;
-    if (hi === selected) fill = 0x274064FF;
+    if (hi === selected) fill = 0x2C4A72FF;
     if (st === 1) fill = 0x202A3AFF;
-    app.box(8, ry0, HIER_W - 16, 26, fill, 0, 0, 5);
-    app.text(18, ry0 + 5, obj.name, 0xDCE4F0FF, 14);
+    app.box(8 + indent, ry0, HIER_W - 16 - indent, 24, fill, 0, 0, 5);
+    // conector do galho pros filhos
+    if (depth > 0) {
+      app.text(8 + indent - 12, ry0 + 3, "└", 0x556377FF, 14);
+    }
+    // ícone do tipo de mesh
+    let icon = "[C]";
+    if (obj.meshKind === 2) icon = "[P]";
+    if (obj.meshKind === 3) icon = "[O]";
+    if (obj.meshKind === 4) icon = "[S]";
+    app.text(14 + indent, ry0 + 4, icon + " " + obj.name, 0xDCE4F0FF, 13);
     if (st === 3) selected = hi;
     hi = hi + 1;
   }
