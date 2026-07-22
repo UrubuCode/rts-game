@@ -272,8 +272,21 @@ while (running !== 0) {
     go.transform.setPosition(src.transform.px + 1.0, src.transform.py, src.transform.pz);
     go.transform.setScale(src.transform.sx);
     go.transform.rx = src.transform.rx; go.transform.ry = src.transform.ry;
+    let bi = 0;
+    while (bi < src.behaviors.length) {
+      const d = src.behaviors[bi].toData();
+      if (d !== null) {
+        const t = d.type;
+        if (t === "spin") go.addBehavior(new Spinner(d.sy, d.sx));
+        if (t === "bob") go.addBehavior(new Bobber(d.amp, d.freq, d.base));
+        if (t === "rigidbody") go.addBehavior(new Rigidbody(d.g, d.bounce));
+        if (t === "mover") go.addBehavior(new Mover(d.vx, d.vy, d.vz));
+        if (t === "pulse") go.addBehavior(new Pulse(d.amp, d.freq, d.base));
+      }
+      bi = bi + 1;
+    }
     scene.add(go);
-    io.print("[ok] dup #" + i + " -> #" + (scene.objects.length - 1));
+    io.print("[ok] dup #" + i + " -> #" + (scene.objects.length - 1) + " (com scripts)");
   } else if (cmd === "color") {
     const i = parseFloat(parts[1]) | 0;
     const o = scene.objects[i];

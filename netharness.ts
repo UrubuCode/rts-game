@@ -238,6 +238,19 @@ if (listener === 0) {
           go.transform.setPosition(src.transform.px + 1.0, src.transform.py, src.transform.pz);
           go.transform.setScale(src.transform.sx);
           go.transform.rx = src.transform.rx; go.transform.ry = src.transform.ry;
+          let bi = 0;
+          while (bi < src.behaviors.length) {
+            const d = src.behaviors[bi].toData();
+            if (d !== null) {
+              const t = d.type;
+              if (t === "spin") go.addBehavior(new Spinner(d.sy, d.sx));
+              if (t === "bob") go.addBehavior(new Bobber(d.amp, d.freq, d.base));
+              if (t === "rigidbody") go.addBehavior(new Rigidbody(d.g, d.bounce));
+              if (t === "mover") go.addBehavior(new Mover(d.vx, d.vy, d.vz));
+              if (t === "pulse") go.addBehavior(new Pulse(d.amp, d.freq, d.base));
+            }
+            bi = bi + 1;
+          }
           scene.add(go);
           sendStr(stream, "[ok] dup #" + i + "\n");
         } else if (cmd === "color") {
