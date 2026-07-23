@@ -55,6 +55,29 @@ loadSceneFrom(sceneFile);
 let frames = 0;
 let spawnN = 0;
 let dragging = 0;
+let addMenuOpen = 0;   // dropdown "Add Component" aberto?
+let addFilter = "";    // texto de busca do dropdown (filtra a lista)
+
+// "name contém filter" case-insensitive (só charCodeAt/length — robusto no motor).
+function containsCI(name: string, filter: string): boolean {
+  if (filter.length === 0) return true;
+  if (filter.length > name.length) return false;
+  let off = 0;
+  while (off + filter.length <= name.length) {
+    let ok = 1;
+    let i = 0;
+    while (i < filter.length) {
+      let a = name.charCodeAt(off + i);
+      let b = filter.charCodeAt(i);
+      if (a >= 65 && a <= 90) a = a + 32;
+      if (b >= 65 && b <= 90) b = b + 32;
+      if (a !== b) { ok = 0; i = filter.length; } else { i = i + 1; }
+    }
+    if (ok === 1) return true;
+    off = off + 1;
+  }
+  return false;
+}
 let hierDrag = 0 - 1;
 let lastMx: f64 = 0.0;
 let lastMy: f64 = 0.0;
@@ -420,18 +443,38 @@ function frame(): void {
   // remove após o loop (não mexe no array durante a iteração)
   if (removeIdx >= 0) sel.removeBehavior(removeIdx);
 
-  // ── ADD COMPONENT: lista dos componentes disponíveis pra anexar ─────────────
-  cyc = cyc + 6;
-  app.text(ix + 14, cyc, "Add Component", 0xA8C8A8FF, 13);
-  cyc = cyc + 20;
-  let ci = 0;
-  while (ci < COMPONENT_NAMES.length) {
-    const nm = COMPONENT_NAMES[ci];
-    const colx = ix + 14 + (ci % 2) * ((INSP_W - 28) / 2 + 2);
-    const rowy = cyc + ((ci - (ci % 2)) / 2) * 26;
-    const bAdd = app.button(colx, rowy, (INSP_W - 32) / 2, 22, "+ " + nm);
-    if (bAdd) sel.addBehavior(createComponent(nm));
-    ci = ci + 1;
+  // ── ADD COMPONENT: botão que abre um DROPDOWN com CAMPO DE BUSCA + lista ─────
+  cyc = cyc + 8;
+  const bAddC = app.button(ix + 14, cyc, INSP_W - 28, 24, "Add Component  v");
+  if (bAddC) {
+    if (addMenuOpen === 0) { addMenuOpen = 1; addFilter = ""; app.setFocus(950); }
+    else { addMenuOpen = 0; app.setFocus(0 - 1); }
+  }
+  cyc = cyc + 28;
+  if (addMenuOpen !== 0) {
+    // campo de busca (digitar filtra a lista); Backspace (tecla 4) apaga
+    addFilter = app.textField(950, ix + 14, cyc, INSP_W - 28, addFilter);
+    if (app.isFocused(950) && app.keyPressed(4) !== 0 && addFilter.length > 0) {
+      addFilter = addFilter.substring(0, addFilter.length - 1);
+    }
+    cyc = cyc + 34;
+    // lista filtrada
+    app.box(ix + 14, cyc, INSP_W - 28, COMPONENT_NAMES.length * 24 + 4, 0x252525FF, 1, 0x151515FF, 4);
+    let ci = 0;
+    let shown = 0;
+    while (ci < COMPONENT_NAMES.length) {
+      const nm = COMPONENT_NAMES[ci];
+      if (containsCI(nm, addFilter)) {
+        const rowy = cyc + 2 + shown * 24;
+        const over = mx >= ix + 16 && mx < ix + INSP_W - 14 && my >= rowy && my < rowy + 23;
+        if (over) app.box(ix + 16, rowy, INSP_W - 32, 23, 0x3A5A80FF, 0, 0, 3);
+        app.text(ix + 24, rowy + 4, nm, 0xD4D4D4FF, 13);
+        if (over && mPressed !== 0) { sel.addBehavior(createComponent(nm)); addMenuOpen = 0; app.setFocus(0 - 1); }
+        shown = shown + 1;
+      }
+      ci = ci + 1;
+    }
+    if (shown === 0) app.text(ix + 24, cyc + 6, "(nenhum)", 0x707070FF, 12);
   }
 
   // ── barra inferior (status bar estilo Unity) sobre a área do viewport ───────

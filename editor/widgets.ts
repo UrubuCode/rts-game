@@ -6,6 +6,7 @@
 
 import render from "rts:render";
 import math from "rts:math";
+import input from "rts:input";
 
 // ── cores do tema (Unity dark) ───────────────────────────────────────────────
 export const PANEL = 0x383838FF;
@@ -25,6 +26,9 @@ export const AXIS_Z = 0x5A82C8FF;
 let sScrubId = 0 - 1;
 let sScrubStart: f64 = 0.0;
 let sScrubMx: f64 = 0.0;
+// ── estado de EDIÇÃO por texto (clicar no valor pra digitar) ─────────────────
+let nfEditId = 0 - 1;    // id do campo em modo digitação (-1 = nenhum)
+let nfEditText = "";     // buffer do texto sendo digitado
 
 // arredonda p/ 2 casas (evita floats gigantes na tela)
 function r2(v: f64): f64 {
@@ -54,21 +58,48 @@ export function button(win: i64, x: number, y: number, w: number, h: number, s: 
   return 0;
 }
 
-/// Campo numérico estilo Unity: aba colorida (X/Y/Z) + valor; ARRASTAR na
-/// horizontal faz scrub do valor. `id` estável por campo. Devolve o novo valor.
+/// Campo numérico estilo Unity: aba colorida (X/Y/Z) = ARRASTAR faz scrub; área
+/// do VALOR = CLICAR entra em modo digitação (input de texto → parseFloat no
+/// Enter/clique fora). `id` estável por campo. Devolve o valor atual.
 export function numField(win: i64, id: number, x: number, y: number, w: number,
                          lbl: string, tab: number, value: f64,
                          mx: f64, my: f64, mDown: number, mPressed: number): f64 {
-  const over = mx >= x && mx < x + w && my >= y && my < y + 20;
+  const overTab = mx >= x && mx < x + 16 && my >= y && my < y + 20;
+  const overVal = mx >= x + 16 && mx < x + w && my >= y && my < y + 20;
   let v = value;
-  if (mPressed !== 0 && over) { sScrubId = id; sScrubStart = value; sScrubMx = mx; }
-  if (sScrubId === id) {
-    if (mDown !== 0) { v = sScrubStart + (mx - sScrubMx) * 0.02; }
-    else { sScrubId = 0 - 1; }
+
+  // clicar no VALOR → entra em edição de texto (semente = valor atual)
+  if (mPressed !== 0 && overVal) { nfEditId = id; nfEditText = "" + r2(value); }
+  // clicar em qualquer outro lugar → confirma a edição deste campo
+  if (mPressed !== 0 && !overVal && nfEditId === id) {
+    v = parseFloat(nfEditText);
+    nfEditId = 0 - 1;
   }
+
+  // scrub pela ABA (só quando NÃO está editando este campo)
+  if (nfEditId !== id) {
+    if (mPressed !== 0 && overTab) { sScrubId = id; sScrubStart = value; sScrubMx = mx; }
+    if (sScrubId === id) {
+      if (mDown !== 0) { v = sScrubStart + (mx - sScrubMx) * 0.02; }
+      else { sScrubId = 0 - 1; }
+    }
+  }
+
+  // ── desenho ──
   render.rect(win, x, y, w, 20, FIELD, 1, BORDER, 3);
-  render.rect(win, x, y, 16, 20, tab, 0, 0, 3);
+  render.rect(win, x, y, 16, 20, tab, 0, 0, 3);       // aba colorida (scrub)
   render.text(win, x + 4, y + 3, lbl, 0x101010FF, 12, 0);
+
+  if (nfEditId === id) {
+    // modo digitação: acumula texto, backspace (tecla 4), Enter (tecla 1) confirma
+    const typed = input.textInput(win);
+    if (typed.length > 0) nfEditText = nfEditText + typed;
+    if (input.key(win, 4, 1) !== 0 && nfEditText.length > 0) nfEditText = nfEditText.substring(0, nfEditText.length - 1);
+    render.rect(win, x + 16, y, w - 16, 20, 0x1A1F28FF, 1, 0x3399FFFF, 3);
+    render.text(win, x + 22, y + 3, nfEditText + "|", 0xFFFFFFFF, 12, 0);
+    if (input.key(win, 1, 1) !== 0) { v = parseFloat(nfEditText); nfEditId = 0 - 1; return v; }
+    return value;   // enquanto digita, mantém o valor até confirmar
+  }
   render.text(win, x + 22, y + 3, "" + r2(v), 0xD4D4D4FF, 12, 0);
   return v;
 }
