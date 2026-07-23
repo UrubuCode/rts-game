@@ -16,7 +16,7 @@ export function ctrlPoll(w: number, h: number): void {
   if (S.wsServer === 0) return;
   if (S.wsClient === 0) {
     const c = ws.accept(S.wsServer);
-    if (c !== 0) { S.wsClient = c; ws.send(S.wsClient, "[engine] editor conectado. envie 'help' para a lista de comandos."); }
+    if (c !== 0) { S.wsClient = c; ws.send(S.wsClient, "[engine] editor conectado. envie 'help' (lista) ou 'doc' (detalhes+exemplos p/ IA)."); }
     return;
   }
   const rr = ws.recvReady(S.wsClient);

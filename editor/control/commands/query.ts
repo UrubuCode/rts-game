@@ -23,8 +23,8 @@ export function cmdRes(w: number, h: number): string {
 
 /// Autodescrição: lista de comandos + assinatura (a IA descobre o que pode fazer).
 export function cmdHelp(): string {
-  return "[help] comandos:" +
-    " state | res | help" +
+  return "[help] comandos (use 'doc' p/ detalhes+exemplos de cada um):" +
+    " state | res | help | doc [prefixo] | dbg | tree" +
     " | spawn <nome> <x> <y> <z> [kind] [scale]  (kind 1=cubo 2=piramide 3=octaedro 4=esfera)" +
     " | move <i> <x> <y> <z>" +
     " | scl <i> <sx> <sy> <sz>" +
@@ -35,6 +35,7 @@ export function cmdHelp(): string {
     " | cam <x> <y> <z> <yaw> <pitch>" +
     " | play | pause | clear" +
     " | loadscene <path>" +
+    " | parent <filho> <pai> | movetree <drag> <before> <newparent>" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>";
 }

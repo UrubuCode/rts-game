@@ -5,6 +5,8 @@ import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdPlay, cmdPause, cmdClear, cmdLoad } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
+import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
+import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { inFrustum } from "../../engine/render/gpu3d";
 
@@ -56,6 +58,10 @@ export function execCommand(w: number, h: number, line: string): string {
     case "addcomp": return cmdAddComp(parts);
     case "rmcomp": return cmdRmComp(parts);
     case "setfield": return cmdSetField(parts);
+    case "tree": return cmdTree();
+    case "parent": return cmdParent(parts);
+    case "movetree": return cmdMoveTree(parts);
+    case "doc": return cmdDoc(parts);
     default: return "[erro] desconhecido: " + cmd;
   }
 }
