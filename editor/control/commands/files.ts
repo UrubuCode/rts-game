@@ -5,7 +5,7 @@ import fs from "rts:fs";
 
 import { scene, S } from "../session";
 import { GameObject } from "../../../engine/core/gameobject";
-import { loadObj } from "../../../engine/render/gpu3d";
+import { loadObj, loadTexture } from "../../../engine/render/gpu3d";
 
 /// setcustom <objIdx> <meshId> — DEBUG: força o customMesh de um objeto (0=primitivo).
 export function cmdSetCustom(parts: string[]): string {
@@ -35,6 +35,20 @@ export function cmdLoadObj(parts: string[]): string {
   scene.add(go);
   S.selected = idx;
   return "[ok] loadobj " + path + " -> mesh#" + mesh + " obj#" + idx;
+}
+
+/// loadtex <objIdx> <path> — carrega uma imagem REAL (PNG/JPG/BMP/WebP) do disco,
+/// sobe pra VRAM e aplica como textura (triplanar) no objeto <objIdx>.
+export function cmdLoadTex(parts: string[]): string {
+  if (parts.length < 3) return "[erro] uso: loadtex <objIdx> <path>";
+  const oi = parseFloat(parts[1]) | 0;
+  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido: " + oi;
+  const path = parts[2];
+  if (!fs.exists(path)) return "[erro] nao existe: " + path;
+  const tex = loadTexture(S.win, path) | 0;
+  if (tex === 0) return "[erro] falha ao decodificar/subir: " + path;
+  scene.objects[oi].textureId = tex;
+  return "[ok] loadtex " + path + " -> tex#" + tex + " aplicada em #" + oi;
 }
 
 /// ls [path] — lista uma pasta (sufixo / nas pastas).

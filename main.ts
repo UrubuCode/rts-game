@@ -250,12 +250,16 @@ function frame(): void {
         let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
         if (oi === S.selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
         const col = (rr << 16) | (gg << 8) | bbv;
+        // tex: textura de IMAGEM real (textureId>=2) tem prioridade; senão o
+        // flag procedural (o.tex: 0=nenhuma, 1=xadrez).
+        let texArg = o.tex;
+        if (o.textureId > 0) texArg = o.textureId;
         if (o.customMesh > 0) {
           drawGPUMesh(WIN, o.customMesh, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
+            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, texArg);
         } else {
           drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
+            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, texArg);
         }
         drawnN = drawnN + 1;
       }

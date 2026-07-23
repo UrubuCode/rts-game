@@ -13,6 +13,7 @@ import egui from "rts:egui";
 import buffer from "rts:buffer";
 import math from "rts:math";
 import fs from "rts:fs";
+import imgdec from "rts:imgdec";
 
 const PI: f64 = 3.14159265358979;
 
@@ -186,6 +187,26 @@ export function loadObj(win: i64, path: string): number {
   return upload(win, verts, inds);
 }
 
+/// Carrega uma imagem REAL do disco (PNG/JPG/BMP/WebP) → decodifica (imgdec) →
+/// sobe pra VRAM → devolve um id de textura (>=2) usável como `tex` no drawMesh.
+/// 0 se o arquivo não existe / formato inválido. A textura é amostrada TRIPLANAR
+/// (espaço de mundo) no shader — não precisa de UV per-vértice.
+export function loadTexture(win: i64, path: string): number {
+  if (!fs.exists(path)) return 0;
+  const sz = fs.size(path) | 0;
+  if (sz <= 0) return 0;
+  const buf = buffer.alloc(sz);
+  const n = fs.read_all(path, buffer.ptr(buf), sz) | 0;
+  const dec = imgdec.decode(buffer.ptr(buf), n);
+  buffer.free(buf);
+  if (dec === 0) return 0;
+  const w = imgdec.width(dec) | 0;
+  const h = imgdec.height(dec) | 0;
+  const px = imgdec.pixelsPtr(dec);
+  const texId = egui.textureUpload(win, px, w, h);
+  return texId;
+}
+
 /// Enfileira um draw de um mesh id ARBITRÁRIO (ex.: .obj carregado), fora do
 /// mapeamento meshKind→primitivo. Mesmos params de transform/cor de drawGPU.
 export function drawGPUMesh(win: i64, meshId: number, px: f64, py: f64, pz: f64,
@@ -194,7 +215,9 @@ export function drawGPUMesh(win: i64, meshId: number, px: f64, py: f64, pz: f64,
   // `| 0` força repr INTEIRA: um `number` vindo de campo (customMesh) pode estar em
   // repr f64, e o marshalling pro param U64 BITCASTA os bits do float em vez de
   // converter (5.0 -> 0x4014.. em vez de 5). Sem isto o mesh id vira lixo.
-  egui.drawMesh(win, meshId | 0, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex);
+  // `tex | 0` pela MESMA razão do meshId: um texId vindo de campo (textureId) pode
+  // estar em repr f64 e o param I64 bitcastaria os bits do float.
+  egui.drawMesh(win, meshId | 0, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex | 0);
 }
 
 /// Define a câmera do frame 3D (fly cam).
@@ -244,5 +267,5 @@ export function drawGPU(win: i64, kind: number, px: f64, py: f64, pz: f64,
   if (kind === 2) id = idPyra;
   if (kind === 3) id = idOcta;
   if (kind === 4) id = idSphere;
-  egui.drawMesh(win, id, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex);
+  egui.drawMesh(win, id, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex | 0);
 }
