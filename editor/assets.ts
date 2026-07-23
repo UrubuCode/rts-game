@@ -7,7 +7,7 @@
 import render from "rts:render";
 import fs from "rts:fs";
 
-import { PANEL, PANEL_DK, HEADER, BORDER, TEXT, TEXT_DIM, SEL, HOVER, button } from "./widgets";
+import { PANEL, PANEL_DK, HEADER, BORDER, TEXT, TEXT_DIM, SEL, HOVER, button, subStr } from "./widgets";
 
 // tipos de asset (cor + rótulo do ícone)
 const T_FOLDER = 0;
@@ -115,7 +115,7 @@ function goUp(): void {
   let cut = 0 - 1;
   let i = 0;
   while (i < curDir.length) { if (curDir.charCodeAt(i) === 47) cut = i; i = i + 1; }  // '/'
-  if (cut > 0) { curDir = curDir.substring(0, cut); rescan(); }
+  if (cut > 0) { curDir = subStr(curDir, 0, cut); rescan(); }
 }
 
 /// nome do asset selecionado (ou "").
@@ -213,7 +213,7 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
       drawIcon(win, tx + (tileW - iconS) / 2, ty + 6, iconS, types[i]);
       // nome (corta se longo)
       let nm = names[i];
-      if (nm.length > 12) nm = nm.substring(0, 11) + "…";
+      if (nm.length > 12) nm = subStr(nm, 0, 11) + "…";
       render.text(win, tx + 5, ty + tileH - 15, nm, TEXT, 11, 0);
 
       if (over !== false && mPressed !== 0) {

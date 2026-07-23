@@ -30,6 +30,13 @@ let sScrubMx: f64 = 0.0;
 let nfEditId = 0 - 1;    // id do campo em modo digitação (-1 = nenhum)
 let nfEditText = "";     // buffer do texto sendo digitado
 
+/// substring SEGURO: `.substring` direto num GCELL (module-let escrito por função)
+/// volta "undefined" (leitura de gcell é Tagged sem shape de string). Passando por
+/// PARAM o método despacha. Use isto pra fatiar strings de estado de módulo.
+export function subStr(s: string, a: number, b: number): string {
+  return s.substring(a, b);
+}
+
 // arredonda p/ 2 casas (evita floats gigantes na tela)
 function r2(v: f64): f64 {
   return math.floor(v * 100.0 + 0.5) / 100.0;
@@ -94,7 +101,7 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
     // modo digitação: acumula texto, backspace (tecla 4), Enter (tecla 1) confirma
     const typed = input.textInput(win);
     if (typed.length > 0) nfEditText = nfEditText + typed;
-    if (input.key(win, 4, 1) !== 0 && nfEditText.length > 0) nfEditText = nfEditText.substring(0, nfEditText.length - 1);
+    if (input.key(win, 4, 1) !== 0 && nfEditText.length > 0) nfEditText = subStr(nfEditText, 0, nfEditText.length - 1);
     render.rect(win, x + 16, y, w - 16, 20, 0x1A1F28FF, 1, 0x3399FFFF, 3);
     render.text(win, x + 22, y + 3, nfEditText + "|", 0xFFFFFFFF, 12, 0);
     if (input.key(win, 1, 1) !== 0) { v = parseFloat(nfEditText); nfEditId = 0 - 1; return v; }
