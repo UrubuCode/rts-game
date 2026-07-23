@@ -11,6 +11,7 @@ import { Bobber } from "../scripts/bobber";
 import { Rigidbody } from "../scripts/rigidbody";
 import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
+import { Orbit } from "../scripts/orbit";
 import { setLight, setAmbient } from "../engine/render/mesh";
 
 /// Constrói 1 GameObject a partir de um descritor JSON.
@@ -44,6 +45,7 @@ export function buildObject(od: any): GameObject {
       if (t === "rigidbody") go.addBehavior(new Rigidbody(sd.g, sd.bounce));
       if (t === "mover") go.addBehavior(new Mover(sd.vx, sd.vy, sd.vz));
       if (t === "pulse") go.addBehavior(new Pulse(sd.amp, sd.freq, sd.base));
+      if (t === "orbit") go.addBehavior(new Orbit(sd.radius, sd.speed, sd.cx, sd.cz));
       si = si + 1;
     }
   }
