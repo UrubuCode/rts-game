@@ -32,7 +32,7 @@ export function execCommand(w: number, h: number, line: string): string {
         oi = oi + 1;
       }
       const last = scene.objects[scene.objects.length - 1];
-      return "[dbg] ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast +
+      return "[dbg] ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast + "
         " | ultimo " + last.name + " local(" + last.transform.px + "," + last.transform.py + "," + last.transform.pz + ")" +
         " world(" + last.transform.wx + "," + last.transform.wy + "," + last.transform.wz + ")";
     }
