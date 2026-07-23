@@ -33,8 +33,8 @@ const INSP_W = 270;      // painel inspector (direita)
 const BAR_H = 46;        // toolbar (topo)
 
 // ── framebuffer 3D (rasterizado em software, blitado com render.image) ───────
-const RW = 360;          // resolucao de render (blitada p/ WxH)
-const RH = 216;
+const RW = 320;          // resolucao de render (blitada p/ WxH)
+const RH = 200;
 const NPIX = RW * RH;
 const fbuf = buffer.alloc(NPIX * 4);   // RGBA
 const zbuf = buffer.alloc(NPIX * 8);   // profundidade f64/pixel
