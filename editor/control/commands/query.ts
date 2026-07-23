@@ -8,7 +8,7 @@ export function cmdState(): string {
   let i = 0;
   while (i < scene.objects.length) {
     const o = scene.objects[i];
-    m = m + " | #" + i + " " + o.name + " k" + o.meshKind +
+    m = m + " | #" + i + " " + o.name + " k" + o.meshKind + " cm" + o.customMesh +
         " pos(" + o.transform.px + "," + o.transform.py + "," + o.transform.pz + ")" +
         " scl(" + o.transform.sx + "," + o.transform.sy + "," + o.transform.sz + ")";
     i = i + 1;

@@ -1,10 +1,26 @@
-// Comandos de CENA/sessão: select, delete, cam, play, pause, clear, loadscene.
+// Comandos de CENA/sessão: select, delete, cam, focus, play, pause, clear, loadscene.
+import math from "rts:math";
 import { scene, S } from "../session";
 import { loadSceneFrom } from "../../sceneio";
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;
   return "[ok] select #" + S.selected;
+}
+
+/// focus <i> — enquadra a câmera do editor no objeto (Unity "frame selected").
+export function cmdFocus(parts: string[]): string {
+  const idx = parseFloat(parts[1]) | 0;
+  if (idx < 0 || idx >= scene.objects.length) return "[erro] objeto invalido";
+  const o = scene.objects[idx];
+  const wx: f64 = o.transform.wx; const wy: f64 = o.transform.wy; const wz: f64 = o.transform.wz;
+  let sz: f64 = o.transform.sx;
+  if (o.transform.sy > sz) sz = o.transform.sy;
+  if (o.transform.sz > sz) sz = o.transform.sz;
+  const dist: f64 = sz * 2.2 + 3.0;
+  S.camX = wx; S.camY = wy + dist * 0.4; S.camZ = wz - dist; S.camYaw = 0.0;
+  S.camPitch = math.atan2(wy - S.camY, dist);
+  return "[ok] focus #" + idx + " " + o.name;
 }
 
 export function cmdDelete(parts: string[]): string {

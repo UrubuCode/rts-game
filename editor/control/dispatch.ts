@@ -3,10 +3,10 @@
 import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin } from "./commands/transform";
-import { cmdSelect, cmdDelete, cmdCam, cmdPlay, cmdPause, cmdClear, cmdLoad } from "./commands/scene";
+import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
-import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj } from "./commands/files";
+import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom } from "./commands/files";
 import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { inFrustum } from "../../engine/render/gpu3d";
@@ -50,6 +50,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "select": return cmdSelect(parts);
     case "delete": return cmdDelete(parts);
     case "cam": return cmdCam(parts);
+    case "focus": return cmdFocus(parts);
     case "play": return cmdPlay();
     case "pause": return cmdPause();
     case "clear": return cmdClear();
@@ -69,6 +70,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "writefile": return cmdWriteFile(parts);
     case "mv": return cmdMv(parts);
     case "loadobj": return cmdLoadObj(parts);
+    case "setcustom": return cmdSetCustom(parts);
     case "doc": return cmdDoc(parts);
     default: return "[erro] desconhecido: " + cmd;
   }

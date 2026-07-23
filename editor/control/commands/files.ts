@@ -7,6 +7,15 @@ import { scene, S } from "../session";
 import { GameObject } from "../../../engine/core/gameobject";
 import { loadObj } from "../../../engine/render/gpu3d";
 
+/// setcustom <objIdx> <meshId> — DEBUG: força o customMesh de um objeto (0=primitivo).
+export function cmdSetCustom(parts: string[]): string {
+  const oi = parseFloat(parts[1]) | 0;
+  const mid = parseFloat(parts[2]) | 0;
+  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
+  scene.objects[oi].customMesh = mid;
+  return "[ok] setcustom #" + oi + " customMesh=" + mid;
+}
+
 /// loadobj <path> [nome] [x] [y] [z] — carrega um .obj REAL e cria um objeto com ele.
 export function cmdLoadObj(parts: string[]): string {
   const path = parts[1];

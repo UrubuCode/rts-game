@@ -191,7 +191,10 @@ export function loadObj(win: i64, path: string): number {
 export function drawGPUMesh(win: i64, meshId: number, px: f64, py: f64, pz: f64,
                            rx: f64, ry: f64, sx: f64, sy: f64, sz: f64,
                            color: number, emissive: number, tex: number): void {
-  egui.drawMesh(win, meshId, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex);
+  // `| 0` força repr INTEIRA: um `number` vindo de campo (customMesh) pode estar em
+  // repr f64, e o marshalling pro param U64 BITCASTA os bits do float em vez de
+  // converter (5.0 -> 0x4014.. em vez de 5). Sem isto o mesh id vira lixo.
+  egui.drawMesh(win, meshId | 0, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex);
 }
 
 /// Define a câmera do frame 3D (fly cam).

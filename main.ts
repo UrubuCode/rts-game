@@ -67,6 +67,22 @@ function wrapDeg(d: f64): f64 {
   return r;
 }
 
+// posiciona a câmera do editor pra ENQUADRAR o objeto idx (Unity "frame selected").
+function frameObject(idx: number): void {
+  if (idx < 0 || idx >= scene.objects.length) return;
+  const o = scene.objects[idx];
+  const wx: f64 = o.transform.wx; const wy: f64 = o.transform.wy; const wz: f64 = o.transform.wz;
+  let sz: f64 = o.transform.sx;
+  if (o.transform.sy > sz) sz = o.transform.sy;
+  if (o.transform.sz > sz) sz = o.transform.sz;
+  const dist: f64 = sz * 2.2 + 3.0;
+  S.camX = wx;
+  S.camY = wy + dist * 0.4;
+  S.camZ = wz - dist;
+  S.camYaw = 0.0;
+  S.camPitch = math.atan2(wy - S.camY, dist);   // olha pra baixo, pro objeto
+}
+
 // "name contém filter" case-insensitive (só charCodeAt/length — robusto no motor).
 function containsCI(name: string, filter: string): boolean {
   if (filter.length === 0) return true;
@@ -88,13 +104,15 @@ function containsCI(name: string, filter: string): boolean {
   return false;
 }
 let hierDrag = 0 - 1;
+let hierLastClick = 0 - 1;      // duplo-clique na hierarquia (enquadra a câmera)
+let hierLastClickFrame = 0 - 999;
 let lastMx: f64 = 0.0;
 let lastMy: f64 = 0.0;
 
 initMeshes(WIN);
 assetsInit();
 ctrlServe(7777);   // porta de controle da LLM (ws://127.0.0.1:7777)
-S.win = WIN;       // handle da janela p/ comandos que sobem mesh (.obj) etc
+S.win = WIN;
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
 
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
@@ -324,7 +342,13 @@ function frame(): void {
     const indent = depth * 16;
     const ry0 = BAR_H + 52 + hi * 26;
     const inRow = mx < HIER_W && my >= ry0 && my < ry0 + 26;
-    if (mPressed !== 0 && inRow) { hierDrag = hi; S.selected = hi; }
+    if (mPressed !== 0 && inRow) {
+      // duplo-clique = enquadra a câmera no objeto (Unity "F"); simples = seleciona
+      const dbl = (hi === hierLastClick && frames - hierLastClickFrame < 24) ? 1 : 0;
+      hierDrag = hi; S.selected = hi;
+      if (dbl !== 0) frameObject(hi);
+      hierLastClick = hi; hierLastClickFrame = frames;
+    }
     // detecta a zona de drop enquanto arrasta
     if (hierDrag >= 0 && inRow) {
       const local: f64 = my - ry0;
