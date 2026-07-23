@@ -37,5 +37,7 @@ export function cmdHelp(): string {
     " | loadscene <path>" +
     " | parent <filho> <pai> | movetree <drag> <before> <newparent>" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
-    " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>";
+    " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +
+    " || ARQUIVOS: ls [path] | mkdir <path> | rmpath <path> | readfile <path> |" +
+    " writefile <path> <conteudo> | mv <de> <para>";
 }

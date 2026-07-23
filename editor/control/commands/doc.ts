@@ -40,6 +40,12 @@ export function cmdDoc(parts: string[]): string {
     "addcomp <obj> <nome> :: anexa um componente ao objeto :: addcomp 1 Orbit",
     "rmcomp <obj> <compIdx> :: remove o componente :: rmcomp 1 0",
     "setfield <obj> <compIdx> <campoIdx> <valor> :: edita um campo de config do componente :: setfield 1 0 0 2.5",
+    "ls [path] :: lista uma pasta (/ marca subpastas) :: ls assets/scenes",
+    "mkdir <path> :: cria pasta (+ pais que faltarem) :: mkdir assets/scripts",
+    "rmpath <path> :: deleta arquivo ou pasta (recursivo) :: rmpath assets/tmp",
+    "readfile <path> :: le o conteudo do arquivo :: readfile scenes/shadowdemo.json",
+    "writefile <path> <conteudo> :: escreve (conteudo = resto da linha, 1 linha) :: writefile assets/nota.txt oi mundo",
+    "mv <de> <para> :: renomeia/move :: mv assets/a.txt assets/b.txt",
   ];
   let m = "[doc]\n";
   let hit = 0;
