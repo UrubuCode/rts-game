@@ -90,6 +90,12 @@ if (fs.exists("scenes/solar.json")) {
   }
   setLight(0.35, 1.0, 0.25);
   setAmbient(0.2);
+  // marca o Sol como EMISSIVO (brilha; nao e sombreado pela luz pontual)
+  let ei = 0;
+  while (ei < scene.objects.length) {
+    if (scene.objects[ei].name === "Sun") scene.objects[ei].emissive = 1;
+    ei = ei + 1;
+  }
 }
 
 // ── estado do editor ────────────────────────────────────────────────────────
@@ -215,7 +221,7 @@ while (app.running()) {
   //    cima). Só manda câmera/luz + 1 drawMesh por objeto — a GPU faz o resto. ──
   scene.computeWorld();
   setCam(WIN, camX, camY, camZ, camYaw, camPitch, FOV, W / H);
-  setLgt(WIN, 0.4, 0.9, 0.3, 0.25);
+  setLgt(WIN, 0.0, 3.0, 0.0, 0.06);  // luz PONTUAL na posicao do Sol
   let oi = 0;
   while (oi < scene.objects.length) {
     const o = scene.objects[oi];
@@ -231,7 +237,7 @@ while (app.running()) {
         if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
         const col = (rr << 16) | (gg << 8) | bbv;
         drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-          o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col);
+          o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive);
       }
     }
     oi = oi + 1;

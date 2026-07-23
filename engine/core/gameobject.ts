@@ -15,6 +15,7 @@ export class GameObject {
   active: number;
   parent: number;      // índice do pai em scene.objects (-1 = raiz)
   stationary: number;  // 1 = estático (a colisão não o empurra) — tipo static/kinematic
+  emissive: number;    // 1 = brilha (não sombreado) — ex.: o Sol
 
   constructor(name: string) {
     this.name = name;
@@ -25,6 +26,7 @@ export class GameObject {
     this.active = 1;
     this.parent = 0 - 1;
     this.stationary = 0;
+    this.emissive = 0;
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.

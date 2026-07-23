@@ -176,10 +176,10 @@ export function inFrustum(camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64,
 
 /// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).
 export function drawGPU(win: i64, kind: number, px: f64, py: f64, pz: f64,
-                        rx: f64, ry: f64, sx: f64, sy: f64, sz: f64, color: number): void {
+                        rx: f64, ry: f64, sx: f64, sy: f64, sz: f64, color: number, emissive: number): void {
   let id = idCube;
   if (kind === 2) id = idPyra;
   if (kind === 3) id = idOcta;
   if (kind === 4) id = idSphere;
-  egui.drawMesh(win, id, px, py, pz, rx, ry, sx, sy, sz, color);
+  egui.drawMesh(win, id, px, py, pz, rx, ry, sx, sy, sz, color, emissive);
 }
