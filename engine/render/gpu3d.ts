@@ -154,6 +154,9 @@ export function setLgt(win: i64, dx: f64, dy: f64, dz: f64, ambient: f64): void 
 export function setShadow(win: i64, dx: f64, dy: f64, dz: f64, cx: f64, cy: f64, cz: f64, radius: f64): void {
   egui.setShadow(win, dx, dy, dz, cx, cy, cz, radius);
 }
+/// Largura/altura LÓGICA atual da janela (segue o resize).
+export function winWidth(win: i64): number { return egui.winWidth(win); }
+export function winHeight(win: i64): number { return egui.winHeight(win); }
 
 /// Frustum culling: `true` se a esfera envolvente (centro wx,wy,wz + raio) está
 /// (ao menos parcialmente) dentro do campo de visão. Engine-side, transparente —

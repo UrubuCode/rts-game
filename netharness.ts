@@ -19,6 +19,7 @@ import buffer from "rts:buffer";
 import render from "rts:render";
 import net from "rts:net";
 import fs from "rts:fs";
+import egui from "rts:egui";
 
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
@@ -168,6 +169,9 @@ if (listener === 0) {
             si = si + 1;
           }
           sendStr(stream, msg);
+        } else if (cmd === "res") {
+          // resolução LÓGICA atual da janela (segue o resize) — via egui.winWidth/Height
+          sendStr(stream, "[res] " + egui.winWidth(WIN) + " x " + egui.winHeight(WIN) + " (logico)\n");
         } else if (cmd === "frame" || cmd === "lit") {
           scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0x18);
           drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);

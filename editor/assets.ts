@@ -84,19 +84,18 @@ function rescan(): void {
   count = 0;
   const list = fs.readdir(curDir);
   if (list === undefined) { scanned = 1; return; }
+  // pastas primeiro, depois arquivos (dois passes). is_dir devolve 1/0 (número) —
+  // usa TRUTHINESS (não `!== false`, que dá true até pra 0).
   let i = 0;
-  // pastas primeiro, depois arquivos (dois passes)
   while (i < list.length) {
     const nm = list[i];
-    const full = curDir + "/" + nm;
-    if (fs.is_dir(full) !== false) { names.push(nm); types.push(T_FOLDER); count = count + 1; }
+    if (fs.is_dir(curDir + "/" + nm)) { names.push(nm); types.push(T_FOLDER); count = count + 1; }
     i = i + 1;
   }
   i = 0;
   while (i < list.length) {
     const nm = list[i];
-    const full = curDir + "/" + nm;
-    if (fs.is_dir(full) === false) { names.push(nm); types.push(classify(nm, 0)); count = count + 1; }
+    if (!fs.is_dir(curDir + "/" + nm)) { names.push(nm); types.push(classify(nm, 0)); count = count + 1; }
     i = i + 1;
   }
   selIdx = 0 - 1;

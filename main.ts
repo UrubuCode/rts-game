@@ -21,11 +21,11 @@ import { Mover } from "./scripts/mover";
 import { Pulse } from "./scripts/pulse";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
 import { assetsInit, drawAssets } from "./editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum } from "./engine/render/gpu3d";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum, winWidth, winHeight } from "./engine/render/gpu3d";
 
 // ── janela ────────────────────────────────────────────────────────────────
-const W = 1200;
-const H = 720;
+let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
+let H = 720;
 const app = createAppAt("Engine RTS — editor", W, H, 120, 90);
 const WIN = app._win;
 
@@ -51,7 +51,7 @@ let camYaw: f64 = 0.0;
 let camPitch: f64 = 0 - 0.5;
 const FOV: f64 = 1.05;
 const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);   // p/ framebuffer
-const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
+let focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);      // p/ picking; recalc por frame
 
 // ── cena (estilo Unity) ─────────────────────────────────────────────────────
 const scene = new Scene("Main");
@@ -140,6 +140,12 @@ io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos (
 while (app.running()) {
   const goOn = app.beginFrame();
   if (!goOn) break;
+  // ── layout RESPONSIVO: lê o tamanho lógico atual da janela (segue o resize) ──
+  const nw = winWidth(WIN);
+  const nh = winHeight(WIN);
+  if (nw > 400) W = nw;
+  if (nh > 300) H = nh;
+  focalW = (H * 0.5) / math.tan(FOV * 0.5);
   let dt: f64 = app.delta();
   if (dt > 100) dt = 100;
   const dts: f64 = dt / 1000.0;
