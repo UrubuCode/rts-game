@@ -309,13 +309,16 @@ while (running !== 0) {
         if (d !== null) scripts.push(d);
         bi = bi + 1;
       }
+      const uniform = (o.transform.sx === o.transform.sy && o.transform.sy === o.transform.sz) ? 1 : 0;
       objs.push({
         name: o.name, parent: o.parent, stationary: o.stationary,
+        emissive: o.emissive, tex: o.tex,
         mesh: o.meshKind,
         color: [o.cr | 0, o.cg | 0, o.cb | 0],
         pos: [o.transform.px, o.transform.py, o.transform.pz],
         rot: [o.transform.rx, o.transform.ry],
-        scale: o.transform.sx,
+        scale: uniform !== 0 ? o.transform.sx : o.transform.sx,
+        scale3: uniform !== 0 ? undefined : [o.transform.sx, o.transform.sy, o.transform.sz],
         scripts: scripts
       });
       oi = oi + 1;
@@ -335,6 +338,8 @@ while (running !== 0) {
       const go = new GameObject(od.name);
       if (od.parent !== undefined) go.parent = od.parent;
       if (od.stationary !== undefined) go.stationary = od.stationary;
+      if (od.emissive !== undefined) go.emissive = od.emissive;
+      if (od.tex !== undefined) go.tex = od.tex;
       const col = od.color;
       go.setMesh(od.mesh, col[0], col[1], col[2]);
       const p = od.pos;
@@ -342,7 +347,12 @@ while (running !== 0) {
       go.transform.setPosition(p[0], p[1], p[2]);
       go.transform.rx = r[0];
       go.transform.ry = r[1];
-      go.transform.setScale(od.scale);
+      if (od.scale3 !== undefined) {
+        const s3 = od.scale3;
+        go.transform.sx = s3[0]; go.transform.sy = s3[1]; go.transform.sz = s3[2];
+      } else {
+        go.transform.setScale(od.scale);
+      }
       const scr = od.scripts;
       let si = 0;
       while (si < scr.length) {
