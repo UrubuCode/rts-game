@@ -7,7 +7,7 @@
 import render from "rts:render";
 import fs from "rts:fs";
 
-import { PANEL, PANEL_DK, HEADER, BORDER, TEXT, TEXT_DIM, SEL, HOVER } from "./widgets";
+import { PANEL, PANEL_DK, HEADER, BORDER, TEXT, TEXT_DIM, SEL, HOVER, button } from "./widgets";
 
 // tipos de asset (cor + rótulo do ícone)
 const T_FOLDER = 0;
@@ -124,6 +124,25 @@ export function assetSelectedName(): string {
   return names[selIdx] + " [" + typeTag(types[selIdx]) + "]";
 }
 
+// ── OPERAÇÕES REAIS DE ARQUIVO (gerenciamento de pastas de verdade) ──────────
+/// Cria uma pasta nova na pasta atual (nome único no disco) e re-scaneia.
+function newFolder(): void {
+  let name = "NovaPasta";
+  let n = 0;
+  while (fs.exists(curDir + "/" + name)) { n = n + 1; name = "NovaPasta" + n; }
+  fs.create_dir(curDir + "/" + name);
+  rescan();
+}
+/// Deleta o asset selecionado DO DISCO (pasta recursiva ou arquivo) e re-scaneia.
+function deleteSelected(): void {
+  if (selIdx < 0 || selIdx >= count) return;
+  const full = curDir + "/" + names[selIdx];
+  if (types[selIdx] === T_FOLDER) fs.remove_dir_all(full);
+  else fs.remove_file(full);
+  selIdx = 0 - 1;
+  rescan();
+}
+
 // desenha um ícone tipado num quadrado (x,y,s).
 function drawIcon(win: i64, x: number, y: number, s: number, t: number): void {
   const c = typeColor(t);
@@ -163,6 +182,11 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
   render.text(win, px + 12, barY + 4, "^", TEXT, 13, 0);
   if (upOver !== false && mPressed !== 0) goUp();
   render.text(win, px + 40, barY + 5, curDir, TEXT_DIM, 12, 0);
+  // toolbar de gerenciamento REAL: criar pasta / deletar selecionado / atualizar
+  const bw = 58;
+  if (button(win, px + pw - bw * 3 - 12, barY + 1, bw, 20, "+ Pasta", PANEL_DK, mx, my, mPressed) !== 0) newFolder();
+  if (button(win, px + pw - bw * 2 - 8, barY + 1, bw, 20, "Deletar", PANEL_DK, mx, my, mPressed) !== 0) deleteSelected();
+  if (button(win, px + pw - bw - 4, barY + 1, bw, 20, "Atualizar", PANEL_DK, mx, my, mPressed) !== 0) { scanned = 0; rescan(); }
 
   let action = "";
 

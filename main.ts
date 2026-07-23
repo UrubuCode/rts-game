@@ -58,6 +58,15 @@ let dragging = 0;
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
 let addFilter = "";    // texto de busca do dropdown (filtra a lista)
 
+// conversão rad↔graus + wrap [0,360) pra rotação no inspector
+const RAD2DEG: f64 = 57.2957795;
+const DEG2RAD: f64 = 0.0174532925;
+function wrapDeg(d: f64): f64 {
+  let r = d - math.floor(d / 360.0) * 360.0;
+  if (r < 0.0) r = r + 360.0;
+  return r;
+}
+
 // "name contém filter" case-insensitive (só charCodeAt/length — robusto no motor).
 function containsCI(name: string, filter: string): boolean {
   if (filter.length === 0) return true;
@@ -389,9 +398,14 @@ function frame(): void {
   sel.transform.py = numField(WIN, 511, fx0 + fw + g2, BAR_H + 92, fw, "Y", AXIS_Y, sel.transform.py, mx, my, mDownNow, mPressed);
   sel.transform.pz = numField(WIN, 512, fx0 + (fw + g2) * 2, BAR_H + 92, fw, "Z", AXIS_Z, sel.transform.pz, mx, my, mDownNow, mPressed);
   app.text(ix + 10, BAR_H + 122, "Rotation", 0x9A9A9AFF, 12);
-  sel.transform.rx = numField(WIN, 520, fx0, BAR_H + 118, fw, "X", AXIS_X, sel.transform.rx, mx, my, mDownNow, mPressed);
-  sel.transform.ry = numField(WIN, 521, fx0 + fw + g2, BAR_H + 118, fw, "Y", AXIS_Y, sel.transform.ry, mx, my, mDownNow, mPressed);
-  sel.transform.rz = numField(WIN, 522, fx0 + (fw + g2) * 2, BAR_H + 118, fw, "Z", AXIS_Z, sel.transform.rz, mx, my, mDownNow, mPressed);
+  // Rotação em GRAUS dando a volta 0–360 (interno é radiano e acumula; converte
+  // pra graus + wrap pro display/edição — estilo Unity, não um número que só sobe).
+  let rxD = numField(WIN, 520, fx0, BAR_H + 118, fw, "X", AXIS_X, wrapDeg(sel.transform.rx * RAD2DEG), mx, my, mDownNow, mPressed);
+  let ryD = numField(WIN, 521, fx0 + fw + g2, BAR_H + 118, fw, "Y", AXIS_Y, wrapDeg(sel.transform.ry * RAD2DEG), mx, my, mDownNow, mPressed);
+  let rzD = numField(WIN, 522, fx0 + (fw + g2) * 2, BAR_H + 118, fw, "Z", AXIS_Z, wrapDeg(sel.transform.rz * RAD2DEG), mx, my, mDownNow, mPressed);
+  sel.transform.rx = wrapDeg(rxD) * DEG2RAD;
+  sel.transform.ry = wrapDeg(ryD) * DEG2RAD;
+  sel.transform.rz = wrapDeg(rzD) * DEG2RAD;
   app.text(ix + 10, BAR_H + 148, "Scale", 0x9A9A9AFF, 12);
   const nsx = numField(WIN, 530, fx0, BAR_H + 144, fw, "X", AXIS_X, sel.transform.sx, mx, my, mDownNow, mPressed);
   const nsy = numField(WIN, 531, fx0 + fw + g2, BAR_H + 144, fw, "Y", AXIS_Y, sel.transform.sy, mx, my, mDownNow, mPressed);
