@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>RTS Engine — Controle WebSocket</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:#1e1e1e; color:#ccc; }
+  header { padding:10px 16px; background:#2d2d2d; display:flex; gap:12px; align-items:center; }
+  header b { color:#eee; }
+  #dot { width:10px; height:10px; border-radius:50%; background:#c55; }
+  #dot.on { background:#6c6; }
+  main { display:grid; grid-template-columns:220px 1fr; gap:0; height:calc(100vh - 44px); }
+  aside { background:#252525; padding:12px; overflow:auto; border-right:1px solid #111; }
+  aside h3 { margin:14px 0 6px; font-size:11px; text-transform:uppercase; color:#888; letter-spacing:.5px; }
+  button { display:block; width:100%; margin:4px 0; padding:7px 10px; background:#3a3a3a; color:#ddd;
+           border:1px solid #222; border-radius:4px; cursor:pointer; text-align:left; }
+  button:hover { background:#454545; }
+  section { display:flex; flex-direction:column; }
+  #log { flex:1; margin:0; padding:12px 16px; overflow:auto; white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:12px; }
+  #log .rx { color:#8fd; } #log .tx { color:#9bf; } #log .sys { color:#888; }
+  .bar { display:flex; gap:8px; padding:10px 12px; background:#252525; border-top:1px solid #111; }
+  .bar input { flex:1; padding:8px; background:#1a1a1a; color:#eee; border:1px solid #333; border-radius:4px; }
+  .bar button { width:auto; }
+</style>
+</head>
+<body>
+<header>
+  <span id="dot"></span> <b>RTS Engine — Controle WebSocket</b>
+  <input id="url" value="ws://127.0.0.1:7777" style="background:#1a1a1a;color:#ccc;border:1px solid #333;border-radius:4px;padding:5px 8px;width:220px">
+  <button id="conn" style="width:auto">Conectar</button>
+</header>
+<main>
+  <aside>
+    <h3>Cena</h3>
+    <button data-cmd="loadscene scenes/shadowdemo.json">Carregar shadowdemo</button>
+    <button data-cmd="clear">Limpar cena</button>
+    <button data-cmd="state">Estado (state)</button>
+    <button data-cmd="res">Resolução (res)</button>
+    <h3>Spawn</h3>
+    <button data-cmd="spawn Cubo 0 2 0 1.5">+ Cubo (0,2,0)</button>
+    <button data-cmd="spawn Bola 3 2 0 1.5">+ Bola dir</button>
+    <button data-cmd="mesh 0 4">Objeto 0 → esfera</button>
+    <button data-cmd="spin 0 1.2">Objeto 0 girar</button>
+    <button data-cmd="color 0 240 90 60">Objeto 0 vermelho</button>
+    <h3>Play</h3>
+    <button data-cmd="play">▶ Play</button>
+    <button data-cmd="pause">⏸ Pause</button>
+    <button data-cmd="step 30">Step 30</button>
+    <h3>Câmera</h3>
+    <button data-cmd="cam 0 11 -15 0 -0.5">Vista padrão</button>
+    <button data-cmd="cam 0 20 -2 0 -1.2">Vista de cima</button>
+  </aside>
+  <section>
+    <pre id="log"></pre>
+    <div class="bar">
+      <input id="cmd" placeholder="comando cru (ex.: spawn X 0 2 0 1.5) — Enter envia" autocomplete="off">
+      <button id="send">Enviar</button>
+    </div>
+  </section>
+</main>
+<script>
+  const $ = s => document.querySelector(s);
+  const log = $("#log"), dot = $("#dot");
+  let sock = null;
+  function line(cls, txt){ const s=document.createElement("span"); s.className=cls; s.textContent=txt+"\n"; log.appendChild(s); log.scrollTop=log.scrollHeight; }
+  function connect(){
+    if (sock) { sock.close(); }
+    const url = $("#url").value;
+    line("sys", "conectando "+url+" ...");
+    sock = new WebSocket(url);
+    sock.onopen = () => { dot.classList.add("on"); line("sys","● conectado"); };
+    sock.onclose = () => { dot.classList.remove("on"); line("sys","○ desconectado"); };
+    sock.onerror = () => line("sys","erro de conexão");
+    sock.onmessage = e => line("rx", "← "+e.data);
+  }
+  function send(cmd){
+    if (!sock || sock.readyState !== 1) { line("sys","não conectado"); return; }
+    sock.send(cmd); line("tx", "→ "+cmd);
+  }
+  $("#conn").onclick = connect;
+  $("#send").onclick = () => { const v=$("#cmd").value.trim(); if(v){ send(v); $("#cmd").value=""; } };
+  $("#cmd").addEventListener("keydown", e => { if(e.key==="Enter"){ $("#send").click(); } });
+  document.querySelectorAll("aside button").forEach(b => b.onclick = () => send(b.dataset.cmd));
+  connect();
+</script>
+</body>
+</html>
