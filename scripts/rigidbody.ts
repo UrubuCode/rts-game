@@ -31,4 +31,11 @@ export class Rigidbody extends Behavior {
   toData(): any {
     return { type: "rigidbody", g: this.g, bounce: this.bounce };
   }
+
+  typeName(): string { return "Rigidbody"; }
+  fieldCount(): number { return 2; }
+  fieldLabel(i: number): string { if (i === 0) return "Grav"; return "Bounce"; }
+  fieldGet(i: number): f64 { if (i === 0) return this.g; return this.bounce; }
+  fieldSet(i: number, v: f64): void { if (i === 0) this.g = v; else this.bounce = v; }
+
 }

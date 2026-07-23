@@ -12,6 +12,7 @@ import fs from "rts:fs";
 
 import { GameObject } from "./engine/core/gameobject";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
+import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum, winWidth, winHeight } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
@@ -384,21 +385,53 @@ function frame(): void {
   if (bMesh) { sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1; }
   sel.stationary = app.checkbox(ix + 134, BAR_H + 203, sel.stationary, "Estatico");
 
-  // ── componentes (scripts) do objeto — estilo Inspector do Unity ─────────────
+  // ── componentes do objeto — cada um com CABEÇALHO + campos de CONFIG editáveis
+  //    + botão remover; e a lista "Add Component" no fim (estilo Inspector Unity)
   app.text(ix + 14, BAR_H + 242, "COMPONENTES", 0xC8C8C8FF, 14);
   let bc = 0;
   let cyc = BAR_H + 266;
+  let removeIdx = 0 - 1;
   while (bc < sel.behaviors.length) {
-    const d = sel.behaviors[bc].toData();
-    let tn = "script";
-    if (d !== null) tn = d.type;
-    app.box(ix + 14, cyc, INSP_W - 28, 22, 0x333333FF, 1, 0x232323FF, 4);
-    app.text(ix + 22, cyc + 3, "> " + tn, 0xC0C0C0FF, 13);
+    // cabeçalho: nome do componente + botão remover (X) — método DIRETO no index
+    // (dispatch provado; método em local tipado-classe pode não despachar)
+    app.box(ix + 14, cyc, INSP_W - 28, 22, 0x3A3A3AFF, 1, 0x232323FF, 4);
+    app.text(ix + 22, cyc + 4, sel.behaviors[bc].typeName(), 0xD0D0D0FF, 13);
+    const bDel = app.button(ix + INSP_W - 42, cyc + 2, 20, 18, "x");
+    if (bDel) removeIdx = bc;
     cyc = cyc + 26;
+    // campos de config: um numField por campo (arraste horizontal edita)
+    const nf = sel.behaviors[bc].fieldCount();
+    let fi = 0;
+    while (fi < nf) {
+      const id = 600 + bc * 20 + fi;
+      const nv = numField(WIN, id, ix + 24, cyc, INSP_W - 52, sel.behaviors[bc].fieldLabel(fi), 0x5A7FB0FF,
+        sel.behaviors[bc].fieldGet(fi), mx, my, mDownNow, mPressed);
+      sel.behaviors[bc].fieldSet(fi, nv);
+      cyc = cyc + 23;
+      fi = fi + 1;
+    }
+    cyc = cyc + 6;
     bc = bc + 1;
   }
   if (sel.behaviors.length === 0) {
-    app.text(ix + 22, cyc, "(nenhum)", 0x707070FF, 12);
+    app.text(ix + 22, cyc, "(nenhum componente)", 0x707070FF, 12);
+    cyc = cyc + 22;
+  }
+  // remove após o loop (não mexe no array durante a iteração)
+  if (removeIdx >= 0) sel.removeBehavior(removeIdx);
+
+  // ── ADD COMPONENT: lista dos componentes disponíveis pra anexar ─────────────
+  cyc = cyc + 6;
+  app.text(ix + 14, cyc, "Add Component", 0xA8C8A8FF, 13);
+  cyc = cyc + 20;
+  let ci = 0;
+  while (ci < COMPONENT_NAMES.length) {
+    const nm = COMPONENT_NAMES[ci];
+    const colx = ix + 14 + (ci % 2) * ((INSP_W - 28) / 2 + 2);
+    const rowy = cyc + ((ci - (ci % 2)) / 2) * 26;
+    const bAdd = app.button(colx, rowy, (INSP_W - 32) / 2, 22, "+ " + nm);
+    if (bAdd) sel.addBehavior(createComponent(nm));
+    ci = ci + 1;
   }
 
   // ── barra inferior (status bar estilo Unity) sobre a área do viewport ───────

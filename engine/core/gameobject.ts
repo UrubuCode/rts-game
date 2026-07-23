@@ -38,6 +38,17 @@ export class GameObject {
     return this;
   }
 
+  /// Remove o componente no índice `idx` (reconstrói o array sem ele).
+  removeBehavior(idx: number): void {
+    const next: Behavior[] = [];
+    let i = 0;
+    while (i < this.behaviors.length) {
+      if (i !== idx) next.push(this.behaviors[i]);
+      i = i + 1;
+    }
+    this.behaviors = next;
+  }
+
   /// Define o mesh + cor (fluent).
   setMesh(kind: number, r: number, g: number, b: number): GameObject {
     this.meshKind = kind;

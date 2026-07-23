@@ -21,4 +21,11 @@ export class Spinner extends Behavior {
   toData(): any {
     return { type: "spin", sy: this.speedY, sx: this.speedX };
   }
+
+  typeName(): string { return "Spinner"; }
+  fieldCount(): number { return 2; }
+  fieldLabel(i: number): string { if (i === 0) return "SpdY"; return "SpdX"; }
+  fieldGet(i: number): f64 { if (i === 0) return this.speedY; return this.speedX; }
+  fieldSet(i: number, v: f64): void { if (i === 0) this.speedY = v; else this.speedX = v; }
+
 }

@@ -26,4 +26,11 @@ export class Bobber extends Behavior {
   toData(): any {
     return { type: "bob", amp: this.amp, freq: this.freq, base: this.baseY };
   }
+
+  typeName(): string { return "Bobber"; }
+  fieldCount(): number { return 3; }
+  fieldLabel(i: number): string { if (i === 0) return "Amp"; if (i === 1) return "Freq"; return "Base"; }
+  fieldGet(i: number): f64 { if (i === 0) return this.amp; if (i === 1) return this.freq; return this.baseY; }
+  fieldSet(i: number, v: f64): void { if (i === 0) this.amp = v; else if (i === 1) this.freq = v; else this.baseY = v; }
+
 }

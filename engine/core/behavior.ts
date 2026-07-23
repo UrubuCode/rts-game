@@ -33,4 +33,18 @@ export class Behavior {
   toData(): any {
     return null;
   }
+
+  // ── SURFACE DE CONFIG (Inspector estilo Unity) ──────────────────────────────
+  // O componente se autodescreve: nome + campos numéricos editáveis. O inspector
+  // itera fieldCount() e desenha um numField por campo, lendo fieldGet/fieldSet.
+  /// Nome do componente exibido no cabeçalho do inspector.
+  typeName(): string { return "Script"; }
+  /// Quantos campos numéricos editáveis este componente expõe.
+  fieldCount(): number { return 0; }
+  /// Rótulo curto do campo `i` (ex.: "SpdY").
+  fieldLabel(i: number): string { return ""; }
+  /// Valor atual do campo `i`.
+  fieldGet(i: number): f64 { return 0.0; }
+  /// Grava `v` no campo `i` (chamado pelo inspector ao arrastar/editar).
+  fieldSet(i: number, v: f64): void {}
 }
