@@ -20,7 +20,7 @@ import { Rigidbody } from "./scripts/rigidbody";
 import { Mover } from "./scripts/mover";
 import { Pulse } from "./scripts/pulse";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
-import { initMeshes, setCam, setLgt, drawGPU } from "./engine/render/gpu3d";
+import { initMeshes, setCam, setLgt, drawGPU, inFrustum } from "./engine/render/gpu3d";
 
 // ── janela ────────────────────────────────────────────────────────────────
 const W = 1200;
@@ -220,11 +220,19 @@ while (app.running()) {
   while (oi < scene.objects.length) {
     const o = scene.objects[oi];
     if (o.active !== 0 && o.meshKind !== 0) {
-      let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
-      if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
-      const col = (rr << 16) | (gg << 8) | bbv;
-      drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-        o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col);
+      // frustum culling: raio da esfera envolvente (maior escala × ~0.87)
+      let rmax: f64 = o.transform.sx;
+      if (o.transform.sy > rmax) rmax = o.transform.sy;
+      if (o.transform.sz > rmax) rmax = o.transform.sz;
+      const vis = inFrustum(camX, camY, camZ, camYaw, camPitch, FOV, W / H,
+        o.transform.wx, o.transform.wy, o.transform.wz, rmax * 0.87);
+      if (vis !== 0) {
+        let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
+        if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
+        const col = (rr << 16) | (gg << 8) | bbv;
+        drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
+          o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col);
+      }
     }
     oi = oi + 1;
   }

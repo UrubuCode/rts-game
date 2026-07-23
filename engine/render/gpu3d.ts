@@ -38,7 +38,7 @@ function upload(win: i64, verts: f64[], inds: number[]): number {
   return id;
 }
 
-// adiciona um vértice (pos + normal suave = pos normalizada) ao array.
+// adiciona um vértice (pos + normal suave = pos normalizada) ao array (esfera).
 function pushV(a: f64[], x: f64, y: f64, z: f64): void {
   const l = math.sqrt(x * x + y * y + z * z);
   let nx = 0.0; let ny = 1.0; let nz = 0.0;
@@ -47,39 +47,61 @@ function pushV(a: f64[], x: f64, y: f64, z: f64): void {
   a.push(nx); a.push(ny); a.push(nz);
 }
 
+// mesh FLAT (facetada): cada face vira 3 vértices com a NORMAL DA FACE (arestas
+// duras — cubo parece cubo). Winding + normal forçados pra FORA (culling ok).
+function buildFlat(win: i64, corners: f64[], faces: number[]): number {
+  const verts: f64[] = [];
+  const inds: number[] = [];
+  let f = 0;
+  let vi = 0;
+  while (f < faces.length) {
+    const ia = faces[f]; const ib = faces[f + 1]; const ic = faces[f + 2];
+    const ax = corners[ia * 3]; const ay = corners[ia * 3 + 1]; const az = corners[ia * 3 + 2];
+    let bx = corners[ib * 3]; let by = corners[ib * 3 + 1]; let bz = corners[ib * 3 + 2];
+    let cx = corners[ic * 3]; let cy = corners[ic * 3 + 1]; let cz = corners[ic * 3 + 2];
+    let nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
+    let ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+    let nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    // centróide (corners centrados na origem) aponta pra fora
+    const dot: f64 = nx * (ax + bx + cx) + ny * (ay + by + cy) + nz * (az + bz + cz);
+    if (dot < 0) {
+      const tx = bx; const ty = by; const tz = bz; bx = cx; by = cy; bz = cz; cx = tx; cy = ty; cz = tz;
+      nx = 0 - nx; ny = 0 - ny; nz = 0 - nz;
+    }
+    const l = math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (l > 0.0001) { nx = nx / l; ny = ny / l; nz = nz / l; }
+    verts.push(ax); verts.push(ay); verts.push(az); verts.push(nx); verts.push(ny); verts.push(nz);
+    verts.push(bx); verts.push(by); verts.push(bz); verts.push(nx); verts.push(ny); verts.push(nz);
+    verts.push(cx); verts.push(cy); verts.push(cz); verts.push(nx); verts.push(ny); verts.push(nz);
+    inds.push(vi); inds.push(vi + 1); inds.push(vi + 2);
+    vi = vi + 3;
+    f = f + 3;
+  }
+  return upload(win, verts, inds);
+}
+
 /// Sobe as 4 meshes primitivas (1×). Chame depois de abrir a janela.
 export function initMeshes(win: i64): void {
   if (ready !== 0) return;
 
-  // ── cubo ──
-  const cv: f64[] = [];
+  // ── cubo / pirâmide / octaedro: FLAT (arestas duras) ──
   const cc: f64[] = [
     -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  -0.5,0.5,-0.5,  0.5,0.5,-0.5,
     -0.5,-0.5,0.5,   0.5,-0.5,0.5,   -0.5,0.5,0.5,   0.5,0.5,0.5
   ];
-  let k = 0;
-  while (k < 8) { pushV(cv, cc[k * 3], cc[k * 3 + 1], cc[k * 3 + 2]); k = k + 1; }
   const cf: number[] = [
     1,3,7, 1,7,5,   0,6,2, 0,4,6,   2,6,7, 2,7,3,
     0,1,5, 0,5,4,   4,5,7, 4,7,6,   0,2,3, 0,3,1
   ];
-  idCube = upload(win, cv, cf);
+  idCube = buildFlat(win, cc, cf);
 
-  // ── pirâmide ──
-  const pv: f64[] = [];
   const pc: f64[] = [ -0.5,-0.5,-0.5, 0.5,-0.5,-0.5, 0.5,-0.5,0.5, -0.5,-0.5,0.5, 0.0,0.6,0.0 ];
-  let p = 0;
-  while (p < 5) { pushV(pv, pc[p * 3], pc[p * 3 + 1], pc[p * 3 + 2]); p = p + 1; }
   const pf: number[] = [ 0,2,1, 0,3,2,  0,1,4, 1,2,4, 2,3,4, 3,0,4 ];
-  idPyra = upload(win, pv, pf);
+  idPyra = buildFlat(win, pc, pf);
 
-  // ── octaedro ──
-  const ov: f64[] = [];
   const oc: f64[] = [ 0.6,0,0, -0.6,0,0, 0,0.6,0, 0,-0.6,0, 0,0,0.6, 0,0,-0.6 ];
-  let o = 0;
-  while (o < 6) { pushV(ov, oc[o * 3], oc[o * 3 + 1], oc[o * 3 + 2]); o = o + 1; }
   const of: number[] = [ 2,4,0, 2,1,4, 2,5,1, 2,0,5,  3,0,4, 3,4,1, 3,1,5, 3,5,0 ];
-  idOcta = upload(win, ov, of);
+  idOcta = buildFlat(win, oc, of);
 
   // ── esfera (UV lat/long, alta tesselação — a GPU aguenta) ──
   const sv: f64[] = [];
@@ -127,6 +149,29 @@ export function setCam(win: i64, cx: f64, cy: f64, cz: f64, yaw: f64, pitch: f64
 /// Define a luz direcional.
 export function setLgt(win: i64, dx: f64, dy: f64, dz: f64, ambient: f64): void {
   egui.setLight(win, dx, dy, dz, ambient);
+}
+
+/// Frustum culling: `true` se a esfera envolvente (centro wx,wy,wz + raio) está
+/// (ao menos parcialmente) dentro do campo de visão. Engine-side, transparente —
+/// pula o drawMesh de quem está atrás/fora, poupando draw calls em cenas grandes.
+export function inFrustum(camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64,
+                          fovY: f64, aspect: f64, wx: f64, wy: f64, wz: f64, radius: f64): number {
+  const cyw = math.cos(yaw); const syw = math.sin(yaw);
+  const cpt = math.cos(pitch); const spt = math.sin(pitch);
+  const dx = wx - camx; const dy = wy - camy; const dz = wz - camz;
+  const x1 = dx * cyw - dz * syw;
+  const z1 = dx * syw + dz * cyw;
+  const y2 = dy * cpt - z1 * spt;
+  const z2 = dy * spt + z1 * cpt;
+  if (z2 + radius < 0.1) return 0;         // atrás do near
+  if (z2 - radius > 500.0) return 0;       // além do far
+  const tanV: f64 = math.tan(fovY * 0.5);
+  const tanH: f64 = tanV * aspect;
+  if (x1 - radius > z2 * tanH) return 0;
+  if (0 - x1 - radius > z2 * tanH) return 0;
+  if (y2 - radius > z2 * tanV) return 0;
+  if (0 - y2 - radius > z2 * tanV) return 0;
+  return 1;
 }
 
 /// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).
