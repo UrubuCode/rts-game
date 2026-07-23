@@ -208,8 +208,8 @@ while (app.running()) {
   }
 
   // ── RENDER DE CENA (rasteriza no framebuffer, depois blita) ────────────────
-  scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);   // fundo (ABGR: azul-acinzentado escuro)
-  drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
+  scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF3C3A38);   // fundo (ABGR: azul-acinzentado escuro)
+  drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF4A4A4E);
 
   let oi = 0;
   while (oi < scene.objects.length) {
@@ -225,50 +225,69 @@ while (app.running()) {
   }
   render.image(WIN, 0, 0, W, H, fptr, RW, RH);
 
-  // ═══ EDITOR UI (painéis opacos por cima) ═══════════════════════════════════
-  app.box(0, 0, W, BAR_H, 0x161C28FF, 0, 0, 0);
-  app.line(0, BAR_H, W, BAR_H, 1, 0x2A3546FF);
-  const bPlay = app.button(12, 8, 90, 30, "Play");
-  if (bPlay) playing = 1;
-  const bPause = app.button(110, 8, 90, 30, "Pause");
-  if (bPause) playing = 0;
-  // GameObject menu (add/delete)
-  const bCube = app.button(214, 8, 82, 30, "+ Cubo");
-  if (bCube) {
+  // ═══ EDITOR UI (estilo Unity) ══════════════════════════════════════════════
+  // toolbar
+  app.box(0, 0, W, BAR_H, 0x393939FF, 0, 0, 0);
+  app.line(0, BAR_H, W, BAR_H, 1, 0x232323FF);
+
+  // — GameObject menu (esquerda): + Cubo / + Esfera / Deletar —
+  const stCube = app.clickable(902, 10, 9, 74, 28);
+  let fCube = 0x2D2D2DFF; if (stCube === 1) fCube = 0x454545FF; if (stCube === 2) fCube = 0x252525FF;
+  app.box(10, 9, 74, 28, fCube, 1, 0x232323FF, 3);
+  app.text(18, 15, "+ Cubo", 0xC8C8C8FF, 13);
+  if (stCube === 3) {
     const g = new GameObject("Cube." + spawnN);
-    g.setMesh(1, 150, 180, 220);
-    g.transform.setPosition(0, 1.5, 0);
-    scene.add(g);
-    selected = scene.objects.length - 1;
-    spawnN = spawnN + 1;
+    g.setMesh(1, 150, 180, 220); g.transform.setPosition(0, 1.5, 0);
+    scene.add(g); selected = scene.objects.length - 1; spawnN = spawnN + 1;
   }
-  const bSph = app.button(302, 8, 92, 30, "+ Esfera");
-  if (bSph) {
+  const stSph = app.clickable(903, 88, 9, 80, 28);
+  let fSph = 0x2D2D2DFF; if (stSph === 1) fSph = 0x454545FF; if (stSph === 2) fSph = 0x252525FF;
+  app.box(88, 9, 80, 28, fSph, 1, 0x232323FF, 3);
+  app.text(96, 15, "+ Esfera", 0xC8C8C8FF, 13);
+  if (stSph === 3) {
     const g = new GameObject("Sphere." + spawnN);
-    g.setMesh(4, 220, 140, 180);
-    g.transform.setPosition(0, 1.5, 0);
-    scene.add(g);
-    selected = scene.objects.length - 1;
-    spawnN = spawnN + 1;
+    g.setMesh(4, 220, 140, 180); g.transform.setPosition(0, 1.5, 0);
+    scene.add(g); selected = scene.objects.length - 1; spawnN = spawnN + 1;
   }
-  const bDel = app.button(400, 8, 84, 30, "Deletar");
-  if (bDel && scene.objects.length > 0) {
+  const stDel = app.clickable(904, 172, 9, 74, 28);
+  let fDel = 0x2D2D2DFF; if (stDel === 1) fDel = 0x5A3A3AFF; if (stDel === 2) fDel = 0x252525FF;
+  app.box(172, 9, 74, 28, fDel, 1, 0x232323FF, 3);
+  app.text(182, 15, "Deletar", 0xC8B0B0FF, 13);
+  if (stDel === 3 && scene.objects.length > 0) {
     scene.removeAt(selected);
     if (selected >= scene.objects.length) selected = scene.objects.length - 1;
     if (selected < 0) selected = 0;
   }
-  let modeS = "EDIT";
-  if (playing !== 0) modeS = "PLAY";
-  app.text(500, 15, "modo: " + modeS + "   fps " + math.floor(app.fps()), 0xC8D2E0FF, 15);
-  app.text(W - 340, 15, "WASD move | botao DIR = girar camera | espaco sobe | clique arrasta objeto", 0x8896A8FF, 12);
+
+  // — play controls CENTRALIZADOS (Play / Pause) —
+  const pcx = W / 2 - 44;
+  const stPlay = app.clickable(900, pcx, 9, 42, 28);
+  let fPlay = 0x2D2D2DFF;
+  if (playing !== 0) fPlay = 0x4A75B0FF; else if (stPlay === 1) fPlay = 0x454545FF;
+  app.box(pcx, 9, 42, 28, fPlay, 1, 0x232323FF, 3);
+  app.text(pcx + 16, 13, "|>", 0xE0E0E0FF, 15);
+  if (stPlay === 3) playing = 1;
+  const stPause = app.clickable(901, pcx + 44, 9, 42, 28);
+  let fPause = 0x2D2D2DFF;
+  if (playing === 0) fPause = 0x4A75B0FF; else if (stPause === 1) fPause = 0x454545FF;
+  app.box(pcx + 44, 9, 42, 28, fPause, 1, 0x232323FF, 3);
+  app.text(pcx + 44 + 15, 13, "||", 0xE0E0E0FF, 15);
+  if (stPause === 3) playing = 0;
+
+  // — direita: fps —
+  app.text(W - 92, 15, "fps " + math.floor(app.fps()), 0x909090FF, 13);
 
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
-  app.box(0, BAR_H, HIER_W, H - BAR_H, 0x121826FF, 0, 0, 0);
-  app.line(HIER_W, BAR_H, HIER_W, H, 1, 0x2A3546FF);
-  app.text(14, BAR_H + 12, "HIERARQUIA", 0x6FA8DCFF, 15);
-  app.text(HIER_W - 60, BAR_H + 13, scene.objects.length + " obj", 0x5E6B7EFF, 12);
+  app.box(0, BAR_H, HIER_W, H - BAR_H, 0x383838FF, 0, 0, 0);
+  app.line(HIER_W, BAR_H, HIER_W, H, 1, 0x232323FF);
+  // header/tab
+  app.box(0, BAR_H, HIER_W, 22, 0x303030FF, 0, 0, 0);
+  app.box(4, BAR_H + 2, 88, 20, 0x424242FF, 0, 0, 3);
+  app.text(12, BAR_H + 5, "Hierarchy", 0xCACACAFF, 12);
+  app.text(HIER_W - 52, BAR_H + 5, scene.objects.length + " obj", 0x808080FF, 11);
+  app.line(0, BAR_H + 22, HIER_W, BAR_H + 22, 1, 0x232323FF);
 
-  app.text(14, BAR_H + 34, "arraste: meio = filho | topo/base = irmao", 0x5E6B7EFF, 11);
+  app.text(14, BAR_H + 34, "arraste: meio = filho | topo/base = irmao", 0x808080FF, 11);
 
   // TREEVIEW com SLOTS de inserção (estilo Unity): por linha, o terço de cima =
   // soltar ANTES (irmão), o meio = virar FILHO, o de baixo = soltar DEPOIS (irmão).
@@ -292,9 +311,9 @@ while (app.running()) {
       else if (local >= 18.0) { dropIdx = hi; dropMode = 3; dropLineY = ry0 + 26; }
       else { dropIdx = hi; dropMode = 2; }
     }
-    let fill = 0x1A2230FF;
-    if (hi === selected) fill = 0x2C4A72FF;
-    if (hierDrag < 0 && inRow) fill = 0x202A3AFF;
+    let fill = 0x333333FF;
+    if (hi === selected) fill = 0x4A75B0FF;
+    if (hierDrag < 0 && inRow) fill = 0x454545FF;
     if (hierDrag >= 0 && dropMode === 2 && dropIdx === hi && hi !== hierDrag) fill = 0x2E5A3AFF; // vira filho
     app.box(8 + indent, ry0 + 1, HIER_W - 16 - indent, 24, fill, 0, 0, 5);
     if (depth > 0) app.text(8 + indent - 12, ry0 + 5, "└", 0x556377FF, 14);
@@ -302,7 +321,7 @@ while (app.running()) {
     if (obj.meshKind === 2) icon = "[P]";
     if (obj.meshKind === 3) icon = "[O]";
     if (obj.meshKind === 4) icon = "[S]";
-    app.text(14 + indent, ry0 + 6, icon + " " + obj.name, 0xDCE4F0FF, 13);
+    app.text(14 + indent, ry0 + 6, icon + " " + obj.name, 0xC8C8C8FF, 13);
     hi = hi + 1;
   }
   // linha de inserção (irmão antes/depois)
@@ -337,30 +356,36 @@ while (app.running()) {
 
   // ── inspector (direita) ─────────────────────────────────────────────────────
   const ix = W - INSP_W;
-  app.box(ix, BAR_H, INSP_W, H - BAR_H, 0x121826FF, 0, 0, 0);
-  app.line(ix, BAR_H, ix, H, 1, 0x2A3546FF);
-  app.text(ix + 14, BAR_H + 12, "INSPECTOR", 0x6FA8DCFF, 15);
+  app.box(ix, BAR_H, INSP_W, H - BAR_H, 0x383838FF, 0, 0, 0);
+  app.line(ix, BAR_H, ix, H, 1, 0x232323FF);
+  // header/tab
+  app.box(ix, BAR_H, INSP_W, 22, 0x303030FF, 0, 0, 0);
+  app.box(ix + 4, BAR_H + 2, 84, 20, 0x424242FF, 0, 0, 3);
+  app.text(ix + 12, BAR_H + 5, "Inspector", 0xCACACAFF, 12);
+  app.line(ix, BAR_H + 22, W, BAR_H + 22, 1, 0x232323FF);
   const sel = scene.objects[selected];
-  app.text(ix + 14, BAR_H + 38, sel.name, 0xFFFFFFFF, 16);
+  // faixa do nome do objeto
+  app.box(ix + 6, BAR_H + 30, INSP_W - 12, 22, 0x2D2D2DFF, 0, 0, 3);
+  app.text(ix + 14, BAR_H + 34, sel.name, 0xF0F0F0FF, 14);
   // pai + desaninhar
   if (sel.parent >= 0 && sel.parent < scene.objects.length) {
-    app.text(ix + 14, BAR_H + 62, "Pai: " + scene.objects[sel.parent].name, 0x8A96A6FF, 12);
+    app.text(ix + 14, BAR_H + 62, "Pai: " + scene.objects[sel.parent].name, 0x9A9A9AFF, 12);
     const bUn = app.button(ix + INSP_W - 108, BAR_H + 58, 94, 20, "Desaninhar");
     if (bUn) sel.parent = 0 - 1;
   } else {
-    app.text(ix + 14, BAR_H + 62, "Pai: (raiz)", 0x66707EFF, 12);
+    app.text(ix + 14, BAR_H + 62, "Pai: (raiz)", 0x707070FF, 12);
   }
-  app.text(ix + 14, BAR_H + 82, "Position", 0x9AA6B6FF, 13);
-  app.text(ix + 14, BAR_H + 90, "X", 0xC8D2E0FF, 13);
+  app.text(ix + 14, BAR_H + 82, "Position", 0x9A9A9AFF, 13);
+  app.text(ix + 14, BAR_H + 90, "X", 0xC0C0C0FF, 13);
   sel.transform.px = app.slider(ix + 34, BAR_H + 88, INSP_W - 60, sel.transform.px, -8, 8);
-  app.text(ix + 14, BAR_H + 118, "Y", 0xC8D2E0FF, 13);
+  app.text(ix + 14, BAR_H + 118, "Y", 0xC0C0C0FF, 13);
   sel.transform.py = app.slider(ix + 34, BAR_H + 116, INSP_W - 60, sel.transform.py, -2, 8);
-  app.text(ix + 14, BAR_H + 146, "Z", 0xC8D2E0FF, 13);
+  app.text(ix + 14, BAR_H + 146, "Z", 0xC0C0C0FF, 13);
   sel.transform.pz = app.slider(ix + 34, BAR_H + 144, INSP_W - 60, sel.transform.pz, -8, 8);
-  app.text(ix + 14, BAR_H + 180, "Scale", 0x9AA6B6FF, 13);
+  app.text(ix + 14, BAR_H + 180, "Scale", 0x9A9A9AFF, 13);
   const nsc = app.slider(ix + 34, BAR_H + 200, INSP_W - 60, sel.transform.sx, 0.2, 3);
   sel.transform.sx = nsc; sel.transform.sy = nsc; sel.transform.sz = nsc;
-  app.text(ix + 14, BAR_H + 226, "Rot Y", 0x9AA6B6FF, 13);
+  app.text(ix + 14, BAR_H + 226, "Rot Y", 0x9A9A9AFF, 13);
   sel.transform.ry = app.slider(ix + 60, BAR_H + 226, INSP_W - 86, sel.transform.ry, -3.14, 3.14);
 
   // ── mesh + estático ─────────────────────────────────────────────────────────
@@ -368,27 +393,38 @@ while (app.running()) {
   if (sel.meshKind === 2) meshName = "Piramide";
   if (sel.meshKind === 3) meshName = "Octaedro";
   if (sel.meshKind === 4) meshName = "Esfera";
-  app.text(ix + 14, BAR_H + 258, "Mesh: " + meshName, 0xC8D2E0FF, 13);
+  app.text(ix + 14, BAR_H + 258, "Mesh: " + meshName, 0xC0C0C0FF, 13);
   const bMesh = app.button(ix + 14, BAR_H + 278, 104, 26, "Trocar");
   if (bMesh) { sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1; }
   sel.stationary = app.checkbox(ix + 134, BAR_H + 281, sel.stationary, "Estatico");
 
   // ── componentes (scripts) do objeto — estilo Inspector do Unity ─────────────
-  app.text(ix + 14, BAR_H + 320, "COMPONENTES", 0x6FA8DCFF, 14);
+  app.text(ix + 14, BAR_H + 320, "COMPONENTES", 0xC8C8C8FF, 14);
   let bc = 0;
   let cyc = BAR_H + 344;
   while (bc < sel.behaviors.length) {
     const d = sel.behaviors[bc].toData();
     let tn = "script";
     if (d !== null) tn = d.type;
-    app.box(ix + 14, cyc, INSP_W - 28, 22, 0x1A2230FF, 1, 0x2A3546FF, 4);
-    app.text(ix + 22, cyc + 3, "> " + tn, 0xC8D2E0FF, 13);
+    app.box(ix + 14, cyc, INSP_W - 28, 22, 0x333333FF, 1, 0x232323FF, 4);
+    app.text(ix + 22, cyc + 3, "> " + tn, 0xC0C0C0FF, 13);
     cyc = cyc + 26;
     bc = bc + 1;
   }
   if (sel.behaviors.length === 0) {
-    app.text(ix + 22, cyc, "(nenhum)", 0x66707EFF, 12);
+    app.text(ix + 22, cyc, "(nenhum)", 0x707070FF, 12);
   }
+
+  // ── barra inferior (status bar estilo Unity) sobre a área do viewport ───────
+  const vpx = HIER_W;
+  const vpw = W - HIER_W - INSP_W;
+  app.box(vpx, H - 24, vpw, 24, 0x2D2D2DFF, 0, 0, 0);
+  app.line(vpx, H - 24, vpx + vpw, H - 24, 1, 0x232323FF);
+  let modeTxt = "Editing";
+  if (playing !== 0) modeTxt = "Playing";
+  app.text(vpx + 10, H - 19, modeTxt + "  |  objetos: " + scene.objects.length, 0x9A9A9AFF, 12);
+  app.text(vpx + 10, BAR_H + 8, "Scene", 0xB0B0B0C0, 13);
+  app.text(W - INSP_W - 470, H - 19, "WASD voa | botao DIR gira camera | esq seleciona/arrasta | espaco sobe", 0x808080FF, 11);
 
   app.endFrame();
 }
