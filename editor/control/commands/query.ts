@@ -3,7 +3,7 @@ import { scene, S } from "../session";
 
 /// Estado completo da cena + câmera (para a IA inspecionar).
 export function cmdState(): string {
-  let m = "[state] objs=" + scene.objects.length + " sel=" + S.selected + " playing=" + S.playing +
+  let m = "[state] objs=" + scene.objects.length + " sel=" + S.selected + " playing=" + S.playing + " drawn=" + S.drawnLast +
           " cam=(" + S.camX + "," + S.camY + "," + S.camZ + ") yaw=" + S.camYaw + " pitch=" + S.camPitch;
   let i = 0;
   while (i < scene.objects.length) {

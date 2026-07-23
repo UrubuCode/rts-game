@@ -184,6 +184,7 @@ while (app.running()) {
   // shadow map direcional: luz viaja do alto pra baixo em direção à cena
   setShadow(WIN, 0 - 7.0, 0 - 12.0, 0 - 5.0, 0.0, 1.0, 0.0, 24.0);
   let oi = 0;
+  let drawnN = 0;
   while (oi < scene.objects.length) {
     const o = scene.objects[oi];
     if (o.active !== 0 && o.meshKind !== 0) {
@@ -199,10 +200,12 @@ while (app.running()) {
         const col = (rr << 16) | (gg << 8) | bbv;
         drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
           o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
+        drawnN = drawnN + 1;
       }
     }
     oi = oi + 1;
   }
+  S.drawnLast = drawnN;   // nº de objetos desenhados neste frame (diagnóstico via ws 'dbg')
 
   // ═══ EDITOR UI (estilo Unity) ══════════════════════════════════════════════
   // toolbar
