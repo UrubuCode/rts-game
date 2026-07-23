@@ -4,6 +4,7 @@ import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdPlay, cmdPause, cmdClear, cmdLoad } from "./commands/scene";
+import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { scene, S } from "./session";
 import { inFrustum } from "../../engine/render/gpu3d";
 
@@ -32,9 +33,8 @@ export function execCommand(w: number, h: number, line: string): string {
         oi = oi + 1;
       }
       const last = scene.objects[scene.objects.length - 1];
-      return "[dbg] ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast + "
-        " | ultimo " + last.name + " local(" + last.transform.px + "," + last.transform.py + "," + last.transform.pz + ")" +
-        " world(" + last.transform.wx + "," + last.transform.wy + "," + last.transform.wz + ")";
+      return "[dbg] ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast +
+        " | ultimo " + last.name + " world(" + last.transform.wx + "," + last.transform.wy + "," + last.transform.wz + ")";
     }
     case "res": return cmdRes(w, h);
     case "help": return cmdHelp();
@@ -51,6 +51,11 @@ export function execCommand(w: number, h: number, line: string): string {
     case "pause": return cmdPause();
     case "clear": return cmdClear();
     case "loadscene": return cmdLoad(parts);
+    case "comps": return cmdComps(parts);
+    case "complist": return cmdCompList();
+    case "addcomp": return cmdAddComp(parts);
+    case "rmcomp": return cmdRmComp(parts);
+    case "setfield": return cmdSetField(parts);
     default: return "[erro] desconhecido: " + cmd;
   }
 }

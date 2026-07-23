@@ -34,5 +34,7 @@ export function cmdHelp(): string {
     " | select <i> | delete <i>" +
     " | cam <x> <y> <z> <yaw> <pitch>" +
     " | play | pause | clear" +
-    " | loadscene <path>";
+    " | loadscene <path>" +
+    " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
+    " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>";
 }
