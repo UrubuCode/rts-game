@@ -1,0 +1,13 @@
+{
+  "objects": [
+    { "name": "Ground", "mesh": 1, "pos": [0, 0, 0], "rot": [0, 0], "scale3": [24, 0.4, 24], "color": [88, 94, 104], "tex": 1, "stationary": 1, "scripts": [] },
+
+    { "name": "RedCube", "mesh": 1, "pos": [-5, 1.6, 0], "rot": [0, 0.3], "scale": 1.8, "color": [220, 70, 60], "scripts": [ { "type": "spin", "sy": 0.7, "sx": 0.0 } ] },
+    { "name": "BlueSphere", "mesh": 4, "pos": [0, 2.0, 0], "rot": [0, 0], "scale": 2.2, "color": [70, 130, 235], "scripts": [] },
+    { "name": "GreenPyramid", "mesh": 2, "pos": [5, 1.4, -2], "rot": [0, 0], "scale": 2.0, "color": [90, 200, 110], "scripts": [ { "type": "spin", "sy": 0.9, "sx": 0.0 } ] },
+    { "name": "YellowBall", "mesh": 4, "pos": [3, 2.6, 3], "rot": [0, 0], "scale": 1.3, "color": [240, 210, 80], "scripts": [ { "type": "bob", "amp": 0.7, "freq": 1.4, "base": 2.6 } ] },
+    { "name": "PurpleOcta", "mesh": 3, "pos": [-3, 2.0, 4], "rot": [0, 0], "scale": 1.6, "color": [170, 90, 210], "scripts": [ { "type": "spin", "sy": 0.6, "sx": 0.5 } ] },
+    { "name": "Pillar", "mesh": 1, "pos": [7, 3.0, 4], "rot": [0, 0], "scale3": [1, 6, 1], "color": [230, 150, 70], "scripts": [] },
+    { "name": "CyanCube", "mesh": 1, "pos": [-7, 1.0, -4], "rot": [0, 0.5], "scale": 1.2, "color": [80, 210, 210], "scripts": [ { "type": "bob", "amp": 0.5, "freq": 1.0, "base": 1.4 } ] }
+  ]
+}

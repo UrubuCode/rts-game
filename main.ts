@@ -20,6 +20,7 @@ import { Rigidbody } from "./scripts/rigidbody";
 import { Mover } from "./scripts/mover";
 import { Pulse } from "./scripts/pulse";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
+import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum } from "./engine/render/gpu3d";
 
 // ── janela ────────────────────────────────────────────────────────────────
@@ -32,6 +33,7 @@ const WIN = app._win;
 const HIER_W = 250;      // painel hierarquia (esquerda)
 const INSP_W = 270;      // painel inspector (direita)
 const BAR_H = 46;        // toolbar (topo)
+const ASSET_H = 200;     // Project panel (base, sobre o viewport)
 
 // ── framebuffer 3D (rasterizado em software, blitado com render.image) ───────
 const RW = 320;          // resolucao de render (blitada p/ WxH)
@@ -54,36 +56,29 @@ const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
 // ── cena (estilo Unity) ─────────────────────────────────────────────────────
 const scene = new Scene("Main");
 
-// carrega a cena de demonstração. Prefere scenes/shadowdemo.json (chão + objetos,
-// mostra sombras + textura); senão scenes/solar.json. Campos opcionais por objeto:
-// scale3 [x,y,z] (escala não-uniforme), emissive (0/1), tex (0/1 xadrez).
-let sceneFile = "scenes/solar.json";
-if (fs.exists("scenes/shadowdemo.json")) sceneFile = "scenes/shadowdemo.json";
-if (fs.exists(sceneFile)) {
-  const data = JSON.parse(fs.read_text(sceneFile));
-  const arr = data.objects;
-  let ci = 0;
-  while (ci < arr.length) {
-    const od = arr[ci];
-    const go = new GameObject(od.name);
-    if (od.parent !== undefined) go.parent = od.parent;
-    if (od.stationary !== undefined) go.stationary = od.stationary;
-    if (od.emissive !== undefined) go.emissive = od.emissive;
-    if (od.tex !== undefined) go.tex = od.tex;
-    const col = od.color;
-    go.setMesh(od.mesh, col[0], col[1], col[2]);
-    const p = od.pos;
-    const r = od.rot;
-    go.transform.setPosition(p[0], p[1], p[2]);
-    go.transform.rx = r[0];
-    go.transform.ry = r[1];
-    if (od.scale3 !== undefined) {
-      const s3 = od.scale3;
-      go.transform.sx = s3[0]; go.transform.sy = s3[1]; go.transform.sz = s3[2];
-    } else {
-      go.transform.setScale(od.scale);
-    }
-    const scr = od.scripts;
+// Constrói 1 GameObject a partir de um descritor JSON. Campos opcionais: parent,
+// stationary, emissive, tex, scale3 [x,y,z], scripts [].
+function buildObject(od: any): GameObject {
+  const go = new GameObject(od.name);
+  if (od.parent !== undefined) go.parent = od.parent;
+  if (od.stationary !== undefined) go.stationary = od.stationary;
+  if (od.emissive !== undefined) go.emissive = od.emissive;
+  if (od.tex !== undefined) go.tex = od.tex;
+  const col = od.color;
+  go.setMesh(od.mesh, col[0], col[1], col[2]);
+  const p = od.pos;
+  const r = od.rot;
+  go.transform.setPosition(p[0], p[1], p[2]);
+  go.transform.rx = r[0];
+  go.transform.ry = r[1];
+  if (od.scale3 !== undefined) {
+    const s3 = od.scale3;
+    go.transform.sx = s3[0]; go.transform.sy = s3[1]; go.transform.sz = s3[2];
+  } else {
+    go.transform.setScale(od.scale);
+  }
+  const scr = od.scripts;
+  if (scr !== undefined) {
     let si = 0;
     while (si < scr.length) {
       const sd = scr[si];
@@ -95,18 +90,38 @@ if (fs.exists(sceneFile)) {
       if (t === "pulse") go.addBehavior(new Pulse(sd.amp, sd.freq, sd.base));
       si = si + 1;
     }
-    scene.add(go);
-    ci = ci + 1;
   }
+  return go;
+}
+
+// Carrega uma cena inteira (arquivo { objects: [...] }), SUBSTITUINDO a atual.
+function loadSceneFrom(path: string): void {
+  if (!fs.exists(path)) return;
+  scene.clear();
+  const data = JSON.parse(fs.read_text(path));
+  const arr = data.objects;
+  let ci = 0;
+  while (ci < arr.length) { scene.add(buildObject(arr[ci])); ci = ci + 1; }
   setLight(0.35, 1.0, 0.25);
   setAmbient(0.2);
-  // Sol emissivo (compat solar.json) — no shadowdemo o campo emissive já vem no JSON
   let ei = 0;
   while (ei < scene.objects.length) {
     if (scene.objects[ei].name === "Sun") scene.objects[ei].emissive = 1;
     ei = ei + 1;
   }
 }
+
+// Instancia 1 prefab (arquivo com UM objeto) na cena atual, sem limpá-la.
+function instantiatePrefab(path: string): void {
+  if (!fs.exists(path)) return;
+  const od = JSON.parse(fs.read_text(path));
+  scene.add(buildObject(od));
+}
+
+// carga inicial: prefere shadowdemo.json (sombras + textura); senão solar.json.
+let sceneFile = "scenes/solar.json";
+if (fs.exists("scenes/shadowdemo.json")) sceneFile = "scenes/shadowdemo.json";
+loadSceneFrom(sceneFile);
 
 // ── estado do editor ────────────────────────────────────────────────────────
 let playing = 1;
@@ -119,6 +134,7 @@ let lastMx: f64 = 0.0;
 let lastMy: f64 = 0.0;
 
 initMeshes(WIN);
+assetsInit();
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos (raster solido)");
 
 while (app.running()) {
@@ -178,7 +194,7 @@ while (app.running()) {
   const mDownNow = input.mouseDown(WIN, 0);
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
-  const inViewport = mx > HIER_W && mx < W - INSP_W && my > BAR_H;
+  const inViewport = mx > HIER_W && mx < W - INSP_W && my > BAR_H && my < H - 24 - ASSET_H;
   const cpt2 = math.cos(camPitch); const spt2 = math.sin(camPitch);
   if (mPressed !== 0 && inViewport) {
     // seleciona o objeto projetado mais perto do mouse e começa o drag
@@ -459,6 +475,22 @@ while (app.running()) {
   app.text(vpx + 10, H - 19, modeTxt + "  |  objetos: " + scene.objects.length, 0x9A9A9AFF, 12);
   app.text(vpx + 10, BAR_H + 8, "Scene", 0xB0B0B0C0, 13);
   app.text(W - INSP_W - 470, H - 19, "WASD voa | botao DIR gira camera | esq seleciona/arrasta | espaco sobe", 0x808080FF, 11);
+
+  // ── PROJECT PANEL (asset browser) na base do viewport ───────────────────────
+  const apX = HIER_W;
+  const apY = H - 24 - ASSET_H;
+  const apW = W - HIER_W - INSP_W;
+  const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, mPressed, frames);
+  if (assetAct.length > 0) {
+    const path = assetAct.substring(assetAct.indexOf(":") + 1);
+    if (assetAct.charCodeAt(0) === 115) {      // "scene:" → recarrega a cena
+      loadSceneFrom(path);
+      selected = 0;
+    } else {                                   // "prefab:" → instancia na cena
+      instantiatePrefab(path);
+      selected = scene.objects.length - 1;
+    }
+  }
 
   app.endFrame();
 }
