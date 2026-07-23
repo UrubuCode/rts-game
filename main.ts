@@ -9,20 +9,14 @@ import buffer from "rts:buffer";
 import render from "rts:render";
 import input from "rts:input";
 import fs from "rts:fs";
-import ws from "rts:ws";
 
-import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
-import { clearFB, drawFloor } from "./engine/render/raster";
-import { drawMeshSolid, setLight, setAmbient } from "./engine/render/mesh";
-import { Spinner } from "./scripts/spinner";
-import { Bobber } from "./scripts/bobber";
-import { Rigidbody } from "./scripts/rigidbody";
-import { Mover } from "./scripts/mover";
-import { Pulse } from "./scripts/pulse";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
 import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum, winWidth, winHeight } from "./engine/render/gpu3d";
+import { scene, S } from "./editor/control/session";
+import { loadSceneFrom, instantiatePrefab } from "./editor/sceneio";
+import { ctrlServe, ctrlPoll } from "./editor/control/server";
 
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
@@ -45,79 +39,11 @@ const zbuf = buffer.alloc(NPIX * 8);   // profundidade f64/pixel
 const fptr = buffer.ptr(fbuf);
 
 // ── câmera (fly) — estado top-level ─────────────────────────────────────────
-let camX: f64 = 0.0;
-let camY: f64 = 11.0;
-let camZ: f64 = -15.0;
-let camYaw: f64 = 0.0;
-let camPitch: f64 = 0 - 0.5;
 const FOV: f64 = 1.05;
 const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);   // p/ framebuffer
 let focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);      // p/ picking; recalc por frame
 
 // ── cena (estilo Unity) ─────────────────────────────────────────────────────
-const scene = new Scene("Main");
-
-// Constrói 1 GameObject a partir de um descritor JSON. Campos opcionais: parent,
-// stationary, emissive, tex, scale3 [x,y,z], scripts [].
-function buildObject(od: any): GameObject {
-  const go = new GameObject(od.name);
-  if (od.parent !== undefined) go.parent = od.parent;
-  if (od.stationary !== undefined) go.stationary = od.stationary;
-  if (od.emissive !== undefined) go.emissive = od.emissive;
-  if (od.tex !== undefined) go.tex = od.tex;
-  const col = od.color;
-  go.setMesh(od.mesh, col[0], col[1], col[2]);
-  const p = od.pos;
-  const r = od.rot;
-  go.transform.setPosition(p[0], p[1], p[2]);
-  go.transform.rx = r[0];
-  go.transform.ry = r[1];
-  if (od.scale3 !== undefined) {
-    const s3 = od.scale3;
-    go.transform.sx = s3[0]; go.transform.sy = s3[1]; go.transform.sz = s3[2];
-  } else {
-    go.transform.setScale(od.scale);
-  }
-  const scr = od.scripts;
-  if (scr !== undefined) {
-    let si = 0;
-    while (si < scr.length) {
-      const sd = scr[si];
-      const t = sd.type;
-      if (t === "spin") go.addBehavior(new Spinner(sd.sy, sd.sx));
-      if (t === "bob") go.addBehavior(new Bobber(sd.amp, sd.freq, sd.base));
-      if (t === "rigidbody") go.addBehavior(new Rigidbody(sd.g, sd.bounce));
-      if (t === "mover") go.addBehavior(new Mover(sd.vx, sd.vy, sd.vz));
-      if (t === "pulse") go.addBehavior(new Pulse(sd.amp, sd.freq, sd.base));
-      si = si + 1;
-    }
-  }
-  return go;
-}
-
-// Carrega uma cena inteira (arquivo { objects: [...] }), SUBSTITUINDO a atual.
-function loadSceneFrom(path: string): void {
-  if (!fs.exists(path)) return;
-  scene.clear();
-  const data = JSON.parse(fs.read_text(path));
-  const arr = data.objects;
-  let ci = 0;
-  while (ci < arr.length) { scene.add(buildObject(arr[ci])); ci = ci + 1; }
-  setLight(0.35, 1.0, 0.25);
-  setAmbient(0.2);
-  let ei = 0;
-  while (ei < scene.objects.length) {
-    if (scene.objects[ei].name === "Sun") scene.objects[ei].emissive = 1;
-    ei = ei + 1;
-  }
-}
-
-// Instancia 1 prefab (arquivo com UM objeto) na cena atual, sem limpá-la.
-function instantiatePrefab(path: string): void {
-  if (!fs.exists(path)) return;
-  const od = JSON.parse(fs.read_text(path));
-  scene.add(buildObject(od));
-}
 
 // carga inicial: prefere shadowdemo.json (sombras + textura); senão solar.json.
 let sceneFile = "scenes/solar.json";
@@ -125,8 +51,6 @@ if (fs.exists("scenes/shadowdemo.json")) sceneFile = "scenes/shadowdemo.json";
 loadSceneFrom(sceneFile);
 
 // ── estado do editor ────────────────────────────────────────────────────────
-let playing = 1;
-let selected = 0;
 let frames = 0;
 let spawnN = 0;
 let dragging = 0;
@@ -136,82 +60,8 @@ let lastMy: f64 = 0.0;
 
 initMeshes(WIN);
 assetsInit();
-io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos (raster solido)");
-
-// ── PORTA DE CONTROLE (WebSocket) — uma LLM/ferramenta dirige ESTE editor ─────
-// A UI continua a interna (egui). Isto só adiciona um acesso de controle por
-// socket, NÃO-BLOQUEANTE (ws.recv volta "" sem dados) — não trava o editor.
-const wsServer = ws.serve(7777);
-let wsClient = 0;
-if (wsServer !== 0) io.print("[ctrl] controle da LLM em ws://127.0.0.1:7777");
-
-// executa 1 comando de controle no editor e devolve a resposta (texto)
-function wsExec(line: string): string {
-  const parts = line.split(" ");
-  const cmd = parts[0];
-  const np = parts.length;
-  if (cmd === "state") {
-    let m = "[state] objs=" + scene.objects.length + " sel=" + selected + " playing=" + playing +
-            " cam=(" + camX + "," + camY + "," + camZ + ") yaw=" + camYaw + " pitch=" + camPitch;
-    let i = 0;
-    while (i < scene.objects.length) {
-      const o = scene.objects[i];
-      m = m + " | #" + i + " " + o.name + " k" + o.meshKind +
-          "(" + o.transform.px + "," + o.transform.py + "," + o.transform.pz + ")";
-      i = i + 1;
-    }
-    return m;
-  }
-  if (cmd === "res") return "[res] " + W + " x " + H;
-  if (cmd === "spawn") {
-    const idx = scene.objects.length;
-    const go = new GameObject(parts[1]);
-    let k = 1; if (np > 5) k = parseFloat(parts[5]) | 0;
-    go.setMesh(k, 120, 180, 255);
-    go.transform.setPosition(parseFloat(parts[2]), parseFloat(parts[3]), parseFloat(parts[4]));
-    if (np > 6) go.transform.setScale(parseFloat(parts[6]));
-    go.stationary = 1;   // a posição pedida pela LLM gruda (colisão não empurra)
-    scene.add(go);
-    selected = idx;
-    return "[ok] spawn #" + idx + " " + parts[1];
-  }
-  if (cmd === "move") { const o = scene.objects[parseFloat(parts[1]) | 0]; o.transform.px = parseFloat(parts[2]); o.transform.py = parseFloat(parts[3]); o.transform.pz = parseFloat(parts[4]); return "[ok] move"; }
-  if (cmd === "mesh") { scene.objects[parseFloat(parts[1]) | 0].meshKind = parseFloat(parts[2]) | 0; return "[ok] mesh"; }
-  if (cmd === "color") { const o = scene.objects[parseFloat(parts[1]) | 0]; o.cr = parseFloat(parts[2]) | 0; o.cg = parseFloat(parts[3]) | 0; o.cb = parseFloat(parts[4]) | 0; return "[ok] color"; }
-  if (cmd === "spin") { let sx: f64 = 0.0; if (np > 3) sx = parseFloat(parts[3]); scene.objects[parseFloat(parts[1]) | 0].addBehavior(new Spinner(parseFloat(parts[2]), sx)); return "[ok] spin"; }
-  if (cmd === "select") { selected = parseFloat(parts[1]) | 0; return "[ok] select #" + selected; }
-  if (cmd === "delete") { scene.removeAt(parseFloat(parts[1]) | 0); if (selected >= scene.objects.length) selected = scene.objects.length - 1; if (selected < 0) selected = 0; return "[ok] delete"; }
-  if (cmd === "cam") { camX = parseFloat(parts[1]); camY = parseFloat(parts[2]); camZ = parseFloat(parts[3]); camYaw = parseFloat(parts[4]); camPitch = parseFloat(parts[5]); return "[ok] cam"; }
-  if (cmd === "play") { playing = 1; return "[ok] play"; }
-  if (cmd === "pause") { playing = 0; return "[ok] pause"; }
-  if (cmd === "clear") { scene.clear(); selected = 0; return "[ok] clear"; }
-  if (cmd === "loadscene") { loadSceneFrom(parts[1]); selected = 0; return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length; }
-  return "[erro] desconhecido: " + cmd;
-}
-
-// poll do socket (1x por frame, não-bloqueante): aceita cliente ou processa comando
-function wsPoll(): void {
-  if (wsServer === 0) return;
-  if (wsClient === 0) {
-    const c = ws.accept(wsServer);
-    if (c !== 0) { wsClient = c; ws.send(wsClient, "[engine] editor conectado. cmds: state/res/spawn/move/mesh/color/spin/select/delete/cam/play/pause/clear/loadscene"); }
-    return;
-  }
-  const rr = ws.recvReady(wsClient);
-  if (rr < 0) { ws.close(wsClient); wsClient = 0; return; }
-  if (rr > 0) {
-    const msg = ws.recv(wsClient);
-    if (msg.length > 0) {
-      const lines = msg.split("\n");
-      let li = 0;
-      while (li < lines.length) {
-        const l = lines[li].split("\r")[0];
-        if (l.length > 0) ws.send(wsClient, wsExec(l));
-        li = li + 1;
-      }
-    }
-  }
-}
+ctrlServe(7777);   // porta de controle da LLM (ws://127.0.0.1:7777)
+io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
 
 while (app.running()) {
   const goOn = app.beginFrame();
@@ -222,7 +72,7 @@ while (app.running()) {
   if (nw > 400) W = nw;
   if (nh > 300) H = nh;
   focalW = (H * 0.5) / math.tan(FOV * 0.5);
-  wsPoll();   // ← acesso de controle da LLM (não-bloqueante; não trava o editor)
+  ctrlPoll(W, H);   // ← controle da LLM por WebSocket (não-bloqueante)
   let dt: f64 = app.delta();
   if (dt > 100) dt = 100;
   const dts: f64 = dt / 1000.0;
@@ -240,36 +90,36 @@ while (app.running()) {
   const kSp = app.keyDown(3);
 
   const lookSpeed: f64 = 1.6 * dts;
-  if (kLf !== 0) camYaw = camYaw - lookSpeed;
-  if (kRt !== 0) camYaw = camYaw + lookSpeed;
-  if (kUp !== 0) camPitch = camPitch - lookSpeed;
-  if (kDn !== 0) camPitch = camPitch + lookSpeed;
+  if (kLf !== 0) S.camYaw = S.camYaw - lookSpeed;
+  if (kRt !== 0) S.camYaw = S.camYaw + lookSpeed;
+  if (kUp !== 0) S.camPitch = S.camPitch - lookSpeed;
+  if (kDn !== 0) S.camPitch = S.camPitch + lookSpeed;
   // olhar com o BOTÃO DIREITO do mouse (mouse-look estilo Unity fly)
   const mvdx: f64 = input.mouseDeltaX(WIN);
   const mvdy: f64 = input.mouseDeltaY(WIN);
   if (input.mouseDown(WIN, 1) !== 0) {
-    camYaw = camYaw + mvdx * 0.005;
-    camPitch = camPitch - mvdy * 0.005;
+    S.camYaw = S.camYaw + mvdx * 0.005;
+    S.camPitch = S.camPitch - mvdy * 0.005;
   }
-  if (camPitch > 1.4) camPitch = 1.4;
-  if (camPitch < 0 - 1.4) camPitch = 0 - 1.4;
+  if (S.camPitch > 1.4) S.camPitch = 1.4;
+  if (S.camPitch < 0 - 1.4) S.camPitch = 0 - 1.4;
 
-  const cyw = math.cos(camYaw);
-  const syw = math.sin(camYaw);
-  const cpM = math.cos(camPitch);
-  const spM = math.sin(camPitch);
+  const cyw = math.cos(S.camYaw);
+  const syw = math.sin(S.camYaw);
+  const cpM = math.cos(S.camPitch);
+  const spM = math.sin(S.camPitch);
   const moveSpeed: f64 = 6.0 * dts;
   // forward = direção que a câmera olha (inclui o pitch); W/S voam nessa direção
   const fx = syw * cpM; const fy = spM; const fz = cyw * cpM;
   const rxv = cyw; const rzv = 0 - syw;   // strafe (A/D) no plano horizontal
-  if (kW !== 0) { camX = camX + fx * moveSpeed; camY = camY + fy * moveSpeed; camZ = camZ + fz * moveSpeed; }
-  if (kS !== 0) { camX = camX - fx * moveSpeed; camY = camY - fy * moveSpeed; camZ = camZ - fz * moveSpeed; }
-  if (kD !== 0) { camX = camX + rxv * moveSpeed; camZ = camZ + rzv * moveSpeed; }
-  if (kA !== 0) { camX = camX - rxv * moveSpeed; camZ = camZ - rzv * moveSpeed; }
-  if (kSp !== 0) camY = camY + moveSpeed;
+  if (kW !== 0) { S.camX = S.camX + fx * moveSpeed; S.camY = S.camY + fy * moveSpeed; S.camZ = S.camZ + fz * moveSpeed; }
+  if (kS !== 0) { S.camX = S.camX - fx * moveSpeed; S.camY = S.camY - fy * moveSpeed; S.camZ = S.camZ - fz * moveSpeed; }
+  if (kD !== 0) { S.camX = S.camX + rxv * moveSpeed; S.camZ = S.camZ + rzv * moveSpeed; }
+  if (kA !== 0) { S.camX = S.camX - rxv * moveSpeed; S.camZ = S.camZ - rzv * moveSpeed; }
+  if (kSp !== 0) S.camY = S.camY + moveSpeed;
 
-  // ── UPDATE da cena (só quando playing) ────────────────────────────────────
-  if (playing !== 0) { scene.update(dts); scene.resolveCollisions(); }
+  // ── UPDATE da cena (só quando S.playing) ────────────────────────────────────
+  if (S.playing !== 0) { scene.update(dts); scene.resolveCollisions(); }
   scene.computeWorld();
 
   // ── PICKING + DRAG: pressionar seleciona; segurando, ARRASTA o objeto ───────
@@ -278,7 +128,7 @@ while (app.running()) {
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
   const inViewport = mx > HIER_W && mx < W - INSP_W && my > BAR_H && my < H - 24 - ASSET_H;
-  const cpt2 = math.cos(camPitch); const spt2 = math.sin(camPitch);
+  const cpt2 = math.cos(S.camPitch); const spt2 = math.sin(S.camPitch);
   if (mPressed !== 0 && inViewport) {
     // seleciona o objeto projetado mais perto do mouse e começa o drag
     let best = 0 - 1;
@@ -287,9 +137,9 @@ while (app.running()) {
     while (pi < scene.objects.length) {
       const po = scene.objects[pi];
       if (po.meshKind !== 0) {
-        const dx = po.transform.wx - camX;
-        const dy = po.transform.wy - camY;
-        const dz = po.transform.wz - camZ;
+        const dx = po.transform.wx - S.camX;
+        const dy = po.transform.wy - S.camY;
+        const dz = po.transform.wz - S.camZ;
         const x1 = dx * cyw - dz * syw;
         const z1 = dx * syw + dz * cyw;
         const y2 = dy * cpt2 - z1 * spt2;
@@ -304,17 +154,17 @@ while (app.running()) {
       }
       pi = pi + 1;
     }
-    if (best >= 0) { selected = best; dragging = 1; }
+    if (best >= 0) { S.selected = best; dragging = 1; }
     lastMx = mx; lastMy = my;
   }
   if (mDownNow === 0) dragging = 0;
   // enquanto arrasta: move o selecionado no plano da tela (direita da câmera + Y)
   if (dragging !== 0 && mDownNow !== 0 && inViewport && scene.objects.length > 0) {
-    const so = scene.objects[selected];
-    const dxo = so.transform.wx - camX;
-    const dzo = so.transform.wz - camZ;
+    const so = scene.objects[S.selected];
+    const dxo = so.transform.wx - S.camX;
+    const dzo = so.transform.wz - S.camZ;
     const z1o = dxo * syw + dzo * cyw;
-    let depth: f64 = (so.transform.wy - camY) * spt2 + z1o * cpt2;
+    let depth: f64 = (so.transform.wy - S.camY) * spt2 + z1o * cpt2;
     if (depth < 1.0) depth = 1.0;
     const perPx: f64 = depth / focalW;   // unidades de mundo por pixel de tela
     const mdx: f64 = (mx - lastMx) * perPx;
@@ -329,7 +179,7 @@ while (app.running()) {
   // ── RENDER 3D por GPU (pipeline wgpu no scene pass; a UI do egui compõe por
   //    cima). Só manda câmera/luz + 1 drawMesh por objeto — a GPU faz o resto. ──
   scene.computeWorld();
-  setCam(WIN, camX, camY, camZ, camYaw, camPitch, FOV, W / H);
+  setCam(WIN, S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
   setLgt(WIN, 7.0, 13.0, 5.0, 0.28);   // luz PONTUAL (posição no alto)
   // shadow map direcional: luz viaja do alto pra baixo em direção à cena
   setShadow(WIN, 0 - 7.0, 0 - 12.0, 0 - 5.0, 0.0, 1.0, 0.0, 24.0);
@@ -341,11 +191,11 @@ while (app.running()) {
       let rmax: f64 = o.transform.sx;
       if (o.transform.sy > rmax) rmax = o.transform.sy;
       if (o.transform.sz > rmax) rmax = o.transform.sz;
-      const vis = inFrustum(camX, camY, camZ, camYaw, camPitch, FOV, W / H,
+      const vis = inFrustum(S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H,
         o.transform.wx, o.transform.wy, o.transform.wz, rmax * 0.87);
       if (vis !== 0) {
         let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
-        if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
+        if (oi === S.selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
         const col = (rr << 16) | (gg << 8) | bbv;
         drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
           o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
@@ -367,7 +217,7 @@ while (app.running()) {
   if (stCube === 3) {
     const g = new GameObject("Cube." + spawnN);
     g.setMesh(1, 150, 180, 220); g.transform.setPosition(0, 1.5, 0);
-    scene.add(g); selected = scene.objects.length - 1; spawnN = spawnN + 1;
+    scene.add(g); S.selected = scene.objects.length - 1; spawnN = spawnN + 1;
   }
   const stSph = app.clickable(903, 88, 9, 80, 28);
   let fSph = 0x2D2D2DFF; if (stSph === 1) fSph = 0x454545FF; if (stSph === 2) fSph = 0x252525FF;
@@ -376,32 +226,32 @@ while (app.running()) {
   if (stSph === 3) {
     const g = new GameObject("Sphere." + spawnN);
     g.setMesh(4, 220, 140, 180); g.transform.setPosition(0, 1.5, 0);
-    scene.add(g); selected = scene.objects.length - 1; spawnN = spawnN + 1;
+    scene.add(g); S.selected = scene.objects.length - 1; spawnN = spawnN + 1;
   }
   const stDel = app.clickable(904, 172, 9, 74, 28);
   let fDel = 0x2D2D2DFF; if (stDel === 1) fDel = 0x5A3A3AFF; if (stDel === 2) fDel = 0x252525FF;
   app.box(172, 9, 74, 28, fDel, 1, 0x232323FF, 3);
   app.text(182, 15, "Deletar", 0xC8B0B0FF, 13);
   if (stDel === 3 && scene.objects.length > 0) {
-    scene.removeAt(selected);
-    if (selected >= scene.objects.length) selected = scene.objects.length - 1;
-    if (selected < 0) selected = 0;
+    scene.removeAt(S.selected);
+    if (S.selected >= scene.objects.length) S.selected = scene.objects.length - 1;
+    if (S.selected < 0) S.selected = 0;
   }
 
   // — play controls CENTRALIZADOS (Play / Pause) —
   const pcx = W / 2 - 44;
   const stPlay = app.clickable(900, pcx, 9, 42, 28);
   let fPlay = 0x2D2D2DFF;
-  if (playing !== 0) fPlay = 0x4A75B0FF; else if (stPlay === 1) fPlay = 0x454545FF;
+  if (S.playing !== 0) fPlay = 0x4A75B0FF; else if (stPlay === 1) fPlay = 0x454545FF;
   app.box(pcx, 9, 42, 28, fPlay, 1, 0x232323FF, 3);
   app.text(pcx + 16, 13, "|>", 0xE0E0E0FF, 15);
-  if (stPlay === 3) playing = 1;
+  if (stPlay === 3) S.playing = 1;
   const stPause = app.clickable(901, pcx + 44, 9, 42, 28);
   let fPause = 0x2D2D2DFF;
-  if (playing === 0) fPause = 0x4A75B0FF; else if (stPause === 1) fPause = 0x454545FF;
+  if (S.playing === 0) fPause = 0x4A75B0FF; else if (stPause === 1) fPause = 0x454545FF;
   app.box(pcx + 44, 9, 42, 28, fPause, 1, 0x232323FF, 3);
   app.text(pcx + 44 + 15, 13, "||", 0xE0E0E0FF, 15);
-  if (stPause === 3) playing = 0;
+  if (stPause === 3) S.playing = 0;
 
   // — direita: fps —
   app.text(W - 92, 15, "fps " + math.floor(app.fps()), 0x909090FF, 13);
@@ -432,7 +282,7 @@ while (app.running()) {
     const indent = depth * 16;
     const ry0 = BAR_H + 52 + hi * 26;
     const inRow = mx < HIER_W && my >= ry0 && my < ry0 + 26;
-    if (mPressed !== 0 && inRow) { hierDrag = hi; selected = hi; }
+    if (mPressed !== 0 && inRow) { hierDrag = hi; S.selected = hi; }
     // detecta a zona de drop enquanto arrasta
     if (hierDrag >= 0 && inRow) {
       const local: f64 = my - ry0;
@@ -441,7 +291,7 @@ while (app.running()) {
       else { dropIdx = hi; dropMode = 2; }
     }
     let fill = 0x333333FF;
-    if (hi === selected) fill = 0x4A75B0FF;
+    if (hi === S.selected) fill = 0x4A75B0FF;
     if (hierDrag < 0 && inRow) fill = 0x454545FF;
     if (hierDrag >= 0 && dropMode === 2 && dropIdx === hi && hi !== hierDrag) fill = 0x2E5A3AFF; // vira filho
     app.box(8 + indent, ry0 + 1, HIER_W - 16 - indent, 24, fill, 0, 0, 5);
@@ -472,7 +322,7 @@ while (app.running()) {
       // re-seleciona o arrastado na nova posição
       let f2 = 0;
       while (f2 < scene.objects.length) {
-        if (scene.objects[f2] === dref) { selected = f2; f2 = scene.objects.length; } else f2 = f2 + 1;
+        if (scene.objects[f2] === dref) { S.selected = f2; f2 = scene.objects.length; } else f2 = f2 + 1;
       }
     }
     hierDrag = 0 - 1;
@@ -492,7 +342,7 @@ while (app.running()) {
   app.box(ix + 4, BAR_H + 2, 84, 20, 0x424242FF, 0, 0, 3);
   app.text(ix + 12, BAR_H + 5, "Inspector", 0xCACACAFF, 12);
   app.line(ix, BAR_H + 22, W, BAR_H + 22, 1, 0x232323FF);
-  const sel = scene.objects[selected];
+  const sel = scene.objects[S.selected];
   // faixa do nome do objeto
   app.box(ix + 6, BAR_H + 30, INSP_W - 12, 22, 0x2D2D2DFF, 0, 0, 3);
   app.text(ix + 14, BAR_H + 34, sel.name, 0xF0F0F0FF, 14);
@@ -554,7 +404,7 @@ while (app.running()) {
   app.box(vpx, H - 24, vpw, 24, 0x2D2D2DFF, 0, 0, 0);
   app.line(vpx, H - 24, vpx + vpw, H - 24, 1, 0x232323FF);
   let modeTxt = "Editing";
-  if (playing !== 0) modeTxt = "Playing";
+  if (S.playing !== 0) modeTxt = "Playing";
   app.text(vpx + 10, H - 19, modeTxt + "  |  objetos: " + scene.objects.length, 0x9A9A9AFF, 12);
   app.text(vpx + 10, BAR_H + 8, "Scene", 0xB0B0B0C0, 13);
   app.text(W - INSP_W - 470, H - 19, "WASD voa | botao DIR gira camera | esq seleciona/arrasta | espaco sobe", 0x808080FF, 11);
@@ -568,10 +418,10 @@ while (app.running()) {
     const path = assetAct.substring(assetAct.indexOf(":") + 1);
     if (assetAct.charCodeAt(0) === 115) {      // "scene:" → recarrega a cena
       loadSceneFrom(path);
-      selected = 0;
+      S.selected = 0;
     } else {                                   // "prefab:" → instancia na cena
       instantiatePrefab(path);
-      selected = scene.objects.length - 1;
+      S.selected = scene.objects.length - 1;
     }
   }
 
