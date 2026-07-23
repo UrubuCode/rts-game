@@ -9,6 +9,7 @@ import buffer from "rts:buffer";
 import render from "rts:render";
 import input from "rts:input";
 import fs from "rts:fs";
+import ws from "rts:ws";
 
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";
@@ -137,6 +138,81 @@ initMeshes(WIN);
 assetsInit();
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos (raster solido)");
 
+// ── PORTA DE CONTROLE (WebSocket) — uma LLM/ferramenta dirige ESTE editor ─────
+// A UI continua a interna (egui). Isto só adiciona um acesso de controle por
+// socket, NÃO-BLOQUEANTE (ws.recv volta "" sem dados) — não trava o editor.
+const wsServer = ws.serve(7777);
+let wsClient = 0;
+if (wsServer !== 0) io.print("[ctrl] controle da LLM em ws://127.0.0.1:7777");
+
+// executa 1 comando de controle no editor e devolve a resposta (texto)
+function wsExec(line: string): string {
+  const parts = line.split(" ");
+  const cmd = parts[0];
+  const np = parts.length;
+  if (cmd === "state") {
+    let m = "[state] objs=" + scene.objects.length + " sel=" + selected + " playing=" + playing +
+            " cam=(" + camX + "," + camY + "," + camZ + ") yaw=" + camYaw + " pitch=" + camPitch;
+    let i = 0;
+    while (i < scene.objects.length) {
+      const o = scene.objects[i];
+      m = m + " | #" + i + " " + o.name + " k" + o.meshKind +
+          "(" + o.transform.px + "," + o.transform.py + "," + o.transform.pz + ")";
+      i = i + 1;
+    }
+    return m;
+  }
+  if (cmd === "res") return "[res] " + W + " x " + H;
+  if (cmd === "spawn") {
+    const idx = scene.objects.length;
+    const go = new GameObject(parts[1]);
+    let k = 1; if (np > 5) k = parseFloat(parts[5]) | 0;
+    go.setMesh(k, 120, 180, 255);
+    go.transform.setPosition(parseFloat(parts[2]), parseFloat(parts[3]), parseFloat(parts[4]));
+    if (np > 6) go.transform.setScale(parseFloat(parts[6]));
+    go.stationary = 1;   // a posição pedida pela LLM gruda (colisão não empurra)
+    scene.add(go);
+    selected = idx;
+    return "[ok] spawn #" + idx + " " + parts[1];
+  }
+  if (cmd === "move") { const o = scene.objects[parseFloat(parts[1]) | 0]; o.transform.px = parseFloat(parts[2]); o.transform.py = parseFloat(parts[3]); o.transform.pz = parseFloat(parts[4]); return "[ok] move"; }
+  if (cmd === "mesh") { scene.objects[parseFloat(parts[1]) | 0].meshKind = parseFloat(parts[2]) | 0; return "[ok] mesh"; }
+  if (cmd === "color") { const o = scene.objects[parseFloat(parts[1]) | 0]; o.cr = parseFloat(parts[2]) | 0; o.cg = parseFloat(parts[3]) | 0; o.cb = parseFloat(parts[4]) | 0; return "[ok] color"; }
+  if (cmd === "spin") { let sx: f64 = 0.0; if (np > 3) sx = parseFloat(parts[3]); scene.objects[parseFloat(parts[1]) | 0].addBehavior(new Spinner(parseFloat(parts[2]), sx)); return "[ok] spin"; }
+  if (cmd === "select") { selected = parseFloat(parts[1]) | 0; return "[ok] select #" + selected; }
+  if (cmd === "delete") { scene.removeAt(parseFloat(parts[1]) | 0); if (selected >= scene.objects.length) selected = scene.objects.length - 1; if (selected < 0) selected = 0; return "[ok] delete"; }
+  if (cmd === "cam") { camX = parseFloat(parts[1]); camY = parseFloat(parts[2]); camZ = parseFloat(parts[3]); camYaw = parseFloat(parts[4]); camPitch = parseFloat(parts[5]); return "[ok] cam"; }
+  if (cmd === "play") { playing = 1; return "[ok] play"; }
+  if (cmd === "pause") { playing = 0; return "[ok] pause"; }
+  if (cmd === "clear") { scene.clear(); selected = 0; return "[ok] clear"; }
+  if (cmd === "loadscene") { loadSceneFrom(parts[1]); selected = 0; return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length; }
+  return "[erro] desconhecido: " + cmd;
+}
+
+// poll do socket (1x por frame, não-bloqueante): aceita cliente ou processa comando
+function wsPoll(): void {
+  if (wsServer === 0) return;
+  if (wsClient === 0) {
+    const c = ws.accept(wsServer);
+    if (c !== 0) { wsClient = c; ws.send(wsClient, "[engine] editor conectado. cmds: state/res/spawn/move/mesh/color/spin/select/delete/cam/play/pause/clear/loadscene"); }
+    return;
+  }
+  const rr = ws.recvReady(wsClient);
+  if (rr < 0) { ws.close(wsClient); wsClient = 0; return; }
+  if (rr > 0) {
+    const msg = ws.recv(wsClient);
+    if (msg.length > 0) {
+      const lines = msg.split("\n");
+      let li = 0;
+      while (li < lines.length) {
+        const l = lines[li].split("\r")[0];
+        if (l.length > 0) ws.send(wsClient, wsExec(l));
+        li = li + 1;
+      }
+    }
+  }
+}
+
 while (app.running()) {
   const goOn = app.beginFrame();
   if (!goOn) break;
@@ -146,6 +222,7 @@ while (app.running()) {
   if (nw > 400) W = nw;
   if (nh > 300) H = nh;
   focalW = (H * 0.5) / math.tan(FOV * 0.5);
+  wsPoll();   // ← acesso de controle da LLM (não-bloqueante; não trava o editor)
   let dt: f64 = app.delta();
   if (dt > 100) dt = 100;
   const dts: f64 = dt / 1000.0;
