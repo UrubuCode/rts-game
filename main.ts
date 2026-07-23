@@ -20,7 +20,7 @@ import { Rigidbody } from "./scripts/rigidbody";
 import { Mover } from "./scripts/mover";
 import { Pulse } from "./scripts/pulse";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
-import { initMeshes, setCam, setLgt, drawGPU, inFrustum } from "./engine/render/gpu3d";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum } from "./engine/render/gpu3d";
 
 // ── janela ────────────────────────────────────────────────────────────────
 const W = 1200;
@@ -43,10 +43,10 @@ const fptr = buffer.ptr(fbuf);
 
 // ── câmera (fly) — estado top-level ─────────────────────────────────────────
 let camX: f64 = 0.0;
-let camY: f64 = 6.0;
-let camZ: f64 = -16.0;
+let camY: f64 = 11.0;
+let camZ: f64 = -15.0;
 let camYaw: f64 = 0.0;
-let camPitch: f64 = 0 - 0.22;
+let camPitch: f64 = 0 - 0.5;
 const FOV: f64 = 1.05;
 const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);   // p/ framebuffer
 const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
@@ -54,10 +54,13 @@ const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
 // ── cena (estilo Unity) ─────────────────────────────────────────────────────
 const scene = new Scene("Main");
 
-// carrega a cena de demonstração (scenes/solar.json) — mesmo formato das portas de
-// controle; se não existir, começa vazio (use +Cubo/+Esfera na toolbar).
-if (fs.exists("scenes/solar.json")) {
-  const data = JSON.parse(fs.read_text("scenes/solar.json"));
+// carrega a cena de demonstração. Prefere scenes/shadowdemo.json (chão + objetos,
+// mostra sombras + textura); senão scenes/solar.json. Campos opcionais por objeto:
+// scale3 [x,y,z] (escala não-uniforme), emissive (0/1), tex (0/1 xadrez).
+let sceneFile = "scenes/solar.json";
+if (fs.exists("scenes/shadowdemo.json")) sceneFile = "scenes/shadowdemo.json";
+if (fs.exists(sceneFile)) {
+  const data = JSON.parse(fs.read_text(sceneFile));
   const arr = data.objects;
   let ci = 0;
   while (ci < arr.length) {
@@ -65,6 +68,8 @@ if (fs.exists("scenes/solar.json")) {
     const go = new GameObject(od.name);
     if (od.parent !== undefined) go.parent = od.parent;
     if (od.stationary !== undefined) go.stationary = od.stationary;
+    if (od.emissive !== undefined) go.emissive = od.emissive;
+    if (od.tex !== undefined) go.tex = od.tex;
     const col = od.color;
     go.setMesh(od.mesh, col[0], col[1], col[2]);
     const p = od.pos;
@@ -72,7 +77,12 @@ if (fs.exists("scenes/solar.json")) {
     go.transform.setPosition(p[0], p[1], p[2]);
     go.transform.rx = r[0];
     go.transform.ry = r[1];
-    go.transform.setScale(od.scale);
+    if (od.scale3 !== undefined) {
+      const s3 = od.scale3;
+      go.transform.sx = s3[0]; go.transform.sy = s3[1]; go.transform.sz = s3[2];
+    } else {
+      go.transform.setScale(od.scale);
+    }
     const scr = od.scripts;
     let si = 0;
     while (si < scr.length) {
@@ -90,7 +100,7 @@ if (fs.exists("scenes/solar.json")) {
   }
   setLight(0.35, 1.0, 0.25);
   setAmbient(0.2);
-  // marca o Sol como EMISSIVO (brilha; nao e sombreado pela luz pontual)
+  // Sol emissivo (compat solar.json) — no shadowdemo o campo emissive já vem no JSON
   let ei = 0;
   while (ei < scene.objects.length) {
     if (scene.objects[ei].name === "Sun") scene.objects[ei].emissive = 1;
@@ -221,7 +231,9 @@ while (app.running()) {
   //    cima). Só manda câmera/luz + 1 drawMesh por objeto — a GPU faz o resto. ──
   scene.computeWorld();
   setCam(WIN, camX, camY, camZ, camYaw, camPitch, FOV, W / H);
-  setLgt(WIN, 0.0, 3.0, 0.0, 0.06);  // luz PONTUAL na posicao do Sol
+  setLgt(WIN, 7.0, 13.0, 5.0, 0.28);   // luz PONTUAL (posição no alto)
+  // shadow map direcional: luz viaja do alto pra baixo em direção à cena
+  setShadow(WIN, 0 - 7.0, 0 - 12.0, 0 - 5.0, 0.0, 1.0, 0.0, 24.0);
   let oi = 0;
   while (oi < scene.objects.length) {
     const o = scene.objects[oi];
@@ -237,7 +249,7 @@ while (app.running()) {
         if (oi === selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
         const col = (rr << 16) | (gg << 8) | bbv;
         drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-          o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive);
+          o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
       }
     }
     oi = oi + 1;

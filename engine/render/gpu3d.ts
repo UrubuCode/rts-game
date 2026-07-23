@@ -146,9 +146,13 @@ export function initMeshes(win: i64): void {
 export function setCam(win: i64, cx: f64, cy: f64, cz: f64, yaw: f64, pitch: f64, fovY: f64, aspect: f64): void {
   egui.setCamera(win, cx, cy, cz, yaw, pitch, fovY, aspect);
 }
-/// Define a luz direcional.
+/// Define a luz PONTUAL (posição) + ambiente.
 export function setLgt(win: i64, dx: f64, dy: f64, dz: f64, ambient: f64): void {
   egui.setLight(win, dx, dy, dz, ambient);
+}
+/// Configura o shadow map: direção da luz + centro/raio da caixa coberta (raio<=0 desliga).
+export function setShadow(win: i64, dx: f64, dy: f64, dz: f64, cx: f64, cy: f64, cz: f64, radius: f64): void {
+  egui.setShadow(win, dx, dy, dz, cx, cy, cz, radius);
 }
 
 /// Frustum culling: `true` se a esfera envolvente (centro wx,wy,wz + raio) está
@@ -176,10 +180,11 @@ export function inFrustum(camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64,
 
 /// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).
 export function drawGPU(win: i64, kind: number, px: f64, py: f64, pz: f64,
-                        rx: f64, ry: f64, sx: f64, sy: f64, sz: f64, color: number, emissive: number): void {
+                        rx: f64, ry: f64, sx: f64, sy: f64, sz: f64, color: number,
+                        emissive: number, tex: number): void {
   let id = idCube;
   if (kind === 2) id = idPyra;
   if (kind === 3) id = idOcta;
   if (kind === 4) id = idSphere;
-  egui.drawMesh(win, id, px, py, pz, rx, ry, sx, sy, sz, color, emissive);
+  egui.drawMesh(win, id, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex);
 }
