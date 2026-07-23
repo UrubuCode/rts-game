@@ -63,9 +63,9 @@ assetsInit();
 ctrlServe(7777);   // porta de controle da LLM (ws://127.0.0.1:7777)
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
 
-while (app.running()) {
-  const goOn = app.beginFrame();
-  if (!goOn) break;
+// Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
+// (scene/S) despacham corretamente em função, não no top-level do while.
+function frame(): void {
   // ── layout RESPONSIVO: lê o tamanho lógico atual da janela (segue o resize) ──
   const nw = winWidth(WIN);
   const nh = winHeight(WIN);
@@ -430,6 +430,12 @@ while (app.running()) {
 
   app.endFrame();
 }
+
+while (app.running()) {
+  if (!app.beginFrame()) break;
+  frame();
+}
+
 
 io.print("[engine] encerrado apos " + frames + " frames");
 buffer.free(fbuf);
