@@ -19,6 +19,7 @@ import { Bobber } from "./scripts/bobber";
 import { Rigidbody } from "./scripts/rigidbody";
 import { Mover } from "./scripts/mover";
 import { Pulse } from "./scripts/pulse";
+import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
 
 // ── janela ────────────────────────────────────────────────────────────────
 const W = 1200;
@@ -32,8 +33,8 @@ const INSP_W = 270;      // painel inspector (direita)
 const BAR_H = 46;        // toolbar (topo)
 
 // ── framebuffer 3D (rasterizado em software, blitado com render.image) ───────
-const RW = 480;          // resolução de render (blitada p/ WxH)
-const RH = 288;
+const RW = 360;          // resolucao de render (blitada p/ WxH)
+const RH = 216;
 const NPIX = RW * RH;
 const fbuf = buffer.alloc(NPIX * 4);   // RGBA
 const zbuf = buffer.alloc(NPIX * 8);   // profundidade f64/pixel
@@ -41,10 +42,10 @@ const fptr = buffer.ptr(fbuf);
 
 // ── câmera (fly) — estado top-level ─────────────────────────────────────────
 let camX: f64 = 0.0;
-let camY: f64 = 7.0;
+let camY: f64 = 6.0;
 let camZ: f64 = -16.0;
 let camYaw: f64 = 0.0;
-let camPitch: f64 = 0.35;
+let camPitch: f64 = 0 - 0.22;
 const FOV: f64 = 1.05;
 const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);   // p/ framebuffer
 const focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);    // p/ picking em janela
@@ -142,7 +143,7 @@ while (app.running()) {
   const spM = math.sin(camPitch);
   const moveSpeed: f64 = 6.0 * dts;
   // forward = direção que a câmera olha (inclui o pitch); W/S voam nessa direção
-  const fx = syw * cpM; const fy = 0 - spM; const fz = cyw * cpM;
+  const fx = syw * cpM; const fy = spM; const fz = cyw * cpM;
   const rxv = cyw; const rzv = 0 - syw;   // strafe (A/D) no plano horizontal
   if (kW !== 0) { camX = camX + fx * moveSpeed; camY = camY + fy * moveSpeed; camZ = camZ + fz * moveSpeed; }
   if (kS !== 0) { camX = camX - fx * moveSpeed; camY = camY - fy * moveSpeed; camZ = camZ - fz * moveSpeed; }
@@ -208,8 +209,8 @@ while (app.running()) {
   }
 
   // ── RENDER DE CENA (rasteriza no framebuffer, depois blita) ────────────────
-  scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF3C3A38);   // fundo (ABGR: azul-acinzentado escuro)
-  drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF4A4A4E);
+  scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0x36);   // fundo (ABGR: azul-acinzentado escuro)
+  // (sem chao: cena espacial)
 
   let oi = 0;
   while (oi < scene.objects.length) {
@@ -375,33 +376,37 @@ while (app.running()) {
   } else {
     app.text(ix + 14, BAR_H + 62, "Pai: (raiz)", 0x707070FF, 12);
   }
-  app.text(ix + 14, BAR_H + 82, "Position", 0x9A9A9AFF, 13);
-  app.text(ix + 14, BAR_H + 90, "X", 0xC0C0C0FF, 13);
-  sel.transform.px = app.slider(ix + 34, BAR_H + 88, INSP_W - 60, sel.transform.px, -8, 8);
-  app.text(ix + 14, BAR_H + 118, "Y", 0xC0C0C0FF, 13);
-  sel.transform.py = app.slider(ix + 34, BAR_H + 116, INSP_W - 60, sel.transform.py, -2, 8);
-  app.text(ix + 14, BAR_H + 146, "Z", 0xC0C0C0FF, 13);
-  sel.transform.pz = app.slider(ix + 34, BAR_H + 144, INSP_W - 60, sel.transform.pz, -8, 8);
-  app.text(ix + 14, BAR_H + 180, "Scale", 0x9A9A9AFF, 13);
-  const nsc = app.slider(ix + 34, BAR_H + 200, INSP_W - 60, sel.transform.sx, 0.2, 3);
-  sel.transform.sx = nsc; sel.transform.sy = nsc; sel.transform.sz = nsc;
-  app.text(ix + 14, BAR_H + 226, "Rot Y", 0x9A9A9AFF, 13);
-  sel.transform.ry = app.slider(ix + 60, BAR_H + 226, INSP_W - 86, sel.transform.ry, -3.14, 3.14);
+  // ── Transform: campos numéricos X/Y/Z (scrub arrastando), estilo Unity ──────
+  app.text(ix + 10, BAR_H + 74, "Transform", 0xB8B8B8FF, 13);
+  const fx0 = ix + 66; const fw = 60; const g2 = 3;
+  app.text(ix + 10, BAR_H + 96, "Position", 0x9A9A9AFF, 12);
+  sel.transform.px = numField(WIN, 510, fx0, BAR_H + 92, fw, "X", AXIS_X, sel.transform.px, mx, my, mDownNow, mPressed);
+  sel.transform.py = numField(WIN, 511, fx0 + fw + g2, BAR_H + 92, fw, "Y", AXIS_Y, sel.transform.py, mx, my, mDownNow, mPressed);
+  sel.transform.pz = numField(WIN, 512, fx0 + (fw + g2) * 2, BAR_H + 92, fw, "Z", AXIS_Z, sel.transform.pz, mx, my, mDownNow, mPressed);
+  app.text(ix + 10, BAR_H + 122, "Rotation", 0x9A9A9AFF, 12);
+  sel.transform.rx = numField(WIN, 520, fx0, BAR_H + 118, fw, "X", AXIS_X, sel.transform.rx, mx, my, mDownNow, mPressed);
+  sel.transform.ry = numField(WIN, 521, fx0 + fw + g2, BAR_H + 118, fw, "Y", AXIS_Y, sel.transform.ry, mx, my, mDownNow, mPressed);
+  sel.transform.rz = numField(WIN, 522, fx0 + (fw + g2) * 2, BAR_H + 118, fw, "Z", AXIS_Z, sel.transform.rz, mx, my, mDownNow, mPressed);
+  app.text(ix + 10, BAR_H + 148, "Scale", 0x9A9A9AFF, 12);
+  const nsx = numField(WIN, 530, fx0, BAR_H + 144, fw, "X", AXIS_X, sel.transform.sx, mx, my, mDownNow, mPressed);
+  const nsy = numField(WIN, 531, fx0 + fw + g2, BAR_H + 144, fw, "Y", AXIS_Y, sel.transform.sy, mx, my, mDownNow, mPressed);
+  const nsz = numField(WIN, 532, fx0 + (fw + g2) * 2, BAR_H + 144, fw, "Z", AXIS_Z, sel.transform.sz, mx, my, mDownNow, mPressed);
+  sel.transform.sx = nsx; sel.transform.sy = nsy; sel.transform.sz = nsz;
 
   // ── mesh + estático ─────────────────────────────────────────────────────────
   let meshName = "Cubo";
   if (sel.meshKind === 2) meshName = "Piramide";
   if (sel.meshKind === 3) meshName = "Octaedro";
   if (sel.meshKind === 4) meshName = "Esfera";
-  app.text(ix + 14, BAR_H + 258, "Mesh: " + meshName, 0xC0C0C0FF, 13);
-  const bMesh = app.button(ix + 14, BAR_H + 278, 104, 26, "Trocar");
+  app.text(ix + 14, BAR_H + 180, "Mesh: " + meshName, 0xC0C0C0FF, 13);
+  const bMesh = app.button(ix + 14, BAR_H + 200, 104, 26, "Trocar");
   if (bMesh) { sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1; }
-  sel.stationary = app.checkbox(ix + 134, BAR_H + 281, sel.stationary, "Estatico");
+  sel.stationary = app.checkbox(ix + 134, BAR_H + 203, sel.stationary, "Estatico");
 
   // ── componentes (scripts) do objeto — estilo Inspector do Unity ─────────────
-  app.text(ix + 14, BAR_H + 320, "COMPONENTES", 0xC8C8C8FF, 14);
+  app.text(ix + 14, BAR_H + 242, "COMPONENTES", 0xC8C8C8FF, 14);
   let bc = 0;
-  let cyc = BAR_H + 344;
+  let cyc = BAR_H + 266;
   while (bc < sel.behaviors.length) {
     const d = sel.behaviors[bc].toData();
     let tn = "script";

@@ -10,14 +10,12 @@
 import buffer from "rts:buffer";
 import math from "rts:math";
 
-// Limpa o framebuffer (cor de fundo) e o z-buffer (profundidade = +infinito).
-export function clearFB(fbuf: i64, zbuf: i64, npix: number, bg: number): void {
-  let i = 0;
-  while (i < npix) {
-    buffer.write_i32(fbuf, i * 4, bg);
-    buffer.write_f64(zbuf, i * 8, 1e30);
-    i = i + 1;
-  }
+// Limpa o framebuffer + z-buffer via buffer.fill (memset em Rust — 2 chamadas,
+// não um loop de ~N pixels no TS). `bgGray` é um BYTE 0..255 (fundo cinza
+// uniforme, RGBA = bgGray). O z vira 0x7F...7F = f64 gigante (~+infinito).
+export function clearFB(fbuf: i64, zbuf: i64, npix: number, bgGray: number): void {
+  buffer.fill(fbuf, bgGray, npix * 4);
+  buffer.fill(zbuf, 127, npix * 8);
 }
 
 // Triângulo z-bufferizado. (ax,ay)=tela, az=profundidade de câmera (menor=perto).

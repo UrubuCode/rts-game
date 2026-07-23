@@ -35,8 +35,8 @@ const OCTA_F: number[] = [
 
 // ── ESFERA gerada por lat/long (UV sphere) no init do módulo ─────────────────
 const PI: f64 = 3.14159265358979;
-const LAT = 8;    // anéis (topo→base)
-const LON = 12;   // fatias
+const LAT = 6;    // aneis
+const LON = 9;   // fatias
 const SPH_V: f64[] = [];
 const SPH_F: number[] = [];
 function buildSphere(): void {
@@ -120,12 +120,18 @@ export function drawMeshSolid(
   const cxr = math.cos(rx); const sxr = math.sin(rx);
   const halfW: f64 = W * 0.5; const halfH: f64 = H * 0.5;
 
+  // aliasa os arrays de scratch de MÓDULO pra locais: 1 gcell_get por array aqui,
+  // depois acesso DIRETO (sem extern por elemento) — evita o gargalo de perf.
+  const _sx = sxA; const _sy = syA; const _cz = czA;
+  const _ox = ovx; const _oy = ovy; const _oz = ovz;
+  const lgx = LGX; const lgy = LGY; const lgz = LGZ; const amb = AMBIENT;
+
   let i = 0;
   while (i < nv) {
     const lx: f64 = V[i * 3] * scale;
     const ly: f64 = V[i * 3 + 1] * scale;
     const lz: f64 = V[i * 3 + 2] * scale;
-    ovx[i] = lx; ovy[i] = ly; ovz[i] = lz;
+    _ox[i] = lx; _oy[i] = ly; _oz[i] = lz;
     const r1x = lx * cor + lz * sor;
     const r1z = 0 - lx * sor + lz * cor;
     const r2y = ly * cxr - r1z * sxr;
@@ -136,10 +142,10 @@ export function drawMeshSolid(
     const z1 = dx * syw + dz * cyw;
     const y2 = dy * cpt - z1 * spt;
     const z2 = dy * spt + z1 * cpt;
-    czA[i] = z2;
+    _cz[i] = z2;
     let zz: f64 = z2; if (zz < 0.05) zz = 0.05;
-    sxA[i] = halfW + (x1 / zz) * focal;
-    syA[i] = halfH - (y2 / zz) * focal;
+    _sx[i] = halfW + (x1 / zz) * focal;
+    _sy[i] = halfH - (y2 / zz) * focal;
     i = i + 1;
   }
 
@@ -148,15 +154,15 @@ export function drawMeshSolid(
   let f = 0;
   while (f < nf) {
     const a = F[f * 3]; const b = F[f * 3 + 1]; const c = F[f * 3 + 2];
-    if (czA[a] > 0.05 && czA[b] > 0.05 && czA[c] > 0.05) {
-      const e1x = ovx[b] - ovx[a]; const e1y = ovy[b] - ovy[a]; const e1z = ovz[b] - ovz[a];
-      const e2x = ovx[c] - ovx[a]; const e2y = ovy[c] - ovy[a]; const e2z = ovz[c] - ovz[a];
+    if (_cz[a] > 0.05 && _cz[b] > 0.05 && _cz[c] > 0.05) {
+      const e1x = _ox[b] - _ox[a]; const e1y = _oy[b] - _oy[a]; const e1z = _oz[b] - _oz[a];
+      const e2x = _ox[c] - _ox[a]; const e2y = _oy[c] - _oy[a]; const e2z = _oz[c] - _oz[a];
       let nx = e1y * e2z - e1z * e2y;
       let ny = e1z * e2x - e1x * e2z;
       let nz = e1x * e2y - e1y * e2x;
-      const cxo = (ovx[a] + ovx[b] + ovx[c]);
-      const cyo = (ovy[a] + ovy[b] + ovy[c]);
-      const czo = (ovz[a] + ovz[b] + ovz[c]);
+      const cxo = (_ox[a] + _ox[b] + _ox[c]);
+      const cyo = (_oy[a] + _oy[b] + _oy[c]);
+      const czo = (_oz[a] + _oz[b] + _oz[c]);
       if (nx * cxo + ny * cyo + nz * czo < 0) { nx = 0 - nx; ny = 0 - ny; nz = 0 - nz; }
       const rn1x = nx * cor + nz * sor;
       const rn1z = 0 - nx * sor + nz * cor;
@@ -165,14 +171,14 @@ export function drawMeshSolid(
       const wnx = rn1x;
       const len: f64 = math.sqrt(wnx * wnx + wny * wny + wnz * wnz);
       let sh: f64 = 0.0;
-      if (len > 0.0001) sh = (wnx * LGX + wny * LGY + wnz * LGZ) / len;
+      if (len > 0.0001) sh = (wnx * lgx + wny * lgy + wnz * lgz) / len;
       if (sh < 0) sh = 0;
-      const lit: f64 = AMBIENT + (1.0 - AMBIENT) * sh;
+      const lit: f64 = amb + (1.0 - amb) * sh;
       let cr = br * lit; let cg = bg * lit; let cbv = bb * lit;
       if (cr > 255) cr = 255; if (cg > 255) cg = 255; if (cbv > 255) cbv = 255;
       const col = (cr | 0) | ((cg | 0) << 8) | ((cbv | 0) << 16) | (0xFF << 24);
       fillTri(fbuf, zbuf, W, H,
-        sxA[a], syA[a], czA[a], sxA[b], syA[b], czA[b], sxA[c], syA[c], czA[c], col);
+        _sx[a], _sy[a], _cz[a], _sx[b], _sy[b], _cz[b], _sx[c], _sy[c], _cz[c], col);
     }
     f = f + 1;
   }

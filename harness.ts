@@ -172,7 +172,7 @@ while (running !== 0) {
     let cols = 64; let rows = 26;
     if (np > 1) cols = parseFloat(parts[1]) | 0;
     if (np > 2) rows = parseFloat(parts[2]) | 0;
-    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0x18);
     drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
     let roi = 0;
     while (roi < scene.objects.length) {
@@ -200,7 +200,7 @@ while (running !== 0) {
     }
     dumpCamera(camX, camY, camZ, camYaw, camPitch);
   } else if (cmd === "lit") {
-    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0x18);
     drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
     let roi = 0;
     while (roi < scene.objects.length) {
@@ -217,7 +217,7 @@ while (running !== 0) {
     const lit = countLit(fbuf, RW, RH, 12.0);
     io.print("[lit] " + lit + " pixels desenhados de " + NPIX);
   } else if (cmd === "save") {
-    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+    scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0x18);
     drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
     let roi = 0;
     while (roi < scene.objects.length) {

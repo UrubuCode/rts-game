@@ -169,7 +169,7 @@ if (listener === 0) {
           }
           sendStr(stream, msg);
         } else if (cmd === "frame" || cmd === "lit") {
-          scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+          scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0x18);
           drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
           let roi = 0;
           while (roi < scene.objects.length) {
@@ -327,7 +327,7 @@ if (listener === 0) {
       // ── reapresenta a cena na janela (pump 1x + blit) ──────────────────────
       const goOn = app.beginFrame();
       if (goOn) {
-        scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0xFF201810);
+        scene.computeWorld(); clearFB(fbuf, zbuf, NPIX, 0x18);
         drawFloor(fbuf, zbuf, RW, RH, camX, camY, camZ, camYaw, camPitch, focalR, 40, 0xFF3A2E24);
         let doi = 0;
         while (doi < scene.objects.length) {
