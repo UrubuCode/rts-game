@@ -3,6 +3,31 @@
 // Conteúdo em uma linha só (o protocolo quebra por \n).
 import fs from "rts:fs";
 
+import { scene, S } from "../session";
+import { GameObject } from "../../../engine/core/gameobject";
+import { loadObj } from "../../../engine/render/gpu3d";
+
+/// loadobj <path> [nome] [x] [y] [z] — carrega um .obj REAL e cria um objeto com ele.
+export function cmdLoadObj(parts: string[]): string {
+  const path = parts[1];
+  if (!fs.exists(path)) return "[erro] nao existe: " + path;
+  const mesh = loadObj(S.win, path);
+  if (mesh === 0) return "[erro] falha ao carregar/parsear: " + path;
+  let name = "OBJ";
+  if (parts.length > 2) name = parts[2];
+  const go = new GameObject(name);
+  go.setMesh(1, 200, 200, 210);   // meshKind qualquer; customMesh manda no render
+  go.customMesh = mesh;
+  go.stationary = 1;
+  let x: f64 = 0.0; let y: f64 = 1.0; let z: f64 = 0.0;
+  if (parts.length > 5) { x = parseFloat(parts[3]); y = parseFloat(parts[4]); z = parseFloat(parts[5]); }
+  go.transform.setPosition(x, y, z);
+  const idx = scene.objects.length;
+  scene.add(go);
+  S.selected = idx;
+  return "[ok] loadobj " + path + " -> mesh#" + mesh + " obj#" + idx;
+}
+
 /// ls [path] — lista uma pasta (sufixo / nas pastas).
 export function cmdLs(parts: string[]): string {
   let path = ".";

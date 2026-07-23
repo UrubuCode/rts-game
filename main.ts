@@ -11,10 +11,10 @@ import input from "rts:input";
 import fs from "rts:fs";
 
 import { GameObject } from "./engine/core/gameobject";
-import { numField, AXIS_X, AXIS_Y, AXIS_Z } from "./editor/widgets";
+import { numField, AXIS_X, AXIS_Y, AXIS_Z, subStr } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum, winWidth, winHeight } from "./engine/render/gpu3d";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
 import { loadSceneFrom, instantiatePrefab } from "./editor/sceneio";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
@@ -94,6 +94,7 @@ let lastMy: f64 = 0.0;
 initMeshes(WIN);
 assetsInit();
 ctrlServe(7777);   // porta de controle da LLM (ws://127.0.0.1:7777)
+S.win = WIN;       // handle da janela p/ comandos que sobem mesh (.obj) etc
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
 
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
@@ -220,7 +221,7 @@ function frame(): void {
   let drawnN = 0;
   while (oi < scene.objects.length) {
     const o = scene.objects[oi];
-    if (o.active !== 0 && o.meshKind !== 0) {
+    if (o.active !== 0 && (o.meshKind !== 0 || o.customMesh > 0)) {
       // frustum culling: raio da esfera envolvente (maior escala × ~0.87)
       let rmax: f64 = o.transform.sx;
       if (o.transform.sy > rmax) rmax = o.transform.sy;
@@ -231,8 +232,13 @@ function frame(): void {
         let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
         if (oi === S.selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
         const col = (rr << 16) | (gg << 8) | bbv;
-        drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-          o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
+        if (o.customMesh > 0) {
+          drawGPUMesh(WIN, o.customMesh, o.transform.wx, o.transform.wy, o.transform.wz,
+            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
+        } else {
+          drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
+            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, o.tex);
+        }
         drawnN = drawnN + 1;
       }
     }
@@ -469,7 +475,7 @@ function frame(): void {
     // campo de busca (digitar filtra a lista); Backspace (tecla 4) apaga
     addFilter = app.textField(950, ix + 14, cyc, INSP_W - 28, addFilter);
     if (app.isFocused(950) && app.keyPressed(4) !== 0 && addFilter.length > 0) {
-      addFilter = addFilter.substring(0, addFilter.length - 1);
+      addFilter = subStr(addFilter, 0, addFilter.length - 1);
     }
     cyc = cyc + 34;
     // lista filtrada

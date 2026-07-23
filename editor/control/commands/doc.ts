@@ -46,6 +46,7 @@ export function cmdDoc(parts: string[]): string {
     "readfile <path> :: le o conteudo do arquivo :: readfile scenes/shadowdemo.json",
     "writefile <path> <conteudo> :: escreve (conteudo = resto da linha, 1 linha) :: writefile assets/nota.txt oi mundo",
     "mv <de> <para> :: renomeia/move :: mv assets/a.txt assets/b.txt",
+    "loadobj <path> [nome] [x] [y] [z] :: carrega um .obj REAL e cria um objeto com ele :: loadobj assets/models/torus.obj Torus 0 2 0",
   ];
   let m = "[doc]\n";
   let hit = 0;

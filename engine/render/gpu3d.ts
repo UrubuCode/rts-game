@@ -12,6 +12,7 @@
 import egui from "rts:egui";
 import buffer from "rts:buffer";
 import math from "rts:math";
+import fs from "rts:fs";
 
 const PI: f64 = 3.14159265358979;
 
@@ -140,6 +141,57 @@ export function initMeshes(win: i64): void {
   idSphere = upload(win, sv, sf);
 
   ready = 1;
+}
+
+/// Carrega um .obj REAL do disco (v/vn/f triangular) → sobe pra VRAM → mesh id
+/// (0 se falhar). Faces `v//vn`, `v/vt/vn` ou `v`; sem vn usa normal pra cima.
+export function loadObj(win: i64, path: string): number {
+  if (!fs.exists(path)) return 0;
+  const src = fs.read_text(path);
+  const lines = src.split("\n");
+  const pxs: f64[] = []; const pys: f64[] = []; const pzs: f64[] = [];
+  const nxs: f64[] = []; const nys: f64[] = []; const nzs: f64[] = [];
+  const verts: f64[] = [];
+  const inds: number[] = [];
+  let vi = 0;
+  let li = 0;
+  while (li < lines.length) {
+    const parts = lines[li].split(" ");
+    const t = parts[0];
+    if (t === "v") {
+      pxs.push(parseFloat(parts[1])); pys.push(parseFloat(parts[2])); pzs.push(parseFloat(parts[3]));
+    } else if (t === "vn") {
+      nxs.push(parseFloat(parts[1])); nys.push(parseFloat(parts[2])); nzs.push(parseFloat(parts[3]));
+    } else if (t === "f") {
+      // pega os corners não-vazios (tolera múltiplos espaços); triângulo = 3 primeiros
+      const corners: string[] = [];
+      let ci = 1;
+      while (ci < parts.length) { if (parts[ci].length > 0) corners.push(parts[ci]); ci = ci + 1; }
+      let k = 0;
+      while (k < 3 && k < corners.length) {
+        const seg = corners[k].split("/");
+        const vIdx = (parseFloat(seg[0]) | 0) - 1;
+        let nIdx = 0 - 1;
+        if (seg.length >= 3 && seg[2].length > 0) nIdx = (parseFloat(seg[2]) | 0) - 1;
+        verts.push(pxs[vIdx]); verts.push(pys[vIdx]); verts.push(pzs[vIdx]);
+        if (nIdx >= 0 && nIdx < nxs.length) { verts.push(nxs[nIdx]); verts.push(nys[nIdx]); verts.push(nzs[nIdx]); }
+        else { verts.push(0.0); verts.push(1.0); verts.push(0.0); }
+        inds.push(vi); vi = vi + 1;
+        k = k + 1;
+      }
+    }
+    li = li + 1;
+  }
+  if (verts.length === 0) return 0;
+  return upload(win, verts, inds);
+}
+
+/// Enfileira um draw de um mesh id ARBITRÁRIO (ex.: .obj carregado), fora do
+/// mapeamento meshKind→primitivo. Mesmos params de transform/cor de drawGPU.
+export function drawGPUMesh(win: i64, meshId: number, px: f64, py: f64, pz: f64,
+                           rx: f64, ry: f64, sx: f64, sy: f64, sz: f64,
+                           color: number, emissive: number, tex: number): void {
+  egui.drawMesh(win, meshId, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex);
 }
 
 /// Define a câmera do frame 3D (fly cam).

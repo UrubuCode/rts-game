@@ -17,6 +17,7 @@ export class GameObject {
   stationary: number;  // 1 = estático (a colisão não o empurra) — tipo static/kinematic
   emissive: number;    // 1 = brilha (não sombreado) — ex.: o Sol
   tex: number;         // textura procedural: 0 = nenhuma, 1 = xadrez (chão)
+  customMesh: number;  // id de mesh carregada (.obj); 0 = usa o primitivo meshKind
 
   constructor(name: string) {
     this.name = name;
@@ -29,6 +30,7 @@ export class GameObject {
     this.stationary = 0;
     this.emissive = 0;
     this.tex = 0;
+    this.customMesh = 0;
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.
