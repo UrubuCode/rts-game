@@ -9,17 +9,19 @@ import buffer from "rts:buffer";
 import render from "rts:render";
 import input from "rts:input";
 import fs from "rts:fs";
+import process from "rts:process";
 
 import { GameObject } from "./engine/core/gameobject";
 import { UIScene } from "./engine/ui/uiscene";
-import { UIPanel, ANCHOR_TL, ANCHOR_BR } from "./engine/ui/uipanel";
-import { numField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./editor/widgets";
+import { UIPanel, ANCHOR_TL, ANCHOR_BL, ANCHOR_BR } from "./engine/ui/uipanel";
+import { numField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
-import { assetsInit, drawAssets } from "./editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture } from "./engine/render/gpu3d";
+import { assetsInit, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "./editor/assets";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture, loadObj } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
-import { pickAxis, axisMove, projPt, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
+import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
 import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./editor/sceneio";
+import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "./editor/dnd";
 import { history } from "./editor/undo";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 
@@ -91,6 +93,83 @@ function frameObject(idx: number): void {
   S.camPitch = math.atan2(wy - S.camY, dist);   // olha pra baixo, pro objeto
 }
 
+// ── BUILD DO JOGO ───────────────────────────────────────────────────────────
+// Dispara tools/build.bat, que compila game.ts (o RUNTIME — não este editor)
+// num .exe e copia os assets pra build/. Roda em BACKGROUND (`start`) porque a
+// compilação leva ~1 min e process.wait() bloquearia o editor inteiro.
+let buildMsgFrames = 0;   // frames restantes do aviso na barra de status
+
+function startBuild(): void {
+  // `start "" cmd /c ...` devolve na hora; a janela do build fica visível pro
+  // usuário acompanhar a saída do compilador.
+  process.spawn("cmd", "/c start \"Build do jogo\" cmd /c tools\\build.bat");
+}
+
+// formata um f64 com 1 casa decimal (só pro HUD do drop — nada de toFixed).
+function fmt1(v: f64): string {
+  const t = math.floor(v * 10.0 + (v >= 0.0 ? 0.5 : 0.0 - 0.5));
+  const i = (t / 10.0) | 0;
+  let f = t - i * 10;
+  if (f < 0) f = 0 - f;
+  return i + "." + f;
+}
+
+// índice da linha da HIERARQUIA sob a coordenada Y da tela (-1 = fora da lista).
+function hierRowAt(sy: f64): number {
+  const rel = sy - (BAR_H + 52);
+  if (rel < 0.0) return 0 - 1;
+  const idx = (rel / 26.0) | 0;
+  if (idx >= scene.objects.length) return 0 - 1;
+  return idx;
+}
+
+// DROP de um asset do Project na CENA. `sx/sy` é o cursor: quando sx>=0 o objeto
+// nasce no ponto do CHÃO (plano Y=0) sob o cursor — como arrastar pra viewport na
+// Unity; se o raio não bater no chão (mirando o céu), cai 12 unidades à frente.
+// sx<0 = sem posição de tela (drop na hierarquia): usa a posição padrão do asset.
+// Devolve o índice do objeto criado (-1 se o asset não gera objeto — cena/pasta).
+// É reusado pelo PREVIEW do drag: instancia de verdade e depois só reposiciona.
+// Delega pra editor/dnd.ts (mesma lógica usada pelos comandos WS `drop*`).
+function dropAssetInWorld(kind: string, path: string, sx: f64, sy: f64,
+                          cyw: f64, syw: f64, cpt2: f64, spt2: f64): number {
+  let wx: f64 = 0.0; let wy: f64 = 0.0; let wz: f64 = 0.0;
+  let placed = 0;
+  if (sx >= 0.0) {
+    const g = groundAt(sx, sy, focalW, W, H, cyw, syw, cpt2, spt2);
+    wx = g[0]; wy = g[1]; wz = g[2]; placed = 1;
+  }
+  return instantiateAt(kind, path, wx, wy, wz, placed, WIN);
+}
+
+// Reposiciona o objeto-preview no ponto do chão sob o cursor (segue o mouse).
+function movePreviewTo(sx: f64, sy: f64, cyw: f64, syw: f64, cpt2: f64, spt2: f64): void {
+  if (previewIdx < 0 || previewIdx >= scene.objects.length) return;
+  const g = groundAt(sx, sy, focalW, W, H, cyw, syw, cpt2, spt2);
+  const t = scene.objects[previewIdx].transform;
+  // mesma regra do instantiateAt: assenta SOBRE o chão (meia altura acima de Y=0)
+  t.setPosition(g[0], g[1] + t.sy * 0.5, g[2]);
+}
+
+// Descarta o objeto-preview (arrasto saiu do viewport ou foi cancelado).
+function killPreview(): void {
+  if (previewIdx >= 0 && previewIdx < scene.objects.length) {
+    scene.removeAt(previewIdx);
+    // a seleção apontava pro preview (dropAssetInWorld seleciona o que cria):
+    // volta pra algo válido, senão o inspector lê índice fora da lista.
+    if (S.selected >= scene.objects.length) S.selected = scene.objects.length - 1;
+    if (S.selected < 0 && scene.objects.length > 0) S.selected = 0;
+  }
+  previewIdx = 0 - 1;
+  previewPay = "";
+}
+
+// Objeto sob o cursor — wrapper de pickAt (editor/dnd.ts), compartilhado com o
+// comando WS `pickat`. Usado pelo drop de textura pra decidir entre "aplicar no
+// objeto existente" e "criar um novo".
+function pickObjectAt(sx: f64, sy: f64, cyw: f64, syw: f64, cpt2: f64, spt2: f64): number {
+  return pickAt(sx, sy, focalW, W, H, cyw, syw, cpt2, spt2);
+}
+
 // "name contém filter" case-insensitive (só charCodeAt/length — robusto no motor).
 function containsCI(name: string, filter: string): boolean {
   if (filter.length === 0) return true;
@@ -116,6 +195,15 @@ let hierLastClick = 0 - 1;      // duplo-clique na hierarquia (enquadra a câmer
 let hierLastClickFrame = 0 - 999;
 let lastMx: f64 = 0.0;
 let lastMy: f64 = 0.0;
+// hover dos SLOTS de asset do inspector — escritos no desenho do inspector e
+// lidos no handler de drop (que roda depois, no fim do frame).
+let slotTexHot = 0;
+let slotMeshHot = 0;
+// PREVIEW VIVO do drag: o asset arrastado já é instanciado na cena e segue o
+// cursor pelo chão (como na Unity). previewIdx = índice do objeto-preview na
+// cena (-1 = nenhum); previewPay = payload que o gerou, pra não recriar por frame.
+let previewIdx = 0 - 1;
+let previewPay = "";
 
 initMeshes(WIN);
 assetsInit();
@@ -126,11 +214,12 @@ S.win = WIN;
 // com um component UIPanel, desenhado no mesmo frame que o resto. Prova o seam;
 // os painéis do editor migram pra cá incrementalmente. ──
 const uiScene = new UIScene();
-// HUD topo-esquerda (stats da cena), ancorado ao canto TL.
+// HUD com os stats da cena. Ancorado ao canto INFERIOR-esquerdo: no topo (TL,
+// y=12) ele sobrepunha a toolbar e o cabeçalho da Hierarchy.
 const hud = new GameObject("HUD");
 hud.transform.px = 12.0;   // offset x do canto ancorado
-hud.transform.py = 12.0;   // offset y do canto ancorado
-hud.addBehavior(new UIPanel(190.0, 24.0, 0x1E1E28E0, "HUD", ANCHOR_TL));
+hud.transform.py = 30.0;   // acima da barra de status (24px)
+hud.addBehavior(new UIPanel(190.0, 24.0, 0x1E1E28E0, "HUD", ANCHOR_BL));
 uiScene.add(hud);
 // Painel de câmera ancorado ao canto BR — prova a ancoragem (segue o resize).
 const camHud = new GameObject("CamHUD");
@@ -221,7 +310,39 @@ function frame(): void {
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
   const inViewport = mx > HIER_W && mx < W - INSP_W && my > BAR_H && my < H - 24 - ASSET_H;
+  // Arrastando um asset do Project? Então o botão esquerdo pertence AO DRAG:
+  // nada de selecionar/mover objeto ou pegar eixo de gizmo neste frame.
+  const dndOn = assetDragActive();
+  const dndPay = assetDragPayload();
+  const dndTex = dndOn !== 0 && dndPay.charCodeAt(0) === 116 ? 1 : 0;      // "tex:"
+  const dndModel = dndOn !== 0 && dndPay.charCodeAt(0) === 109 ? 1 : 0;    // "model:"
   const cpt2 = math.cos(S.camPitch); const spt2 = math.sin(S.camPitch);
+
+  // ── PREVIEW VIVO DO DRAG (estilo Unity): assim que o asset arrastado entra no
+  // viewport ele é INSTANCIADO de verdade e passa a seguir o cursor pelo chão —
+  // o usuário vê o objeto 3D renderizado, não um retângulo com o nome do arquivo.
+  // Sair do viewport descarta o preview; soltar dentro apenas o "confirma".
+  if (dndOn !== 0 && inViewport && dndTex === 0) {
+    if (previewIdx < 0 || previewPay !== dndPay) {
+      killPreview();
+      const cut0 = dndPay.indexOf(":");
+      const k0 = subStr(dndPay, 0, cut0);
+      const p0 = subStr(dndPay, cut0 + 1, dndPay.length);
+      // só assets que viram objeto ganham preview (cena/pasta/script não)
+      if (k0 === "prefab" || k0 === "model") {
+        const ni = dropAssetInWorld(k0, p0, mx, my, cyw, syw, cpt2, spt2);
+        if (ni >= 0) { previewIdx = ni; previewPay = dndPay; }
+      }
+    } else {
+      movePreviewTo(mx, my, cyw, syw, cpt2, spt2);
+    }
+    scene.computeWorld();   // o preview acabou de mudar de lugar: reflete já neste frame
+  } else if (previewIdx >= 0 && dndOn !== 0) {
+    // ainda arrastando, mas o cursor saiu do viewport → descarta o preview.
+    // (com dndOn===0 o preview é CONFIRMADO pelo handler de drop, mais abaixo.)
+    killPreview();
+  }
+
   // ── GIZMO: projeta o centro do selecionado + as pontas dos eixos X/Y/Z (tela) ──
   // gzLen = comprimento de mundo dos eixos, escalado pela profundidade → tamanho de
   // tela ~constante. Reaproveitado pro pick (abaixo) e pro desenho (após o render).
@@ -260,7 +381,7 @@ function frame(): void {
     }
   }
 
-  if (mPressed !== 0 && inViewport) {
+  if (mPressed !== 0 && inViewport && dndOn === 0) {
     // 1) tenta pegar um EIXO do gizmo (prioridade sobre selecionar outro objeto)
     let ax = 0 - 1;
     if (gzOK !== 0) ax = pickAxis(mx, my, gzOx, gzOy, gzXx, gzXy, gzYx, gzYy, gzZx, gzZy);
@@ -561,6 +682,38 @@ function frame(): void {
   app.text(pcx + 44 + 15, 13, "||", 0xE0E0E0FF, 15);
   if (stPause === 3) S.playing = 0;
 
+  // — BUILD: gera o .exe do JOGO (game.ts + assets), não o editor —
+  // A compilação leva ~1min e process.wait BLOQUEIA, então dispara em background
+  // (cmd /c start) e só reporta; o resultado aparece em build/.
+  const bxBuild = W - 470;
+  const stBuild = app.clickable(924, bxBuild, 9, 52, 28);
+  let fBuild = 0x2D6A3AFF;                       // verde: é a ação de "publicar"
+  if (stBuild === 1) fBuild = 0x3D8A4AFF;
+  if (buildMsgFrames > 0) fBuild = 0x4A75B0FF;   // azul enquanto mostra o aviso
+  app.box(bxBuild, 9, 52, 28, fBuild, 1, 0x232323FF, 3);
+  app.text(bxBuild + 8, 15, "Build", 0xE8E8E8FF, 12);
+  if (stBuild === 3) {
+    saveScene("assets/scene.json");   // o jogo carrega esta cena: salva antes
+    startBuild();
+    buildMsgFrames = 420;             // ~7s de aviso na barra de status
+  }
+
+  // — CÂMERA: cria um GameObject com o component Camera na pose atual da view —
+  const bxCam = W - 414;
+  const stCamB = app.clickable(925, bxCam, 9, 40, 28);
+  app.box(bxCam, 9, 40, 28, stCamB === 1 ? 0x454545FF : 0x2D2D2DFF, 1, 0x232323FF, 3);
+  app.text(bxCam + 5, 15, "Cam", 0xC8C8C8FF, 11);
+  if (stCamB === 3) {
+    history.snapshot();
+    const cam = new GameObject("Main Camera");
+    cam.transform.setPosition(S.camX, S.camY, S.camZ);
+    cam.transform.ry = S.camYaw;
+    cam.transform.rx = S.camPitch;
+    cam.addBehavior(createComponent("Camera"));
+    scene.add(cam);
+    S.selected = scene.objects.length - 1;
+  }
+
   // — direita: Save / Dup / Undo / Redo + fps —
   const bxSave = W - 380;
   const stSave = app.clickable(920, bxSave, 9, 48, 28);
@@ -615,7 +768,7 @@ function frame(): void {
     const indent = depth * 16;
     const ry0 = BAR_H + 52 + hi * 26;
     const inRow = mx < HIER_W && my >= ry0 && my < ry0 + 26;
-    if (mPressed !== 0 && inRow) {
+    if (mPressed !== 0 && inRow && dndOn === 0) {
       // duplo-clique = enquadra a câmera no objeto (Unity "F"); simples = seleciona
       const dbl = (hi === hierLastClick && frames - hierLastClickFrame < 24) ? 1 : 0;
       hierDrag = hi; S.selected = hi;
@@ -633,6 +786,8 @@ function frame(): void {
     if (hi === S.selected) fill = 0x4A75B0FF;
     if (hierDrag < 0 && inRow) fill = 0x454545FF;
     if (hierDrag >= 0 && dropMode === 2 && dropIdx === hi && hi !== hierDrag) fill = 0x2E5A3AFF; // vira filho
+    // arrastando uma TEXTURA do Project sobre esta linha → alvo do drop
+    if (dndOn !== 0 && inRow && dndTex !== 0) fill = 0x2E5A3AFF;
     app.box(8 + indent, ry0 + 1, HIER_W - 16 - indent, 24, fill, 0, 0, 5);
     if (depth > 0) app.text(8 + indent - 12, ry0 + 5, "└", 0x556377FF, 14);
     let icon = "[C]";
@@ -716,15 +871,27 @@ function frame(): void {
   const nsz = numField(WIN, 532, fx0 + (fw + g2) * 2, BAR_H + 144, fw, "Z", AXIS_Z, sel.transform.sz, mx, my, mDownNow, mPressed);
   sel.transform.sx = nsx; sel.transform.sy = nsy; sel.transform.sz = nsz;
 
-  // ── mesh + estático ─────────────────────────────────────────────────────────
+  // ── mesh + textura: SLOTS que aceitam DROP do Project (estilo Unity) ─────────
+  // O slot de Mesh mostra o .obj carregado (ou o primitivo); o de Textura mostra
+  // a imagem do Material. Arrastar um asset compatível de baixo acende a borda.
   let meshName = "Cubo";
   if (sel.meshKind === 2) meshName = "Piramide";
   if (sel.meshKind === 3) meshName = "Octaedro";
   if (sel.meshKind === 4) meshName = "Esfera";
-  app.text(ix + 14, BAR_H + 180, "Mesh: " + meshName, 0xC0C0C0FF, 13);
-  const bMesh = app.button(ix + 14, BAR_H + 200, 104, 26, "Trocar");
-  if (bMesh) { sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1; }
-  sel.stationary = app.checkbox(ix + 134, BAR_H + 203, sel.stationary, "Estatico");
+  let meshShow = meshName;
+  if (sel.customMesh > 0 && sel.meshPath.length > 0) meshShow = sel.meshPath;
+  slotMeshHot = assetField(WIN, ix + 14, BAR_H + 176, INSP_W - 28, 20, "Mesh", meshShow, dndModel, mx, my);
+  // path da textura atual (via Material, com fallback pro campo legado)
+  let texShow = "";
+  if (sel.matIdx >= 0) texShow = sel.behaviors[sel.matIdx].matTexPath();
+  slotTexHot = assetField(WIN, ix + 14, BAR_H + 200, INSP_W - 28, 20, "Textura", texShow, dndTex, mx, my);
+
+  const bMesh = app.button(ix + 14, BAR_H + 224, 104, 22, "Trocar");
+  if (bMesh) {
+    sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1;
+    sel.customMesh = 0; sel.meshPath = "";   // voltar pro primitivo descarta o .obj
+  }
+  sel.stationary = app.checkbox(ix + 134, BAR_H + 226, sel.stationary, "Estatico");
 
   // ── componentes do objeto — cada um com CABEÇALHO + campos de CONFIG editáveis
   //    + botão remover; e a lista "Add Component" no fim (estilo Inspector Unity)
@@ -815,13 +982,21 @@ function frame(): void {
   if (S.playing !== 0) modeTxt = "Playing";
   app.text(vpx + 10, H - 19, modeTxt + "  |  objetos: " + scene.objects.length, 0x9A9A9AFF, 12);
   app.text(vpx + 10, BAR_H + 8, "Scene", 0xB0B0B0C0, 13);
-  app.text(W - INSP_W - 470, H - 19, "WASD voa | botao DIR gira camera | esq seleciona/arrasta | espaco sobe", 0x808080FF, 11);
+  // Barra de status: normalmente a dica de controles; após clicar em Build,
+  // o aviso do build por alguns segundos (a compilação roda em outra janela).
+  if (buildMsgFrames > 0) {
+    buildMsgFrames = buildMsgFrames - 1;
+    app.text(W - INSP_W - 470, H - 19,
+      "BUILD iniciado numa janela a parte (~1min) — sai em build/RTSGame.exe com os assets", 0x77DD99FF, 11);
+  } else {
+    app.text(W - INSP_W - 470, H - 19, "WASD voa | DIR gira camera | esq seleciona | arraste assets do Project pra ca", 0x808080FF, 11);
+  }
 
   // ── PROJECT PANEL (asset browser) na base do viewport ───────────────────────
   const apX = HIER_W;
   const apY = H - 24 - ASSET_H;
   const apW = W - HIER_W - INSP_W;
-  const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, mPressed, frames);
+  const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, mPressed, mDownNow, frames);
   if (assetAct.length > 0) {
     const path = assetAct.substring(assetAct.indexOf(":") + 1);
     const c0 = assetAct.charCodeAt(0);
@@ -839,11 +1014,91 @@ function frame(): void {
     }
   }
 
+  // ── DROP do asset arrastado (estilo Unity) ─────────────────────────────────
+  // O drag é iniciado/mantido pelo Project (assets.ts). Aqui, no frame em que o
+  // botão é SOLTO, decidimos o alvo pela região do cursor:
+  //   • viewport  → instancia o asset no MUNDO, no ponto do chão sob o cursor
+  //   • hierarquia→ instancia (posição padrão) / aplica textura no objeto da linha
+  //   • inspector → aplica no SLOT compatível sob o cursor (Mesh/Textura)
+  // O drag é limpo logo após aplicar, então cada release é consumido uma vez só.
+  if (dndOn !== 0 && mDownNow === 0) {
+    // subStr (não `.substring` direto): a string vem de estado de MÓDULO do
+    // assets.ts — fatiar sem passar por parâmetro devolve "undefined" no motor.
+    const pay = assetDragPayload();
+    const cut = pay.indexOf(":");
+    const kind = subStr(pay, 0, cut);
+    const dpath = subStr(pay, cut + 1, pay.length);
+
+    if (inViewport) {
+      if (previewIdx >= 0) {
+        // já existe o PREVIEW no lugar certo: soltar apenas o confirma (vira
+        // objeto definitivo) — nada de instanciar de novo.
+        movePreviewTo(mx, my, cyw, syw, cpt2, spt2);
+        S.selected = previewIdx;
+        previewIdx = 0 - 1;
+        previewPay = "";
+      } else {
+        // textura solta EM CIMA de um objeto → aplica nele (Unity); no vazio → cria
+        const hitObj = kind === "tex" ? pickObjectAt(mx, my, cyw, syw, cpt2, spt2) : 0 - 1;
+        if (hitObj >= 0) {
+          if (applyTexToObject(hitObj, dpath, WIN) > 0) S.selected = hitObj;
+        } else {
+          dropAssetInWorld(kind, dpath, mx, my, cyw, syw, cpt2, spt2);
+        }
+      }
+    } else if (mx < HIER_W && my > BAR_H) {
+      // sobre a hierarquia: textura vai pro objeto da linha; resto instancia solto
+      const hIdx = hierRowAt(my);
+      if (kind === "tex" && hIdx >= 0 && hIdx < scene.objects.length) {
+        applyTexToObject(hIdx, dpath, WIN);
+      } else {
+        dropAssetInWorld(kind, dpath, 0.0 - 1.0, 0.0, cyw, syw, cpt2, spt2);
+      }
+    } else if (mx > W - INSP_W && S.selected >= 0 && S.selected < scene.objects.length) {
+      // sobre o inspector: só os slots aceitam (hit-test guardado no draw)
+      if (kind === "tex" && slotTexHot !== 0) applyTexToObject(S.selected, dpath, WIN);
+      else if (kind === "model" && slotMeshHot !== 0) applyMeshToObject(S.selected, dpath, WIN);
+    }
+    // Soltar de VOLTA no Project (ou em qualquer área não tratada) = CANCELAR:
+    // nenhum ramo acima rodou, então o preview é descartado e a cena fica intacta.
+    killPreview();      // no-op se o drop no viewport já consumiu o preview
+    assetDragClear();
+  }
+
   // ── UI-SCENE (L3): HUDs ao vivo como GameObjects, ancorados (RectTransform-like).
   // Títulos com dados reais da cena; os painéis seguem os cantos no resize.
   uiScene.setPanelTitle(0, "Objs " + scene.count() + "   Sel " + S.selected + "   Drawn " + S.drawnLast);
   uiScene.setPanelTitle(1, "cam " + (S.camX | 0) + "," + (S.camY | 0) + "," + (S.camZ | 0));
   uiScene.draw(WIN, W, H);
+
+  // ── OVERLAY DO DRAG & DROP (por último: fica acima de tudo) ────────────────
+  if (dndOn !== 0) {
+    if (inViewport) {
+      // alvo do drop: marca o objeto sob o cursor (textura) ou o ponto do chão
+      const prevObj = dndTex !== 0 ? pickObjectAt(mx, my, cyw, syw, cpt2, spt2) : 0 - 1;
+      if (prevObj >= 0) {
+        const pp = projPt(scene.objects[prevObj].transform.wx, scene.objects[prevObj].transform.wy,
+                          scene.objects[prevObj].transform.wz, S.camX, S.camY, S.camZ,
+                          cyw, syw, cpt2, spt2, focalW, W, H);
+        if (pp[2] !== 0.0) app.box(pp[0] - 22, pp[1] - 22, 44, 44, 0x77DD9955, 1, 0x77DD99FF, 6);
+        app.text(mx + 12, my + 16, "aplicar textura", 0x77DD99FF, 12);
+      } else {
+        // marca o ponto do chão sob o preview (cruz + coordenadas do mundo)
+        const gp = screenToPlane(mx, my, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H, 0.0);
+        if (gp[3] !== 0.0) {
+          const sp = projPt(gp[0], gp[1], gp[2], S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+          if (sp[2] !== 0.0) {
+            app.line(sp[0] - 14, sp[1], sp[0] + 14, sp[1], 1, 0x77DD99FF);
+            app.line(sp[0], sp[1] - 8, sp[0], sp[1] + 8, 1, 0x77DD99FF);
+            app.text(sp[0] + 8, sp[1] + 6, "(" + fmt1(gp[0]) + ", " + fmt1(gp[2]) + ")", 0x77DD99FF, 11);
+          }
+        }
+      }
+    }
+    // o "fantasma" com o nome do arquivo só aparece quando NÃO há preview 3D:
+    // dentro do viewport o próprio objeto renderizado já é a prévia.
+    if (previewIdx < 0) drawAssetDragGhost(WIN, mx, my);
+  }
 
   app.endFrame();
 }
