@@ -20,6 +20,8 @@ export function cmdDoc(parts: string[]): string {
     "doc [prefixo] :: esta documentacao (todos ou filtrado) :: doc addcomp",
     "dbg :: diagnostico de render (ativos/wouldDraw/drawnLast) :: dbg",
     "tree :: hierarquia: indice, nome, indice do pai (-1=raiz) :: tree",
+    "undo :: desfaz a ultima operacao mutante (snapshot da cena) :: undo",
+    "redo :: refaz a ultima operacao desfeita :: redo",
     "spawn <nome> <x> <y> <z> [kind] [escala] :: cria objeto; kind 1=cubo 2=piramide 3=octaedro 4=esfera; nasce estatico :: spawn Cubo 0 2 0 1 1.5",
     "move <i> <x> <y> <z> :: define a POSICAO do objeto i :: move 0 1 2 3",
     "scl <i> <sx> <sy> <sz> :: escala NAO-uniforme :: scl 0 1 6 1",

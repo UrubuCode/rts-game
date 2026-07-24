@@ -24,7 +24,7 @@ export function cmdRes(w: number, h: number): string {
 /// Autodescrição: lista de comandos + assinatura (a IA descobre o que pode fazer).
 export function cmdHelp(): string {
   return "[help] comandos (use 'doc' p/ detalhes+exemplos de cada um):" +
-    " state | res | help | doc [prefixo] | dbg | tree" +
+    " state | res | help | doc [prefixo] | dbg | tree | undo | redo" +
     " | spawn <nome> <x> <y> <z> [kind] [scale]  (kind 1=cubo 2=piramide 3=octaedro 4=esfera)" +
     " | move <i> <x> <y> <z>" +
     " | scl <i> <sx> <sy> <sz>" +

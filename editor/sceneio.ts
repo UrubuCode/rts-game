@@ -75,14 +75,30 @@ export function objectToData(go: GameObject): any {
   };
 }
 
-/// SALVA a cena inteira num arquivo JSON ({ objects: [...] }) — fecha o loop com
-/// loadSceneFrom. Devolve o nº de objetos salvos.
-export function saveScene(path: string): number {
+/// Serializa a cena inteira num string JSON ({ objects: [...] }). Base do save E
+/// do undo/redo (snapshot).
+export function sceneToJSON(): string {
   const objs: any[] = [];
   let i = 0;
   while (i < scene.objects.length) { objs.push(objectToData(scene.objects[i])); i = i + 1; }
   const data = { objects: objs };
-  fs.write(path, JSON.stringify(data));
+  return JSON.stringify(data);
+}
+
+/// Restaura a cena a partir de um string JSON (SUBSTITUI a atual). Base do load E
+/// do undo/redo.
+export function sceneFromJSON(s: string): void {
+  scene.clear();
+  const data = JSON.parse(s);
+  const arr = data.objects;
+  if (arr === undefined) return;
+  let i = 0;
+  while (i < arr.length) { scene.add(buildObject(arr[i])); i = i + 1; }
+}
+
+/// SALVA a cena inteira num arquivo JSON — fecha o loop com loadSceneFrom.
+export function saveScene(path: string): number {
+  fs.write(path, sceneToJSON());
   return scene.objects.length;
 }
 

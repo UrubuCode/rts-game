@@ -9,13 +9,32 @@ import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex } from "./commands/files";
 import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
+import { history } from "../undo";
 import { inFrustum } from "../../engine/render/gpu3d";
+
+/// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo).
+function isMutating(c: string): boolean {
+  return c === "spawn" || c === "move" || c === "scl" || c === "mesh" || c === "color" ||
+    c === "spin" || c === "delete" || c === "dup" || c === "clear" || c === "loadscene" ||
+    c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
+    c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex";
+}
 
 export function execCommand(w: number, h: number, line: string): string {
   const parts = line.split(" ");
   const cmd = parts[0];
   const np = parts.length;
+  // UNDO: snapshot da cena ANTES de qualquer operação mutante.
+  if (isMutating(cmd)) history.snapshot();
   switch (cmd) {
+    case "undo": {
+      if (history.undo() !== 0) return "[ok] undo (estado restaurado)";
+      return "[undo] nada pra desfazer";
+    }
+    case "redo": {
+      if (history.redo() !== 0) return "[ok] redo (estado restaurado)";
+      return "[redo] nada pra refazer";
+    }
     case "state": return cmdState();
     case "dbg": {
       // replica a decisão do loop de render pra TODOS os objetos e conta
