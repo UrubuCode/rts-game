@@ -23,6 +23,24 @@ export function cmdSelectAdd(parts: string[]): string {
   return "[ok] selectadd #" + i + " (multi: " + S.selection.length + ")";
 }
 
+/// view <top|front|side|persp> — posiciona a câmera num preset (olhando a origem).
+export function cmdView(parts: string[]): string {
+  if (parts.length < 2) return "[erro] uso: view <top|front|side|persp>";
+  const v = parts[1];
+  if (v === "top") {
+    S.camX = 0.0; S.camY = 22.0; S.camZ = 0.1; S.camYaw = 0.0; S.camPitch = 0 - 1.55;
+  } else if (v === "front") {
+    S.camX = 0.0; S.camY = 4.0; S.camZ = 0 - 20.0; S.camYaw = 0.0; S.camPitch = 0 - 0.15;
+  } else if (v === "side") {
+    S.camX = 0 - 20.0; S.camY = 4.0; S.camZ = 0.0; S.camYaw = 1.5708; S.camPitch = 0 - 0.15;
+  } else if (v === "persp") {
+    S.camX = 0.0; S.camY = 11.0; S.camZ = 0 - 15.0; S.camYaw = 0.0; S.camPitch = 0 - 0.5;
+  } else {
+    return "[erro] view invalido: " + v + " (top|front|side|persp)";
+  }
+  return "[ok] view " + v;
+}
+
 /// rename <i> <nome...> — renomeia o objeto (nome = resto da linha).
 export function cmdRename(parts: string[]): string {
   if (parts.length < 3) return "[erro] uso: rename <i> <nome>";
