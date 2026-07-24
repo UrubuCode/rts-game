@@ -3,7 +3,7 @@
 import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
-import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup } from "./commands/scene";
+import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
@@ -83,6 +83,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "vis": return cmdVis(parts);
     case "iso": return cmdIso(parts);
     case "group": return cmdGroup(parts);
+    case "ungroup": return cmdUngroup(parts);
     case "play": return cmdPlay();
     case "pause": return cmdPause();
     case "clear": return cmdClear();

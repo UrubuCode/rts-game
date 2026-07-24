@@ -55,6 +55,7 @@ export function cmdDoc(parts: string[]): string {
     "savescene <path> :: SALVA a cena atual num JSON (fecha o loop com loadscene) :: savescene assets/minhacena.json",
     "instscene <path> [hostIdx] :: CENA DENTRO DE CENA: instancia uma cena inteira sob um objeto (default=selecionado); mover o host move a sub-cena toda :: instscene assets/subscene.json 0",
     "loadtex <obj> <path> :: carrega uma imagem (PNG/JPG/BMP) e aplica como textura no Material do objeto :: loadtex 0 images.jpg",
+    "ungroup [i] :: dissolve o grupo (baka a pos de mundo nos filhos e remove o no) :: ungroup 8",
     "group :: cria um no vazio e aninha os selecionados (multi) sob ele; Ctrl+G da Unity :: group",
     "parent <filho> <pai> :: REPARENT: aninha filho sob pai (pai=-1 => raiz). Reordena o array; re-consulte tree depois :: parent 5 2",
     "movetree <drag> <before> <newparent> :: moveSubtree cru (reordenar+reparent por indice) :: movetree 5 3 2",

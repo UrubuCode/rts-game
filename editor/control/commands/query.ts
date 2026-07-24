@@ -36,7 +36,7 @@ export function cmdHelp(): string {
     " | tool [move|rotate|scale|select]  (gizmo da viewport) | snap [0|1]  (snap-to-grid)" +
     " | play | pause | clear" +
     " | loadscene <path> | savescene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
-    " | parent <filho> <pai> | movetree <drag> <before> <newparent> | group  (aninha os selecionados)" +
+    " | parent <filho> <pai> | movetree <drag> <before> <newparent> | group | ungroup [i]" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +
     " || TEXTURA/MESH: makeprefab <path> [i] | instprefab <path> | loadobj <path> [nome] | loadtex <obj> <path>" +

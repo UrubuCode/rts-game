@@ -68,6 +68,27 @@ export function cmdGroup(parts: string[]): string {
   return "[ok] group " + sel.length + " objs sob #" + gidx;
 }
 
+/// ungroup [i] — DISSOLVE o grupo #i (default=selecionado): baka a posição de mundo
+/// nos filhos diretos (pra não pularem) e remove o nó do grupo (os filhos viram raiz).
+export function cmdUngroup(parts: string[]): string {
+  let gi = S.selected;
+  if (parts.length > 1) gi = parseFloat(parts[1]) | 0;
+  if (gi < 0 || gi >= scene.objects.length) return "[erro] objeto invalido: " + gi;
+  let k = 0; let n = 0;
+  while (k < scene.objects.length) {
+    const o = scene.objects[k];
+    if (o.parent === gi) {
+      o.transform.px = o.transform.wx; o.transform.py = o.transform.wy; o.transform.pz = o.transform.wz;
+      o.transform.rx = o.transform.wrx; o.transform.ry = o.transform.wry;
+      n = n + 1;
+    }
+    k = k + 1;
+  }
+  scene.removeAt(gi);   // filhos com parent==gi viram raiz (parent -1)
+  S.selected = 0;
+  return "[ok] ungroup #" + gi + " (" + n + " filhos soltos)";
+}
+
 /// vis [i] — TOGGLE de visibilidade do objeto (active). O render pula os inativos.
 export function cmdVis(parts: string[]): string {
   let i = S.selected;
