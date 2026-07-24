@@ -191,8 +191,17 @@ export function loadObj(win: i64, path: string): number {
 /// sobe pra VRAM → devolve um id de textura (>=2) usável como `tex` no drawMesh.
 /// 0 se o arquivo não existe / formato inválido. A textura é amostrada TRIPLANAR
 /// (espaço de mundo) no shader — não precisa de UV per-vértice.
+// Cache de textura POR PATH: aplicar a mesma imagem em N objetos = 1 decode + 1
+// upload pra VRAM (as demais reusam o texId). Um `const … = new Map()` de módulo é
+// o padrão de singleton que o motor promove com class-tracking, então `.get/.set`
+// despacham mesmo lido/escrito de dentro de funções. (Uma janela só no editor;
+// se um dia houver várias, o cache viraria por-janela — o texId é da cena.)
+const texCache = new Map<string, number>();
+
 export function loadTexture(win: i64, path: string): number {
   if (!fs.exists(path)) return 0;
+  const hit = texCache.get(path);
+  if (hit !== undefined && hit > 0) return hit;   // já decodificada + na VRAM
   const sz = fs.size(path) | 0;
   if (sz <= 0) return 0;
   const buf = buffer.alloc(sz);
@@ -204,6 +213,7 @@ export function loadTexture(win: i64, path: string): number {
   const h = imgdec.height(dec) | 0;
   const px = imgdec.pixelsPtr(dec);
   const texId = egui.textureUpload(win, px, w, h);
+  if (texId > 0) texCache.set(path, texId);       // memoriza pro reuso
   return texId;
 }
 
