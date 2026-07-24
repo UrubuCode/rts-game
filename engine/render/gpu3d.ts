@@ -24,11 +24,11 @@ let idOcta = 0;
 let idSphere = 0;
 let ready = 0;
 
-// sobe uma mesh (verts = [x,y,z,nx,ny,nz,...], inds = [i,i,i,...]) pra VRAM.
+// sobe uma mesh (verts = [x,y,z,nx,ny,nz,u,v, ...] = 8 f32/vértice, inds = [...]) pra VRAM.
 function upload(win: i64, verts: f64[], inds: number[]): number {
-  const nv = verts.length / 6;
+  const nv = verts.length / 8;
   const ni = inds.length;
-  const vbuf = buffer.alloc(nv * 6 * 4);
+  const vbuf = buffer.alloc(nv * 8 * 4);
   const ibuf = buffer.alloc(ni * 4);
   let i = 0;
   while (i < verts.length) { buffer.write_f32(vbuf, i * 4, verts[i]); i = i + 1; }
@@ -40,13 +40,14 @@ function upload(win: i64, verts: f64[], inds: number[]): number {
   return id;
 }
 
-// adiciona um vértice (pos + normal suave = pos normalizada) ao array (esfera).
-function pushV(a: f64[], x: f64, y: f64, z: f64): void {
+// adiciona um vértice (pos + normal suave = pos normalizada + uv) ao array (esfera).
+function pushV(a: f64[], x: f64, y: f64, z: f64, u: f64, v: f64): void {
   const l = math.sqrt(x * x + y * y + z * z);
   let nx = 0.0; let ny = 1.0; let nz = 0.0;
   if (l > 0.0001) { nx = x / l; ny = y / l; nz = z / l; }
   a.push(x); a.push(y); a.push(z);
   a.push(nx); a.push(ny); a.push(nz);
+  a.push(u); a.push(v);
 }
 
 // mesh FLAT (facetada): cada face vira 3 vértices com a NORMAL DA FACE (arestas
@@ -72,9 +73,11 @@ function buildFlat(win: i64, corners: f64[], faces: number[]): number {
     }
     const l = math.sqrt(nx * nx + ny * ny + nz * nz);
     if (l > 0.0001) { nx = nx / l; ny = ny / l; nz = nz / l; }
-    verts.push(ax); verts.push(ay); verts.push(az); verts.push(nx); verts.push(ny); verts.push(nz);
-    verts.push(bx); verts.push(by); verts.push(bz); verts.push(nx); verts.push(ny); verts.push(nz);
-    verts.push(cx); verts.push(cy); verts.push(cz); verts.push(nx); verts.push(ny); verts.push(nz);
+    // uv planar por face: os 3 cantos do triângulo mapeiam (0,0)/(1,0)/(0,1) —
+    // cada face recebe a textura inteira (simples, sem stretching esquisito).
+    verts.push(ax); verts.push(ay); verts.push(az); verts.push(nx); verts.push(ny); verts.push(nz); verts.push(0.0); verts.push(0.0);
+    verts.push(bx); verts.push(by); verts.push(bz); verts.push(nx); verts.push(ny); verts.push(nz); verts.push(1.0); verts.push(0.0);
+    verts.push(cx); verts.push(cy); verts.push(cz); verts.push(nx); verts.push(ny); verts.push(nz); verts.push(0.0); verts.push(1.0);
     inds.push(vi); inds.push(vi + 1); inds.push(vi + 2);
     vi = vi + 3;
     f = f + 3;
@@ -118,7 +121,8 @@ export function initMeshes(win: i64): void {
     let jj = 0;
     while (jj < LON) {
       const phi: f64 = 2.0 * PI * (jj / LON);
-      pushV(sv, 0.5 * st * math.cos(phi), 0.5 * ct, 0.5 * st * math.sin(phi));
+      // uv lat/long: u ao redor (jj/LON), v do polo ao polo (ii/LAT).
+      pushV(sv, 0.5 * st * math.cos(phi), 0.5 * ct, 0.5 * st * math.sin(phi), jj / LON, ii / LAT);
       jj = jj + 1;
     }
     ii = ii + 1;
@@ -152,6 +156,7 @@ export function loadObj(win: i64, path: string): number {
   const lines = src.split("\n");
   const pxs: f64[] = []; const pys: f64[] = []; const pzs: f64[] = [];
   const nxs: f64[] = []; const nys: f64[] = []; const nzs: f64[] = [];
+  const txs: f64[] = []; const tys: f64[] = [];   // coords de textura (vt)
   const verts: f64[] = [];
   const inds: number[] = [];
   let vi = 0;
@@ -163,6 +168,8 @@ export function loadObj(win: i64, path: string): number {
       pxs.push(parseFloat(parts[1])); pys.push(parseFloat(parts[2])); pzs.push(parseFloat(parts[3]));
     } else if (t === "vn") {
       nxs.push(parseFloat(parts[1])); nys.push(parseFloat(parts[2])); nzs.push(parseFloat(parts[3]));
+    } else if (t === "vt") {
+      txs.push(parseFloat(parts[1])); tys.push(parseFloat(parts[2]));
     } else if (t === "f") {
       // pega os corners não-vazios (tolera múltiplos espaços); triângulo = 3 primeiros
       const corners: string[] = [];
@@ -174,9 +181,14 @@ export function loadObj(win: i64, path: string): number {
         const vIdx = (parseFloat(seg[0]) | 0) - 1;
         let nIdx = 0 - 1;
         if (seg.length >= 3 && seg[2].length > 0) nIdx = (parseFloat(seg[2]) | 0) - 1;
+        let tIdx = 0 - 1;
+        if (seg.length >= 2 && seg[1].length > 0) tIdx = (parseFloat(seg[1]) | 0) - 1;
         verts.push(pxs[vIdx]); verts.push(pys[vIdx]); verts.push(pzs[vIdx]);
         if (nIdx >= 0 && nIdx < nxs.length) { verts.push(nxs[nIdx]); verts.push(nys[nIdx]); verts.push(nzs[nIdx]); }
         else { verts.push(0.0); verts.push(1.0); verts.push(0.0); }
+        // uv do vt (V invertido: OBJ é origem inferior-esquerda, textura é superior).
+        if (tIdx >= 0 && tIdx < txs.length) { verts.push(txs[tIdx]); verts.push(1.0 - tys[tIdx]); }
+        else { verts.push(0.0); verts.push(0.0); }
         inds.push(vi); vi = vi + 1;
         k = k + 1;
       }
