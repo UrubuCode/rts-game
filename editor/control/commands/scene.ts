@@ -116,6 +116,37 @@ export function cmdGrid(parts: string[]): string {
   return "[ok] grid on (chão xadrez 60x60)";
 }
 
+/// frameall — enquadra a câmera pra ver TODA a cena (centro médio + distância pelo
+/// espalhamento). Complementa `focus` (1 objeto) e `view` (presets fixos).
+export function cmdFrameAll(parts: string[]): string {
+  let cx = 0.0; let cy = 0.0; let cz = 0.0; let cnt = 0;
+  let i = 0;
+  while (i < scene.objects.length) {
+    const o = scene.objects[i];
+    if (o.meshKind !== 0 || o.customMesh > 0) {
+      cx = cx + o.transform.wx; cy = cy + o.transform.wy; cz = cz + o.transform.wz; cnt = cnt + 1;
+    }
+    i = i + 1;
+  }
+  if (cnt === 0) return "[erro] cena vazia";
+  cx = cx / cnt; cy = cy / cnt; cz = cz / cnt;
+  // raio ~ maior distância de um objeto ao centro
+  let rad = 3.0; let j = 0;
+  while (j < scene.objects.length) {
+    const o = scene.objects[j];
+    if (o.meshKind !== 0 || o.customMesh > 0) {
+      const dx = o.transform.wx - cx; const dy = o.transform.wy - cy; const dz = o.transform.wz - cz;
+      const d = math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (d > rad) rad = d;
+    }
+    j = j + 1;
+  }
+  const dist = rad * 2.2 + 4.0;
+  S.camX = cx; S.camY = cy + dist * 0.5; S.camZ = cz - dist;
+  S.camYaw = 0.0; S.camPitch = math.atan2(cy - S.camY, dist);
+  return "[ok] frameall (centro " + (cx | 0) + "," + (cy | 0) + "," + (cz | 0) + " r" + (rad | 0) + ")";
+}
+
 /// view <top|front|side|persp> — posiciona a câmera num preset (olhando a origem).
 export function cmdView(parts: string[]): string {
   if (parts.length < 2) return "[erro] uso: view <top|front|side|persp>";
