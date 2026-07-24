@@ -31,6 +31,7 @@ export function cmdDoc(parts: string[]): string {
     "select <i> :: seleciona o objeto (fica dourado; limpa a multi-seleção) :: select 3",
     "selectadd <i> :: adiciona a objeto a MULTI-seleção (o gizmo manipula todos juntos) :: selectadd 2",
     "selectclear :: volta pra seleção unica (esvazia a multi) :: selectclear",
+    "delsel :: remove TODOS os objetos da multi-selecao (ou o unico) :: delsel",
     "delete <i> :: remove o objeto :: delete 3",
     "dup [i] :: duplica o objeto (default=selecionado), deslocado em +1 X; seleciona a copia. Clona transform+aparencia + TODOS os componentes :: dup 3",
     "dupn <count> <espaco> [i] :: duplica em ARRAY: N copias em linha no X, espacadas :: dupn 5 2 1",

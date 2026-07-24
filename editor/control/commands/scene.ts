@@ -205,6 +205,36 @@ export function cmdDelete(parts: string[]): string {
   return "[ok] delete";
 }
 
+/// delsel — remove TODOS os objetos da multi-seleção (ou o único selecionado).
+/// Remove do MAIOR índice pro menor pra os índices não invalidarem no meio.
+export function cmdDelSel(parts: string[]): string {
+  const idxs: number[] = [];
+  if (S.selection.length > 0) {
+    let k = 0; while (k < S.selection.length) { idxs.push(S.selection[k]); k = k + 1; }
+  } else if (S.selected >= 0) {
+    idxs.push(S.selected);
+  }
+  if (idxs.length === 0) return "[erro] nada selecionado";
+  // sort DESCENDENTE (bubble; lista pequena) pra remover do maior pro menor
+  let a = 0;
+  while (a < idxs.length) {
+    let b = a + 1;
+    while (b < idxs.length) {
+      if (idxs[b] > idxs[a]) { const t = idxs[a]; idxs[a] = idxs[b]; idxs[b] = t; }
+      b = b + 1;
+    }
+    a = a + 1;
+  }
+  let removed = 0; let k = 0;
+  while (k < idxs.length) {
+    const v = idxs[k];
+    if (v >= 0 && v < scene.objects.length) { scene.removeAt(v); removed = removed + 1; }
+    k = k + 1;
+  }
+  S.selection = []; S.selected = 0;
+  return "[ok] delsel (" + removed + " removidos)";
+}
+
 export function cmdCam(parts: string[]): string {
   S.camX = parseFloat(parts[1]); S.camY = parseFloat(parts[2]); S.camZ = parseFloat(parts[3]);
   S.camYaw = parseFloat(parts[4]); S.camPitch = parseFloat(parts[5]);
