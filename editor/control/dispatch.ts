@@ -2,7 +2,7 @@
 // comando (definidos em commands/*.ts). Devolve a resposta em texto.
 import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
-import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin } from "./commands/transform";
+import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
@@ -44,6 +44,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "spawn": return cmdSpawn(parts, np);
     case "move": return cmdMove(parts);
     case "scl": return cmdScl(parts);
+    case "tool": return cmdTool(parts);
     case "mesh": return cmdMesh(parts);
     case "color": return cmdColor(parts);
     case "spin": return cmdSpin(parts, np);

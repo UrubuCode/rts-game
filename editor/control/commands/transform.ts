@@ -1,6 +1,23 @@
-// Comandos de TRANSFORM/aparência de 1 objeto: move, scl, mesh, color, spin.
-import { scene } from "../session";
+// Comandos de TRANSFORM/aparência de 1 objeto: move, scl, mesh, color, spin, tool.
+import { scene, S } from "../session";
 import { Spinner } from "../../../scripts/spinner";
+
+/// tool [move|rotate|scale|select] — troca (ou consulta) a ferramenta do gizmo.
+/// A IA dirige o mesmo gizmo que o humano vê na viewport.
+export function cmdTool(parts: string[]): string {
+  if (parts.length < 2) {
+    let cur = "select";
+    if (S.tool === 1) cur = "move"; else if (S.tool === 2) cur = "rotate"; else if (S.tool === 3) cur = "scale";
+    return "[tool] atual = " + cur + " (use: tool move|rotate|scale|select)";
+  }
+  const t = parts[1];
+  if (t === "move") S.tool = 1;
+  else if (t === "rotate") S.tool = 2;
+  else if (t === "scale") S.tool = 3;
+  else if (t === "select") S.tool = 0;
+  else return "[erro] ferramenta invalida: " + t + " (move|rotate|scale|select)";
+  return "[ok] tool = " + t;
+}
 
 export function cmdMove(parts: string[]): string {
   const o = scene.objects[parseFloat(parts[1]) | 0];

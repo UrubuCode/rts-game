@@ -18,6 +18,7 @@ import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
+import { pickAxis, axisMove, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
 import { loadSceneFrom, instantiatePrefab } from "./editor/sceneio";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 
@@ -57,6 +58,7 @@ loadSceneFrom(sceneFile);
 let frames = 0;
 let spawnN = 0;
 let dragging = 0;
+let gizmoAxis = 0 - 1;   // eixo do gizmo que está sendo arrastado (-1 = nenhum)
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
 let addFilter = "";    // texto de busca do dropdown (filtra a lista)
 
@@ -201,46 +203,105 @@ function frame(): void {
   const my: f64 = input.mouseY(WIN);
   const inViewport = mx > HIER_W && mx < W - INSP_W && my > BAR_H && my < H - 24 - ASSET_H;
   const cpt2 = math.cos(S.camPitch); const spt2 = math.sin(S.camPitch);
-  if (mPressed !== 0 && inViewport) {
-    // seleciona o objeto projetado mais perto do mouse e começa o drag
-    let best = 0 - 1;
-    let bestD: f64 = 1e30;
-    let pi = 0;
-    while (pi < scene.objects.length) {
-      const po = scene.objects[pi];
-      if (po.meshKind !== 0) {
-        const dx = po.transform.wx - S.camX;
-        const dy = po.transform.wy - S.camY;
-        const dz = po.transform.wz - S.camZ;
-        const x1 = dx * cyw - dz * syw;
-        const z1 = dx * syw + dz * cyw;
-        const y2 = dy * cpt2 - z1 * spt2;
-        const z2 = dy * spt2 + z1 * cpt2;
-        if (z2 > 0.2) {
-          const psx = W * 0.5 + (x1 / z2) * focalW;
-          const psy = H * 0.5 - (y2 / z2) * focalW;
-          const ex = psx - mx; const ey = psy - my;
-          const d2 = ex * ex + ey * ey;
-          if (d2 < bestD && d2 < 4000) { bestD = d2; best = pi; }
-        }
-      }
-      pi = pi + 1;
+  // ── GIZMO: projeta o centro do selecionado + as pontas dos eixos X/Y/Z (tela) ──
+  // gzLen = comprimento de mundo dos eixos, escalado pela profundidade → tamanho de
+  // tela ~constante. Reaproveitado pro pick (abaixo) e pro desenho (após o render).
+  let gzOK = 0;
+  let gzOx: f64 = 0.0; let gzOy: f64 = 0.0;
+  let gzXx: f64 = 0.0; let gzXy: f64 = 0.0;
+  let gzYx: f64 = 0.0; let gzYy: f64 = 0.0;
+  let gzZx: f64 = 0.0; let gzZy: f64 = 0.0;
+  let gzLen: f64 = 1.0;
+  if (S.tool !== 0 && S.selected >= 0 && S.selected < scene.objects.length) {
+    const go = scene.objects[S.selected];
+    const owx = go.transform.wx; const owy = go.transform.wy; const owz = go.transform.wz;
+    const cz1 = (owx - S.camX) * syw + (owz - S.camZ) * cyw;
+    const cz2 = (owy - S.camY) * spt2 + cz1 * cpt2;
+    if (cz2 > 0.5) {
+      gzLen = cz2 * 0.16;
+      { const dx = owx - S.camX; const dy = owy - S.camY; const dz = owz - S.camZ;
+        const x1 = dx * cyw - dz * syw; const z1 = dx * syw + dz * cyw;
+        const y2 = dy * cpt2 - z1 * spt2; const z2 = dy * spt2 + z1 * cpt2;
+        gzOx = W * 0.5 + (x1 / z2) * focalW; gzOy = H * 0.5 - (y2 / z2) * focalW; }
+      { const dx = (owx + gzLen) - S.camX; const dy = owy - S.camY; const dz = owz - S.camZ;
+        const x1 = dx * cyw - dz * syw; const z1 = dx * syw + dz * cyw;
+        const y2 = dy * cpt2 - z1 * spt2; const z2 = dy * spt2 + z1 * cpt2;
+        gzXx = W * 0.5 + (x1 / z2) * focalW; gzXy = H * 0.5 - (y2 / z2) * focalW; }
+      { const dx = owx - S.camX; const dy = (owy + gzLen) - S.camY; const dz = owz - S.camZ;
+        const x1 = dx * cyw - dz * syw; const z1 = dx * syw + dz * cyw;
+        const y2 = dy * cpt2 - z1 * spt2; const z2 = dy * spt2 + z1 * cpt2;
+        gzYx = W * 0.5 + (x1 / z2) * focalW; gzYy = H * 0.5 - (y2 / z2) * focalW; }
+      { const dx = owx - S.camX; const dy = owy - S.camY; const dz = (owz + gzLen) - S.camZ;
+        const x1 = dx * cyw - dz * syw; const z1 = dx * syw + dz * cyw;
+        const y2 = dy * cpt2 - z1 * spt2; const z2 = dy * spt2 + z1 * cpt2;
+        gzZx = W * 0.5 + (x1 / z2) * focalW; gzZy = H * 0.5 - (y2 / z2) * focalW; }
+      gzOK = 1;
     }
-    if (best >= 0) { S.selected = best; dragging = 1; }
+  }
+
+  if (mPressed !== 0 && inViewport) {
+    // 1) tenta pegar um EIXO do gizmo (prioridade sobre selecionar outro objeto)
+    let ax = 0 - 1;
+    if (gzOK !== 0) ax = pickAxis(mx, my, gzOx, gzOy, gzXx, gzXy, gzYx, gzYy, gzZx, gzZy);
+    if (ax >= 0) {
+      gizmoAxis = ax;
+    } else {
+      // 2) senão, seleciona o objeto projetado mais perto do mouse
+      let best = 0 - 1; let bestD: f64 = 1e30; let pi = 0;
+      while (pi < scene.objects.length) {
+        const po = scene.objects[pi];
+        if (po.meshKind !== 0) {
+          const dx = po.transform.wx - S.camX; const dy = po.transform.wy - S.camY; const dz = po.transform.wz - S.camZ;
+          const x1 = dx * cyw - dz * syw; const z1 = dx * syw + dz * cyw;
+          const y2 = dy * cpt2 - z1 * spt2; const z2 = dy * spt2 + z1 * cpt2;
+          if (z2 > 0.2) {
+            const psx = W * 0.5 + (x1 / z2) * focalW; const psy = H * 0.5 - (y2 / z2) * focalW;
+            const ex = psx - mx; const ey = psy - my; const d2 = ex * ex + ey * ey;
+            if (d2 < bestD && d2 < 4000) { bestD = d2; best = pi; }
+          }
+        }
+        pi = pi + 1;
+      }
+      if (best >= 0) { S.selected = best; dragging = 1; }
+    }
     lastMx = mx; lastMy = my;
   }
-  if (mDownNow === 0) dragging = 0;
-  // enquanto arrasta: move o selecionado no plano da tela (direita da câmera + Y)
-  if (dragging !== 0 && mDownNow !== 0 && inViewport && scene.objects.length > 0) {
+  if (mDownNow === 0) { dragging = 0; gizmoAxis = 0 - 1; }
+
+  // ── ARRASTO RESTRITO AO EIXO (Move/Rotate/Scale conforme S.tool) ──
+  if (gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
     const so = scene.objects[S.selected];
-    const dxo = so.transform.wx - S.camX;
-    const dzo = so.transform.wz - S.camZ;
-    const z1o = dxo * syw + dzo * cyw;
+    let ex: f64 = gzXx; let ey: f64 = gzXy;
+    if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
+    if (gizmoAxis === 2) { ex = gzZx; ey = gzZy; }
+    const mv = axisMove(mx - lastMx, my - lastMy, gzOx, gzOy, ex, ey, gzLen);
+    if (S.tool === TOOL_MOVE) {
+      if (gizmoAxis === 0) so.transform.px = so.transform.px + mv;
+      if (gizmoAxis === 1) so.transform.py = so.transform.py + mv;
+      if (gizmoAxis === 2) so.transform.pz = so.transform.pz + mv;
+    } else if (S.tool === TOOL_SCALE) {
+      const sc: f64 = mv * 0.6;
+      if (gizmoAxis === 0) so.transform.sx = so.transform.sx + sc;
+      if (gizmoAxis === 1) so.transform.sy = so.transform.sy + sc;
+      if (gizmoAxis === 2) so.transform.sz = so.transform.sz + sc;
+      if (so.transform.sx < 0.05) so.transform.sx = 0.05;
+      if (so.transform.sy < 0.05) so.transform.sy = 0.05;
+      if (so.transform.sz < 0.05) so.transform.sz = 0.05;
+    } else if (S.tool === TOOL_ROTATE) {
+      const rt: f64 = mv * 0.5;
+      if (gizmoAxis === 0) so.transform.rx = so.transform.rx + rt;
+      if (gizmoAxis === 1) so.transform.ry = so.transform.ry + rt;
+      if (gizmoAxis === 2) so.transform.rz = so.transform.rz + rt;
+    }
+    lastMx = mx; lastMy = my;
+  } else if (dragging !== 0 && mDownNow !== 0 && inViewport && scene.objects.length > 0) {
+    // arrasto LIVRE no plano da tela (fallback: nenhum eixo pego)
+    const so = scene.objects[S.selected];
+    const z1o = (so.transform.wx - S.camX) * syw + (so.transform.wz - S.camZ) * cyw;
     let depth: f64 = (so.transform.wy - S.camY) * spt2 + z1o * cpt2;
     if (depth < 1.0) depth = 1.0;
-    const perPx: f64 = depth / focalW;   // unidades de mundo por pixel de tela
-    const mdx: f64 = (mx - lastMx) * perPx;
-    const mdy: f64 = (my - lastMy) * perPx;
+    const perPx: f64 = depth / focalW;
+    const mdx: f64 = (mx - lastMx) * perPx; const mdy: f64 = (my - lastMy) * perPx;
     so.transform.px = so.transform.px + cyw * mdx;
     so.transform.pz = so.transform.pz + (0 - syw) * mdx;
     so.transform.py = so.transform.py - mdy;
@@ -305,6 +366,21 @@ function frame(): void {
   }
   S.drawnLast = drawnN;   // nº de objetos desenhados neste frame (diagnóstico via ws 'dbg')
 
+  // ── GIZMO 2D: eixos X/Y/Z coloridos sobre a viewport (over o 3D, sob a UI). O
+  // eixo pego fica destacado (branco). Move/Rotate/Scale usam os mesmos eixos. ──
+  if (gzOK !== 0) {
+    const cX = gizmoAxis === 0 ? 0xFFFFFFFF : 0xE05A5AFF;   // X vermelho
+    const cY = gizmoAxis === 1 ? 0xFFFFFFFF : 0x6ABF4BFF;   // Y verde
+    const cZ = gizmoAxis === 2 ? 0xFFFFFFFF : 0x4B8FE0FF;   // Z azul
+    app.line(gzOx, gzOy, gzXx, gzXy, 3, cX);
+    app.line(gzOx, gzOy, gzYx, gzYy, 3, cY);
+    app.line(gzOx, gzOy, gzZx, gzZy, 3, cZ);
+    app.box(gzXx - 3, gzXy - 3, 7, 7, cX, 0, 0, 1);   // pontas (handles)
+    app.box(gzYx - 3, gzYy - 3, 7, 7, cY, 0, 0, 1);
+    app.box(gzZx - 3, gzZy - 3, 7, 7, cZ, 0, 0, 1);
+    app.box(gzOx - 3, gzOy - 3, 6, 6, 0xCCCCCCFF, 0, 0, 1); // centro
+  }
+
   // ═══ EDITOR UI (estilo Unity) ══════════════════════════════════════════════
   // toolbar
   app.box(0, 0, W, BAR_H, 0x393939FF, 0, 0, 0);
@@ -338,6 +414,23 @@ function frame(): void {
     if (S.selected >= scene.objects.length) S.selected = scene.objects.length - 1;
     if (S.selected < 0) S.selected = 0;
   }
+
+  // — ferramentas de manipulação: Move / Rotate / Scale (gizmo na viewport) —
+  const stMv = app.clickable(910, 260, 9, 46, 28);
+  let fMv = 0x2D2D2DFF; if (S.tool === TOOL_MOVE) fMv = 0x4A75B0FF; else if (stMv === 1) fMv = 0x454545FF;
+  app.box(260, 9, 46, 28, fMv, 1, 0x232323FF, 3);
+  app.text(268, 15, "Move", 0xC8C8C8FF, 12);
+  if (stMv === 3) S.tool = TOOL_MOVE;
+  const stRo = app.clickable(911, 308, 9, 42, 28);
+  let fRo = 0x2D2D2DFF; if (S.tool === TOOL_ROTATE) fRo = 0x4A75B0FF; else if (stRo === 1) fRo = 0x454545FF;
+  app.box(308, 9, 42, 28, fRo, 1, 0x232323FF, 3);
+  app.text(315, 15, "Rot", 0xC8C8C8FF, 12);
+  if (stRo === 3) S.tool = TOOL_ROTATE;
+  const stSc = app.clickable(912, 352, 9, 46, 28);
+  let fSc = 0x2D2D2DFF; if (S.tool === TOOL_SCALE) fSc = 0x4A75B0FF; else if (stSc === 1) fSc = 0x454545FF;
+  app.box(352, 9, 46, 28, fSc, 1, 0x232323FF, 3);
+  app.text(360, 15, "Scale", 0xC8C8C8FF, 12);
+  if (stSc === 3) S.tool = TOOL_SCALE;
 
   // — play controls CENTRALIZADOS (Play / Pause) —
   const pcx = W / 2 - 44;
