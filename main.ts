@@ -19,7 +19,8 @@ import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
 import { pickAxis, axisMove, projPt, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
-import { loadSceneFrom, instantiatePrefab } from "./editor/sceneio";
+import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./editor/sceneio";
+import { history } from "./editor/undo";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 
 // ── janela ────────────────────────────────────────────────────────────────
@@ -508,7 +509,32 @@ function frame(): void {
   app.text(pcx + 44 + 15, 13, "||", 0xE0E0E0FF, 15);
   if (stPause === 3) S.playing = 0;
 
-  // — direita: fps —
+  // — direita: Save / Dup / Undo / Redo + fps —
+  const bxSave = W - 380;
+  const stSave = app.clickable(920, bxSave, 9, 48, 28);
+  app.box(bxSave, 9, 48, 28, stSave === 1 ? 0x454545FF : 0x2D2D2DFF, 1, 0x232323FF, 3);
+  app.text(bxSave + 7, 15, "Salvar", 0xC8C8C8FF, 11);
+  if (stSave === 3) saveScene("assets/scene.json");
+  const bxDup = W - 328;
+  const stDupB = app.clickable(921, bxDup, 9, 42, 28);
+  app.box(bxDup, 9, 42, 28, stDupB === 1 ? 0x454545FF : 0x2D2D2DFF, 1, 0x232323FF, 3);
+  app.text(bxDup + 8, 15, "Dup", 0xC8C8C8FF, 11);
+  if (stDupB === 3 && S.selected >= 0 && S.selected < scene.objects.length) {
+    history.snapshot();
+    const g = cloneObject(scene.objects[S.selected]); g.transform.px = g.transform.px + 1.0;
+    scene.add(g); S.selected = scene.objects.length - 1;
+  }
+  const bxUndo = W - 282;
+  const stUndoB = app.clickable(922, bxUndo, 9, 34, 28);
+  app.box(bxUndo, 9, 34, 28, stUndoB === 1 ? 0x454545FF : 0x2D2D2DFF, 1, 0x232323FF, 3);
+  app.text(bxUndo + 11, 14, "<", 0xC8C8C8FF, 15);
+  if (stUndoB === 3) history.undo();
+  const bxRedo = W - 244;
+  const stRedoB = app.clickable(923, bxRedo, 9, 34, 28);
+  app.box(bxRedo, 9, 34, 28, stRedoB === 1 ? 0x454545FF : 0x2D2D2DFF, 1, 0x232323FF, 3);
+  app.text(bxRedo + 11, 14, ">", 0xC8C8C8FF, 15);
+  if (stRedoB === 3) history.redo();
+
   app.text(W - 92, 15, "fps " + math.floor(app.fps()), 0x909090FF, 13);
 
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
