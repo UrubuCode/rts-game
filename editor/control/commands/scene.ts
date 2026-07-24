@@ -5,7 +5,28 @@ import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "..
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;
+  S.selection = [];   // seleção ÚNICA (limpa a multi)
   return "[ok] select #" + S.selected;
+}
+
+/// selectadd <i> — adiciona à MULTI-seleção (o gizmo manipula todos juntos).
+export function cmdSelectAdd(parts: string[]): string {
+  if (parts.length < 2) return "[erro] uso: selectadd <i>";
+  const i = parseFloat(parts[1]) | 0;
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  // garante o selected atual na lista + adiciona i (sem duplicar)
+  if (S.selection.length === 0 && S.selected >= 0) S.selection.push(S.selected);
+  let j = 0; let has = 0;
+  while (j < S.selection.length) { if (S.selection[j] === i) has = 1; j = j + 1; }
+  if (has === 0) S.selection.push(i);
+  S.selected = i;
+  return "[ok] selectadd #" + i + " (multi: " + S.selection.length + ")";
+}
+
+/// selectclear — volta pra seleção única (esvazia a multi).
+export function cmdSelectClear(parts: string[]): string {
+  S.selection = [];
+  return "[ok] selectclear (seleção única)";
 }
 
 /// focus <i> — enquadra a câmera do editor no objeto (Unity "frame selected").

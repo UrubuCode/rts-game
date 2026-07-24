@@ -290,47 +290,64 @@ function frame(): void {
         }
         pi = pi + 1;
       }
-      if (best >= 0) { S.selected = best; dragging = 1; }
+      if (best >= 0) { S.selected = best; S.selection = []; dragging = 1; }   // clique = seleção única
     }
     lastMx = mx; lastMy = my;
   }
   if (mDownNow === 0) { dragging = 0; gizmoAxis = 0 - 1; }
 
   // ── ARRASTO RESTRITO AO EIXO/PLANO (Move/Rotate/Scale conforme S.tool) ──
+  // seleção efetiva: a lista S.selection (multi) ou só [S.selected]. O delta do
+  // gizmo é aplicado a TODOS (rotate/scale usam o centro de cada um — "pivot individual").
+  const nsel = S.selection.length > 0 ? S.selection.length : 1;
   if (gizmoAxis >= 3 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
     // PLANO (só Move): move nos DOIS eixos do plano (3=XY, 4=XZ, 5=YZ).
-    const so = scene.objects[S.selected];
     const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
     const mX = axisMove(dmx, dmy, gzOx, gzOy, gzXx, gzXy, gzLen);
     const mY = axisMove(dmx, dmy, gzOx, gzOy, gzYx, gzYy, gzLen);
     const mZ = axisMove(dmx, dmy, gzOx, gzOy, gzZx, gzZy, gzLen);
-    if (gizmoAxis === 3) { so.transform.px = so.transform.px + mX; so.transform.py = so.transform.py + mY; }
-    if (gizmoAxis === 4) { so.transform.px = so.transform.px + mX; so.transform.pz = so.transform.pz + mZ; }
-    if (gizmoAxis === 5) { so.transform.py = so.transform.py + mY; so.transform.pz = so.transform.pz + mZ; }
+    let si = 0;
+    while (si < nsel) {
+      const idx = S.selection.length > 0 ? S.selection[si] : S.selected;
+      if (idx >= 0 && idx < scene.objects.length) {
+        const so = scene.objects[idx];
+        if (gizmoAxis === 3) { so.transform.px = so.transform.px + mX; so.transform.py = so.transform.py + mY; }
+        if (gizmoAxis === 4) { so.transform.px = so.transform.px + mX; so.transform.pz = so.transform.pz + mZ; }
+        if (gizmoAxis === 5) { so.transform.py = so.transform.py + mY; so.transform.pz = so.transform.pz + mZ; }
+      }
+      si = si + 1;
+    }
     lastMx = mx; lastMy = my;
   } else if (gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
-    const so = scene.objects[S.selected];
     let ex: f64 = gzXx; let ey: f64 = gzXy;
     if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
     if (gizmoAxis === 2) { ex = gzZx; ey = gzZy; }
     const mv = axisMove(mx - lastMx, my - lastMy, gzOx, gzOy, ex, ey, gzLen);
-    if (S.tool === TOOL_MOVE) {
-      if (gizmoAxis === 0) so.transform.px = so.transform.px + mv;
-      if (gizmoAxis === 1) so.transform.py = so.transform.py + mv;
-      if (gizmoAxis === 2) so.transform.pz = so.transform.pz + mv;
-    } else if (S.tool === TOOL_SCALE) {
-      const sc: f64 = mv * 0.6;
-      if (gizmoAxis === 0) so.transform.sx = so.transform.sx + sc;
-      if (gizmoAxis === 1) so.transform.sy = so.transform.sy + sc;
-      if (gizmoAxis === 2) so.transform.sz = so.transform.sz + sc;
-      if (so.transform.sx < 0.05) so.transform.sx = 0.05;
-      if (so.transform.sy < 0.05) so.transform.sy = 0.05;
-      if (so.transform.sz < 0.05) so.transform.sz = 0.05;
-    } else if (S.tool === TOOL_ROTATE) {
-      const rt: f64 = mv * 0.5;
-      if (gizmoAxis === 0) so.transform.rx = so.transform.rx + rt;
-      if (gizmoAxis === 1) so.transform.ry = so.transform.ry + rt;
-      if (gizmoAxis === 2) so.transform.rz = so.transform.rz + rt;
+    let si = 0;
+    while (si < nsel) {
+      const idx = S.selection.length > 0 ? S.selection[si] : S.selected;
+      if (idx >= 0 && idx < scene.objects.length) {
+        const so = scene.objects[idx];
+        if (S.tool === TOOL_MOVE) {
+          if (gizmoAxis === 0) so.transform.px = so.transform.px + mv;
+          if (gizmoAxis === 1) so.transform.py = so.transform.py + mv;
+          if (gizmoAxis === 2) so.transform.pz = so.transform.pz + mv;
+        } else if (S.tool === TOOL_SCALE) {
+          const sc: f64 = mv * 0.6;
+          if (gizmoAxis === 0) so.transform.sx = so.transform.sx + sc;
+          if (gizmoAxis === 1) so.transform.sy = so.transform.sy + sc;
+          if (gizmoAxis === 2) so.transform.sz = so.transform.sz + sc;
+          if (so.transform.sx < 0.05) so.transform.sx = 0.05;
+          if (so.transform.sy < 0.05) so.transform.sy = 0.05;
+          if (so.transform.sz < 0.05) so.transform.sz = 0.05;
+        } else if (S.tool === TOOL_ROTATE) {
+          const rt: f64 = mv * 0.5;
+          if (gizmoAxis === 0) so.transform.rx = so.transform.rx + rt;
+          if (gizmoAxis === 1) so.transform.ry = so.transform.ry + rt;
+          if (gizmoAxis === 2) so.transform.rz = so.transform.rz + rt;
+        }
+      }
+      si = si + 1;
     }
     lastMx = mx; lastMy = my;
   } else if (dragging !== 0 && mDownNow !== 0 && inViewport && scene.objects.length > 0) {
@@ -377,7 +394,11 @@ function frame(): void {
         o.transform.wx, o.transform.wy, o.transform.wz, rmax * 0.87);
       if (vis !== 0) {
         let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
-        if (oi === S.selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
+        // selecionado (ou na multi-seleção) = dourado
+        let isSel = oi === S.selected ? 1 : 0;
+        let ssi = 0;
+        while (ssi < S.selection.length) { if (S.selection[ssi] === oi) isSel = 1; ssi = ssi + 1; }
+        if (isSel !== 0) { rr = 255; gg = 230; bbv = 120; }
         const col = (rr << 16) | (gg << 8) | bbv;
         // APARÊNCIA: se o objeto tem um component Material (matIdx cacheado, O(1)),
         // ele manda; senão fallback pros campos do GameObject (cenas sem Material).
