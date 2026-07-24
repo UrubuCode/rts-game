@@ -1,7 +1,7 @@
 // Comandos de CENA/sessão: select, delete, cam, focus, play, pause, clear, loadscene.
 import math from "rts:math";
 import { scene, S } from "../session";
-import { loadSceneFrom } from "../../sceneio";
+import { loadSceneFrom, instantiateSceneUnder } from "../../sceneio";
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;
@@ -48,4 +48,16 @@ export function cmdClear(): string {
 export function cmdLoad(parts: string[]): string {
   loadSceneFrom(parts[1]);
   return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length;
+}
+
+/// instscene <path> [hostIdx] — CENA DENTRO DE CENA: instancia uma cena inteira
+/// sob o objeto hostIdx (default = selecionado). Mover o host move a sub-cena toda.
+export function cmdInstScene(parts: string[]): string {
+  if (parts.length < 2) return "[erro] uso: instscene <path> [hostIdx]";
+  let host = S.selected;
+  if (parts.length > 2) host = parseFloat(parts[2]) | 0;
+  const before = scene.objects.length;
+  const n = instantiateSceneUnder(parts[1], host) | 0;
+  if (n === 0) return "[erro] falha ao instanciar (arquivo/objetos): " + parts[1];
+  return "[ok] instscene " + parts[1] + " -> " + n + " objs sob #" + host + " (cena agora com " + scene.objects.length + ")";
 }

@@ -52,6 +52,32 @@ export function buildObject(od: any): GameObject {
   return go;
 }
 
+/// CENA DENTRO DE CENA (estilo Godot): instancia uma cena inteira ADITIVAMENTE,
+/// parenteando suas raízes sob o objeto `hostIdx` (-1 = como raízes da cena). O
+/// host vira o "âncora": mover/rotacionar/escalar o host move a sub-cena inteira
+/// (via o sistema de parent + computeWorld). Devolve quantos objetos instanciou.
+///
+/// Remap de índice: as raízes da sub-cena (parent < 0) viram filhas do host; os
+/// demais têm o parent deslocado pelo offset (base) onde a sub-cena foi anexada.
+export function instantiateSceneUnder(path: string, hostIdx: number): number {
+  if (!fs.exists(path)) return 0;
+  const data = JSON.parse(fs.read_text(path));
+  const arr = data.objects;
+  if (arr === undefined) return 0;
+  const base = scene.objects.length;   // offset dos índices que entram
+  let n = 0;
+  let ci = 0;
+  while (ci < arr.length) {
+    const go = buildObject(arr[ci]);
+    if (go.parent < 0) go.parent = hostIdx;        // raiz da sub-cena → filha do host
+    else go.parent = base + go.parent;              // desloca o parent interno
+    scene.add(go);
+    n = n + 1;
+    ci = ci + 1;
+  }
+  return n;
+}
+
 /// Carrega uma cena inteira ({ objects: [...] }), SUBSTITUINDO a atual.
 export function loadSceneFrom(path: string): void {
   if (!fs.exists(path)) return;
