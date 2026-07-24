@@ -24,6 +24,16 @@ export function cmdSelectAdd(parts: string[]): string {
   return "[ok] selectadd #" + i + " (multi: " + S.selection.length + ")";
 }
 
+/// vis [i] — TOGGLE de visibilidade do objeto (active). O render pula os inativos.
+export function cmdVis(parts: string[]): string {
+  let i = S.selected;
+  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  const o = scene.objects[i];
+  o.active = o.active !== 0 ? 0 : 1;
+  return "[ok] vis #" + i + " = " + (o.active !== 0 ? "on" : "off");
+}
+
 /// grid — TOGGLE de um chão-grade (plano xadrez grande, depth-tested) em y=0.
 export function cmdGrid(parts: string[]): string {
   // remove se já existe (toggle off)

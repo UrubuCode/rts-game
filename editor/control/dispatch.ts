@@ -3,7 +3,7 @@
 import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset } from "./commands/transform";
-import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid } from "./commands/scene";
+import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
@@ -79,6 +79,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "focus": return cmdFocus(parts);
     case "view": return cmdView(parts);
     case "grid": return cmdGrid(parts);
+    case "vis": return cmdVis(parts);
     case "play": return cmdPlay();
     case "pause": return cmdPause();
     case "clear": return cmdClear();
