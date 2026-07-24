@@ -2,7 +2,7 @@
 // comando (definidos em commands/*.ts). Devolve a resposta em texto.
 import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
-import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap } from "./commands/transform";
+import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
@@ -17,7 +17,8 @@ function isMutating(c: string): boolean {
   return c === "spawn" || c === "move" || c === "scl" || c === "mesh" || c === "color" ||
     c === "spin" || c === "delete" || c === "dup" || c === "clear" || c === "loadscene" ||
     c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
-    c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex";
+    c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex" ||
+    c === "rename" || c === "reset";
 }
 
 export function execCommand(w: number, h: number, line: string): string {
@@ -65,6 +66,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "scl": return cmdScl(parts);
     case "tool": return cmdTool(parts);
     case "snap": return cmdSnap(parts);
+    case "reset": return cmdReset(parts);
     case "mesh": return cmdMesh(parts);
     case "color": return cmdColor(parts);
     case "spin": return cmdSpin(parts, np);

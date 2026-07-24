@@ -2,6 +2,18 @@
 import { scene, S } from "../session";
 import { Spinner } from "../../../scripts/spinner";
 
+/// reset [i] — zera a rotação e põe escala 1 do objeto (default=selecionado);
+/// mantém a posição. Equivale ao "Reset" do Transform da Unity (sem mover pra origem).
+export function cmdReset(parts: string[]): string {
+  let i = S.selected;
+  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  const t = scene.objects[i].transform;
+  t.rx = 0.0; t.ry = 0.0; t.rz = 0.0;
+  t.sx = 1.0; t.sy = 1.0; t.sz = 1.0;
+  return "[ok] reset #" + i + " (rot 0, escala 1)";
+}
+
 /// snap [0|1] — liga/desliga (ou consulta) o snap-to-grid do gizmo (move 0.5, rot 15°).
 export function cmdSnap(parts: string[]): string {
   if (parts.length < 2) return "[snap] " + (S.snap !== 0 ? "on" : "off") + " (use: snap 0|1)";
