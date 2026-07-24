@@ -2,6 +2,26 @@
 import { scene, S } from "../session";
 import { Spinner } from "../../../scripts/spinner";
 
+/// align [i] [step] — arredonda a POSIÇÃO do objeto pro grid na hora (default step 0.5).
+export function cmdAlign(parts: string[]): string {
+  let i = S.selected;
+  let step = 0.5;
+  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
+  if (parts.length > 2) step = parseFloat(parts[2]);
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (step <= 0.0) step = 0.5;
+  const t = scene.objects[i].transform;
+  t.px = snapAt(t.px, step); t.py = snapAt(t.py, step); t.pz = snapAt(t.pz, step);
+  return "[ok] align #" + i + " (grid " + step + ")";
+}
+
+// round pro múltiplo mais próximo (local, evita import cruzado).
+function snapAt(v: f64, step: f64): f64 {
+  const n = v / step;
+  const r = n >= 0.0 ? ((n + 0.5) | 0) : (0 - ((0.5 - n) | 0));
+  return (r * 1.0) * step;
+}
+
 /// reset [i] — zera a rotação e põe escala 1 do objeto (default=selecionado);
 /// mantém a posição. Equivale ao "Reset" do Transform da Unity (sem mover pra origem).
 export function cmdReset(parts: string[]): string {

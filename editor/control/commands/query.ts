@@ -27,7 +27,7 @@ export function cmdHelp(): string {
     " state | res | help | doc [prefixo] | dbg | tree | undo | redo" +
     " | spawn <nome> <x> <y> <z> [kind] [scale]  (kind 1=cubo 2=piramide 3=octaedro 4=esfera)" +
     " | move <i> <x> <y> <z>" +
-    " | scl <i> <sx> <sy> <sz> | reset [i]" +
+    " | scl <i> <sx> <sy> <sz> | reset [i] | align [i] [step]" +
     " | mesh <i> <kind>" +
     " | color <i> <r> <g> <b>  (0..255)" +
     " | spin <i> <spdY> [spdX]" +
