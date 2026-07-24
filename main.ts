@@ -245,6 +245,15 @@ function frame(): void {
     // 1) tenta pegar um EIXO do gizmo (prioridade sobre selecionar outro objeto)
     let ax = 0 - 1;
     if (gzOK !== 0) ax = pickAxis(mx, my, gzOx, gzOy, gzXx, gzXy, gzYx, gzYy, gzZx, gzZy);
+    // 1b) HANDLES DE PLANO (só Move): arrastar 2 eixos. Checa se nenhum eixo foi pego.
+    if (ax < 0 && gzOK !== 0 && S.tool === TOOL_MOVE) {
+      const hxyX = gzOx + (gzXx - gzOx) * 0.4 + (gzYx - gzOx) * 0.4; const hxyY = gzOy + (gzXy - gzOy) * 0.4 + (gzYy - gzOy) * 0.4;
+      const hxzX = gzOx + (gzXx - gzOx) * 0.4 + (gzZx - gzOx) * 0.4; const hxzY = gzOy + (gzXy - gzOy) * 0.4 + (gzZy - gzOy) * 0.4;
+      const hyzX = gzOx + (gzYx - gzOx) * 0.4 + (gzZx - gzOx) * 0.4; const hyzY = gzOy + (gzYy - gzOy) * 0.4 + (gzZy - gzOy) * 0.4;
+      if (mx > hxyX - 8.0 && mx < hxyX + 8.0 && my > hxyY - 8.0 && my < hxyY + 8.0) ax = 3;       // plano XY
+      else if (mx > hxzX - 8.0 && mx < hxzX + 8.0 && my > hxzY - 8.0 && my < hxzY + 8.0) ax = 4;  // plano XZ
+      else if (mx > hyzX - 8.0 && mx < hyzX + 8.0 && my > hyzY - 8.0 && my < hyzY + 8.0) ax = 5;  // plano YZ
+    }
     if (ax >= 0) {
       gizmoAxis = ax;
     } else {
@@ -270,8 +279,19 @@ function frame(): void {
   }
   if (mDownNow === 0) { dragging = 0; gizmoAxis = 0 - 1; }
 
-  // ── ARRASTO RESTRITO AO EIXO (Move/Rotate/Scale conforme S.tool) ──
-  if (gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
+  // ── ARRASTO RESTRITO AO EIXO/PLANO (Move/Rotate/Scale conforme S.tool) ──
+  if (gizmoAxis >= 3 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
+    // PLANO (só Move): move nos DOIS eixos do plano (3=XY, 4=XZ, 5=YZ).
+    const so = scene.objects[S.selected];
+    const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
+    const mX = axisMove(dmx, dmy, gzOx, gzOy, gzXx, gzXy, gzLen);
+    const mY = axisMove(dmx, dmy, gzOx, gzOy, gzYx, gzYy, gzLen);
+    const mZ = axisMove(dmx, dmy, gzOx, gzOy, gzZx, gzZy, gzLen);
+    if (gizmoAxis === 3) { so.transform.px = so.transform.px + mX; so.transform.py = so.transform.py + mY; }
+    if (gizmoAxis === 4) { so.transform.px = so.transform.px + mX; so.transform.pz = so.transform.pz + mZ; }
+    if (gizmoAxis === 5) { so.transform.py = so.transform.py + mY; so.transform.pz = so.transform.pz + mZ; }
+    lastMx = mx; lastMy = my;
+  } else if (gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
     const so = scene.objects[S.selected];
     let ex: f64 = gzXx; let ey: f64 = gzXy;
     if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
@@ -408,10 +428,16 @@ function frame(): void {
         seg = seg + 1;
       }
     } else {
-      // MOVE: setas (ponta = box) nas pontas dos eixos
+      // MOVE: pontas dos eixos + HANDLES DE PLANO (arrastar 2 eixos)
       app.box(gzXx - 3, gzXy - 3, 7, 7, cX, 0, 0, 1);
       app.box(gzYx - 3, gzYy - 3, 7, 7, cY, 0, 0, 1);
       app.box(gzZx - 3, gzZy - 3, 7, 7, cZ, 0, 0, 1);
+      const hxyX = gzOx + (gzXx - gzOx) * 0.4 + (gzYx - gzOx) * 0.4; const hxyY = gzOy + (gzXy - gzOy) * 0.4 + (gzYy - gzOy) * 0.4;
+      const hxzX = gzOx + (gzXx - gzOx) * 0.4 + (gzZx - gzOx) * 0.4; const hxzY = gzOy + (gzXy - gzOy) * 0.4 + (gzZy - gzOy) * 0.4;
+      const hyzX = gzOx + (gzYx - gzOx) * 0.4 + (gzZx - gzOx) * 0.4; const hyzY = gzOy + (gzYy - gzOy) * 0.4 + (gzZy - gzOy) * 0.4;
+      app.box(hxyX - 6, hxyY - 6, 12, 12, gizmoAxis === 3 ? 0xFFFFFFCC : 0xC8C860AA, 0, 0, 1);   // XY
+      app.box(hxzX - 6, hxzY - 6, 12, 12, gizmoAxis === 4 ? 0xFFFFFFCC : 0xC860C8AA, 0, 0, 1);   // XZ
+      app.box(hyzX - 6, hyzY - 6, 12, 12, gizmoAxis === 5 ? 0xFFFFFFCC : 0x60C8C8AA, 0, 0, 1);   // YZ
     }
     app.box(gzOx - 3, gzOy - 3, 6, 6, 0xCCCCCCFF, 0, 0, 1); // centro
   }
