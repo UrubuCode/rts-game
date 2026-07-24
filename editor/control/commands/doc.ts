@@ -47,6 +47,7 @@ export function cmdDoc(parts: string[]): string {
     "tool [move|rotate|scale|select] :: troca/consulta a ferramenta do gizmo da viewport (a IA dirige o mesmo gizmo do humano) :: tool rotate",
     "snap [0|1] :: liga/desliga o snap-to-grid do gizmo (move 0.5, rotate 15) :: snap 1",
     "reset [i] :: zera rotacao e poe escala 1 do objeto (mantem posicao); undoable :: reset 3",
+    "light [x y z ambient] :: posicao da luz pontual + ambiente (0..1); sem args consulta :: light 7 13 5 0.28",
     "frameall :: enquadra a camera pra ver toda a cena (centro+espalhamento) :: frameall",
     "view <top|front|side|persp> :: posiciona a camera num preset olhando a origem :: view top",
     "grid :: TOGGLE de um chao-grade (plano xadrez depth-tested) em y=0 :: grid",

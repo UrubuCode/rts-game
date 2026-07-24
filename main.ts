@@ -378,7 +378,7 @@ function frame(): void {
   //    cima). Só manda câmera/luz + 1 drawMesh por objeto — a GPU faz o resto. ──
   scene.computeWorld();
   setCam(WIN, S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
-  setLgt(WIN, 7.0, 13.0, 5.0, 0.28);   // luz PONTUAL (posição no alto)
+  setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);   // luz PONTUAL (posição) — controlável via ws `light`
   // shadow map direcional: luz viaja do alto pra baixo em direção à cena
   setShadow(WIN, 0 - 7.0, 0 - 12.0, 0 - 5.0, 0.0, 1.0, 0.0, 24.0);
   let oi = 0;

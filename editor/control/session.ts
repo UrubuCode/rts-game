@@ -8,6 +8,7 @@ export class Session {
   win: number;        // handle da janela egui (pra comandos que sobem mesh/textura)
   tool: number;       // ferramenta de manipulação: 0=seleção, 1=Move, 2=Rotate, 3=Scale
   snap: number;       // 1 = snap to grid no gizmo (move 0.5, rotate 15°)
+  lightX: f64; lightY: f64; lightZ: f64; lightAmb: f64;   // luz PONTUAL (posição) + ambiente
   constructor() {
     this.camX = 0.0; this.camY = 11.0; this.camZ = -15.0;
     this.camYaw = 0.0; this.camPitch = 0 - 0.5;
@@ -18,6 +19,7 @@ export class Session {
     this.win = 0;
     this.tool = 1;   // Move por padrão
     this.snap = 0;
+    this.lightX = 7.0; this.lightY = 13.0; this.lightZ = 5.0; this.lightAmb = 0.28;
   }
 }
 export const S = new Session();

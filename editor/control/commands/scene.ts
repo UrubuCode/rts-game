@@ -116,6 +116,16 @@ export function cmdGrid(parts: string[]): string {
   return "[ok] grid on (chão xadrez 60x60)";
 }
 
+/// light [x y z ambient] — posição da luz pontual + ambiente (0..1). Sem args = consulta.
+export function cmdLight(parts: string[]): string {
+  if (parts.length < 5) {
+    return "[light] pos(" + S.lightX + "," + S.lightY + "," + S.lightZ + ") amb=" + S.lightAmb + " (use: light x y z ambient)";
+  }
+  S.lightX = parseFloat(parts[1]); S.lightY = parseFloat(parts[2]); S.lightZ = parseFloat(parts[3]);
+  S.lightAmb = parseFloat(parts[4]);
+  return "[ok] light pos(" + S.lightX + "," + S.lightY + "," + S.lightZ + ") amb=" + S.lightAmb;
+}
+
 /// frameall — enquadra a câmera pra ver TODA a cena (centro médio + distância pelo
 /// espalhamento). Complementa `focus` (1 objeto) e `view` (presets fixos).
 export function cmdFrameAll(parts: string[]): string {
