@@ -4,6 +4,7 @@
 
 import { Transform } from "./transform";
 import { Behavior } from "./behavior";
+import { Material } from "./material";
 
 // meshKind: 0 = vazio (só nó), 1 = cubo. (grid/luz/câmera entram depois)
 export class GameObject {
@@ -17,8 +18,9 @@ export class GameObject {
   stationary: number;  // 1 = estático (a colisão não o empurra) — tipo static/kinematic
   emissive: number;    // 1 = brilha (não sombreado) — ex.: o Sol
   tex: number;         // textura procedural: 0 = nenhuma, 1 = xadrez (chão)
-  textureId: number;   // id de textura de IMAGEM real (>=2, via loadTexture); 0 = sem imagem
+  textureId: number;   // (legado) id de textura de IMAGEM; 0 = sem. Preferir o component Material.
   customMesh: number;  // id de mesh carregada (.obj); 0 = usa o primitivo meshKind
+  matIdx: number;      // índice do component Material em behaviors (-1 = nenhum). Cache O(1) pro render.
 
   constructor(name: string) {
     this.name = name;
@@ -33,13 +35,42 @@ export class GameObject {
     this.tex = 0;
     this.textureId = 0;
     this.customMesh = 0;
+    this.matIdx = 0 - 1;
+  }
+
+  /// Recalcula o índice cacheado do Material (chamado quando behaviors muda).
+  /// O(nº de components), mas só nas MUTAÇÕES (add/remove), não por frame.
+  refreshMatIdx(): void {
+    this.matIdx = 0 - 1;
+    let i = 0;
+    while (i < this.behaviors.length) {
+      if (this.behaviors[i].isMaterial() !== 0) { this.matIdx = i; return; }
+      i = i + 1;
+    }
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.
   addBehavior(b: Behavior): GameObject {
     b.attach(this.transform);
     this.behaviors.push(b);
+    if (b.isMaterial() !== 0) this.matIdx = this.behaviors.length - 1;
     return this;
+  }
+
+  /// Devolve o component Material do objeto, criando e anexando um se não houver.
+  /// Retorna o tipo BASE (Behavior) — o caller usa só os métodos virtuais de
+  /// material (setMatTexture/isMaterial), sem depender de cast pro subtipo.
+  getOrAddMaterial(): Behavior {
+    if (this.matIdx >= 0) return this.behaviors[this.matIdx];
+    const m = new Material();
+    this.addBehavior(m);   // addBehavior já atualiza matIdx
+    return m;
+  }
+
+  /// Aplica uma textura de imagem (id da GPU + path) no Material do objeto
+  /// (cria o Material se preciso). Usado pelo asset browser / ws `loadtex`.
+  applyTexture(id: number, path: string): void {
+    this.getOrAddMaterial().setMatTexture(id, path);
   }
 
   /// Remove o componente no índice `idx` (reconstrói o array sem ele).
@@ -51,6 +82,7 @@ export class GameObject {
       i = i + 1;
     }
     this.behaviors = next;
+    this.refreshMatIdx();   // o índice mudou (array reconstruído) — recalcula
   }
 
   /// Define o mesh + cor (fluent).

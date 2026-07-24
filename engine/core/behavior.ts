@@ -47,4 +47,19 @@ export class Behavior {
   fieldGet(i: number): f64 { return 0.0; }
   /// Grava `v` no campo `i` (chamado pelo inspector ao arrastar/editar).
   fieldSet(i: number, v: f64): void {}
+
+  // ── SURFACE DE MATERIAL (lida pelo render via dispatch virtual, sem cast) ────
+  // O component Material sobrescreve estes; qualquer outro Behavior devolve os
+  // defaults (isMaterial=0 → o render o ignora como fonte de material).
+  /// 1 se este component é um Material (define a aparência do objeto).
+  isMaterial(): number { return 0; }
+  /// Id da textura de imagem real (>=2) ou 0 (sem imagem).
+  matTexId(): number { return 0; }
+  /// 1 = emissivo (não sombreado).
+  matEmissive(): number { return 0; }
+  /// Modo de textura procedural quando NÃO há imagem: 0=nenhuma, 1=xadrez.
+  matTexMode(): number { return 0; }
+  /// Aplica uma textura de imagem (id + path) — só o Material implementa; nos
+  /// demais é no-op. Chamado pelo asset browser / ws ao aplicar uma textura.
+  setMatTexture(id: number, path: string): void {}
 }

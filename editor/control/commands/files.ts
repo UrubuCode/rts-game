@@ -47,8 +47,9 @@ export function cmdLoadTex(parts: string[]): string {
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
   const tex = loadTexture(S.win, path) | 0;
   if (tex === 0) return "[erro] falha ao decodificar/subir: " + path;
-  scene.objects[oi].textureId = tex;
-  return "[ok] loadtex " + path + " -> tex#" + tex + " aplicada em #" + oi;
+  // aplica no component Material do objeto (cria um se não houver).
+  scene.objects[oi].applyTexture(tex, path);
+  return "[ok] loadtex " + path + " -> tex#" + tex + " no Material de #" + oi;
 }
 
 /// ls [path] — lista uma pasta (sufixo / nas pastas).

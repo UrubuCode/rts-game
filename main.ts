@@ -14,7 +14,7 @@ import { GameObject } from "./engine/core/gameobject";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z, subStr } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight } from "./engine/render/gpu3d";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
 import { loadSceneFrom, instantiatePrefab } from "./editor/sceneio";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
@@ -250,16 +250,24 @@ function frame(): void {
         let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
         if (oi === S.selected) { rr = 255; gg = 230; bbv = 120; } // selecionado = dourado
         const col = (rr << 16) | (gg << 8) | bbv;
-        // tex: textura de IMAGEM real (textureId>=2) tem prioridade; senão o
-        // flag procedural (o.tex: 0=nenhuma, 1=xadrez).
+        // APARÊNCIA: se o objeto tem um component Material (matIdx cacheado, O(1)),
+        // ele manda; senão fallback pros campos do GameObject (cenas sem Material).
+        // tex: imagem real (id>=2) tem prioridade sobre o procedural (0/1).
         let texArg = o.tex;
         if (o.textureId > 0) texArg = o.textureId;
+        let emisArg = o.emissive;
+        if (o.matIdx >= 0) {
+          const m = o.behaviors[o.matIdx];
+          const tid = m.matTexId() | 0;
+          if (tid > 0) texArg = tid; else texArg = m.matTexMode();
+          emisArg = m.matEmissive();
+        }
         if (o.customMesh > 0) {
           drawGPUMesh(WIN, o.customMesh, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, texArg);
+            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
         } else {
           drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, o.emissive, texArg);
+            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
         }
         drawnN = drawnN + 1;
       }
@@ -543,9 +551,15 @@ function frame(): void {
   const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, mPressed, frames);
   if (assetAct.length > 0) {
     const path = assetAct.substring(assetAct.indexOf(":") + 1);
-    if (assetAct.charCodeAt(0) === 115) {      // "scene:" → recarrega a cena
+    const c0 = assetAct.charCodeAt(0);
+    if (c0 === 115) {                          // "scene:" → recarrega a cena
       loadSceneFrom(path);
       S.selected = 0;
+    } else if (c0 === 116) {                   // "tex:" → aplica no obj selecionado
+      if (S.selected >= 0 && S.selected < scene.objects.length) {
+        const tid = loadTexture(WIN, path) | 0;
+        if (tid > 0) scene.objects[S.selected].applyTexture(tid, path);
+      }
     } else {                                   // "prefab:" → instancia na cena
       instantiatePrefab(path);
       S.selected = scene.objects.length - 1;

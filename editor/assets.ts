@@ -167,6 +167,7 @@ function drawIcon(win: i64, x: number, y: number, s: number, t: number): void {
 ///   ""             — nada
 ///   "scene:<path>" — duplo-clique numa cena (main deve carregar)
 ///   "prefab:<path>"— duplo-clique num prefab (main deve instanciar)
+///   "tex:<path>"   — duplo-clique numa imagem (main aplica no obj selecionado)
 export function drawAssets(win: i64, px: number, py: number, pw: number, ph: number,
                            mx: f64, my: f64, mPressed: number, frame: number): string {
   if (scanned === 0) rescan();
@@ -225,6 +226,7 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
           if (t === T_FOLDER) { curDir = full; rescan(); }
           else if (t === T_SCENE) action = "scene:" + full;
           else if (t === T_PREFAB) action = "prefab:" + full;
+          else if (t === T_IMAGE) action = "tex:" + full;   // aplica no obj selecionado
         }
         lastClickIdx = i;
         lastClickFrame = frame;
