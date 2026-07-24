@@ -28,6 +28,7 @@ export function cmdDoc(parts: string[]): string {
     "spin <i> <spdY> [spdX] :: anexa um Spinner (atalho) :: spin 0 1.2",
     "select <i> :: seleciona o objeto (fica dourado) :: select 3",
     "delete <i> :: remove o objeto :: delete 3",
+    "dup [i] :: duplica o objeto (default=selecionado), deslocado em +1 X; seleciona a copia. Clone raso (transform+aparencia; behaviors ainda nao) :: dup 3",
     "cam <x> <y> <z> <yaw> <pitch> :: posiciona a camera (radianos) :: cam 0 11 -15 0 -0.5",
     "focus <i> :: enquadra a camera no objeto (achar/frame selected) :: focus 0",
     "play :: liga a animacao (update dos componentes) :: play",

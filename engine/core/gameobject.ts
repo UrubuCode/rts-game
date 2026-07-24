@@ -96,6 +96,23 @@ export class GameObject {
     this.refreshComponentCache();   // índices mudaram (array reconstruído) — recalcula
   }
 
+  /// Clona o objeto copiando transform + campos de aparência (mesh/cor/tex/emissivo/
+  /// customMesh/textureId). NÃO clona os behaviors ainda (a aparência renderiza pelo
+  /// fallback de campos). Usado pelo "duplicar" (Ctrl+D). Behaviors: follow-up.
+  cloneShallow(): GameObject {
+    const g = new GameObject(this.name + " (copy)");
+    g.meshKind = this.meshKind;
+    g.cr = this.cr; g.cg = this.cg; g.cb = this.cb;
+    g.tex = this.tex; g.emissive = this.emissive;
+    g.textureId = this.textureId; g.customMesh = this.customMesh;
+    g.stationary = this.stationary;
+    const t = this.transform;
+    g.transform.px = t.px; g.transform.py = t.py; g.transform.pz = t.pz;
+    g.transform.rx = t.rx; g.transform.ry = t.ry; g.transform.rz = t.rz;
+    g.transform.sx = t.sx; g.transform.sy = t.sy; g.transform.sz = t.sz;
+    return g;
+  }
+
   /// Define o mesh + cor (fluent).
   setMesh(kind: number, r: number, g: number, b: number): GameObject {
     this.meshKind = kind;

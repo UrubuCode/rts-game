@@ -50,6 +50,19 @@ export function cmdLoad(parts: string[]): string {
   return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length;
 }
 
+/// dup [i] — duplica o objeto (default = selecionado), deslocado em +1 no X, e
+/// seleciona a cópia. (Clone raso: copia transform+aparência; behaviors ainda não.)
+export function cmdDup(parts: string[]): string {
+  let i = S.selected;
+  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  const g = scene.objects[i].cloneShallow();
+  g.transform.px = g.transform.px + 1.0;
+  scene.add(g);
+  S.selected = scene.objects.length - 1;
+  return "[ok] dup #" + i + " -> #" + S.selected + " (" + g.name + ")";
+}
+
 /// instscene <path> [hostIdx] — CENA DENTRO DE CENA: instancia uma cena inteira
 /// sob o objeto hostIdx (default = selecionado). Mover o host move a sub-cena toda.
 export function cmdInstScene(parts: string[]): string {
