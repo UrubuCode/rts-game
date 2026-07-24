@@ -1,7 +1,7 @@
 // Comandos de CENA/sessão: select, delete, cam, focus, play, pause, clear, loadscene.
 import math from "rts:math";
 import { scene, S } from "../session";
-import { loadSceneFrom, instantiateSceneUnder } from "../../sceneio";
+import { loadSceneFrom, instantiateSceneUnder, cloneObject } from "../../sceneio";
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;
@@ -56,7 +56,7 @@ export function cmdDup(parts: string[]): string {
   let i = S.selected;
   if (parts.length > 1) i = parseFloat(parts[1]) | 0;
   if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
-  const g = scene.objects[i].cloneShallow();
+  const g = cloneObject(scene.objects[i]);   // transform+aparência + scripts de gameplay
   g.transform.px = g.transform.px + 1.0;
   scene.add(g);
   S.selected = scene.objects.length - 1;

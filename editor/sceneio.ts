@@ -6,6 +6,7 @@ import fs from "rts:fs";
 
 import { scene, S } from "./control/session";
 import { GameObject } from "../engine/core/gameobject";
+import { Behavior } from "../engine/core/behavior";
 import { SceneRef } from "../engine/core/sceneref";
 import { Spinner } from "../scripts/spinner";
 import { Bobber } from "../scripts/bobber";
@@ -14,6 +15,39 @@ import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { setLight, setAmbient } from "../engine/render/mesh";
+
+/// Recria 1 Behavior a partir do seu descritor (o que toData() produz). Fábrica
+/// única usada pelo load (buildObject) E pelo clone (cloneObject). Tipo desconhecido
+/// → Behavior base (no-op inofensivo). Não trata material/meshRenderer (a aparência
+/// vai pelos campos do GameObject; o SceneRef é marcador e não re-instancia).
+export function recreateBehavior(sd: any): Behavior {
+  const t = sd.type;
+  if (t === "spin") return new Spinner(sd.sy, sd.sx);
+  if (t === "bob") return new Bobber(sd.amp, sd.freq, sd.base);
+  if (t === "rigidbody") return new Rigidbody(sd.g, sd.bounce);
+  if (t === "mover") return new Mover(sd.vx, sd.vy, sd.vz);
+  if (t === "pulse") return new Pulse(sd.amp, sd.freq, sd.base);
+  if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
+  if (t === "sceneRef") return new SceneRef(sd.scenePath);
+  return new Behavior();
+}
+
+/// Clona um GameObject: transform+aparência (cloneShallow) + os SCRIPTS de gameplay
+/// (kind SCRIPT, recriados via toData→recreateBehavior). Material/MeshRenderer/
+/// SceneRef não são clonados (aparência vem dos campos; SceneRef é marcador).
+export function cloneObject(src: GameObject): GameObject {
+  const g = src.cloneShallow();
+  let i = 0;
+  while (i < src.behaviors.length) {
+    const b = src.behaviors[i];
+    if (b.kind() === 0) {   // KIND_SCRIPT
+      const d = b.toData();
+      if (d !== null) g.addBehavior(recreateBehavior(d));
+    }
+    i = i + 1;
+  }
+  return g;
+}
 
 /// Constrói 1 GameObject a partir de um descritor JSON.
 export function buildObject(od: any): GameObject {
@@ -39,15 +73,8 @@ export function buildObject(od: any): GameObject {
   if (scr !== undefined) {
     let si = 0;
     while (si < scr.length) {
-      const sd = scr[si];
-      const t = sd.type;
-      if (t === "spin") go.addBehavior(new Spinner(sd.sy, sd.sx));
-      if (t === "bob") go.addBehavior(new Bobber(sd.amp, sd.freq, sd.base));
-      if (t === "rigidbody") go.addBehavior(new Rigidbody(sd.g, sd.bounce));
-      if (t === "mover") go.addBehavior(new Mover(sd.vx, sd.vy, sd.vz));
-      if (t === "pulse") go.addBehavior(new Pulse(sd.amp, sd.freq, sd.base));
-      if (t === "orbit") go.addBehavior(new Orbit(sd.radius, sd.speed, sd.cx, sd.cz));
-      if (t === "sceneRef") go.addBehavior(new SceneRef(sd.scenePath));
+      const b = recreateBehavior(scr[si]);
+      if (b.kind() >= 0) go.addBehavior(b);   // kind()>=0 sempre; guarda defensiva
       si = si + 1;
     }
   }
