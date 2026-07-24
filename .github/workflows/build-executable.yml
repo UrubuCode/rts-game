@@ -1,9 +1,11 @@
 name: Build rts-game executable
 
-# Gera o executável NATIVO do rts-game via AOT (`rts compile`). O rts-game roda
-# sobre o motor RTS (rts.exe), então buildamos o motor do source e usamos o
-# `rts compile` pra transformar o main.ts num binário standalone (o runtime é
-# linkado dentro — não precisa do rts.exe pra rodar o resultado).
+# Gera o executável NATIVO do rts-game via AOT (`rts compile`).
+#
+# NÃO buildamos o motor do source (~15min): baixamos o `rts.exe` do LATEST RELEASE
+# do motor (UrubuCode/rts). Esse binário já é AOT-capaz — o build do release passa
+# um "AOT smoke" BLOCKING, então a staticlib do runtime está embutida nele. Só
+# precisamos de um LINKER no runner (rust-lld + libs MSVC) pro passo de link do AOT.
 #
 # Dispara em push no master + manualmente (workflow_dispatch).
 
@@ -17,62 +19,42 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]   # plataforma primária; ubuntu/macos podem ser adicionados
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout rts-game
         uses: actions/checkout@v4
-        with:
-          path: rts-game
 
-      # O motor (compilador + runtime) — repo público da org. Buildado do source
-      # pra ter o rts.exe COM o runtime staticlib embutido (necessário pro AOT).
-      - name: Checkout rts engine
-        uses: actions/checkout@v4
-        with:
-          repository: UrubuCode/rts
-          path: rts
-
-      - name: Setup Rust
+      # rust-lld (o linker que o AOT usa) vem com a toolchain. Setup rápido (~1min),
+      # sem buildar nada.
+      - name: Setup Rust (rust-lld pro link AOT)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo (engine workspace)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rts
+      # link.exe + libs do Windows (kernel32.lib etc) que o link AOT precisa.
+      - name: Setup MSVC env
+        uses: ilammy/msvc-dev-cmd@v1
 
-      # Build em DOIS passos: a staticlib do runtime primeiro, depois o binário, que
-      # a embute pro link AOT. A staticlib embutida é a do `rts-adapters` (superset
-      # que já inclui rts-runtime + os trampolines __rtsadp_*), conforme o build.rs
-      # do motor — NÃO rts-runtime. Cargo só emite o staticlib de um pacote quando
-      # ele é alvo DIRETO, então precisa vir antes; numa build limpa o rts é
-      # compilado pela 1ª vez em seguida e seu build.rs localiza a archive.
-      - name: Build engine (rts-adapters staticlib + rts)
-        working-directory: rts
+      # Baixa o rts.exe AOT-capaz do latest release do motor — sem compilar o motor.
+      - name: Baixar rts.exe do latest release do motor
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cargo build --release -p rts-adapters
-          cargo build --release
+          gh release download --repo UrubuCode/rts --pattern '*Windows-X64.exe' --output rts.exe
+          ls -la rts.exe
 
-      # AOT: compila o editor/jogo num binário nativo. O runtime vai linkado dentro.
+      # AOT: compila o editor/jogo num binário nativo. O runtime (embutido no rts.exe)
+      # é linkado dentro — o exe resultante roda sozinho, sem o rts.exe.
       - name: AOT compile rts-game
-        working-directory: rts-game
         shell: bash
         run: |
-          RTS=../rts/target/release/rts
-          [ -f "$RTS.exe" ] && RTS="$RTS.exe"
           mkdir -p release
-          "$RTS" compile main.ts release/rts-game
+          ./rts.exe compile main.ts release/rts-game
           ls -la release/
 
-      # Empacota o executável + os assets que o editor lê em runtime (cenas/modelos/
-      # texturas), pra o artefato ser de fato utilizável.
+      # Empacota o exe + os assets que o editor lê em runtime (cenas/modelos/texturas).
       - name: Stage bundle (exe + assets)
-        working-directory: rts-game
         shell: bash
         run: |
           mkdir -p bundle
@@ -82,6 +64,6 @@ jobs:
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
-          name: rts-game-${{ matrix.os }}
-          path: rts-game/bundle/**
+          name: rts-game-windows
+          path: bundle/**
           if-no-files-found: error
