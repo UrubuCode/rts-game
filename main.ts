@@ -18,7 +18,7 @@ import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
-import { pickAxis, axisMove, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
+import { pickAxis, axisMove, projPt, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
 import { loadSceneFrom, instantiatePrefab } from "./editor/sceneio";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 
@@ -212,9 +212,11 @@ function frame(): void {
   let gzYx: f64 = 0.0; let gzYy: f64 = 0.0;
   let gzZx: f64 = 0.0; let gzZy: f64 = 0.0;
   let gzLen: f64 = 1.0;
+  let gzWx: f64 = 0.0; let gzWy: f64 = 0.0; let gzWz: f64 = 0.0;   // centro-mundo (p/ anéis)
   if (S.tool !== 0 && S.selected >= 0 && S.selected < scene.objects.length) {
     const go = scene.objects[S.selected];
     const owx = go.transform.wx; const owy = go.transform.wy; const owz = go.transform.wz;
+    gzWx = owx; gzWy = owy; gzWz = owz;
     const cz1 = (owx - S.camX) * syw + (owz - S.camZ) * cyw;
     const cz2 = (owy - S.camY) * spt2 + cz1 * cpt2;
     if (cz2 > 0.5) {
@@ -372,12 +374,45 @@ function frame(): void {
     const cX = gizmoAxis === 0 ? 0xFFFFFFFF : 0xE05A5AFF;   // X vermelho
     const cY = gizmoAxis === 1 ? 0xFFFFFFFF : 0x6ABF4BFF;   // Y verde
     const cZ = gizmoAxis === 2 ? 0xFFFFFFFF : 0x4B8FE0FF;   // Z azul
+    // eixos = handles de pick (sempre visíveis)
     app.line(gzOx, gzOy, gzXx, gzXy, 3, cX);
     app.line(gzOx, gzOy, gzYx, gzYy, 3, cY);
     app.line(gzOx, gzOy, gzZx, gzZy, 3, cZ);
-    app.box(gzXx - 3, gzXy - 3, 7, 7, cX, 0, 0, 1);   // pontas (handles)
-    app.box(gzYx - 3, gzYy - 3, 7, 7, cY, 0, 0, 1);
-    app.box(gzZx - 3, gzZy - 3, 7, 7, cZ, 0, 0, 1);
+    if (S.tool === TOOL_SCALE) {
+      // handles-CUBO grandes nas pontas (estilo Scale da Unity)
+      app.box(gzXx - 5, gzXy - 5, 10, 10, cX, 0, 0, 1);
+      app.box(gzYx - 5, gzYy - 5, 10, 10, cY, 0, 0, 1);
+      app.box(gzZx - 5, gzZy - 5, 10, 10, cZ, 0, 0, 1);
+    } else if (S.tool === TOOL_ROTATE) {
+      // ANÉIS projetados: 1 círculo por eixo, no plano perpendicular a ele.
+      // X-ring no plano YZ, Y-ring no XZ, Z-ring no XY. 24 segmentos cada.
+      const rr: f64 = gzLen * 0.95;
+      let seg = 0;
+      while (seg < 24) {
+        const a0: f64 = (seg / 24.0) * 6.2831853;
+        const a1: f64 = ((seg + 1) / 24.0) * 6.2831853;
+        const c0 = math.cos(a0); const s0 = math.sin(a0);
+        const c1 = math.cos(a1); const s1 = math.sin(a1);
+        // X-ring (plano YZ): (0, cos, sin)
+        const xa = projPt(gzWx, gzWy + c0 * rr, gzWz + s0 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+        const xb = projPt(gzWx, gzWy + c1 * rr, gzWz + s1 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+        if (xa[2] > 0.5 && xb[2] > 0.5) app.line(xa[0], xa[1], xb[0], xb[1], 2, cX);
+        // Y-ring (plano XZ): (cos, 0, sin)
+        const ya = projPt(gzWx + c0 * rr, gzWy, gzWz + s0 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+        const yb = projPt(gzWx + c1 * rr, gzWy, gzWz + s1 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+        if (ya[2] > 0.5 && yb[2] > 0.5) app.line(ya[0], ya[1], yb[0], yb[1], 2, cY);
+        // Z-ring (plano XY): (cos, sin, 0)
+        const za = projPt(gzWx + c0 * rr, gzWy + s0 * rr, gzWz, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+        const zb = projPt(gzWx + c1 * rr, gzWy + s1 * rr, gzWz, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+        if (za[2] > 0.5 && zb[2] > 0.5) app.line(za[0], za[1], zb[0], zb[1], 2, cZ);
+        seg = seg + 1;
+      }
+    } else {
+      // MOVE: setas (ponta = box) nas pontas dos eixos
+      app.box(gzXx - 3, gzXy - 3, 7, 7, cX, 0, 0, 1);
+      app.box(gzYx - 3, gzYy - 3, 7, 7, cY, 0, 0, 1);
+      app.box(gzZx - 3, gzZy - 3, 7, 7, cZ, 0, 0, 1);
+    }
     app.box(gzOx - 3, gzOy - 3, 6, 6, 0xCCCCCCFF, 0, 0, 1); // centro
   }
 

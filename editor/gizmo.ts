@@ -11,6 +11,18 @@ export const TOOL_MOVE: number = 1;
 export const TOOL_ROTATE: number = 2;
 export const TOOL_SCALE: number = 3;
 
+// Projeta um ponto de MUNDO → TELA. Retorna [sx, sy, ok] (ok=0 se atrás da
+// câmera). Puro — o main.ts liga os pontos com app.line (rings do gizmo rotate).
+export function projPt(wx: f64, wy: f64, wz: f64, camX: f64, camY: f64, camZ: f64,
+                       cyw: f64, syw: f64, cpt2: f64, spt2: f64, focalW: f64, W: f64, H: f64): f64[] {
+  const dx = wx - camX; const dy = wy - camY; const dz = wz - camZ;
+  const x1 = dx * cyw - dz * syw; const z1 = dx * syw + dz * cyw;
+  const y2 = dy * cpt2 - z1 * spt2; const z2 = dy * spt2 + z1 * cpt2;
+  if (z2 <= 0.2) { const bad: f64[] = [0.0, 0.0, 0.0]; return bad; }
+  const out: f64[] = [W * 0.5 + (x1 / z2) * focalW, H * 0.5 - (y2 / z2) * focalW, 1.0];
+  return out;
+}
+
 // distância² de um ponto (px,py) ao segmento (ax,ay)-(bx,by).
 export function segDist2(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64): f64 {
   const vx = bx - ax; const vy = by - ay;
