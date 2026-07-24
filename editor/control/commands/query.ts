@@ -32,7 +32,7 @@ export function cmdHelp(): string {
     " | color <i> <r> <g> <b>  (0..255)" +
     " | spin <i> <spdY> [spdX]" +
     " | rename <i> <nome> | select <i> | selectadd <i> | selectclear  (multi-seleção) | delete <i> | dup [i] | dupn <n> <espaço> [i]  (array)" +
-    " | cam <x> <y> <z> <yaw> <pitch> | focus <i> | view <top|front|side|persp> | grid  (chão xadrez) | vis [i]  (ocultar/mostrar)" +
+    " | cam <x> <y> <z> <yaw> <pitch> | focus <i> | view <top|front|side|persp> | grid  (chão xadrez) | vis [i] | iso [i]  (ocultar/isolar)" +
     " | tool [move|rotate|scale|select]  (gizmo da viewport) | snap [0|1]  (snap-to-grid)" +
     " | play | pause | clear" +
     " | loadscene <path> | savescene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +

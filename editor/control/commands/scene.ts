@@ -24,6 +24,26 @@ export function cmdSelectAdd(parts: string[]): string {
   return "[ok] selectadd #" + i + " (multi: " + S.selection.length + ")";
 }
 
+/// iso [i] — ISOLA o objeto: esconde todos os outros (active=0). Chamar de novo (ou
+/// com -1) mostra todos de volta. Útil pra focar num objeto numa cena cheia.
+export function cmdIso(parts: string[]): string {
+  let i = S.selected;
+  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
+  // se já está isolado (algum inativo e o alvo ativo), ou i<0 → mostra todos
+  let anyHidden = 0;
+  let k = 0;
+  while (k < scene.objects.length) { if (scene.objects[k].active === 0) anyHidden = 1; k = k + 1; }
+  if (i < 0 || anyHidden !== 0) {
+    let j = 0;
+    while (j < scene.objects.length) { scene.objects[j].active = 1; j = j + 1; }
+    return "[ok] iso off (todos visíveis)";
+  }
+  if (i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  let j = 0;
+  while (j < scene.objects.length) { scene.objects[j].active = (j === i) ? 1 : 0; j = j + 1; }
+  return "[ok] iso #" + i + " (resto oculto)";
+}
+
 /// vis [i] — TOGGLE de visibilidade do objeto (active). O render pula os inativos.
 export function cmdVis(parts: string[]): string {
   let i = S.selected;
