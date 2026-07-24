@@ -537,6 +537,12 @@ function frame(): void {
   app.box(352, 9, 46, 28, fSc, 1, 0x232323FF, 3);
   app.text(360, 15, "Scale", 0xC8C8C8FF, 12);
   if (stSc === 3) S.tool = TOOL_SCALE;
+  // toggle SNAP (grid) ao lado das ferramentas
+  const stSnap = app.clickable(913, 404, 9, 46, 28);
+  let fSnap = 0x2D2D2DFF; if (S.snap !== 0) fSnap = 0x4A75B0FF; else if (stSnap === 1) fSnap = 0x454545FF;
+  app.box(404, 9, 46, 28, fSnap, 1, 0x232323FF, 3);
+  app.text(410, 15, "Snap", 0xC8C8C8FF, 12);
+  if (stSnap === 3) S.snap = S.snap !== 0 ? 0 : 1;
 
   // — play controls CENTRALIZADOS (Play / Pause) —
   const pcx = W / 2 - 44;
