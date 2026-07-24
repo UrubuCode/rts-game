@@ -12,7 +12,7 @@ import fs from "rts:fs";
 
 import { GameObject } from "./engine/core/gameobject";
 import { UIScene } from "./engine/ui/uiscene";
-import { UIPanel } from "./engine/ui/uipanel";
+import { UIPanel, ANCHOR_TL, ANCHOR_BR } from "./engine/ui/uipanel";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z, subStr } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
@@ -120,11 +120,18 @@ S.win = WIN;
 // com um component UIPanel, desenhado no mesmo frame que o resto. Prova o seam;
 // os painéis do editor migram pra cá incrementalmente. ──
 const uiScene = new UIScene();
+// HUD topo-esquerda (stats da cena), ancorado ao canto TL.
 const hud = new GameObject("HUD");
-hud.transform.px = 12.0;   // x de tela
-hud.transform.py = 12.0;   // y de tela
-hud.addBehavior(new UIPanel(190.0, 24.0, 0x1E1E28E0, "HUD"));
+hud.transform.px = 12.0;   // offset x do canto ancorado
+hud.transform.py = 12.0;   // offset y do canto ancorado
+hud.addBehavior(new UIPanel(190.0, 24.0, 0x1E1E28E0, "HUD", ANCHOR_TL));
 uiScene.add(hud);
+// Painel de câmera ancorado ao canto BR — prova a ancoragem (segue o resize).
+const camHud = new GameObject("CamHUD");
+camHud.transform.px = 12.0;
+camHud.transform.py = 12.0;
+camHud.addBehavior(new UIPanel(210.0, 24.0, 0x1E1E28E0, "cam", ANCHOR_BR));
+uiScene.add(camHud);
 
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
 
@@ -588,10 +595,11 @@ function frame(): void {
     }
   }
 
-  // ── UI-SCENE (L3): HUD ao vivo desenhado como GameObject. O título mostra dados
-  // reais da cena, provando que o painel roda no loop; migração incremental depois.
+  // ── UI-SCENE (L3): HUDs ao vivo como GameObjects, ancorados (RectTransform-like).
+  // Títulos com dados reais da cena; os painéis seguem os cantos no resize.
   uiScene.setPanelTitle(0, "Objs " + scene.count() + "   Sel " + S.selected + "   Drawn " + S.drawnLast);
-  uiScene.draw(WIN);
+  uiScene.setPanelTitle(1, "cam " + (S.camX | 0) + "," + (S.camY | 0) + "," + (S.camZ | 0));
+  uiScene.draw(WIN, W, H);
 
   app.endFrame();
 }

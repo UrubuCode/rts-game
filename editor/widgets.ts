@@ -11,12 +11,12 @@ import input from "rts:input";
 // ── cores do tema (Unity dark) ───────────────────────────────────────────────
 export const PANEL = 0x383838FF;
 export const PANEL_DK = 0x2D2D2DFF;
-export const HEADER = 0x303030FF;
+export const HEADER = 0x3C3C3CFF;   // casa o dark theme da Unity (header/toolbar)
 export const BORDER = 0x232323FF;
 export const FIELD = 0x2A2A2AFF;
 export const TEXT = 0xC8C8C8FF;
 export const TEXT_DIM = 0x8A8A8AFF;
-export const SEL = 0x4A75B0FF;
+export const SEL = 0x3A6C9FFF;      // azul de seleção da Unity (com foco)
 export const HOVER = 0x454545FF;
 export const AXIS_X = 0xC85A5AFF;   // eixos estilo Unity (X vermelho, Y verde, Z azul)
 export const AXIS_Y = 0x88C05AFF;

@@ -23,13 +23,14 @@ export class UIScene {
   }
 
   /// Desenha todos os elementos de UI (chama drawUI de cada component kind UI).
-  /// Chamado DENTRO do frame egui (entre beginFrame e endFrame).
-  draw(win: i64): void {
+  /// `w`/`h` = tamanho lógico da janela (pras âncoras). Chamado DENTRO do frame
+  /// egui (entre beginFrame e endFrame).
+  draw(win: i64, w: f64, h: f64): void {
     let i = 0;
     while (i < this.panels.length) {
       const g = this.panels[i];
       const k = g.componentIdx(KIND_UI);
-      if (k >= 0) g.behaviors[k].drawUI(win);
+      if (k >= 0) g.behaviors[k].drawUI(win, w, h);
       i = i + 1;
     }
   }

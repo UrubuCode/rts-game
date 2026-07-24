@@ -88,9 +88,10 @@ export class Behavior {
   // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
   // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão
   // "um painel do editor é um GameObject". Os demais componentes são no-op.
-  /// Desenha este elemento de UI na janela `win` (usa render.* em coords de tela;
-  /// a posição vem do host.px/py do Transform, usado como x/y 2D). No-op no default.
-  drawUI(win: i64): void {}
+  /// Desenha este elemento de UI na janela `win` (usa render.* em coords de tela).
+  /// `w`/`h` = tamanho lógico da janela (pra âncora tipo RectTransform da Unity: o
+  /// elemento gruda num canto + offset, seguindo o resize). No-op no default.
+  drawUI(win: i64, w: f64, h: f64): void {}
   /// Atualiza o texto/título deste elemento de UI (HUD ao vivo). No-op no default.
   setUITitle(s: string): void {}
 }
