@@ -11,6 +11,8 @@ import input from "rts:input";
 import fs from "rts:fs";
 
 import { GameObject } from "./engine/core/gameobject";
+import { UIScene } from "./engine/ui/uiscene";
+import { UIPanel } from "./engine/ui/uipanel";
 import { numField, AXIS_X, AXIS_Y, AXIS_Z, subStr } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
@@ -113,6 +115,17 @@ initMeshes(WIN);
 assetsInit();
 ctrlServe(7777);   // porta de controle da LLM (ws://127.0.0.1:7777)
 S.win = WIN;
+
+// ── L3 (fundação "tudo é GameObject"): a UI-scene. Um HUD que é um GameObject
+// com um component UIPanel, desenhado no mesmo frame que o resto. Prova o seam;
+// os painéis do editor migram pra cá incrementalmente. ──
+const uiScene = new UIScene();
+const hud = new GameObject("HUD");
+hud.transform.px = 12.0;   // x de tela
+hud.transform.py = 12.0;   // y de tela
+hud.addBehavior(new UIPanel(190.0, 24.0, 0x1E1E28E0, "HUD"));
+uiScene.add(hud);
+
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
 
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
@@ -574,6 +587,11 @@ function frame(): void {
       S.selected = scene.objects.length - 1;
     }
   }
+
+  // ── UI-SCENE (L3): HUD ao vivo desenhado como GameObject. O título mostra dados
+  // reais da cena, provando que o painel roda no loop; migração incremental depois.
+  uiScene.setPanelTitle(0, "Objs " + scene.count() + "   Sel " + S.selected + "   Drawn " + S.drawnLast);
+  uiScene.draw(WIN);
 
   app.endFrame();
 }

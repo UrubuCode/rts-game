@@ -15,7 +15,8 @@ import { Transform } from "./transform";
 export const KIND_SCRIPT: number = 0;     // gameplay genérico (default)
 export const KIND_MATERIAL: number = 1;   // aparência (textura/cor/emissivo)
 export const KIND_RENDERER: number = 2;   // geometria a desenhar (mesh/primitivo)
-// reservados p/ as próximas camadas: 3=COLLIDER, 4=UI, 5=LIGHT…
+export const KIND_UI: number = 3;         // elemento de UI (desenha em tela 2D)
+// reservados p/ as próximas camadas: 4=COLLIDER, 5=LIGHT…
 
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
@@ -83,4 +84,13 @@ export class Behavior {
   rMeshKind(): number { return 0; }
   /// Id de mesh carregada (.obj) — tem prioridade sobre rMeshKind (0 = nenhuma).
   rCustomMesh(): number { return 0; }
+
+  // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
+  // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão
+  // "um painel do editor é um GameObject". Os demais componentes são no-op.
+  /// Desenha este elemento de UI na janela `win` (usa render.* em coords de tela;
+  /// a posição vem do host.px/py do Transform, usado como x/y 2D). No-op no default.
+  drawUI(win: i64): void {}
+  /// Atualiza o texto/título deste elemento de UI (HUD ao vivo). No-op no default.
+  setUITitle(s: string): void {}
 }
