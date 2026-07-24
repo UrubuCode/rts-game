@@ -6,3 +6,5 @@ assets/*.scene.json
 release/
 *.obj
 bundle/
+
+assets/scene.json

@@ -50,9 +50,11 @@ let focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);      // p/ picking; recalc po
 
 // ── cena (estilo Unity) ─────────────────────────────────────────────────────
 
-// carga inicial: prefere shadowdemo.json (sombras + textura); senão solar.json.
+// carga inicial: prefere a cena SALVA pelo usuário (assets/scene.json, gravada pelo
+// botão Salvar / savescene) pra persistir entre sessões; senão os demos.
 let sceneFile = "scenes/solar.json";
 if (fs.exists("scenes/shadowdemo.json")) sceneFile = "scenes/shadowdemo.json";
+if (fs.exists("assets/scene.json")) sceneFile = "assets/scene.json";   // cena do usuário tem prioridade
 loadSceneFrom(sceneFile);
 
 // ── estado do editor ────────────────────────────────────────────────────────
