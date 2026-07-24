@@ -39,7 +39,9 @@ export function cmdHelp(): string {
     " | parent <filho> <pai> | movetree <drag> <before> <newparent> | group | ungroup [i]" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +
-    " || TEXTURA/MESH: makeprefab <path> [i] | instprefab <path> | loadobj <path> [nome] | loadtex <obj> <path>" +
+    " || TEXTURA/MESH: makeprefab <path> [i] | instprefab <path> | loadobj <path> [nome]  (.obj/.glb/.gltf) | loadtex <obj> <path>" +
+    " || DRAG&DROP: drop <path> [sx sy] | dropat <path> <x> <y> <z> | dropon <path> <obj> |" +
+    " pickat <sx> <sy> | groundat <sx> <sy> | thumb <path> [cols]  (preview do asset)" +
     " || ARQUIVOS: ls [path] | mkdir <path> | rmpath <path> | readfile <path> |" +
     " writefile <path> <conteudo> | mv <de> <para>";
 }

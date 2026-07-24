@@ -6,7 +6,9 @@ import fs from "rts:fs";
 import { scene, S } from "../session";
 import { GameObject } from "../../../engine/core/gameobject";
 import { objectToData, instantiatePrefab } from "../../sceneio";
-import { loadObj, loadTexture } from "../../../engine/render/gpu3d";
+import { loadTexture } from "../../../engine/render/gpu3d";
+import { isModelPath } from "../../../engine/render/model";
+import { instantiateAt } from "../../dnd";
 
 /// makeprefab <path> [i] — salva o objeto (default=selecionado) como PREFAB (JSON de
 /// 1 objeto), pra instanciar depois via o asset browser (duplo-clique) ou prefab.
@@ -41,25 +43,24 @@ export function cmdSetCustom(parts: string[]): string {
   return "[ok] setcustom #" + oi + " customMesh=" + mid;
 }
 
-/// loadobj <path> [nome] [x] [y] [z] — carrega um .obj REAL e cria um objeto com ele.
+/// loadobj <path> [nome] [x] [y] [z] — carrega um MODELO real (.obj/.glb/.gltf) e
+/// cria o(s) objeto(s) com ele. Multi-material vira uma raiz + uma filha por
+/// submesh (mesma regra do drag & drop — a lógica é compartilhada em editor/dnd).
 export function cmdLoadObj(parts: string[]): string {
   const path = parts[1];
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
-  const mesh = loadObj(S.win, path);
-  if (mesh === 0) return "[erro] falha ao carregar/parsear: " + path;
-  let name = "OBJ";
-  if (parts.length > 2) name = parts[2];
-  const go = new GameObject(name);
-  go.setMesh(1, 200, 200, 210);   // meshKind qualquer; customMesh manda no render
-  go.customMesh = mesh;
-  go.stationary = 1;
+  if (!isModelPath(path)) return "[erro] nao e um modelo (.obj/.glb/.gltf): " + path;
   let x: f64 = 0.0; let y: f64 = 1.0; let z: f64 = 0.0;
   if (parts.length > 5) { x = parseFloat(parts[3]); y = parseFloat(parts[4]); z = parseFloat(parts[5]); }
-  go.transform.setPosition(x, y, z);
-  const idx = scene.objects.length;
-  scene.add(go);
-  S.selected = idx;
-  return "[ok] loadobj " + path + " -> mesh#" + mesh + " obj#" + idx;
+  const before = scene.objects.length;
+  // instantiateAt assenta sobre o chão quando `placed`; aqui a posição é
+  // explícita (coordenada de mundo), então passamos y já como o centro.
+  const idx = instantiateAt("model", path, x, y - 0.5, z, 1, S.win);
+  if (idx < 0) return "[erro] falha ao carregar/parsear: " + path;
+  if (parts.length > 2) scene.objects[idx].name = parts[2];
+  const n = scene.objects.length - before;
+  return "[ok] loadobj " + path + " -> obj#" + idx + " (" + n + " no(s), mesh#" +
+    scene.objects[idx].customMesh + ")";
 }
 
 /// loadtex <objIdx> <path> — carrega uma imagem REAL (PNG/JPG/BMP/WebP) do disco,

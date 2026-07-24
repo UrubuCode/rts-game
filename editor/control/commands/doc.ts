@@ -73,7 +73,13 @@ export function cmdDoc(parts: string[]): string {
     "readfile <path> :: le o conteudo do arquivo :: readfile scenes/shadowdemo.json",
     "writefile <path> <conteudo> :: escreve (conteudo = resto da linha, 1 linha) :: writefile assets/nota.txt oi mundo",
     "mv <de> <para> :: renomeia/move :: mv assets/a.txt assets/b.txt",
-    "loadobj <path> [nome] [x] [y] [z] :: carrega um .obj REAL e cria um objeto com ele :: loadobj assets/models/torus.obj Torus 0 2 0",
+    "loadobj <path> [nome] [x] [y] [z] :: carrega um MODELO real (.obj/.glb/.gltf) e cria o(s) objeto(s); multi-material vira raiz + 1 filha por submesh :: loadobj assets/models/torus.obj Torus 0 2 0",
+    "drop <path> [sx sy] :: ARRASTA o asset pra cena (como o mouse): com sx/sy cai no chao sob esse PIXEL; sem, posicao padrao. aceita prefab/.obj/imagem/cena :: drop assets/prefabs/RedCube.prefab.json 700 400",
+    "dropat <path> <x> <y> <z> :: solta o asset direto numa posicao de MUNDO :: dropat assets/models/torus.obj 3 1 -2",
+    "dropon <path> <objIdx> :: solta o asset SOBRE um objeto (imagem vira textura; .obj vira a mesh) :: dropon assets/textures/wood.png 3",
+    "pickat <sx> <sy> :: qual objeto esta sob esse pixel (-1 = nenhum) :: pickat 700 400",
+    "groundat <sx> <sy> :: ponto do CHAO (Y=0) sob esse pixel — a conversao tela->mundo do drop :: groundat 700 400",
+    "thumb <path> [cols] :: INSPECIONA o thumbnail que o Project mostra pro asset (imagem real, ou render 3D de modelo/prefab/cena): estatisticas de pixel + preview ASCII (| = quebra de linha) :: thumb assets/models/torus.obj 16",
   ];
   let m = "[doc]\n";
   let hit = 0;

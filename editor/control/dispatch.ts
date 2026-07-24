@@ -7,6 +7,7 @@ import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cm
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
+import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { history } from "../undo";
@@ -18,7 +19,8 @@ function isMutating(c: string): boolean {
     c === "spin" || c === "delete" || c === "dup" || c === "clear" || c === "loadscene" ||
     c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
     c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex" ||
-    c === "rename" || c === "reset" || c === "grid" || c === "instprefab";
+    c === "rename" || c === "reset" || c === "grid" || c === "instprefab" ||
+    c === "drop" || c === "dropat" || c === "dropon";
 }
 
 export function execCommand(w: number, h: number, line: string): string {
@@ -114,6 +116,13 @@ export function execCommand(w: number, h: number, line: string): string {
     case "loadobj": return cmdLoadObj(parts);
     case "loadtex": return cmdLoadTex(parts);
     case "setcustom": return cmdSetCustom(parts);
+    // ── DRAG & DROP de assets (o equivalente WS de arrastar do Project) ──────
+    case "drop": return cmdDrop(parts, w, h);
+    case "dropat": return cmdDropAt(parts);
+    case "dropon": return cmdDropOn(parts);
+    case "pickat": return cmdPickAt(parts, w, h);
+    case "groundat": return cmdGroundAt(parts, w, h);
+    case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);
     default: return "[erro] desconhecido: " + cmd;
   }

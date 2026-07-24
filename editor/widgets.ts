@@ -72,6 +72,42 @@ export function button(win: i64, x: number, y: number, w: number, h: number, s: 
   return 0;
 }
 
+/// SLOT DE ASSET estilo Unity ("object field"): retângulo que MOSTRA o asset
+/// atualmente referenciado e ACEITA um asset arrastado do Project. Só desenha e
+/// faz hit-test — quem aplica o drop é o chamador (o main sabe o payload).
+///   `label`     — rótulo à esquerda ("Textura", "Mesh"...)
+///   `cur`       — path/nome do asset atual ("" = vazio, mostra "None")
+///   `dragOK`    — 1 se o asset sendo arrastado é COMPATÍVEL com este slot
+/// Retorna 1 quando o cursor está sobre o slot (o chamador usa isso, junto com
+/// o release do mouse, pra confirmar o drop).
+export function assetField(win: i64, x: number, y: number, w: number, h: number,
+                           lbl: string, cur: string, dragOK: number,
+                           mx: f64, my: f64): number {
+  const over = mx >= x && mx < x + w && my >= y && my < y + h ? 1 : 0;
+  render.text(win, x, y + (h / 2 - 7), lbl, TEXT_DIM, 12, 0);
+  const fx = x + 66;
+  const fw = w - 66;
+  // realce verde quando um drag COMPATÍVEL paira sobre o slot (feedback Unity)
+  let fill = FIELD;
+  let brd = BORDER;
+  if (dragOK !== 0 && over !== 0) { fill = 0x2E5A3AFF; brd = 0x77DD99FF; }
+  else if (dragOK !== 0) brd = 0x5A7FB0FF;   // slots compatíveis "acendem" durante o drag
+  render.rect(win, fx, y, fw, h, fill, 1, brd, 3);
+  // mostra só o nome do arquivo (o path inteiro não cabe)
+  let show = cur;
+  if (show.length === 0) show = "None";
+  else {
+    let cut = 0 - 1;
+    let i = 0;
+    while (i < show.length) { if (show.charCodeAt(i) === 47) cut = i; i = i + 1; }   // '/'
+    if (cut >= 0) show = subStr(show, cut + 1, show.length);
+  }
+  const maxc = ((fw - 14) / 7) | 0;
+  if (show.length > maxc && maxc > 1) show = subStr(show, 0, maxc - 1) + "…";
+  render.text(win, fx + 7, y + (h / 2 - 7), show, cur.length === 0 ? TEXT_DIM : TEXT, 12, 0);
+  return over;
+}
+
 /// Campo numérico estilo Unity: aba colorida (X/Y/Z) = ARRASTAR faz scrub; área
 /// do VALOR = CLICAR entra em modo digitação (input de texto → parseFloat no
 /// Enter/clique fora). `id` estável por campo. Devolve o valor atual.

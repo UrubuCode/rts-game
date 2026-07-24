@@ -23,6 +23,56 @@ export function projPt(wx: f64, wy: f64, wz: f64, camX: f64, camY: f64, camZ: f6
   return out;
 }
 
+/// INVERSO de projPt: TELA → ponto no MUNDO sobre o plano horizontal Y = planeY.
+/// Usado pelo drag & drop do Project (soltar um asset na viewport cai no chão,
+/// como na Unity). Reconstrói o raio da câmera desfazendo perspectiva → pitch →
+/// yaw e intersecta com o plano. Retorna [wx, wy, wz, ok] (ok=0 quando o raio é
+/// paralelo ao plano ou aponta pro lado oposto — ex.: mirando o céu).
+export function screenToPlane(sx: f64, sy: f64, camX: f64, camY: f64, camZ: f64,
+                              cyw: f64, syw: f64, cpt2: f64, spt2: f64,
+                              focalW: f64, W: f64, H: f64, planeY: f64): f64[] {
+  // desfaz a perspectiva: em espaço de câmera, um raio com z2=1 tem
+  // x1 = (sx - W/2)/focalW  e  y2 = (H/2 - sy)/focalW.
+  const rx1 = (sx - W * 0.5) / focalW;
+  const ry2 = (H * 0.5 - sy) / focalW;
+  const rz2: f64 = 1.0;
+  // desfaz o PITCH (a direta era: y2 = dy*cpt2 - z1*spt2; z2 = dy*spt2 + z1*cpt2)
+  const rdy = ry2 * cpt2 + rz2 * spt2;
+  const rz1 = rz2 * cpt2 - ry2 * spt2;
+  // desfaz o YAW (a direta era: x1 = dx*cyw - dz*syw; z1 = dx*syw + dz*cyw)
+  const rdx = rx1 * cyw + rz1 * syw;
+  const rdz = rz1 * cyw - rx1 * syw;
+  // intersecta o raio (cam + t*rd) com o plano Y = planeY
+  if (rdy > 0.0 - 0.0001 && rdy < 0.0001) { const bad: f64[] = [0.0, 0.0, 0.0, 0.0]; return bad; }
+  const t = (planeY - camY) / rdy;
+  if (t <= 0.0) { const bad2: f64[] = [0.0, 0.0, 0.0, 0.0]; return bad2; }
+  const out: f64[] = [camX + rdx * t, planeY, camZ + rdz * t, 1.0];
+  return out;
+}
+
+/// Ponto no mundo a `dist` unidades à frente da câmera, na direção do cursor.
+/// Fallback do drop quando o raio não encontra o chão (mirando o horizonte/céu).
+export function screenToForward(sx: f64, sy: f64, camX: f64, camY: f64, camZ: f64,
+                                cyw: f64, syw: f64, cpt2: f64, spt2: f64,
+                                focalW: f64, W: f64, H: f64, dist: f64): f64[] {
+  const rx1 = (sx - W * 0.5) / focalW;
+  const ry2 = (H * 0.5 - sy) / focalW;
+  const rz2: f64 = 1.0;
+  const rdy = ry2 * cpt2 + rz2 * spt2;
+  const rz1 = rz2 * cpt2 - ry2 * spt2;
+  const rdx = rx1 * cyw + rz1 * syw;
+  const rdz = rz1 * cyw - rx1 * syw;
+  // normaliza pra `dist` ser em unidades de mundo de verdade
+  let len = rdx * rdx + rdy * rdy + rdz * rdz;
+  if (len < 0.000001) len = 1.0;
+  // sqrt por Newton (evita importar math só pra isto)
+  let s = len;
+  let k = 0;
+  while (k < 12) { s = (s + len / s) * 0.5; k = k + 1; }
+  const out: f64[] = [camX + (rdx / s) * dist, camY + (rdy / s) * dist, camZ + (rdz / s) * dist, 1.0];
+  return out;
+}
+
 // Arredonda `v` pro múltiplo mais próximo de `step` (snap to grid). step<=0 → v.
 export function snapv(v: f64, step: f64): f64 {
   if (step <= 0.0) return v;
