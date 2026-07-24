@@ -44,6 +44,30 @@ export function cmdIso(parts: string[]): string {
   return "[ok] iso #" + i + " (resto oculto)";
 }
 
+/// group — cria um GameObject VAZIO (nó) e aninha os selecionados (multi ou o único)
+/// sob ele. Mover/rotacionar o grupo move todos juntos (via parent). Ctrl+G da Unity.
+export function cmdGroup(parts: string[]): string {
+  // seleção efetiva
+  const sel: number[] = [];
+  if (S.selection.length > 0) {
+    let k = 0; while (k < S.selection.length) { sel.push(S.selection[k]); k = k + 1; }
+  } else if (S.selected >= 0 && S.selected < scene.objects.length) {
+    sel.push(S.selected);
+  }
+  if (sel.length === 0) return "[erro] nada selecionado pra agrupar";
+  const g = new GameObject("Group");   // meshKind 0 = nó vazio (não desenha)
+  scene.add(g);
+  const gidx = scene.objects.length - 1;
+  let j = 0;
+  while (j < sel.length) {
+    const oi = sel[j];
+    if (oi >= 0 && oi < scene.objects.length && oi !== gidx) scene.objects[oi].parent = gidx;
+    j = j + 1;
+  }
+  S.selected = gidx; S.selection = [];
+  return "[ok] group " + sel.length + " objs sob #" + gidx;
+}
+
 /// vis [i] — TOGGLE de visibilidade do objeto (active). O render pula os inativos.
 export function cmdVis(parts: string[]): string {
   let i = S.selected;
