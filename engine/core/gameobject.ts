@@ -3,7 +3,7 @@
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
 import { Transform } from "./transform";
-import { Behavior } from "./behavior";
+import { Behavior, KIND_MATERIAL } from "./behavior";
 import { Material } from "./material";
 
 // meshKind: 0 = vazio (só nó), 1 = cubo. (grid/luz/câmera entram depois)
@@ -38,28 +38,36 @@ export class GameObject {
     this.matIdx = 0 - 1;
   }
 
-  /// Recalcula o índice cacheado do Material (chamado quando behaviors muda).
-  /// O(nº de components), mas só nas MUTAÇÕES (add/remove), não por frame.
-  refreshMatIdx(): void {
-    this.matIdx = 0 - 1;
+  /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`
+  /// (-1 = nenhum). Systems/render acham qualquer tipo de component por aqui, sem
+  /// cast nem string — `const i = o.componentIdx(KIND_X); if (i>=0) …`.
+  componentIdx(kind: number): number {
     let i = 0;
     while (i < this.behaviors.length) {
-      if (this.behaviors[i].isMaterial() !== 0) { this.matIdx = i; return; }
+      if (this.behaviors[i].kind() === kind) return i;
       i = i + 1;
     }
+    return 0 - 1;
+  }
+
+  /// Recalcula o índice cacheado do Material (chamado quando behaviors muda).
+  /// Fast-path do render (o Material é consultado todo frame); usa o primitivo
+  /// genérico `componentIdx`. Só recalcula nas MUTAÇÕES (add/remove), não por frame.
+  refreshMatIdx(): void {
+    this.matIdx = this.componentIdx(KIND_MATERIAL);
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.
   addBehavior(b: Behavior): GameObject {
     b.attach(this.transform);
     this.behaviors.push(b);
-    if (b.isMaterial() !== 0) this.matIdx = this.behaviors.length - 1;
+    if (b.kind() === KIND_MATERIAL) this.matIdx = this.behaviors.length - 1;
     return this;
   }
 
   /// Devolve o component Material do objeto, criando e anexando um se não houver.
   /// Retorna o tipo BASE (Behavior) — o caller usa só os métodos virtuais de
-  /// material (setMatTexture/isMaterial), sem depender de cast pro subtipo.
+  /// material (setMatTexture/kind), sem depender de cast pro subtipo.
   getOrAddMaterial(): Behavior {
     if (this.matIdx >= 0) return this.behaviors[this.matIdx];
     const m = new Material();

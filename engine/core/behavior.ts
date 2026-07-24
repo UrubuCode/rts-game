@@ -8,6 +8,14 @@
 
 import { Transform } from "./transform";
 
+// TIPOS de component (tag numérica) — o primitivo do modelo uniforme "tudo é
+// GameObject + componentes". Systems e o render acham um component por kind()
+// (GameObject.componentIdx) sem cast nem parse de string. Novos componentes
+// (Renderer, Collider, UI, Light…) entram aqui e plugam da mesma forma.
+export const KIND_SCRIPT: number = 0;     // gameplay genérico (default)
+export const KIND_MATERIAL: number = 1;   // aparência (textura/cor/emissivo)
+// reservados p/ as próximas camadas: 2=RENDERER, 3=COLLIDER, 4=UI, 5=LIGHT…
+
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
   enabled: number;
@@ -48,11 +56,15 @@ export class Behavior {
   /// Grava `v` no campo `i` (chamado pelo inspector ao arrastar/editar).
   fieldSet(i: number, v: f64): void {}
 
+  // ── IDENTIDADE do component (modelo uniforme) ───────────────────────────────
+  /// O TIPO deste component (uma das consts KIND_*). Systems e o render acham um
+  /// component por kind() sem cast. Default = KIND_SCRIPT (gameplay genérico); o
+  /// Material devolve KIND_MATERIAL, futuros Renderer/Collider/UI os seus.
+  kind(): number { return KIND_SCRIPT; }
+
   // ── SURFACE DE MATERIAL (lida pelo render via dispatch virtual, sem cast) ────
   // O component Material sobrescreve estes; qualquer outro Behavior devolve os
-  // defaults (isMaterial=0 → o render o ignora como fonte de material).
-  /// 1 se este component é um Material (define a aparência do objeto).
-  isMaterial(): number { return 0; }
+  // defaults (o render só consulta um component cujo kind()===KIND_MATERIAL).
   /// Id da textura de imagem real (>=2) ou 0 (sem imagem).
   matTexId(): number { return 0; }
   /// 1 = emissivo (não sombreado).

@@ -1,6 +1,6 @@
 // Engine RTS — Material: o component que define a APARÊNCIA do objeto (estilo o
 // Material/MeshRenderer do Unity). É um Behavior de DADOS (sem update): o render
-// lê dele (via dispatch virtual isMaterial/matTexId/matEmissive/matTexMode) quando
+// lê dele (via dispatch virtual kind/matTexId/matEmissive/matTexMode) quando
 // o objeto o tem, com fallback pros campos do GameObject (cenas antigas).
 //
 // A textura de IMAGEM (textureId + path) é atribuída de fora — pelo asset browser
@@ -8,7 +8,7 @@
 // um path é string e a config numérica do inspector (fieldGet/Set: f64) não a
 // comporta. Os campos NUMÉRICOS (emissivo, xadrez procedural) aparecem no inspector.
 
-import { Behavior } from "./behavior";
+import { Behavior, KIND_MATERIAL } from "./behavior";
 
 export class Material extends Behavior {
   textureId: number;    // id de textura de imagem real (>=2, via loadTexture) ou 0
@@ -44,7 +44,7 @@ export class Material extends Behavior {
   }
 
   // ── aparência lida pelo render (dispatch virtual, sem cast) ──
-  isMaterial(): number { return 1; }
+  kind(): number { return KIND_MATERIAL; }
   matTexId(): number { return this.textureId; }
   matEmissive(): number { return this.emissive; }
   matTexMode(): number { return this.texChecker; }
