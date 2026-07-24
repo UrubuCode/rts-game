@@ -7,6 +7,8 @@ import fs from "rts:fs";
 import { scene, S } from "./control/session";
 import { GameObject } from "../engine/core/gameobject";
 import { Behavior } from "../engine/core/behavior";
+import { Material } from "../engine/core/material";
+import { MeshRenderer } from "../engine/core/meshrenderer";
 import { SceneRef } from "../engine/core/sceneref";
 import { Spinner } from "../scripts/spinner";
 import { Bobber } from "../scripts/bobber";
@@ -29,6 +31,16 @@ export function recreateBehavior(sd: any): Behavior {
   if (t === "pulse") return new Pulse(sd.amp, sd.freq, sd.base);
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
   if (t === "sceneRef") return new SceneRef(sd.scenePath);
+  if (t === "material") {
+    const m = new Material();
+    m.emissive = sd.emissive; m.texChecker = sd.texChecker; m.texturePath = sd.texturePath;
+    return m;   // textureId (GPU) não serializa; re-aplicar via loadtex/path
+  }
+  if (t === "meshRenderer") {
+    const r = new MeshRenderer(sd.meshKind);
+    r.customMesh = sd.customMesh;
+    return r;
+  }
   return new Behavior();
 }
 
@@ -39,11 +51,8 @@ export function cloneObject(src: GameObject): GameObject {
   const g = src.cloneShallow();
   let i = 0;
   while (i < src.behaviors.length) {
-    const b = src.behaviors[i];
-    if (b.kind() === 0) {   // KIND_SCRIPT
-      const d = b.toData();
-      if (d !== null) g.addBehavior(recreateBehavior(d));
-    }
+    const d = src.behaviors[i].toData();   // clona TODOS os componentes que serializam
+    if (d !== null) g.addBehavior(recreateBehavior(d));
     i = i + 1;
   }
   return g;
