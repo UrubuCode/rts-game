@@ -44,22 +44,32 @@ jobs:
           gh release download --repo UrubuCode/rts --pattern '*Windows-X64.exe' --output rts.exe
           ls -la rts.exe
 
-      # AOT: compila o editor/jogo num binário nativo. O runtime (embutido no rts.exe)
-      # é linkado dentro — o exe resultante roda sozinho, sem o rts.exe.
-      - name: AOT compile rts-game
+      # AOT: compila DOIS binários nativos. O runtime (embutido no rts.exe) é
+      # linkado dentro — os exes rodam sozinhos, sem o rts.exe.
+      #   rts-game.exe  = o EDITOR   (main.ts)
+      #   RTSGame.exe   = o JOGO     (game.ts — sem painéis, abre direto na cena)
+      - name: AOT compile (editor + jogo)
         shell: bash
         run: |
           mkdir -p release
           ./rts.exe compile main.ts release/rts-game
+          ./rts.exe compile game.ts release/RTSGame
           ls -la release/
 
-      # Empacota o exe + os assets que o editor lê em runtime (cenas/modelos/texturas).
-      - name: Stage bundle (exe + assets)
+      # Empacota os exes + os assets lidos em RUNTIME.
+      # `scenes/` é obrigatório: sem ele o jogo abre com 0 objetos, porque
+      # assets/scene.json (a cena do usuário) é ignorada pelo git de propósito.
+      - name: Stage bundle (exes + assets + scenes)
         shell: bash
         run: |
           mkdir -p bundle
-          cp -r release/* bundle/ 2>/dev/null || true
+          cp release/rts-game.exe bundle/ 2>/dev/null || true
+          cp release/RTSGame.exe bundle/ 2>/dev/null || true
           cp -r assets bundle/assets 2>/dev/null || true
+          cp -r scenes bundle/scenes 2>/dev/null || true
+          # sanidade: sem uma cena o jogo abre vazio — falha o build antes de publicar
+          test -f bundle/scenes/shadowdemo.json || { echo "ERRO: scenes/ nao foi empacotado"; exit 1; }
+          ls -la bundle/ bundle/scenes/
 
       - name: Upload executable (artefato do run)
         uses: actions/upload-artifact@v4
@@ -94,9 +104,18 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: rts-game ${{ steps.tag.outputs.tag }}
           body: |
-            Executável nativo do editor rts-game (Windows x64), gerado por AOT
-            (`rts compile`) sobre o rts.exe do release do motor. Baixe o zip,
-            extraia e rode `rts-game.exe` (a pasta `assets/` precisa ficar ao lado).
+            Executáveis nativos (Windows x64), gerados por AOT (`rts compile`)
+            sobre o rts.exe do release do motor. Baixe o zip e extraia — as
+            pastas `assets/` e `scenes/` precisam ficar AO LADO dos exes.
+
+            - **`RTSGame.exe`** — o JOGO: abre direto na cena, sem painéis de
+              edição. Renderiza pela câmera da cena. WASD voa, botão direito
+              gira, espaço sobe.
+            - **`rts-game.exe`** — o EDITOR: hierarquia, inspector, Project com
+              thumbnails, drag & drop de assets, gizmo.
+
+            O jogo carrega `assets/scene.json` (a cena que você salva no editor);
+            se ela não existir, cai em `scenes/shadowdemo.json`.
           files: rts-game-windows.zip
           fail_on_unmatched_files: true
           make_latest: true

@@ -24,8 +24,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM o .obj e intermediario do linker: nao vai na distribuicao
+if exist build\%NOME%.obj del /q build\%NOME%.obj
+
 REM Assets: o .exe le a cena e os modelos/texturas do DISCO em runtime, entao
-REM eles precisam viajar junto do executavel.
+REM eles precisam viajar junto do executavel. `scenes\` e obrigatorio: sem ele o
+REM jogo abre com 0 objetos, porque assets\scene.json (a cena do usuario) nao
+REM existe num checkout limpo.
 echo [build] copiando assets
 if not exist build\assets mkdir build\assets
 xcopy /E /I /Y /Q assets build\assets >nul
@@ -35,4 +40,5 @@ if exist scenes (
 )
 
 echo [build] OK: build\%NOME%.exe
+echo [build] rode: cd build ^&^& %NOME%.exe
 endlocal

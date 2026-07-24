@@ -38,8 +38,15 @@ if (!fs.exists(sceneFile)) sceneFile = "scenes/solar.json";
 
 S.win = WIN;
 initMeshes(WIN);
-loadSceneFrom(sceneFile);
-io.print("[jogo] cena '" + sceneFile + "' com " + scene.count() + " objetos");
+if (fs.exists(sceneFile)) {
+  loadSceneFrom(sceneFile);
+  io.print("[jogo] cena '" + sceneFile + "' com " + scene.count() + " objetos");
+} else {
+  // Sem cena o jogo abriria numa tela vazia sem explicação. As pastas 'assets/'
+  // e 'scenes/' têm que estar AO LADO do .exe — o jogo lê a cena do disco.
+  io.print("[ERRO] nenhuma cena encontrada. As pastas 'assets/' e 'scenes/'");
+  io.print("       precisam ficar ao lado do executavel.");
+}
 
 // câmera de jogo: começa na posição salva na sessão (mesma default do editor)
 let frames = 0;

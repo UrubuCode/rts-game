@@ -57,7 +57,14 @@ let focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);      // p/ picking; recalc po
 let sceneFile = "scenes/solar.json";
 if (fs.exists("scenes/shadowdemo.json")) sceneFile = "scenes/shadowdemo.json";
 if (fs.exists("assets/scene.json")) sceneFile = "assets/scene.json";   // cena do usuário tem prioridade
-loadSceneFrom(sceneFile);
+// Se NENHUMA cena existe (bundle sem a pasta scenes/), avisa alto: antes o
+// editor abria vazio sem dizer por quê — "cena 'Main' com 0 objetos".
+if (!fs.exists(sceneFile)) {
+  io.print("[AVISO] nenhuma cena encontrada (" + sceneFile + ") — a pasta 'scenes/'");
+  io.print("        precisa ficar AO LADO do executavel. Abrindo cena vazia.");
+} else {
+  loadSceneFrom(sceneFile);
+}
 
 // ── estado do editor ────────────────────────────────────────────────────────
 let frames = 0;
@@ -100,9 +107,10 @@ function frameObject(idx: number): void {
 let buildMsgFrames = 0;   // frames restantes do aviso na barra de status
 
 function startBuild(): void {
-  // `start "" cmd /c ...` devolve na hora; a janela do build fica visível pro
-  // usuário acompanhar a saída do compilador.
-  process.spawn("cmd", "/c start \"Build do jogo\" cmd /c tools\\build.bat");
+  // SEM aspas no `start`: process.spawn não passa por shell, então as aspas
+  // chegam literais e o cmd trata "Build do jogo" como o ARQUIVO a abrir
+  // ("O sistema não pode encontrar o arquivo Build do jogo").
+  process.spawn("cmd", "/c start cmd /c tools\\build.bat");
 }
 
 // formata um f64 com 1 casa decimal (só pro HUD do drop — nada de toFixed).
