@@ -717,25 +717,36 @@ function frame(): void {
   let cyc = BAR_H + 266;
   let removeIdx = 0 - 1;
   while (bc < sel.behaviors.length) {
-    // cabeçalho: nome do componente + botão remover (X) — método DIRETO no index
-    // (dispatch provado; método em local tipado-classe pode não despachar)
-    app.box(ix + 14, cyc, INSP_W - 28, 22, 0x3A3A3AFF, 1, 0x232323FF, 4);
-    app.text(ix + 22, cyc + 4, sel.behaviors[bc].typeName(), 0xD0D0D0FF, 13);
+    // ── CABEÇALHO estilo foldout Unity: ▼/▶ colapsar + checkbox enabled + nome + X ──
+    app.box(ix + 14, cyc, INSP_W - 28, 22, 0x414141FF, 1, 0x232323FF, 4);
+    const collapsed = sel.behaviors[bc].collapsed;
+    // triângulo de colapsar (clicável)
+    const stTri = app.clickable(560 + bc, ix + 16, cyc, 18, 22);
+    app.text(ix + 20, cyc + 3, collapsed !== 0 ? ">" : "v", 0xB0B0B0FF, 13);
+    if (stTri === 3) sel.behaviors[bc].collapsed = collapsed !== 0 ? 0 : 1;
+    // checkbox enabled
+    const en = sel.behaviors[bc].enabled;
+    const stCk = app.clickable(580 + bc, ix + 34, cyc + 4, 14, 14);
+    app.box(ix + 34, cyc + 4, 14, 14, en !== 0 ? 0x5A7FB0FF : 0x2A2A2AFF, 1, 0x232323FF, 2);
+    if (stCk === 3) sel.behaviors[bc].enabled = en !== 0 ? 0 : 1;
+    app.text(ix + 54, cyc + 4, sel.behaviors[bc].typeName(), 0xD0D0D0FF, 13);
     const bDel = app.button(ix + INSP_W - 42, cyc + 2, 20, 18, "x");
     if (bDel) removeIdx = bc;
     cyc = cyc + 26;
-    // campos de config: um numField por campo (arraste horizontal edita)
-    const nf = sel.behaviors[bc].fieldCount();
-    let fi = 0;
-    while (fi < nf) {
-      const id = 600 + bc * 20 + fi;
-      const nv = numField(WIN, id, ix + 24, cyc, INSP_W - 52, sel.behaviors[bc].fieldLabel(fi), 0x5A7FB0FF,
-        sel.behaviors[bc].fieldGet(fi), mx, my, mDownNow, mPressed);
-      sel.behaviors[bc].fieldSet(fi, nv);
-      cyc = cyc + 23;
-      fi = fi + 1;
+    // campos de config — só quando EXPANDIDO
+    if (sel.behaviors[bc].collapsed === 0) {
+      const nf = sel.behaviors[bc].fieldCount();
+      let fi = 0;
+      while (fi < nf) {
+        const id = 600 + bc * 20 + fi;
+        const nv = numField(WIN, id, ix + 24, cyc, INSP_W - 52, sel.behaviors[bc].fieldLabel(fi), 0x5A7FB0FF,
+          sel.behaviors[bc].fieldGet(fi), mx, my, mDownNow, mPressed);
+        sel.behaviors[bc].fieldSet(fi, nv);
+        cyc = cyc + 23;
+        fi = fi + 1;
+      }
+      cyc = cyc + 6;
     }
-    cyc = cyc + 6;
     bc = bc + 1;
   }
   if (sel.behaviors.length === 0) {

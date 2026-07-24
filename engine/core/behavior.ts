@@ -22,10 +22,12 @@ export const KIND_SCENE_REF: number = 4;  // instância de outra cena (cena dent
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
   enabled: number;
+  collapsed: number; // foldout do inspector: 1 = recolhido (esconde os campos)
 
   constructor() {
     this.host = new Transform();
     this.enabled = 1;
+    this.collapsed = 0;
   }
 
   /// Liga o script ao transform do GameObject dono.
