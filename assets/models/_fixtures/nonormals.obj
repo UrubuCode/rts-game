@@ -1,0 +1,5 @@
+# sem vn: o loader deve GERAR a normal da face (aqui aponta +Z)
+v 0 0 0
+v 1 0 0
+v 0 1 0
+f 1 2 3

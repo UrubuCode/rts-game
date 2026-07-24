@@ -24,8 +24,11 @@ let idOcta = 0;
 let idSphere = 0;
 let ready = 0;
 
-// sobe uma mesh (verts = [x,y,z,nx,ny,nz,u,v, ...] = 8 f32/vértice, inds = [...]) pra VRAM.
-function upload(win: i64, verts: f64[], inds: number[]): number {
+/// Sobe uma mesh pra VRAM e devolve o mesh id (0 = falhou).
+/// Layout do vértice: 8 f32 INTERLEAVED — [x,y,z, nx,ny,nz, u,v].
+/// Exportada porque os LOADERS de modelo (engine/render/model.ts: .obj, .glb)
+/// montam os arrays e só precisam deste passo final.
+export function upload(win: i64, verts: f64[], inds: number[]): number {
   const nv = verts.length / 8;
   const ni = inds.length;
   const vbuf = buffer.alloc(nv * 8 * 4);

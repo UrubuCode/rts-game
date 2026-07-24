@@ -4,7 +4,11 @@ rts.exe
 assets/*.scene.json
 
 release/
-*.obj
 bundle/
+build/
+
+# arquivos-objeto do compilador (na raiz). NÃO usar `*.obj` solto: casaria com
+# os MODELOS 3D em assets/models/, que são fonte e devem ser versionados.
+/*.obj
 
 assets/scene.json

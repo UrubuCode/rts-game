@@ -1,0 +1,6 @@
+# um quad (2 triangulos apos triangulacao em fan)
+v -1 0 -1
+v  1 0 -1
+v  1 0  1
+v -1 0  1
+f 1 2 3 4
