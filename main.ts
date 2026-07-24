@@ -106,6 +106,10 @@ function frameObject(idx: number): void {
 // group/ungroup), sincronizar uma vez por frame é mais robusto que espalhar
 // atualizações por todos eles.
 let selFlagsDirtyN = 0;   // quantos objetos foram marcados no frame anterior
+// 1 = algum transform mudou DEPOIS do computeWorld do início do frame (gizmo,
+// arrasto, preview de drop) e o render precisa recomputá-lo. Sem isto o segundo
+// computeWorld rodava todo frame à toa — um laço sobre a cena inteira.
+let worldDirty = 0;
 
 function syncSelFlags(): void {
   // limpa só o que foi marcado antes (evita varrer a cena quando nada mudou)
@@ -369,7 +373,7 @@ function frame(): void {
     } else {
       movePreviewTo(mx, my, cyw, syw, cpt2, spt2);
     }
-    scene.computeWorld();   // o preview acabou de mudar de lugar: reflete já neste frame
+    worldDirty = 1;   // o preview mudou de lugar: o render refaz o computeWorld
   } else if (previewIdx >= 0 && dndOn !== 0) {
     // ainda arrastando, mas o cursor saiu do viewport → descarta o preview.
     // (com dndOn===0 o preview é CONFIRMADO pelo handler de drop, mais abaixo.)
@@ -457,6 +461,7 @@ function frame(): void {
   // gizmo é aplicado a TODOS (rotate/scale usam o centro de cada um — "pivot individual").
   const nsel = S.selection.length > 0 ? S.selection.length : 1;
   if (gizmoAxis >= 3 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
+    worldDirty = 1;   // o gizmo vai mover algo: refaz o computeWorld antes do render
     // PLANO (só Move): move nos DOIS eixos do plano (3=XY, 4=XZ, 5=YZ).
     const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
     const mX = axisMove(dmx, dmy, gzOx, gzOy, gzXx, gzXy, gzLen);
@@ -476,6 +481,7 @@ function frame(): void {
     }
     lastMx = mx; lastMy = my;
   } else if (gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
+    worldDirty = 1;
     let ex: f64 = gzXx; let ey: f64 = gzXy;
     if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
     if (gizmoAxis === 2) { ex = gzZx; ey = gzZy; }
@@ -514,6 +520,7 @@ function frame(): void {
     }
     lastMx = mx; lastMy = my;
   } else if (dragging !== 0 && mDownNow !== 0 && inViewport && scene.objects.length > 0) {
+    worldDirty = 1;
     // arrasto LIVRE no plano da tela (fallback: nenhum eixo pego)
     const so = scene.objects[S.selected];
     const z1o = (so.transform.wx - S.camX) * syw + (so.transform.wz - S.camZ) * cyw;
@@ -530,7 +537,10 @@ function frame(): void {
   // ── RENDER DE CENA (rasteriza no framebuffer, depois blita) ────────────────
   // ── RENDER 3D por GPU (pipeline wgpu no scene pass; a UI do egui compõe por
   //    cima). Só manda câmera/luz + 1 drawMesh por objeto — a GPU faz o resto. ──
-  scene.computeWorld();
+  // computeWorld já rodou no início do frame; refazê-lo aqui só é necessário se
+  // ALGO MOVEU depois (gizmo, arrasto, preview de drop). Antes era incondicional
+  // — o segundo passe custava um laço sobre a cena inteira todo frame à toa.
+  if (worldDirty !== 0) { scene.computeWorld(); worldDirty = 0; }
   setCam(WIN, S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
   setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);   // luz PONTUAL (posição) — controlável via ws `light`
   // Shadow map: a direção vem da POSIÇÃO REAL da luz (luz -> centro da cena).
@@ -545,9 +555,13 @@ function frame(): void {
   syncSelFlags();
   let oi = 0;
   let drawnN = 0;
-  const objsN = scene.objects.length;   // hoisted: relê-lo por iteração custa
+  // HOISTA o array (não só o length): cada `scene.objects[i]` refaz o acesso à
+  // propriedade do singleton importado, e num laço sobre centenas de objetos
+  // isso domina o custo do frame.
+  const objs = scene.objects;
+  const objsN = objs.length;
   while (oi < objsN) {
-    const o = scene.objects[oi];
+    const o = objs[oi];
     // ORDEM IMPORTA: descarte barato primeiro. Inativo sai já; a visibilidade é
     // testada ANTES do dispatch virtual do MeshRenderer/Material, que era pago
     // por objeto mesmo pros que nem seriam desenhados.

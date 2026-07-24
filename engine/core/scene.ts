@@ -198,18 +198,28 @@ export class Scene {
     // FAST PATH: a esmagadora maioria dos objetos é RAIZ (parent < 0) e a cena
     // costuma estar em ordem pai→filho. Uma passada resolve tudo isso; só o que
     // sobrar (pai com índice maior, reparent recente) cai no laço geral abaixo.
+    //
+    // Um objeto RAIZ cujo transform local não mudou já tem a pose de mundo
+    // correta (mundo = local), então reescrevê-la é trabalho jogado fora. Num
+    // cenário de RTS a maior parte da cena é estática, e o passe custava ~28 ms
+    // com 500 objetos — mais que o orçamento inteiro de um frame a 60 fps.
+    // hoista o array: `this.objects[i]` refaz o acesso ao campo por iteração
+    const objs = this.objects;
     let left = 0;
     let i = 0;
     while (i < n) {
-      const o = this.objects[i];
+      const o = objs[i];
       const t = o.transform;
       const par = o.parent;
       if (par < 0 || par >= n) {
-        t.wx = t.px; t.wy = t.py; t.wz = t.pz;
-        t.wrx = t.rx; t.wry = t.ry;
+        // raiz: só escreve se a pose de mundo estiver defasada do local
+        if (t.wx !== t.px || t.wy !== t.py || t.wz !== t.pz || t.wrx !== t.rx || t.wry !== t.ry) {
+          t.wx = t.px; t.wy = t.py; t.wz = t.pz;
+          t.wrx = t.rx; t.wry = t.ry;
+        }
         this.done[i] = 1;
       } else if (this.done[par] === 1) {
-        this.applyParent(o, this.objects[par]);
+        this.applyParent(o, objs[par]);
         this.done[i] = 1;
       } else {
         left = 1;
@@ -283,11 +293,12 @@ export class Scene {
     // acontecia silenciosamente com qualquer hierarquia, e um modelo
     // multi-submesh solto na cena já cria uma.)
     this.cIdx.length = 0;
+    const objs = this.objects;   // hoisted (ver computeWorld)
     let maxR: f64 = 0.0001;
     let movers = 0;
     let i = 0;
     while (i < n) {
-      const o = this.objects[i];
+      const o = objs[i];
       if ((o.meshKind !== 0 || o.customMesh > 0) && o.parent < 0) {
         this.cIdx.push(i);
         if (o.stationary === 0) movers = movers + 1;
