@@ -31,7 +31,7 @@ export function cmdHelp(): string {
     " | mesh <i> <kind>" +
     " | color <i> <r> <g> <b>  (0..255)" +
     " | spin <i> <spdY> [spdX]" +
-    " | select <i> | selectadd <i> | selectclear  (multi-seleção) | delete <i> | dup [i]" +
+    " | rename <i> <nome> | select <i> | selectadd <i> | selectclear  (multi-seleção) | delete <i> | dup [i]" +
     " | cam <x> <y> <z> <yaw> <pitch> | focus <i>" +
     " | tool [move|rotate|scale|select]  (gizmo da viewport)" +
     " | play | pause | clear" +

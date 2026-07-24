@@ -669,7 +669,8 @@ function frame(): void {
   const sel = scene.objects[S.selected];
   // faixa do nome do objeto
   app.box(ix + 6, BAR_H + 30, INSP_W - 12, 22, 0x2D2D2DFF, 0, 0, 3);
-  app.text(ix + 14, BAR_H + 34, sel.name, 0xF0F0F0FF, 14);
+  // nome EDITÁVEL (clicar pra digitar) — estilo campo de nome do Inspector Unity
+  sel.name = app.textField(951, ix + 14, BAR_H + 28, INSP_W - 28, sel.name);
   // pai + desaninhar
   if (sel.parent >= 0 && sel.parent < scene.objects.length) {
     app.text(ix + 14, BAR_H + 62, "Pai: " + scene.objects[sel.parent].name, 0x9A9A9AFF, 12);

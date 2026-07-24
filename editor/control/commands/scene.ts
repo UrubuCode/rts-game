@@ -23,6 +23,18 @@ export function cmdSelectAdd(parts: string[]): string {
   return "[ok] selectadd #" + i + " (multi: " + S.selection.length + ")";
 }
 
+/// rename <i> <nome...> — renomeia o objeto (nome = resto da linha).
+export function cmdRename(parts: string[]): string {
+  if (parts.length < 3) return "[erro] uso: rename <i> <nome>";
+  const i = parseFloat(parts[1]) | 0;
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  let nm = parts[2];
+  let k = 3;
+  while (k < parts.length) { nm = nm + " " + parts[k]; k = k + 1; }
+  scene.objects[i].name = nm;
+  return "[ok] rename #" + i + " -> " + nm;
+}
+
 /// selectclear — volta pra seleção única (esvazia a multi).
 export function cmdSelectClear(parts: string[]): string {
   S.selection = [];
