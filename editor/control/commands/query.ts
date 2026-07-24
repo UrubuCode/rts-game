@@ -39,7 +39,7 @@ export function cmdHelp(): string {
     " | parent <filho> <pai> | movetree <drag> <before> <newparent>" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +
-    " || TEXTURA/MESH: loadobj <path> [nome] | loadtex <obj> <path>" +
+    " || TEXTURA/MESH: makeprefab <path> [i] | instprefab <path> | loadobj <path> [nome] | loadtex <obj> <path>" +
     " || ARQUIVOS: ls [path] | mkdir <path> | rmpath <path> | readfile <path> |" +
     " writefile <path> <conteudo> | mv <de> <para>";
 }

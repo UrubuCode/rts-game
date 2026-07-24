@@ -6,7 +6,7 @@ import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
-import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex } from "./commands/files";
+import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { history } from "../undo";
@@ -18,7 +18,7 @@ function isMutating(c: string): boolean {
     c === "spin" || c === "delete" || c === "dup" || c === "clear" || c === "loadscene" ||
     c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
     c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex" ||
-    c === "rename" || c === "reset" || c === "grid";
+    c === "rename" || c === "reset" || c === "grid" || c === "instprefab";
 }
 
 export function execCommand(w: number, h: number, line: string): string {
@@ -100,6 +100,8 @@ export function execCommand(w: number, h: number, line: string): string {
     case "readfile": return cmdReadFile(parts);
     case "writefile": return cmdWriteFile(parts);
     case "mv": return cmdMv(parts);
+    case "makeprefab": return cmdMakePrefab(parts);
+    case "instprefab": return cmdInstPrefab(parts);
     case "loadobj": return cmdLoadObj(parts);
     case "loadtex": return cmdLoadTex(parts);
     case "setcustom": return cmdSetCustom(parts);

@@ -5,7 +5,32 @@ import fs from "rts:fs";
 
 import { scene, S } from "../session";
 import { GameObject } from "../../../engine/core/gameobject";
+import { objectToData, instantiatePrefab } from "../../sceneio";
 import { loadObj, loadTexture } from "../../../engine/render/gpu3d";
+
+/// makeprefab <path> [i] — salva o objeto (default=selecionado) como PREFAB (JSON de
+/// 1 objeto), pra instanciar depois via o asset browser (duplo-clique) ou prefab.
+export function cmdMakePrefab(parts: string[]): string {
+  if (parts.length < 2) return "[erro] uso: makeprefab <path> [i]";
+  let i = S.selected;
+  if (parts.length > 2) i = parseFloat(parts[2]) | 0;
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  const d = objectToData(scene.objects[i]);
+  d.parent = 0 - 1;   // prefab é raiz (sem parent do contexto atual)
+  fs.write(parts[1], JSON.stringify(d));
+  return "[ok] makeprefab " + parts[1] + " <- #" + i + " (" + scene.objects[i].name + ")";
+}
+
+/// instprefab <path> — instancia um PREFAB (JSON de 1 objeto) na cena e o seleciona.
+export function cmdInstPrefab(parts: string[]): string {
+  if (parts.length < 2) return "[erro] uso: instprefab <path>";
+  if (!fs.exists(parts[1])) return "[erro] nao existe: " + parts[1];
+  const before = scene.objects.length;
+  instantiatePrefab(parts[1]);
+  if (scene.objects.length === before) return "[erro] falha ao instanciar: " + parts[1];
+  S.selected = scene.objects.length - 1;
+  return "[ok] instprefab " + parts[1] + " -> #" + S.selected;
+}
 
 /// setcustom <objIdx> <meshId> — DEBUG: força o customMesh de um objeto (0=primitivo).
 export function cmdSetCustom(parts: string[]): string {
