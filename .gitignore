@@ -2,3 +2,7 @@ rts.exe
 *.log
 
 assets/*.scene.json
+
+release/
+*.obj
+bundle/

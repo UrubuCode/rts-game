@@ -1,0 +1,87 @@
+name: Build rts-game executable
+
+# Gera o executável NATIVO do rts-game via AOT (`rts compile`). O rts-game roda
+# sobre o motor RTS (rts.exe), então buildamos o motor do source e usamos o
+# `rts compile` pra transformar o main.ts num binário standalone (o runtime é
+# linkado dentro — não precisa do rts.exe pra rodar o resultado).
+#
+# Dispara em push no master + manualmente (workflow_dispatch).
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]   # plataforma primária; ubuntu/macos podem ser adicionados
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout rts-game
+        uses: actions/checkout@v4
+        with:
+          path: rts-game
+
+      # O motor (compilador + runtime) — repo público da org. Buildado do source
+      # pra ter o rts.exe COM o runtime staticlib embutido (necessário pro AOT).
+      - name: Checkout rts engine
+        uses: actions/checkout@v4
+        with:
+          repository: UrubuCode/rts
+          path: rts
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo (engine workspace)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rts
+
+      # Build em DOIS passos: a staticlib do runtime primeiro, depois o binário, que
+      # a embute pro link AOT. A staticlib embutida é a do `rts-adapters` (superset
+      # que já inclui rts-runtime + os trampolines __rtsadp_*), conforme o build.rs
+      # do motor — NÃO rts-runtime. Cargo só emite o staticlib de um pacote quando
+      # ele é alvo DIRETO, então precisa vir antes; numa build limpa o rts é
+      # compilado pela 1ª vez em seguida e seu build.rs localiza a archive.
+      - name: Build engine (rts-adapters staticlib + rts)
+        working-directory: rts
+        run: |
+          cargo build --release -p rts-adapters
+          cargo build --release
+
+      # AOT: compila o editor/jogo num binário nativo. O runtime vai linkado dentro.
+      - name: AOT compile rts-game
+        working-directory: rts-game
+        shell: bash
+        run: |
+          RTS=../rts/target/release/rts
+          [ -f "$RTS.exe" ] && RTS="$RTS.exe"
+          mkdir -p release
+          "$RTS" compile main.ts release/rts-game
+          ls -la release/
+
+      # Empacota o executável + os assets que o editor lê em runtime (cenas/modelos/
+      # texturas), pra o artefato ser de fato utilizável.
+      - name: Stage bundle (exe + assets)
+        working-directory: rts-game
+        shell: bash
+        run: |
+          mkdir -p bundle
+          cp -r release/* bundle/ 2>/dev/null || true
+          cp -r assets bundle/assets 2>/dev/null || true
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: rts-game-${{ matrix.os }}
+          path: rts-game/bundle/**
+          if-no-files-found: error
