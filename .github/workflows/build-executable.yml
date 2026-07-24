@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # publicar o release (tag + assets)
 
 jobs:
   build:
@@ -61,9 +61,42 @@ jobs:
           cp -r release/* bundle/ 2>/dev/null || true
           cp -r assets bundle/assets 2>/dev/null || true
 
-      - name: Upload executable
+      - name: Upload executable (artefato do run)
         uses: actions/upload-artifact@v4
         with:
           name: rts-game-windows
           path: bundle/**
           if-no-files-found: error
+
+      # ── RELEASE permanente (não só o artefato temporário do run) ──
+      # Zipa o bundle (exe + assets) num único asset e publica um GitHub Release
+      # versionado por data+sha, marcado como latest. Só em push no master (não em
+      # workflow_dispatch, pra não poluir com releases de teste manual).
+      - name: Zipar o bundle
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          cd bundle
+          powershell -Command "Compress-Archive -Path * -DestinationPath ../rts-game-windows.zip -Force"
+          cd ..
+          ls -la rts-game-windows.zip
+
+      - name: Gerar tag
+        if: github.event_name == 'push'
+        id: tag
+        shell: bash
+        run: echo "tag=game-$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: rts-game ${{ steps.tag.outputs.tag }}
+          body: |
+            Executável nativo do editor rts-game (Windows x64), gerado por AOT
+            (`rts compile`) sobre o rts.exe do release do motor. Baixe o zip,
+            extraia e rode `rts-game.exe` (a pasta `assets/` precisa ficar ao lado).
+          files: rts-game-windows.zip
+          fail_on_unmatched_files: true
+          make_latest: true
