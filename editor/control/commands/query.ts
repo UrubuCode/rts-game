@@ -32,12 +32,14 @@ export function cmdHelp(): string {
     " | color <i> <r> <g> <b>  (0..255)" +
     " | spin <i> <spdY> [spdX]" +
     " | select <i> | delete <i>" +
-    " | cam <x> <y> <z> <yaw> <pitch>" +
+    " | cam <x> <y> <z> <yaw> <pitch> | focus <i>" +
+    " | tool [move|rotate|scale|select]  (gizmo da viewport)" +
     " | play | pause | clear" +
-    " | loadscene <path>" +
+    " | loadscene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
     " | parent <filho> <pai> | movetree <drag> <before> <newparent>" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +
+    " || TEXTURA/MESH: loadobj <path> [nome] | loadtex <obj> <path>" +
     " || ARQUIVOS: ls [path] | mkdir <path> | rmpath <path> | readfile <path> |" +
     " writefile <path> <conteudo> | mv <de> <para>";
 }
