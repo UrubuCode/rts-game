@@ -149,6 +149,28 @@ export function cmdDup(parts: string[]): string {
   return "[ok] dup #" + i + " -> #" + S.selected + " (" + g.name + ")";
 }
 
+/// dupn <count> <espaco> [i] — duplica o objeto em ARRAY: `count` cópias em linha no
+/// X, espaçadas por `espaco`. Útil pra montar níveis (cercas, colunas, etc).
+export function cmdDupN(parts: string[]): string {
+  if (parts.length < 3) return "[erro] uso: dupn <count> <espaco> [i]";
+  const count = parseFloat(parts[1]) | 0;
+  const gap = parseFloat(parts[2]);
+  let i = S.selected;
+  if (parts.length > 3) i = parseFloat(parts[3]) | 0;
+  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (count < 1 || count > 200) return "[erro] count fora de 1..200";
+  const src = scene.objects[i];
+  let k = 0;
+  while (k < count) {
+    const g = cloneObject(src);
+    g.transform.px = g.transform.px + gap * (k + 1);
+    scene.add(g);
+    k = k + 1;
+  }
+  S.selected = scene.objects.length - 1;
+  return "[ok] dupn " + count + "x (espaço " + gap + ") de #" + i;
+}
+
 /// instscene <path> [hostIdx] — CENA DENTRO DE CENA: instancia uma cena inteira
 /// sob o objeto hostIdx (default = selecionado). Mover o host move a sub-cena toda.
 export function cmdInstScene(parts: string[]): string {
