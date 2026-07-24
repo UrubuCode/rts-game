@@ -22,6 +22,7 @@ export class GameObject {
   customMesh: number;  // (legado) id de mesh .obj; 0 = usa meshKind. Preferir o MeshRenderer.
   meshPath: string;    // path do modelo que gerou customMesh ("" = primitivo). Exibição + reload no load de cena.
   meshPart: number;    // qual SUBMESH do modelo (0 = a primeira/única). Modelos multi-material têm várias.
+  selFlag: number;     // 1 = está na multi-seleção do editor. Cache O(1) pro render (evita varrer a lista por objeto).
   matIdx: number;      // índice do component Material em behaviors (-1 = nenhum). Cache O(1) pro render.
   rendIdx: number;     // índice do component MeshRenderer (-1 = nenhum). Cache O(1) pro render.
 
@@ -40,6 +41,7 @@ export class GameObject {
     this.customMesh = 0;
     this.meshPath = "";
     this.meshPart = 0;
+    this.selFlag = 0;
     this.matIdx = 0 - 1;
     this.rendIdx = 0 - 1;
   }

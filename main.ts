@@ -17,7 +17,7 @@ import { UIPanel, ANCHOR_TL, ANCHOR_BL, ANCHOR_BR } from "./engine/ui/uipanel";
 import { numField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "./editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture, loadObj } from "./engine/render/gpu3d";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, frustumBegin, inFrustumFast, winWidth, winHeight, loadTexture, loadObj } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
 import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./editor/sceneio";
@@ -98,6 +98,31 @@ function frameObject(idx: number): void {
   S.camZ = wz - dist;
   S.camYaw = 0.0;
   S.camPitch = math.atan2(wy - S.camY, dist);   // olha pra baixo, pro objeto
+}
+
+// Marca em cada objeto se ele está na multi-seleção (GameObject.selFlag). O
+// render lê essa flag em O(1); sem ela, cada objeto visível varria S.selection
+// inteira todo frame. Como a seleção é alterada em vários pontos (clique, ws,
+// group/ungroup), sincronizar uma vez por frame é mais robusto que espalhar
+// atualizações por todos eles.
+let selFlagsDirtyN = 0;   // quantos objetos foram marcados no frame anterior
+
+function syncSelFlags(): void {
+  // limpa só o que foi marcado antes (evita varrer a cena quando nada mudou)
+  if (selFlagsDirtyN > 0) {
+    let i = 0;
+    while (i < scene.objects.length) { scene.objects[i].selFlag = 0; i = i + 1; }
+    selFlagsDirtyN = 0;
+  }
+  let k = 0;
+  while (k < S.selection.length) {
+    const idx = S.selection[k];
+    if (idx >= 0 && idx < scene.objects.length) {
+      scene.objects[idx].selFlag = 1;
+      selFlagsDirtyN = selFlagsDirtyN + 1;
+    }
+    k = k + 1;
+  }
 }
 
 // ── BUILD DO JOGO ───────────────────────────────────────────────────────────
@@ -508,12 +533,31 @@ function frame(): void {
   scene.computeWorld();
   setCam(WIN, S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
   setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);   // luz PONTUAL (posição) — controlável via ws `light`
-  // shadow map direcional: luz viaja do alto pra baixo em direção à cena
-  setShadow(WIN, 0 - 7.0, 0 - 12.0, 0 - 5.0, 0.0, 1.0, 0.0, 24.0);
+  // Shadow map: a direção vem da POSIÇÃO REAL da luz (luz -> centro da cena).
+  // Antes era um vetor fixo (-7,-12,-5) desconectado de S.light*, então mover a
+  // luz mudava o sombreamento mas NÃO as sombras — elas caíam pro lado errado.
+  setShadow(WIN, 0.0 - S.lightX, 0.0 - S.lightY, 0.0 - S.lightZ, 0.0, 1.0, 0.0, 24.0);
+  // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
+  frustumBegin(S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
+  // Sincroniza a flag de seleção UMA vez por frame (custo O(n + |seleção|)),
+  // em vez de o render varrer a lista inteira por objeto visível (O(n × |sel|)).
+  // Feito aqui, num ponto só, porque a seleção é mexida em vários lugares.
+  syncSelFlags();
   let oi = 0;
   let drawnN = 0;
-  while (oi < scene.objects.length) {
+  const objsN = scene.objects.length;   // hoisted: relê-lo por iteração custa
+  while (oi < objsN) {
     const o = scene.objects[oi];
+    // ORDEM IMPORTA: descarte barato primeiro. Inativo sai já; a visibilidade é
+    // testada ANTES do dispatch virtual do MeshRenderer/Material, que era pago
+    // por objeto mesmo pros que nem seriam desenhados.
+    if (o.active === 0) { oi = oi + 1; continue; }
+    const tr = o.transform;
+    let rmax: f64 = tr.sx;
+    if (tr.sy > rmax) rmax = tr.sy;
+    if (tr.sz > rmax) rmax = tr.sz;
+    if (inFrustumFast(tr.wx, tr.wy, tr.wz, rmax * 0.87) === 0) { oi = oi + 1; continue; }
+
     // GEOMETRIA: do component MeshRenderer (rendIdx cacheado, O(1)) quando existe;
     // senão fallback pros campos legado do GameObject (cenas sem MeshRenderer).
     let meshKind = o.meshKind;
@@ -523,20 +567,14 @@ function frame(): void {
       meshKind = r.rMeshKind() | 0;
       customMesh = r.rCustomMesh() | 0;
     }
-    if (o.active !== 0 && (meshKind !== 0 || customMesh > 0)) {
-      // frustum culling: raio da esfera envolvente (maior escala × ~0.87)
-      let rmax: f64 = o.transform.sx;
-      if (o.transform.sy > rmax) rmax = o.transform.sy;
-      if (o.transform.sz > rmax) rmax = o.transform.sz;
-      const vis = inFrustum(S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H,
-        o.transform.wx, o.transform.wy, o.transform.wz, rmax * 0.87);
-      if (vis !== 0) {
+    if (meshKind !== 0 || customMesh > 0) {
+      {
+        // visibilidade e escala já resolvidas antes do dispatch (ver acima)
         let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
-        // selecionado (ou na multi-seleção) = dourado
-        let isSel = oi === S.selected ? 1 : 0;
-        let ssi = 0;
-        while (ssi < S.selection.length) { if (S.selection[ssi] === oi) isSel = 1; ssi = ssi + 1; }
-        if (isSel !== 0) { rr = 255; gg = 230; bbv = 120; }
+        // Selecionado (ou na multi-seleção) = dourado. O teste é O(1) via flag
+        // no próprio objeto: antes varria S.selection INTEIRA por objeto
+        // visível — O(n × |seleção|), 40k comparações/frame ao selecionar 200.
+        if (o.selFlag !== 0 || oi === S.selected) { rr = 255; gg = 230; bbv = 120; }
         const col = (rr << 16) | (gg << 8) | bbv;
         // APARÊNCIA: se o objeto tem um component Material (matIdx cacheado, O(1)),
         // ele manda; senão fallback pros campos do GameObject (cenas sem Material).
@@ -748,7 +786,8 @@ function frame(): void {
   app.text(bxRedo + 11, 14, ">", 0xC8C8C8FF, 15);
   if (stRedoB === 3) history.redo();
 
-  app.text(W - 92, 15, "fps " + math.floor(app.fps()), 0x909090FF, 13);
+  S.fpsLast = math.floor(app.fps());   // publica pro ws `dbg` (medir perf sem screenshot)
+  app.text(W - 92, 15, "fps " + S.fpsLast, 0x909090FF, 13);
 
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
   app.box(0, BAR_H, HIER_W, H - BAR_H, 0x383838FF, 0, 0, 0);
@@ -767,8 +806,15 @@ function frame(): void {
   let dropIdx = 0 - 1;
   let dropMode = 0;          // 1 = antes, 2 = filho, 3 = depois
   let dropLineY: f64 = 0.0;
-  let hi = 0;
-  while (hi < scene.objects.length) {
+  // CULLING da lista: só as linhas que cabem no painel são processadas. Sem
+  // isto o editor desenhava uma linha por objeto da cena inteira — com 500
+  // objetos eram 500 caminhadas de árvore + 2000 chamadas de UI por frame,
+  // fora da tela, e isso sozinho segurava o FPS em ~10 mesmo sem nada visível.
+  const hRowFirst = 0;
+  let hRowLast = ((H - (BAR_H + 52)) / 26) | 0;
+  if (hRowLast > scene.objects.length) hRowLast = scene.objects.length;
+  let hi = hRowFirst;
+  while (hi < hRowLast) {
     const obj = scene.objects[hi];
     let depth = 0;
     let pp = obj.parent;
@@ -804,6 +850,11 @@ function frame(): void {
     if (obj.meshKind === 4) icon = "[S]";
     app.text(14 + indent, ry0 + 6, icon + " " + obj.name, 0xC8C8C8FF, 13);
     hi = hi + 1;
+  }
+  // avisa que há mais objetos além do que cabe na lista (não sumiram)
+  if (hRowLast < scene.objects.length) {
+    app.text(14, BAR_H + 52 + hRowLast * 26 - 4,
+      "+ " + (scene.objects.length - hRowLast) + " objetos (fora da lista)", 0x808080FF, 11);
   }
   // linha de inserção (irmão antes/depois)
   if (hierDrag >= 0 && (dropMode === 1 || dropMode === 3)) {

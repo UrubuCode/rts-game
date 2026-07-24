@@ -20,7 +20,7 @@ import input from "rts:input";
 import { scene, S } from "./editor/control/session";
 import { loadSceneFrom } from "./editor/sceneio";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh,
-         inFrustum, winWidth, winHeight } from "./engine/render/gpu3d";
+         frustumBegin, inFrustumFast, winWidth, winHeight } from "./engine/render/gpu3d";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
@@ -136,7 +136,9 @@ function frame(): void {
   }
   setCam(WIN, vx, vy, vz, vyaw, pitch, vfov, W / H);
   setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);
-  setShadow(WIN, 0.0 - 7.0, 0.0 - 12.0, 0.0 - 5.0, 0.0, 1.0, 0.0, 24.0);
+  // sombra alinhada com a POSIÇÃO real da luz (ver comentário no main.ts)
+  setShadow(WIN, 0.0 - S.lightX, 0.0 - S.lightY, 0.0 - S.lightZ, 0.0, 1.0, 0.0, 24.0);
+  frustumBegin(vx, vy, vz, vyaw, pitch, vfov, W / H);
 
   let oi = 0;
   let drawnN = 0;
@@ -153,8 +155,7 @@ function frame(): void {
       let rmax: f64 = o.transform.sx;
       if (o.transform.sy > rmax) rmax = o.transform.sy;
       if (o.transform.sz > rmax) rmax = o.transform.sz;
-      const vis = inFrustum(vx, vy, vz, vyaw, pitch, vfov, W / H,
-        o.transform.wx, o.transform.wy, o.transform.wz, rmax * 0.87);
+      const vis = inFrustumFast(o.transform.wx, o.transform.wy, o.transform.wz, rmax * 0.87);
       if (vis !== 0) {
         const col = ((o.cr | 0) << 16) | ((o.cg | 0) << 8) | (o.cb | 0);
         let texArg = o.tex;

@@ -58,7 +58,7 @@ export function execCommand(w: number, h: number, line: string): string {
         oi = oi + 1;
       }
       const last = scene.objects[scene.objects.length - 1];
-      return "[dbg] ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast +
+      return "[dbg] fps=" + S.fpsLast + " ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast +
         " | ultimo " + last.name + " world(" + last.transform.wx + "," + last.transform.wy + "," + last.transform.wz + ")";
     }
     case "res": return cmdRes(w, h);

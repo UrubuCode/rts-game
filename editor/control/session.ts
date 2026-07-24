@@ -5,6 +5,7 @@ export class Session {
   selection: number[];   // multi-seleção (índices); vazio = usa só `selected`. O gizmo aplica em todos.
   wsServer: number; wsClient: number;
   drawnLast: number;
+  fpsLast: number;      // FPS do último frame — exposto no ws `dbg` pra medir performance sem screenshot
   win: number;        // handle da janela egui (pra comandos que sobem mesh/textura)
   tool: number;       // ferramenta de manipulação: 0=seleção, 1=Move, 2=Rotate, 3=Scale
   snap: number;       // 1 = snap to grid no gizmo (move 0.5, rotate 15°)
@@ -16,6 +17,7 @@ export class Session {
     this.selection = [];
     this.wsServer = 0; this.wsClient = 0;
     this.drawnLast = 0;
+    this.fpsLast = 0;
     this.win = 0;
     this.tool = 1;   // Move por padrão
     this.snap = 0;

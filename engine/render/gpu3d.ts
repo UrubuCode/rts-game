@@ -266,6 +266,52 @@ export function winHeight(win: i64): number { return egui.winHeight(win); }
 /// pula o drawMesh de quem está atrás/fora, poupando draw calls em cenas grandes.
 export function inFrustum(camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64,
                           fovY: f64, aspect: f64, wx: f64, wy: f64, wz: f64, radius: f64): number {
+  // conveniência: recalcula a trigonometria (5 chamadas). Num laço sobre a cena
+  // prefira frustumBegin() + inFrustumFast(), que fazem isso UMA vez por frame.
+  frustumBegin(camx, camy, camz, yaw, pitch, fovY, aspect);
+  return inFrustumFast(wx, wy, wz, radius);
+}
+
+// ── FRUSTUM CACHEADO (o caminho quente) ─────────────────────────────────────
+// A câmera não muda durante o laço de render, mas inFrustum recalculava
+// cos/sin/tan POR OBJETO — 5 chamadas trigonométricas × N objetos por frame.
+// frustumBegin faz isso uma vez; inFrustumFast só usa os valores.
+let fCamX: f64 = 0.0; let fCamY: f64 = 0.0; let fCamZ: f64 = 0.0;
+let fCyw: f64 = 1.0; let fSyw: f64 = 0.0;
+let fCpt: f64 = 1.0; let fSpt: f64 = 0.0;
+let fTanV: f64 = 0.5; let fTanH: f64 = 0.5;
+
+/// Prepara o frustum do frame. Chame UMA vez, antes do laço de objetos.
+export function frustumBegin(camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64,
+                             fovY: f64, aspect: f64): void {
+  fCamX = camx; fCamY = camy; fCamZ = camz;
+  fCyw = math.cos(yaw); fSyw = math.sin(yaw);
+  fCpt = math.cos(pitch); fSpt = math.sin(pitch);
+  fTanV = math.tan(fovY * 0.5);
+  fTanH = fTanV * aspect;
+}
+
+/// Teste de visibilidade usando o frustum preparado por frustumBegin.
+export function inFrustumFast(wx: f64, wy: f64, wz: f64, radius: f64): number {
+  const dx = wx - fCamX; const dy = wy - fCamY; const dz = wz - fCamZ;
+  const x1 = dx * fCyw - dz * fSyw;
+  const z1 = dx * fSyw + dz * fCyw;
+  const y2 = dy * fCpt - z1 * fSpt;
+  const z2 = dy * fSpt + z1 * fCpt;
+  if (z2 + radius < 0.1) return 0;         // atrás do near
+  if (z2 - radius > 500.0) return 0;       // além do far
+  const limH: f64 = z2 * fTanH;
+  if (x1 - radius > limH) return 0;
+  if (0.0 - x1 - radius > limH) return 0;
+  const limV: f64 = z2 * fTanV;
+  if (y2 - radius > limV) return 0;
+  if (0.0 - y2 - radius > limV) return 0;
+  return 1;
+}
+
+// versão original (mantida para compatibilidade dos harnesses/testes).
+function inFrustumSlow(camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64,
+                       fovY: f64, aspect: f64, wx: f64, wy: f64, wz: f64, radius: f64): number {
   const cyw = math.cos(yaw); const syw = math.sin(yaw);
   const cpt = math.cos(pitch); const spt = math.sin(pitch);
   const dx = wx - camx; const dy = wy - camy; const dz = wz - camz;
