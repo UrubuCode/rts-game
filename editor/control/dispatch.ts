@@ -3,7 +3,7 @@
 import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset } from "./commands/transform";
-import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView } from "./commands/scene";
+import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex } from "./commands/files";
@@ -18,7 +18,7 @@ function isMutating(c: string): boolean {
     c === "spin" || c === "delete" || c === "dup" || c === "clear" || c === "loadscene" ||
     c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
     c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex" ||
-    c === "rename" || c === "reset";
+    c === "rename" || c === "reset" || c === "grid";
 }
 
 export function execCommand(w: number, h: number, line: string): string {
@@ -78,6 +78,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "cam": return cmdCam(parts);
     case "focus": return cmdFocus(parts);
     case "view": return cmdView(parts);
+    case "grid": return cmdGrid(parts);
     case "play": return cmdPlay();
     case "pause": return cmdPause();
     case "clear": return cmdClear();

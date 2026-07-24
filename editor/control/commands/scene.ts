@@ -2,6 +2,7 @@
 import math from "rts:math";
 import { scene, S } from "../session";
 import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "../../sceneio";
+import { GameObject } from "../../../engine/core/gameobject";
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;
@@ -21,6 +22,23 @@ export function cmdSelectAdd(parts: string[]): string {
   if (has === 0) S.selection.push(i);
   S.selected = i;
   return "[ok] selectadd #" + i + " (multi: " + S.selection.length + ")";
+}
+
+/// grid — TOGGLE de um chão-grade (plano xadrez grande, depth-tested) em y=0.
+export function cmdGrid(parts: string[]): string {
+  // remove se já existe (toggle off)
+  let gi = 0 - 1;
+  let i = 0;
+  while (i < scene.objects.length) { if (scene.objects[i].name === "__grid") gi = i; i = i + 1; }
+  if (gi >= 0) { scene.removeAt(gi); return "[ok] grid off"; }
+  // senão cria: cubo achatado grande com textura xadrez (tex=1)
+  const g = new GameObject("__grid");
+  g.setMesh(1, 90, 90, 100);
+  g.transform.setPosition(0, 0 - 0.02, 0);
+  g.transform.sx = 60.0; g.transform.sy = 0.02; g.transform.sz = 60.0;
+  g.tex = 1; g.stationary = 1;
+  scene.add(g);
+  return "[ok] grid on (chão xadrez 60x60)";
 }
 
 /// view <top|front|side|persp> — posiciona a câmera num preset (olhando a origem).
