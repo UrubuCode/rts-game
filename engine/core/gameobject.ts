@@ -3,7 +3,7 @@
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
 import { Transform } from "./transform";
-import { Behavior, KIND_MATERIAL } from "./behavior";
+import { Behavior, KIND_MATERIAL, KIND_RENDERER } from "./behavior";
 import { Material } from "./material";
 
 // meshKind: 0 = vazio (só nó), 1 = cubo. (grid/luz/câmera entram depois)
@@ -19,8 +19,9 @@ export class GameObject {
   emissive: number;    // 1 = brilha (não sombreado) — ex.: o Sol
   tex: number;         // textura procedural: 0 = nenhuma, 1 = xadrez (chão)
   textureId: number;   // (legado) id de textura de IMAGEM; 0 = sem. Preferir o component Material.
-  customMesh: number;  // id de mesh carregada (.obj); 0 = usa o primitivo meshKind
+  customMesh: number;  // (legado) id de mesh .obj; 0 = usa meshKind. Preferir o MeshRenderer.
   matIdx: number;      // índice do component Material em behaviors (-1 = nenhum). Cache O(1) pro render.
+  rendIdx: number;     // índice do component MeshRenderer (-1 = nenhum). Cache O(1) pro render.
 
   constructor(name: string) {
     this.name = name;
@@ -36,6 +37,7 @@ export class GameObject {
     this.textureId = 0;
     this.customMesh = 0;
     this.matIdx = 0 - 1;
+    this.rendIdx = 0 - 1;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`
@@ -50,18 +52,19 @@ export class GameObject {
     return 0 - 1;
   }
 
-  /// Recalcula o índice cacheado do Material (chamado quando behaviors muda).
-  /// Fast-path do render (o Material é consultado todo frame); usa o primitivo
-  /// genérico `componentIdx`. Só recalcula nas MUTAÇÕES (add/remove), não por frame.
-  refreshMatIdx(): void {
+  /// Recalcula os índices cacheados dos componentes consultados TODO frame pelo
+  /// render (Material + MeshRenderer). Fast-path O(1) no render; só recalcula nas
+  /// MUTAÇÕES (add/remove), não por frame. Novos componentes render-hot entram aqui.
+  refreshComponentCache(): void {
     this.matIdx = this.componentIdx(KIND_MATERIAL);
+    this.rendIdx = this.componentIdx(KIND_RENDERER);
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.
   addBehavior(b: Behavior): GameObject {
     b.attach(this.transform);
     this.behaviors.push(b);
-    if (b.kind() === KIND_MATERIAL) this.matIdx = this.behaviors.length - 1;
+    this.refreshComponentCache();   // atualiza matIdx/rendIdx se o novo for render-hot
     return this;
   }
 
@@ -90,7 +93,7 @@ export class GameObject {
       i = i + 1;
     }
     this.behaviors = next;
-    this.refreshMatIdx();   // o índice mudou (array reconstruído) — recalcula
+    this.refreshComponentCache();   // índices mudaram (array reconstruído) — recalcula
   }
 
   /// Define o mesh + cor (fluent).

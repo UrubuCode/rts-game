@@ -239,7 +239,16 @@ function frame(): void {
   let drawnN = 0;
   while (oi < scene.objects.length) {
     const o = scene.objects[oi];
-    if (o.active !== 0 && (o.meshKind !== 0 || o.customMesh > 0)) {
+    // GEOMETRIA: do component MeshRenderer (rendIdx cacheado, O(1)) quando existe;
+    // senão fallback pros campos legado do GameObject (cenas sem MeshRenderer).
+    let meshKind = o.meshKind;
+    let customMesh = o.customMesh;
+    if (o.rendIdx >= 0) {
+      const r = o.behaviors[o.rendIdx];
+      meshKind = r.rMeshKind() | 0;
+      customMesh = r.rCustomMesh() | 0;
+    }
+    if (o.active !== 0 && (meshKind !== 0 || customMesh > 0)) {
       // frustum culling: raio da esfera envolvente (maior escala × ~0.87)
       let rmax: f64 = o.transform.sx;
       if (o.transform.sy > rmax) rmax = o.transform.sy;
@@ -262,11 +271,11 @@ function frame(): void {
           if (tid > 0) texArg = tid; else texArg = m.matTexMode();
           emisArg = m.matEmissive();
         }
-        if (o.customMesh > 0) {
-          drawGPUMesh(WIN, o.customMesh, o.transform.wx, o.transform.wy, o.transform.wz,
+        if (customMesh > 0) {
+          drawGPUMesh(WIN, customMesh, o.transform.wx, o.transform.wy, o.transform.wz,
             o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
         } else {
-          drawGPU(WIN, o.meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
+          drawGPU(WIN, meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
             o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
         }
         drawnN = drawnN + 1;

@@ -18,12 +18,14 @@ import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { Material } from "../engine/core/material";
+import { MeshRenderer } from "../engine/core/meshrenderer";
 
 /// Nomes dos componentes disponíveis (aparecem na lista "Add Component").
-export const COMPONENT_NAMES: string[] = ["Material", "Spinner", "Bobber", "Rigidbody", "Mover", "Pulse", "Orbit"];
+export const COMPONENT_NAMES: string[] = ["MeshRenderer", "Material", "Spinner", "Bobber", "Rigidbody", "Mover", "Pulse", "Orbit"];
 
 /// Cria um componente pelo nome, com valores padrão sensatos.
 export function createComponent(name: string): Behavior {
+  if (name === "MeshRenderer") return new MeshRenderer(1);   // cubo por padrão
   if (name === "Material") return new Material();
   if (name === "Bobber") return new Bobber(0.6, 1.5, 2.0);
   if (name === "Rigidbody") return new Rigidbody(0 - 9.8, 0.5);

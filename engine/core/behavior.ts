@@ -14,7 +14,8 @@ import { Transform } from "./transform";
 // (Renderer, Collider, UI, Light…) entram aqui e plugam da mesma forma.
 export const KIND_SCRIPT: number = 0;     // gameplay genérico (default)
 export const KIND_MATERIAL: number = 1;   // aparência (textura/cor/emissivo)
-// reservados p/ as próximas camadas: 2=RENDERER, 3=COLLIDER, 4=UI, 5=LIGHT…
+export const KIND_RENDERER: number = 2;   // geometria a desenhar (mesh/primitivo)
+// reservados p/ as próximas camadas: 3=COLLIDER, 4=UI, 5=LIGHT…
 
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
@@ -74,4 +75,12 @@ export class Behavior {
   /// Aplica uma textura de imagem (id + path) — só o Material implementa; nos
   /// demais é no-op. Chamado pelo asset browser / ws ao aplicar uma textura.
   setMatTexture(id: number, path: string): void {}
+
+  // ── SURFACE DE RENDERER (lida pelo render via dispatch virtual, sem cast) ────
+  // O MeshRenderer sobrescreve; os demais devolvem 0 (o render só consulta um
+  // component cujo kind()===KIND_RENDERER).
+  /// Primitivo a desenhar: 1=cubo, 2=pirâmide, 3=octaedro, 4=esfera (0 = usar mesh).
+  rMeshKind(): number { return 0; }
+  /// Id de mesh carregada (.obj) — tem prioridade sobre rMeshKind (0 = nenhuma).
+  rCustomMesh(): number { return 0; }
 }
