@@ -6,6 +6,7 @@ import fs from "rts:fs";
 
 import { scene, S } from "./control/session";
 import { GameObject } from "../engine/core/gameobject";
+import { SceneRef } from "../engine/core/sceneref";
 import { Spinner } from "../scripts/spinner";
 import { Bobber } from "../scripts/bobber";
 import { Rigidbody } from "../scripts/rigidbody";
@@ -46,6 +47,7 @@ export function buildObject(od: any): GameObject {
       if (t === "mover") go.addBehavior(new Mover(sd.vx, sd.vy, sd.vz));
       if (t === "pulse") go.addBehavior(new Pulse(sd.amp, sd.freq, sd.base));
       if (t === "orbit") go.addBehavior(new Orbit(sd.radius, sd.speed, sd.cx, sd.cz));
+      if (t === "sceneRef") go.addBehavior(new SceneRef(sd.scenePath));
       si = si + 1;
     }
   }
@@ -74,6 +76,10 @@ export function instantiateSceneUnder(path: string, hostIdx: number): number {
     scene.add(go);
     n = n + 1;
     ci = ci + 1;
+  }
+  // marca o host como instância desta cena (component SceneRef — serializa + inspector)
+  if (n > 0 && hostIdx >= 0 && hostIdx < scene.objects.length) {
+    scene.objects[hostIdx].addBehavior(new SceneRef(path));
   }
   return n;
 }

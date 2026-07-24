@@ -16,7 +16,8 @@ export const KIND_SCRIPT: number = 0;     // gameplay genérico (default)
 export const KIND_MATERIAL: number = 1;   // aparência (textura/cor/emissivo)
 export const KIND_RENDERER: number = 2;   // geometria a desenhar (mesh/primitivo)
 export const KIND_UI: number = 3;         // elemento de UI (desenha em tela 2D)
-// reservados p/ as próximas camadas: 4=COLLIDER, 5=LIGHT…
+export const KIND_SCENE_REF: number = 4;  // instância de outra cena (cena dentro de cena)
+// reservados p/ as próximas camadas: 5=COLLIDER, 6=LIGHT…
 
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
