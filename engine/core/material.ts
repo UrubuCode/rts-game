@@ -48,6 +48,7 @@ export class Material extends Behavior {
   matTexId(): number { return this.textureId; }
   matEmissive(): number { return this.emissive; }
   matTexMode(): number { return this.texChecker; }
+  matTexPath(): string { return this.texturePath; }
 
   /// Aplica a textura de imagem (id da GPU + path). Chamado pelo asset browser/ws.
   setMatTexture(id: number, path: string): void {

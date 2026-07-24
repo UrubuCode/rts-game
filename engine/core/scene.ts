@@ -2,6 +2,7 @@
 // O render pass roda separado (main.ts) lendo os objetos desta cena.
 
 import { GameObject } from "./gameobject";
+import { KIND_CAMERA } from "./behavior";
 import math from "rts:math";
 
 export class Scene {
@@ -144,6 +145,29 @@ export class Scene {
       k = k + 1;
     }
     this.objects = next;
+  }
+
+  /// Índice do objeto ATIVO que carrega a câmera principal (-1 = nenhuma).
+  /// O runtime do jogo renderiza por ela; se houver várias, vence a primeira
+  /// marcada como `isMain`, senão a primeira câmera encontrada.
+  mainCameraIdx(): number {
+    let fallback = 0 - 1;
+    let i = 0;
+    while (i < this.objects.length) {
+      const o = this.objects[i];
+      if (o.active !== 0) {
+        const ci = o.componentIdx(KIND_CAMERA);
+        if (ci >= 0) {
+          const c = o.behaviors[ci];
+          if (c.enabled !== 0) {
+            if (c.camIsMain() !== 0) return i;
+            if (fallback < 0) fallback = i;
+          }
+        }
+      }
+      i = i + 1;
+    }
+    return fallback;
   }
 
   /// Computa a posição de MUNDO (wx,wy,wz) de cada objeto a partir do local

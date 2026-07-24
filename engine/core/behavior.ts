@@ -17,7 +17,8 @@ export const KIND_MATERIAL: number = 1;   // aparência (textura/cor/emissivo)
 export const KIND_RENDERER: number = 2;   // geometria a desenhar (mesh/primitivo)
 export const KIND_UI: number = 3;         // elemento de UI (desenha em tela 2D)
 export const KIND_SCENE_REF: number = 4;  // instância de outra cena (cena dentro de cena)
-// reservados p/ as próximas camadas: 5=COLLIDER, 6=LIGHT…
+export const KIND_CAMERA: number = 5;     // ponto de vista (o jogo renderiza pela main)
+// reservados p/ as próximas camadas: 6=COLLIDER, 7=LIGHT…
 
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
@@ -76,6 +77,14 @@ export class Behavior {
   matEmissive(): number { return 0; }
   /// Modo de textura procedural quando NÃO há imagem: 0=nenhuma, 1=xadrez.
   matTexMode(): number { return 0; }
+  /// Path da imagem aplicada ("" = nenhuma). Só exibição (slot do inspector).
+  matTexPath(): string { return ""; }
+
+  // ── SURFACE DE CÂMERA (só o component Camera sobrescreve) ───────────────────
+  /// Campo de visão vertical em radianos.
+  camFov(): f64 { return 1.05; }
+  /// 1 = é a câmera principal da cena (a que o jogo usa pra renderizar).
+  camIsMain(): number { return 0; }
   /// Aplica uma textura de imagem (id + path) — só o Material implementa; nos
   /// demais é no-op. Chamado pelo asset browser / ws ao aplicar uma textura.
   setMatTexture(id: number, path: string): void {}

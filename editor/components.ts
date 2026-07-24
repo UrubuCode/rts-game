@@ -17,14 +17,17 @@ import { Rigidbody } from "../scripts/rigidbody";
 import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
+import { Patrol } from "../scripts/patrol";
 import { Material } from "../engine/core/material";
 import { MeshRenderer } from "../engine/core/meshrenderer";
+import { Camera } from "../engine/core/camera";
 
 /// Nomes dos componentes disponíveis (aparecem na lista "Add Component").
-export const COMPONENT_NAMES: string[] = ["MeshRenderer", "Material", "Spinner", "Bobber", "Rigidbody", "Mover", "Pulse", "Orbit"];
+export const COMPONENT_NAMES: string[] = ["Camera", "MeshRenderer", "Material", "Spinner", "Bobber", "Rigidbody", "Mover", "Pulse", "Orbit", "Patrol"];
 
 /// Cria um componente pelo nome, com valores padrão sensatos.
 export function createComponent(name: string): Behavior {
+  if (name === "Camera") return new Camera(1.05);   // ~60 graus
   if (name === "MeshRenderer") return new MeshRenderer(1);   // cubo por padrão
   if (name === "Material") return new Material();
   if (name === "Bobber") return new Bobber(0.6, 1.5, 2.0);
@@ -32,5 +35,6 @@ export function createComponent(name: string): Behavior {
   if (name === "Mover") return new Mover(1.0, 0.0, 0.0);
   if (name === "Pulse") return new Pulse(0.3, 2.0, 1.0);
   if (name === "Orbit") return new Orbit(4.0, 1.0, 0.0, 0.0);
+  if (name === "Patrol") return new Patrol(3.0, 2.0);
   return new Spinner(1.0, 0.0);   // default = Spinner
 }

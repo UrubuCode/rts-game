@@ -20,6 +20,8 @@ export class GameObject {
   tex: number;         // textura procedural: 0 = nenhuma, 1 = xadrez (chão)
   textureId: number;   // (legado) id de textura de IMAGEM; 0 = sem. Preferir o component Material.
   customMesh: number;  // (legado) id de mesh .obj; 0 = usa meshKind. Preferir o MeshRenderer.
+  meshPath: string;    // path do modelo que gerou customMesh ("" = primitivo). Exibição + reload no load de cena.
+  meshPart: number;    // qual SUBMESH do modelo (0 = a primeira/única). Modelos multi-material têm várias.
   matIdx: number;      // índice do component Material em behaviors (-1 = nenhum). Cache O(1) pro render.
   rendIdx: number;     // índice do component MeshRenderer (-1 = nenhum). Cache O(1) pro render.
 
@@ -36,6 +38,8 @@ export class GameObject {
     this.tex = 0;
     this.textureId = 0;
     this.customMesh = 0;
+    this.meshPath = "";
+    this.meshPart = 0;
     this.matIdx = 0 - 1;
     this.rendIdx = 0 - 1;
   }
@@ -105,6 +109,8 @@ export class GameObject {
     g.cr = this.cr; g.cg = this.cg; g.cb = this.cb;
     g.tex = this.tex; g.emissive = this.emissive;
     g.textureId = this.textureId; g.customMesh = this.customMesh;
+    g.meshPath = this.meshPath;
+    g.meshPart = this.meshPart;
     g.stationary = this.stationary;
     const t = this.transform;
     g.transform.px = t.px; g.transform.py = t.py; g.transform.pz = t.pz;

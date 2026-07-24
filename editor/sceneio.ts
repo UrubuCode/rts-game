@@ -9,6 +9,7 @@ import { GameObject } from "../engine/core/gameobject";
 import { Behavior } from "../engine/core/behavior";
 import { Material } from "../engine/core/material";
 import { MeshRenderer } from "../engine/core/meshrenderer";
+import { Camera } from "../engine/core/camera";
 import { SceneRef } from "../engine/core/sceneref";
 import { Spinner } from "../scripts/spinner";
 import { Bobber } from "../scripts/bobber";
@@ -16,7 +17,9 @@ import { Rigidbody } from "../scripts/rigidbody";
 import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
+import { Patrol } from "../scripts/patrol";
 import { setLight, setAmbient } from "../engine/render/mesh";
+import { loadModel } from "../engine/render/model";
 
 /// Recria 1 Behavior a partir do seu descritor (o que toData() produz). Fábrica
 /// única usada pelo load (buildObject) E pelo clone (cloneObject). Tipo desconhecido
@@ -30,7 +33,13 @@ export function recreateBehavior(sd: any): Behavior {
   if (t === "mover") return new Mover(sd.vx, sd.vy, sd.vz);
   if (t === "pulse") return new Pulse(sd.amp, sd.freq, sd.base);
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
+  if (t === "patrol") return new Patrol(sd.range, sd.speed);
   if (t === "sceneRef") return new SceneRef(sd.scenePath);
+  if (t === "camera") {
+    const c = new Camera(sd.fov);
+    if (sd.isMain !== undefined) c.isMain = sd.isMain;
+    return c;
+  }
   if (t === "material") {
     const m = new Material();
     m.emissive = sd.emissive; m.texChecker = sd.texChecker; m.texturePath = sd.texturePath;
@@ -80,6 +89,8 @@ export function objectToData(go: GameObject): any {
     stationary: go.stationary,
     emissive: go.emissive,
     tex: go.tex,
+    meshPath: go.meshPath,   // modelo do objeto (o id de GPU não serializa; recarrega no load)
+    meshPart: go.meshPart,   // qual submesh do modelo (multi-material)
     scripts: scripts
   };
 }
@@ -90,7 +101,14 @@ export function sceneToJSON(): string {
   const objs: any[] = [];
   let i = 0;
   while (i < scene.objects.length) { objs.push(objectToData(scene.objects[i])); i = i + 1; }
-  const data = { objects: objs };
+  // A CÂMERA vai junto: o runtime do jogo (game.ts) não tem controles de editor,
+  // então ele abre exatamente no ponto de vista que o autor deixou salvo.
+  // Também guarda a luz, que é estado de cena e não do editor.
+  const data = {
+    objects: objs,
+    camera: [S.camX, S.camY, S.camZ, S.camYaw, S.camPitch],
+    light: [S.lightX, S.lightY, S.lightZ, S.lightAmb]
+  };
   return JSON.stringify(data);
 }
 
@@ -118,6 +136,21 @@ export function buildObject(od: any): GameObject {
   if (od.stationary !== undefined) go.stationary = od.stationary;
   if (od.emissive !== undefined) go.emissive = od.emissive;
   if (od.tex !== undefined) go.tex = od.tex;
+  // modelo do objeto (.obj/.glb/.gltf): o id de GPU não sobrevive ao JSON —
+  // recarrega pelo path (o cache do loader evita re-parsear o mesmo arquivo).
+  // `meshPart` diz QUAL submesh era, pra modelos multi-material voltarem certos.
+  if (od.meshPath !== undefined && od.meshPath.length > 0) {
+    go.meshPath = od.meshPath;
+    if (fs.exists(od.meshPath)) {
+      const parts = loadModel(S.win, od.meshPath);
+      let pidx = 0;
+      if (od.meshPart !== undefined) pidx = od.meshPart | 0;
+      if (pidx >= 0 && pidx < parts.length) {
+        go.customMesh = parts[pidx].meshId;
+        go.meshPart = pidx;
+      }
+    }
+  }
   const col = od.color;
   go.setMesh(od.mesh, col[0], col[1], col[2]);
   const p = od.pos;
