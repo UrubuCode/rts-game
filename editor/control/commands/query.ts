@@ -33,7 +33,7 @@ export function cmdHelp(): string {
     " | spin <i> <spdY> [spdX]" +
     " | rename <i> <nome> | select <i> | selectadd <i> | selectclear  (multi-seleção) | delete <i> | dup [i]" +
     " | cam <x> <y> <z> <yaw> <pitch> | focus <i>" +
-    " | tool [move|rotate|scale|select]  (gizmo da viewport)" +
+    " | tool [move|rotate|scale|select]  (gizmo da viewport) | snap [0|1]  (snap-to-grid)" +
     " | play | pause | clear" +
     " | loadscene <path> | savescene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
     " | parent <filho> <pai> | movetree <drag> <before> <newparent>" +

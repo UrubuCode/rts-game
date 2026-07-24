@@ -2,6 +2,13 @@
 import { scene, S } from "../session";
 import { Spinner } from "../../../scripts/spinner";
 
+/// snap [0|1] — liga/desliga (ou consulta) o snap-to-grid do gizmo (move 0.5, rot 15°).
+export function cmdSnap(parts: string[]): string {
+  if (parts.length < 2) return "[snap] " + (S.snap !== 0 ? "on" : "off") + " (use: snap 0|1)";
+  S.snap = (parseFloat(parts[1]) | 0) !== 0 ? 1 : 0;
+  return "[ok] snap = " + (S.snap !== 0 ? "on" : "off");
+}
+
 /// tool [move|rotate|scale|select] — troca (ou consulta) a ferramenta do gizmo.
 /// A IA dirige o mesmo gizmo que o humano vê na viewport.
 export function cmdTool(parts: string[]): string {

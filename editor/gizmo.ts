@@ -23,6 +23,15 @@ export function projPt(wx: f64, wy: f64, wz: f64, camX: f64, camY: f64, camZ: f6
   return out;
 }
 
+// Arredonda `v` pro múltiplo mais próximo de `step` (snap to grid). step<=0 → v.
+export function snapv(v: f64, step: f64): f64 {
+  if (step <= 0.0) return v;
+  const n = v / step;
+  // round: floor(n+0.5) (n pode ser negativo)
+  const r = n >= 0.0 ? ((n + 0.5) | 0) : (0 - ((0.5 - n) | 0));
+  return (r * 1.0) * step;
+}
+
 // distância² de um ponto (px,py) ao segmento (ax,ay)-(bx,by).
 export function segDist2(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64): f64 {
   const vx = bx - ax; const vy = by - ay;

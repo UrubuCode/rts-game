@@ -18,7 +18,7 @@ import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
-import { pickAxis, axisMove, projPt, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
+import { pickAxis, axisMove, projPt, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
 import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./editor/sceneio";
 import { history } from "./editor/undo";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
@@ -314,6 +314,7 @@ function frame(): void {
         if (gizmoAxis === 3) { so.transform.px = so.transform.px + mX; so.transform.py = so.transform.py + mY; }
         if (gizmoAxis === 4) { so.transform.px = so.transform.px + mX; so.transform.pz = so.transform.pz + mZ; }
         if (gizmoAxis === 5) { so.transform.py = so.transform.py + mY; so.transform.pz = so.transform.pz + mZ; }
+        if (S.snap !== 0) { so.transform.px = snapv(so.transform.px, 0.5); so.transform.py = snapv(so.transform.py, 0.5); so.transform.pz = snapv(so.transform.pz, 0.5); }
       }
       si = si + 1;
     }
@@ -345,6 +346,12 @@ function frame(): void {
           if (gizmoAxis === 0) so.transform.rx = so.transform.rx + rt;
           if (gizmoAxis === 1) so.transform.ry = so.transform.ry + rt;
           if (gizmoAxis === 2) so.transform.rz = so.transform.rz + rt;
+        }
+        // SNAP to grid (move 0.5 / rotate 15°=~0.2618 rad)
+        if (S.snap !== 0 && S.tool === TOOL_MOVE) {
+          so.transform.px = snapv(so.transform.px, 0.5); so.transform.py = snapv(so.transform.py, 0.5); so.transform.pz = snapv(so.transform.pz, 0.5);
+        } else if (S.snap !== 0 && S.tool === TOOL_ROTATE) {
+          so.transform.rx = snapv(so.transform.rx, 0.2618); so.transform.ry = snapv(so.transform.ry, 0.2618); so.transform.rz = snapv(so.transform.rz, 0.2618);
         }
       }
       si = si + 1;
