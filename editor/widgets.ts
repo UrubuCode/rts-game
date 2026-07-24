@@ -30,6 +30,13 @@ let sScrubMx: f64 = 0.0;
 let nfEditId = 0 - 1;    // id do campo em modo digitação (-1 = nenhum)
 let nfEditText = "";     // buffer do texto sendo digitado
 
+/// 1 se algum numField está em modo DIGITAÇÃO — pra gatear atalhos globais de tecla
+/// (não trocar de ferramenta enquanto o usuário digita um valor).
+export function nfEditing(): number {
+  if (nfEditId >= 0) return 1;
+  return 0;
+}
+
 /// substring SEGURO: `.substring` direto num GCELL (module-let escrito por função)
 /// volta "undefined" (leitura de gcell é Tagged sem shape de string). Passando por
 /// PARAM o método despacha. Use isto pra fatiar strings de estado de módulo.

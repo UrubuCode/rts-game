@@ -13,7 +13,7 @@ import fs from "rts:fs";
 import { GameObject } from "./engine/core/gameobject";
 import { UIScene } from "./engine/ui/uiscene";
 import { UIPanel, ANCHOR_TL, ANCHOR_BR } from "./engine/ui/uipanel";
-import { numField, AXIS_X, AXIS_Y, AXIS_Z, subStr } from "./editor/widgets";
+import { numField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets } from "./editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, winWidth, winHeight, loadTexture } from "./engine/render/gpu3d";
@@ -60,6 +60,7 @@ let frames = 0;
 let spawnN = 0;
 let dragging = 0;
 let gizmoAxis = 0 - 1;   // eixo do gizmo que está sendo arrastado (-1 = nenhum)
+let prevF = 0;           // estado anterior da tecla F (edge-detection do focus)
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
 let addFilter = "";    // texto de busca do dropdown (filtra a lista)
 
@@ -192,6 +193,21 @@ function frame(): void {
   if (kD !== 0) { S.camX = S.camX + rxv * moveSpeed; S.camZ = S.camZ + rzv * moveSpeed; }
   if (kA !== 0) { S.camX = S.camX - rxv * moveSpeed; S.camZ = S.camZ - rzv * moveSpeed; }
   if (kSp !== 0) S.camY = S.camY + moveSpeed;
+
+  // ── ATALHOS DE TECLA (só quando NÃO digitando texto: numField/busca de comp) ──
+  // Q=Move, E=Rotate, R=Scale (W conflita com a câmera fly, fica na toolbar/Q);
+  // F=focus no selecionado (edge-detection). Não-destrutivos. Codes: A=100 → Q=116
+  // E=104 R=117 F=105 (mapa do motor em rts-egui/render_backend.rs).
+  if (addMenuOpen === 0 && nfEditing() === 0) {
+    if (app.keyDown(116) !== 0) S.tool = 1;   // Q → Move
+    if (app.keyDown(104) !== 0) S.tool = 2;   // E → Rotate
+    if (app.keyDown(117) !== 0) S.tool = 3;   // R → Scale
+    const kFo = app.keyDown(105);             // F → focus (frame selected)
+    if (kFo !== 0 && prevF === 0 && S.selected >= 0 && S.selected < scene.objects.length) frameObject(S.selected);
+    prevF = kFo;
+  } else {
+    prevF = 0;
+  }
 
   // ── UPDATE da cena (só quando S.playing) ────────────────────────────────────
   if (S.playing !== 0) { scene.update(dts); scene.resolveCollisions(); }
