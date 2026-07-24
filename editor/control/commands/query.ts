@@ -35,7 +35,7 @@ export function cmdHelp(): string {
     " | cam <x> <y> <z> <yaw> <pitch> | focus <i>" +
     " | tool [move|rotate|scale|select]  (gizmo da viewport)" +
     " | play | pause | clear" +
-    " | loadscene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
+    " | loadscene <path> | savescene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
     " | parent <filho> <pai> | movetree <drag> <before> <newparent>" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +

@@ -3,7 +3,7 @@
 import { cmdState, cmdRes, cmdHelp } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool } from "./commands/transform";
-import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup } from "./commands/scene";
+import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene } from "./commands/scene";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex } from "./commands/files";
@@ -56,6 +56,7 @@ export function execCommand(w: number, h: number, line: string): string {
     case "pause": return cmdPause();
     case "clear": return cmdClear();
     case "loadscene": return cmdLoad(parts);
+    case "savescene": return cmdSaveScene(parts);
     case "instscene": return cmdInstScene(parts);
     case "dup": return cmdDup(parts);
     case "comps": return cmdComps(parts);

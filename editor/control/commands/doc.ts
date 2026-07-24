@@ -36,6 +36,7 @@ export function cmdDoc(parts: string[]): string {
     "clear :: esvazia a cena :: clear",
     "tool [move|rotate|scale|select] :: troca/consulta a ferramenta do gizmo da viewport (a IA dirige o mesmo gizmo do humano) :: tool rotate",
     "loadscene <path> :: carrega uma cena JSON (substitui a atual) :: loadscene scenes/shadowdemo.json",
+    "savescene <path> :: SALVA a cena atual num JSON (fecha o loop com loadscene) :: savescene assets/minhacena.json",
     "instscene <path> [hostIdx] :: CENA DENTRO DE CENA: instancia uma cena inteira sob um objeto (default=selecionado); mover o host move a sub-cena toda :: instscene assets/subscene.json 0",
     "loadtex <obj> <path> :: carrega uma imagem (PNG/JPG/BMP) e aplica como textura no Material do objeto :: loadtex 0 images.jpg",
     "parent <filho> <pai> :: REPARENT: aninha filho sob pai (pai=-1 => raiz). Reordena o array; re-consulte tree depois :: parent 5 2",

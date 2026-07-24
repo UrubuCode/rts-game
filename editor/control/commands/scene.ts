@@ -1,7 +1,7 @@
 // Comandos de CENA/sessão: select, delete, cam, focus, play, pause, clear, loadscene.
 import math from "rts:math";
 import { scene, S } from "../session";
-import { loadSceneFrom, instantiateSceneUnder, cloneObject } from "../../sceneio";
+import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "../../sceneio";
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;
@@ -48,6 +48,13 @@ export function cmdClear(): string {
 export function cmdLoad(parts: string[]): string {
   loadSceneFrom(parts[1]);
   return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length;
+}
+
+/// savescene <path> — SALVA a cena atual num arquivo JSON (fecha o loop com loadscene).
+export function cmdSaveScene(parts: string[]): string {
+  if (parts.length < 2) return "[erro] uso: savescene <path>";
+  const n = saveScene(parts[1]) | 0;
+  return "[ok] savescene " + parts[1] + " <- " + n + " objs";
 }
 
 /// dup [i] — duplica o objeto (default = selecionado), deslocado em +1 no X, e

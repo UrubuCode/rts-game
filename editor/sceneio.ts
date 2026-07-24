@@ -49,6 +49,43 @@ export function cloneObject(src: GameObject): GameObject {
   return g;
 }
 
+/// Serializa 1 GameObject no descritor que buildObject lê (round-trip). Os
+/// behaviors viram `scripts` via toData() (pula os que devolvem null).
+export function objectToData(go: GameObject): any {
+  const scripts: any[] = [];
+  let i = 0;
+  while (i < go.behaviors.length) {
+    const d = go.behaviors[i].toData();
+    if (d !== null) scripts.push(d);
+    i = i + 1;
+  }
+  const t = go.transform;
+  return {
+    name: go.name,
+    mesh: go.meshKind,
+    color: [go.cr, go.cg, go.cb],
+    pos: [t.px, t.py, t.pz],
+    rot: [t.rx, t.ry],
+    scale3: [t.sx, t.sy, t.sz],
+    parent: go.parent,
+    stationary: go.stationary,
+    emissive: go.emissive,
+    tex: go.tex,
+    scripts: scripts
+  };
+}
+
+/// SALVA a cena inteira num arquivo JSON ({ objects: [...] }) — fecha o loop com
+/// loadSceneFrom. Devolve o nº de objetos salvos.
+export function saveScene(path: string): number {
+  const objs: any[] = [];
+  let i = 0;
+  while (i < scene.objects.length) { objs.push(objectToData(scene.objects[i])); i = i + 1; }
+  const data = { objects: objs };
+  fs.write(path, JSON.stringify(data));
+  return scene.objects.length;
+}
+
 /// Constrói 1 GameObject a partir de um descritor JSON.
 export function buildObject(od: any): GameObject {
   const go = new GameObject(od.name);
