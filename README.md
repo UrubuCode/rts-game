@@ -1,74 +1,142 @@
-# Engine RTS — game engine estilo Unity, 100% em TypeScript
+# RTS Engine — a Unity-style game engine, 100% TypeScript
 
-Uma game engine 3D no modelo **Unity** (tudo é `GameObject`, componentes com ciclo
-`mount → update(dt) → render`), escrita inteiramente em **TypeScript** e rodando
-sobre o motor **RTS** (`rts.exe`, um compilador/runtime TS→nativo via Cranelift).
-O 3D é **software rendering em TS** (rasterizador próprio com z-buffer + shading),
-apresentado pela camada `render.*` do RTS (backend egui).
-
-```
-rts.exe run main.ts          # editor visual (janela): toolbar, hierarquia, inspector, viewport 3D
-rts.exe run harness.ts       # porta de controle headless (stdin) — pra testar/dirigir por script
-rts.exe run netharness.ts    # porta de controle TCP (:7777) + janela ao vivo
-```
-
-## Modelo (Unity-like)
-
-- **GameObject** — a unidade da cena. Tem `Transform`, um mesh, cor, uma lista de
-  `Behavior` (scripts) e um `parent` (hierarquia).
-- **Transform** — posição/rotação/escala **locais** + posição/rotação de **mundo**
-  (compostas com o pai por `Scene.computeWorld`).
-- **Behavior** (o "MonoBehaviour") — script de gameplay. Sobrescreve `mount()` /
-  `update(dt)` e se serializa via `toData()`. Rodam num array polimórfico.
-- **Scene** — lista de GameObjects + `update(dt)` polimórfico + `resolveCollisions()`
-  + `computeWorld()`.
+A Unity-style 3D scene editor and game engine (**everything is a `GameObject`**,
+components with a `mount → update(dt) → render` cycle), written entirely in
+**TypeScript** and running on the **RTS** engine (`rts.exe`, a TS→native
+compiler/runtime built on Cranelift). 3D is rendered on the **GPU** through the
+RTS `egui` window backend (wgpu scene pass); the editor UI is immediate-mode on
+top of the same window.
 
 ```
-engine/core/    transform.ts · behavior.ts · gameobject.ts · scene.ts · camera.ts
-engine/render/  raster.ts (z-buffer + shading) · mesh.ts (geometria data-driven) · draw.ts (wireframe)
-engine/testkit/ dump.ts (preview ASCII / estado / PPM)
-scripts/        spinner · bobber · rigidbody · mover · pulse   (componentes de gameplay)
+rts.exe run main.ts          # the visual editor (window): toolbar, hierarchy, inspector, 3D viewport
 ```
 
-## O que já tem
+An **AI/LLM drives the SAME editor a human sees**, live, over an embedded
+WebSocket (`ws://127.0.0.1:7777`) — no screenshots required. See
+[Control (WebSocket)](#control-websocket) and [TESTING.md](TESTING.md).
 
-- **Render 3D software**: projeção perspectiva, faces sólidas, **z-buffer**,
-  shading por normal·luz, câmera-fly, **picking** por clique.
-- **4 meshes** data-driven: cubo, pirâmide, octaedro, **esfera** (UV lat/long).
-- **Luz direcional** + ambiente controláveis.
-- **Física**: `Rigidbody` (gravidade + colisão com o chão + quique) e **colisão
-  esfera-esfera entre objetos** (empilhamento).
-- **Hierarquia parent/child**: o filho orbita **e** herda a rotação do pai.
-- **Componentes**: Spinner, Bobber, Rigidbody, Mover, Pulse — componíveis (um
-  objeto pode cair + girar + pulsar ao mesmo tempo).
-- **Editor**: toolbar (Play/Pause, +Cubo/+Esfera/Deletar), hierarquia clicável,
-  inspector com sliders de transform.
-- **Serialização de cena em JSON** (`JSON.stringify`/`parse` nativos do motor);
-  os componentes se serializam sozinhos e voltam anexados no load.
-- **Portas de controle** (stdin + TCP) pra dirigir/testar tudo sem depender de
-  screenshot — ver [TESTING.md](TESTING.md).
+## Unity-like model
 
-## Portas de controle
+- **GameObject** — the scene unit. Has a `Transform`, a mesh, color, a list of
+  `Behavior`s (components) and a `parent` (hierarchy).
+- **Transform** — local position/rotation/scale + **world** position/rotation
+  (composed with the parent by `Scene.computeWorld`, order-independent multi-pass).
+- **Behavior** (the "MonoBehaviour") — a component. Overrides `mount()` /
+  `update(dt)`, identifies itself via `kind()`, and serializes via `toData()`.
+  They run in a polymorphic array (virtual dispatch proven on the engine).
+- **Scene** — a list of GameObjects + polymorphic `update(dt)` +
+  `resolveCollisions()` + `computeWorld()`.
 
-Ambas aceitam o mesmo protocolo de comandos (um por linha). Exemplo:
+### "Everything is a GameObject" — the component model
 
-```bash
-printf 'spawn box 0 1.5 0 1.2\nspin 0 1.0\nrigid 0\nmesh 0 4\nstep 30\nstate\nframe\nquit\n' \
-  | ./rts.exe run harness.ts
+Components are typed by `kind()` and looked up generically via
+`GameObject.componentIdx(kind)`. Beyond gameplay scripts, the appearance and
+structure are components too:
+
+| Component | `kind` | Role |
+|---|---|---|
+| gameplay scripts | `SCRIPT` | Spinner / Bobber / Rigidbody / Mover / Pulse / Orbit |
+| `Material` | `MATERIAL` | texture (real image + procedural checker), emissive, tint |
+| `MeshRenderer` | `RENDERER` | which mesh to draw (primitive or `.obj`) |
+| `UIPanel` | `UI` | a UI element drawn in 2D (anchored, RectTransform-like) |
+| `SceneRef` | `SCENE_REF` | marks an object as an instance of another scene |
+
+The render pass reads a `MeshRenderer` (geometry) + `Material` (appearance) when
+present, with a fallback to the GameObject's own fields for older scenes.
+
+## Layout
+
+```
+engine/core/     transform · behavior · gameobject · scene · camera
+                 material · meshrenderer · sceneref   (data components)
+engine/render/   gpu3d.ts (GPU scene pass via egui.* — meshes/camera/light/shadow/texture)
+                 raster.ts · mesh.ts · draw.ts        (software renderer, harness-only)
+engine/ui/       uipanel.ts · uiscene.ts              (UI as GameObjects — L3 foundation)
+editor/          widgets · assets (Project browser) · gizmo (Move/Rotate/Scale math)
+                 components (Add Component registry) · sceneio (save/load/clone) · undo (history)
+editor/control/  server (WebSocket) · dispatch (command switch) · session (shared state)
+editor/control/commands/   query · spawn · transform · scene · component · hierarchy · files · doc
+scripts/         spinner · bobber · rigidbody · mover · pulse · orbit   (gameplay components)
 ```
 
-Comandos: `spawn move rot scale mesh spin bob rigid mover pulse parent select cam
-light ambient play pause step frame state lit save savescene loadscene delete dup
-color name quit`. Detalhes em [TESTING.md](TESTING.md).
+## Features
 
-## Notas de motor
+**3D rendering (GPU, wgpu scene pass):** perspective camera (fly + presets),
+solid faces with depth test, point light + ambient, **directional shadow map
+(PCF)**, **real image textures** (PNG/JPG/BMP/WebP, sampled by per-vertex UV) +
+procedural checker, procedural skybox, specular, per-object emissive. Frustum
+culling. Fly camera; **frame selected** and **frame all**.
 
-O `rts.exe` é copiado do repo `rts` (gitignored). Durante o desenvolvimento, dois
-bugs do motor foram encontrados e **corrigidos no próprio motor RTS**: colisão de
-nome de classe com shims do prelude (`Transform`/`Duplex`/…) e `const`/`let` de
-módulo lido dentro de função. A engine explora esses fixes (geometria e scratch
-de render vivem em arrays/consts de módulo lidos pelas funções de render).
+**Manipulation (gizmo):** Move / Rotate / Scale tools with colored X/Y/Z axes,
+**tool-specific visuals** (arrows / projected rings / cube handles), **plane
+handles** (drag two axes), **multi-selection** (the gizmo manipulates all selected
+at once), **snap-to-grid** (position 0.5, rotation 15°). Keyboard shortcuts
+`Q/E/R` (tools) and `F` (frame selected).
 
-Limitação de codegen respeitada em toda a engine: **método sobre parâmetro
-tipado-classe não despacha** — por isso o render pass extrai os campos no call
-site e passa primitivos (funções top-level chamando namespaces).
+**Objects & hierarchy:** duplicate (single + **array** `dupn`, cloning all
+components), rename, reset transform, hide/isolate, delete (single + selection),
+**group / ungroup**, reparent.
+
+**Scene:** save / load (and **persists across sessions**), **undo / redo**
+(scene-snapshot), **scene-within-scene** instancing (Godot-style, via `SceneRef`),
+**prefabs** (create + instantiate), a ground grid, camera view presets, light
+control.
+
+**Inspector (Unity dark theme):** component **foldouts** (collapse + enabled
+checkbox), editable object name, per-field numeric config with click-to-type and
+drag-scrub, **X/Y/Z colored** Vector3 fields, **Add Component** with search.
+
+**Physics:** `Rigidbody` (gravity + ground collision + bounce) and
+sphere-vs-sphere collision between objects (stacking).
+
+**Serialization:** scenes are JSON (`JSON.stringify`/`parse`, native to the
+engine); components serialize themselves and are rebuilt on load.
+
+## Control (WebSocket)
+
+The editor embeds a **non-blocking WebSocket server** on `ws://127.0.0.1:7777`
+(polled once per frame), so an AI drives the exact scene the human is looking at,
+live. Every editor operation has a command. Send one command per message:
+
+```
+select 1
+selectadd 2
+tool rotate           # switch the viewport gizmo tool
+snap 1                # snap-to-grid on
+loadtex 0 images.jpg  # decode + apply a real texture as a Material
+instscene assets/subscene.json 0   # scene-within-scene under object #0
+savescene assets/my.json
+```
+
+There are **60+ commands**. The port is **self-documenting**: send `help` for the
+list and `doc [prefix]` for the signature + example of each command (so an AI can
+discover the full surface). Client: `tools/ws_client.py`. See
+[TESTING.md](TESTING.md).
+
+## Build a native executable
+
+The editor AOT-compiles to a standalone native binary with `rts compile`:
+
+```
+rts.exe compile main.ts release/rts-game   # -> release/rts-game.exe (runtime linked in)
+```
+
+CI (`.github/workflows/build-executable.yml`) **downloads the `rts.exe` from the
+engine's latest release** (no engine rebuild — that binary is AOT-capable), runs
+`rts compile`, and **publishes a GitHub Release** of the executable + assets on
+every push to `master`.
+
+## Engine notes
+
+`rts.exe` is copied from the `rts` repo (gitignored). A few RTS-engine bugs were
+found and **fixed in the engine itself** during development (prelude-shim name
+clashes, module `const`/`let` read from functions, a codegen heisenbug worked
+around by wrapping the frame loop in a `function`). Known engine gotchas the
+codebase routes around:
+
+- A string method on a **gcell** (a module-level `let`/array written by functions)
+  returns `"undefined"` — string ops go through a param helper (`subStr`).
+- A `number` field in `f64` repr passed to a `U64`/`I64` ABI param is **bitcast**,
+  not converted — integer ids passed to the engine use `| 0`.
+- A method on a **class-typed parameter** may not dispatch — the render pass
+  extracts fields at the call site; pure math helpers avoid passing `app`/objects.

@@ -1,1 +1,1 @@
-Assets do projeto RTS Engine.
+RTS Engine project assets (models, textures, scenes).

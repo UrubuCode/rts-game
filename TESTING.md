@@ -1,87 +1,88 @@
-# Testando a engine sem janela — porta de controle
+# Driving & testing the editor — the control port
 
-O rasterizador escreve num framebuffer comum, então a engine roda **headless**
-(sem GUI). `harness.ts` é uma **porta de controle**: lê comandos linha-a-linha do
-stdin, executa e responde no stdout (acks, estado, preview ASCII do frame). É
-determinística (dt fixo de 16 ms), então uma IA ou script dirige e verifica sem
-screenshot nem leitor de imagem.
+The editor embeds a **WebSocket control server** so a human and an AI can drive the
+**same live editor** at the same time. This is the primary way to test and script
+the engine without screenshots: send text commands, read text responses.
 
-## Uso
+## WebSocket (primary — live, in-editor)
+
+Run the editor; it serves `ws://127.0.0.1:7777`, polled once per frame
+(non-blocking, so the window stays responsive while commands arrive):
 
 ```bash
-printf 'spawn box 0 1.5 0 1.2\nspin 0 1.0 0.3\nstep 30\nstate\nframe\nquit\n' \
-  | ./rts.exe run harness.ts
+rts.exe run main.ts                 # opens the editor window + the WS server
 ```
 
-Cada linha é um comando; a engine responde na hora. EOF (pipe fechado) ou `quit`
-encerra.
+From another process, send commands (one per message):
 
-## Protocolo
+```bash
+python tools/ws_client.py "spawn box 0 1.5 0 1.2" "spin 0 1.0" "tool rotate" "state"
+```
 
-| Comando | Efeito |
+`tools/ws_control.html` is a small browser console for the same port.
+
+### Discovering commands
+
+The port is self-documenting — an AI can learn the full surface at runtime:
+
+- `help` — one-line list of every command.
+- `doc [prefix]` — signature **and an example** for each command (e.g. `doc select`).
+- `state` — scene + camera + tool snapshot. `tree` — the hierarchy. `dbg` — render diagnostics.
+
+There are **60+ commands**, grouped roughly as:
+
+| Group | Commands |
 |---|---|
-| `spawn <name> <x> <y> <z> [scale]` | cria um cubo GameObject |
-| `move <i> <x> <y> <z>` | posição do objeto i |
-| `rot <i> <rx> <ry>` | rotação (rad) |
-| `scale <i> <s>` | escala uniforme |
-| `spin <i> <spdY> [spdX]` | anexa script Spinner |
-| `bob <i> <amp> <freq>` | anexa script Bobber (baseY = y atual) |
-| `select <i>` | seleciona (destaque dourado no render) |
-| `cam <x> <y> <z> <yaw> <pitch>` | posiciona a câmera |
-| `play` / `pause` | liga/desliga o update dos scripts |
-| `step [n]` | avança n ticks de update (dt=16 ms) |
-| `frame [cols] [rows]` | rasteriza + imprime preview ASCII (default 64×26) |
-| `state` | imprime estado (objetos + câmera) |
-| `lit` | nº de pixels desenhados (sanity: >0 = algo renderizou) |
-| `save <path>` | salva PPM P3 160×96 do frame atual |
-| `quit` / `exit` | encerra |
+| query | `state` `res` `help` `doc` `dbg` `tree` |
+| history | `undo` `redo` |
+| create/spawn | `spawn` `dup` `dupn` `loadobj` `instprefab` `makeprefab` |
+| transform | `move` `scl` `reset` `align` `tool` `snap` |
+| appearance | `mesh` `color` `spin` `loadtex` |
+| selection | `select` `selectadd` `selectclear` `rename` `delete` `delsel` `vis` `iso` |
+| camera | `cam` `focus` `frameall` `view` `light` |
+| play | `play` `pause` `clear` |
+| scene files | `loadscene` `savescene` `instscene` (scene-within-scene) |
+| hierarchy | `parent` `movetree` `group` `ungroup` |
+| components | `complist` `comps` `addcomp` `rmcomp` `setfield` |
+| filesystem | `ls` `mkdir` `rmpath` `readfile` `writefile` `mv` |
 
-## Exemplo de saída
+Example session (AI-style, no screenshots needed):
 
 ```
-[ok] spawn #0 box
-[ok] step 20 -> frame 20
-[state] frame=20 playing=1 objetos=2 selecionado=0
-  [0] box  pos(0,1.5,0)  rot(0.1,0.32)  scale 1.2  mesh 1
-  CAM pos(0,3,-10)  yaw 0  pitch 0.18
-+----------------------...
-|              ++-  ::::=   ...
+select 1                # select object #1
+selectadd 2             # multi-select #1 + #2
+tool rotate             # switch the viewport gizmo tool
+snap 1                  # snap-to-grid on
+loadtex 0 images.jpg    # decode a real image and apply it as a Material texture
+instscene assets/subscene.json 0   # instance a whole scene under object #0
+savescene assets/my.json           # persists across restarts
 ```
 
-## Por que isto (e não um socket TCP)
+Mutating commands snapshot the scene first, so `undo` / `redo` cover the whole
+session.
 
-stdin/stdout dá um canal de controle **scriptável e determinístico** que qualquer
-ferramenta (Bash, uma IA) dirige por pipe, sem lidar com portas/handshake não
-bloqueante dentro do loop de frame. O mesmo `harness.ts` serve de base pra um
-backend de socket depois (o `net` namespace existe), se um controle *ao vivo*
-(assíncrono, com eventos empurrados) for necessário.
+## Legacy harnesses (headless / TCP)
 
-## Verificação rápida (smoke test)
+Two older headless control ports remain for scripted, deterministic tests of the
+software rasterizer (`engine/render/raster.ts`), independent of the GUI:
 
 ```bash
-printf 'spawn a 0 1 0\nstep 5\nlit\nquit\n' | ./rts.exe run harness.ts | grep '\[lit\]'
-# espera: [lit] <N> pixels desenhados ...  com N > 0
-```
+# stdin harness — deterministic (fixed 16 ms dt), pipe commands in
+printf 'spawn a 0 1 0\nstep 5\nlit\nquit\n' | ./rts.exe run harness.ts
+# expects: [lit] <N> pixels drawn ...  with N > 0
 
----
-
-# Porta de controle via TCP (socket) — `netharness.ts`
-
-Além do stdin, há um servidor TCP que abre uma **janela ao vivo** E aceita
-comandos por socket na porta `7777`. A cada comando a janela reapresenta a cena.
-
-```bash
-./rts.exe run netharness.ts        # servidor (ouve em 127.0.0.1:7777)
-# noutro terminal:
-python tools/control_client.py     # interativo
+# TCP harness (:7777) — a live window that re-presents on each command
+./rts.exe run netharness.ts
 echo -e 'spawn a 0 1 0\nspin 0 1\nstep 30\nframe\nquit' | python tools/control_client.py
 ```
 
-Mesmos comandos do protocolo stdin (spawn/move/rot/spin/bob/select/cam/play/
-pause/step/state/frame/lit/quit). As respostas (acks, estado, preview ASCII)
-voltam pelo socket.
+The harness protocol adds preview commands the WebSocket editor does not need:
+`step [n]` (advance N update ticks), `frame [cols] [rows]` (ASCII preview of the
+rasterized frame), `lit` (pixel count sanity), `save <path>` (PPM dump).
 
-**Limitação atual:** `recv`/`accept` são bloqueantes, então entre comandos a
-janela fica estática (mostra o último frame, sem processar input). Controle *ao
-vivo total* (janela responsiva enquanto espera comandos) precisa de um thread
-leitor empurrando comandos numa fila — próximo passo.
+## Why a control port
+
+A text control port gives a **scriptable channel** any tool (Bash, an AI) can
+drive without image capture. The WebSocket variant keeps the window fully
+responsive (polled per frame) so the AI and the human share one live editor; the
+stdin/TCP harnesses stay for deterministic, GUI-free rasterizer tests.
