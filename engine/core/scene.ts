@@ -305,7 +305,7 @@ export class Scene {
     if (movers === 0) return;
 
     // Poucos objetos: o overhead do grid não compensa — laço direto é mais rápido.
-    if (m < 24) { this.collideRange(this.cIdx, 0, m, this.cIdx, 0, m, 1); return; }
+    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m); return; }
 
     // ── 2) monta o grid ──────────────────────────────────────────────────────
     // Célula = 2× o maior raio: assim dois objetos que se tocam NUNCA estão a
@@ -335,116 +335,116 @@ export class Scene {
     }
     this.gUsed = m;
 
-    // ── 3) resolve: cada objeto contra a própria célula + as 8 vizinhas ───────
-    // Para não testar o mesmo par duas vezes, só olha metade da vizinhança
-    // (dx,dz em {(0,0),(1,0),(-1,1),(0,1),(1,1)}): as outras 4 são cobertas
-    // quando a célula vizinha for a "dona" do par.
-    // Itera só quem PODE se mover: um par estático-estático nunca gera empurrão,
-    // então consultar o grid a partir de um estático é trabalho jogado fora.
-    // Como um móvel sempre consulta a vizinhança inteira (não meia), todo par
-    // móvel-estático e móvel-móvel continua sendo visto.
-    k = 0;
-    while (k < m) {
-      const oi = this.cIdx[k];
-      const ob = this.objects[oi];
-      if (ob.stationary !== 0) { k = k + 1; continue; }
-      const t = this.trs[oi];
-      // COLISÃO REATIVA: quem não saiu do lugar já foi separado no frame em que
-      // se mexeu, e nada pode ter vindo até ele sem que ESSE alguém se movesse —
-      // e quem se move varre a vizinhança COMPLETA, então vê o par pelo seu lado.
-      // Por isso pular o parado não perde contato nenhum.
-      const dxm = t.px - this.lastX[oi];
-      const dzm = t.pz - this.lastZ[oi];
-      if (dxm * dxm + dzm * dzm < MOVE_EPS2) { k = k + 1; continue; }
-      this.lastX[oi] = t.px; this.lastZ[oi] = t.pz;
-      const gx = mfloor(t.px * inv);
-      const gz = mfloor(t.pz * inv);
-      // célula própria: pula a si mesmo (o par duplo móvel-móvel é inofensivo —
-      // a segunda resolução vê os corpos já separados e sai no teste de esfera)
-      this.collideBucket(oi, ((gx * 73856093 + gz * 19349663) & CGRID_MASK));
-      // vizinhança COMPLETA (8 células)
-      let dz = 0 - 1;
-      while (dz <= 1) {
-        let dx = 0 - 1;
-        while (dx <= 1) {
-          if (dx !== 0 || dz !== 0)
-            this.collideBucket(oi, (((gx + dx) * 73856093 + (gz + dz) * 19349663) & CGRID_MASK));
-          dx = dx + 1;
+    // ── 3) resolve ───────────────────────────────────────────────────────────
+    // O CORPO vive numa FUNÇÃO LIVRE de parâmetros tipados, pelo mesmo motivo
+    // do `computeWorld` (ver `computeWorldInto`): dentro de um método os locais
+    // perdem as provas de tipo e cada `this.objects[i].transform.px` cai no
+    // caminho dinâmico de propriedade. Este é o laço mais quente do motor.
+    resolveInto(this.objects, this.trs, this.cIdx, m,
+                this.gHead, this.gNext, this.lastX, this.lastZ, inv);
+  }
+
+}
+
+/// Passe de resolução da colisão como FUNÇÃO LIVRE de parâmetros TIPADOS —
+/// mesmo motivo do `computeWorldInto`: dentro de um método `this.objects[i]`
+/// e `.transform.px` caem no caminho dinâmico de propriedade. Aqui o compilador
+/// conhece os shapes e lê cada campo por offset constante.
+function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
+                     gHead: number[], gNext: number[],
+                     lastX: f64[], lastZ: f64[], inv: f64): void {
+  let k = 0;
+  while (k < m) {
+    const oi = cIdx[k];
+    const ob: GameObject = objs[oi];
+    if (ob.stationary !== 0) { k = k + 1; continue; }
+    const t: Transform = trs[oi];
+    // COLISÃO REATIVA: quem não saiu do lugar já foi separado no frame em que
+    // se mexeu, e nada pode ter vindo até ele sem que ESSE alguém se movesse —
+    // e quem se move varre a vizinhança COMPLETA, então vê o par pelo seu lado.
+    const px = t.px; const pz = t.pz;
+    const dxm = px - lastX[oi];
+    const dzm = pz - lastZ[oi];
+    if (dxm * dxm + dzm * dzm < MOVE_EPS2) { k = k + 1; continue; }
+    lastX[oi] = px; lastZ[oi] = pz;
+    const gx = mfloor(px * inv);
+    const gz = mfloor(pz * inv);
+    // a célula própria + as 8 vizinhas (vizinhança COMPLETA, ver acima)
+    let dz = 0 - 1;
+    while (dz <= 1) {
+      let dx = 0 - 1;
+      while (dx <= 1) {
+        const b = (((gx + dx) * 73856093 + (gz + dz) * 19349663) & CGRID_MASK);
+        let q = gHead[b];
+        while (q >= 0) {
+          const other = cIdx[q];
+          if (other !== oi) solvePair(objs, trs, oi, other);
+          q = gNext[q];
         }
-        dz = dz + 1;
+        dx = dx + 1;
       }
-      k = k + 1;
+      dz = dz + 1;
     }
+    k = k + 1;
   }
+}
 
-  // Testa `oi` contra todos os itens de um bucket, percorrendo a lista
-  // encadeada. Substitui o antigo trio collideSelf/collideNeighbor/collidePair:
-  // com a lista não há `Map.get` nem array de bucket, e o "pula a si mesmo" do
-  // caso próprio vira um teste de índice que os vizinhos nunca disparam.
-  collideBucket(oi: number, bucket: number): void {
-    let q = this.gHead[bucket];
-    while (q >= 0) {
-      const other = this.cIdx[q];
-      if (other !== oi) this.solveOne(oi, other);
-      q = this.gNext[q];
-    }
+/// Laço direto A×B (usado quando há poucos objetos pro grid valer a pena).
+function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number): void {
+  let i = 0;
+  while (i < m) {
+    let j = i + 1;
+    while (j < m) { solvePair(objs, trs, cIdx[i], cIdx[j]); j = j + 1; }
+    i = i + 1;
   }
+}
 
-  // laço direto A×B (usado quando há poucos objetos pro grid valer a pena).
-  collideRange(la: number[], a0: number, a1: number, lb: number[], b0: number, b1: number, tri: number): void {
-    let i = a0;
-    while (i < a1) {
-      let j = tri !== 0 ? i + 1 : b0;
-      while (j < b1) { this.solveOne(la[i], lb[j]); j = j + 1; }
-      i = i + 1;
-    }
-  }
+/// Resolve UM par: se as esferas se sobrepõem, separa e amortece a queda.
+/// Trabalha em coordenada LOCAL quando ambos são raiz (o caso comum) — que é
+/// o que o resto do motor espera do passe posicional.
+/// Livre e tipada (ver `resolveInto`): é chamada uma vez por par candidato,
+/// então o caminho dinâmico de propriedade aqui custaria mais que todo o resto.
+function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number): void {
+  const a: GameObject = objs[ia];
+  const b: GameObject = objs[ib];
+  if (a.stationary !== 0 && b.stationary !== 0) return;   // nada a mover
+  const ta: Transform = trs[ia];
+  const tb: Transform = trs[ib];
+  const ra: f64 = radiusOf(ta);
+  const rb: f64 = radiusOf(tb);
+  const rs: f64 = ra + rb;
+  const dx: f64 = tb.px - ta.px;
+  // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
+  if (dx > rs || dx < 0.0 - rs) return;
+  const dz: f64 = tb.pz - ta.pz;
+  if (dz > rs || dz < 0.0 - rs) return;
+  const dy: f64 = tb.py - ta.py;
+  if (dy > rs || dy < 0.0 - rs) return;
+  const d2: f64 = dx * dx + dy * dy + dz * dz;
+  if (d2 >= rs * rs || d2 <= 0.0001) return;
 
-  /// Resolve UM par: se as esferas se sobrepõem, separa e amortece a queda.
-  /// Trabalha em coordenada LOCAL quando ambos são raiz (o caso comum) — que é
-  /// o que o resto do motor espera do passe posicional.
-  solveOne(ia: number, ib: number): void {
-    const a = this.objects[ia];
-    const b = this.objects[ib];
-    if (a.stationary !== 0 && b.stationary !== 0) return;   // nada a mover
-    const ta = a.transform;
-    const tb = b.transform;
-    const ra: f64 = radiusOf(ta);
-    const rb: f64 = radiusOf(tb);
-    const rs: f64 = ra + rb;
-    const dx: f64 = tb.px - ta.px;
-    // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
-    if (dx > rs || dx < 0.0 - rs) return;
-    const dz: f64 = tb.pz - ta.pz;
-    if (dz > rs || dz < 0.0 - rs) return;
-    const dy: f64 = tb.py - ta.py;
-    if (dy > rs || dy < 0.0 - rs) return;
-    const d2: f64 = dx * dx + dy * dy + dz * dz;
-    if (d2 >= rs * rs || d2 <= 0.0001) return;
-
-    const d: f64 = math.sqrt(d2);
-    const nx: f64 = dx / d;
-    const ny: f64 = dy / d;
-    const nz: f64 = dz / d;
-    const overlap: f64 = rs - d;
-    let pushA: f64 = overlap * 0.5;
-    let pushB: f64 = overlap * 0.5;
-    if (a.stationary !== 0) { pushA = 0.0; pushB = overlap; }
-    else if (b.stationary !== 0) { pushA = overlap; pushB = 0.0; }
-    ta.px = ta.px - nx * pushA;
-    ta.py = ta.py - ny * pushA;
-    ta.pz = ta.pz - nz * pushA;
-    tb.px = tb.px + nx * pushB;
-    tb.py = tb.py + ny * pushB;
-    tb.pz = tb.pz + nz * pushB;
-    // contato vertical → zera a velocidade que empurra pra dentro
-    if (ny > 0.5) {
-      if (tb.vy < 0.0) tb.vy = 0.0;
-      if (ta.vy > 0.0) ta.vy = 0.0;
-    } else if (ny < 0.0 - 0.5) {
-      if (ta.vy < 0.0) ta.vy = 0.0;
-      if (tb.vy > 0.0) tb.vy = 0.0;
-    }
+  const d: f64 = math.sqrt(d2);
+  const nx: f64 = dx / d;
+  const ny: f64 = dy / d;
+  const nz: f64 = dz / d;
+  const overlap: f64 = rs - d;
+  let pushA: f64 = overlap * 0.5;
+  let pushB: f64 = overlap * 0.5;
+  if (a.stationary !== 0) { pushA = 0.0; pushB = overlap; }
+  else if (b.stationary !== 0) { pushA = overlap; pushB = 0.0; }
+  ta.px = ta.px - nx * pushA;
+  ta.py = ta.py - ny * pushA;
+  ta.pz = ta.pz - nz * pushA;
+  tb.px = tb.px + nx * pushB;
+  tb.py = tb.py + ny * pushB;
+  tb.pz = tb.pz + nz * pushB;
+  // contato vertical → zera a velocidade que empurra pra dentro
+  if (ny > 0.5) {
+    if (tb.vy < 0.0) tb.vy = 0.0;
+    if (ta.vy > 0.0) ta.vy = 0.0;
+  } else if (ny < 0.0 - 0.5) {
+    if (ta.vy < 0.0) ta.vy = 0.0;
+    if (tb.vy > 0.0) tb.vy = 0.0;
   }
 }
 
