@@ -331,6 +331,106 @@ io.print("== CACHE de colisores: invalida quando a cena muda ==");
   ok("  virou movel e foi empurrado", q.transform.px > 0.5 ? 1 : 0);
 }
 
+io.print("== COLISOR DE CAIXA: um chao achatado SEGURA o que cai ==");
+{
+  // O caso que a esfera nunca cobriu: `radiusOf` usa a MENOR escala, entao um
+  // chao 60x0.4x60 virava uma esfera de raio 0.2 e nada se apoiava nele.
+  scene.clear();
+  const chao = new GameObject("Chao"); chao.setMesh(1, 80, 80, 80);
+  chao.transform.setPosition(0.0, 0.0, 0.0);
+  chao.transform.sx = 60.0; chao.transform.sy = 0.4; chao.transform.sz = 60.0;
+  chao.stationary = 1; scene.add(chao);
+  const cubo = new GameObject("Cubo"); cubo.setMesh(1, 200, 100, 100);
+  cubo.transform.setPosition(0.0, 5.0, 0.0); cubo.transform.setScale(1.0);
+  scene.add(cubo);
+  ok("  cubo default = colisor de CAIXA", cubo.colShape === 1 ? 1 : 0);
+  let s = 0;
+  while (s < 120) {
+    cubo.transform.vy = cubo.transform.vy - 9.8 * 0.016;
+    cubo.transform.py = cubo.transform.py + cubo.transform.vy * 0.016;
+    scene.computeWorld(); scene.resolveCollisions();
+    s = s + 1;
+  }
+  const y = cubo.transform.py;
+  io.print("  cubo parou em y=" + y + " (esperado 0.7)");
+  ok("  o chao SEGUROU", y > 0.6 && y < 0.85 ? 1 : 0);
+  ok("  o chao estatico nao cedeu", chao.transform.py === 0.0 ? 1 : 0);
+}
+
+io.print("== QUEDA LIVRE longe do centro (grid + eixo Y) ==");
+{
+  // Dois bugs que este caso pega juntos:
+  //  1. o grid dimensionava a celula por `radiusOf`, entao um chao largo
+  //     reportava raio 0.2 e ficava numa celula minuscula;
+  //  2. a colisao reativa so testava X/Z, entao um corpo em QUEDA LIVRE (que
+  //     so muda Y) era considerado "parado" e nunca era testado.
+  scene.clear();
+  const chao = new GameObject("Chao"); chao.setMesh(1, 80, 80, 80);
+  chao.transform.setPosition(0.0, 0.0, 0.0);
+  chao.transform.sx = 60.0; chao.transform.sy = 0.4; chao.transform.sz = 60.0;
+  chao.stationary = 1; scene.add(chao);
+  let i = 0;
+  while (i < 30) {   // passa de m<24 para forcar o caminho do GRID
+    const o = new GameObject("X"); o.setMesh(4, 1, 1, 1);
+    o.transform.setPosition(20.0 + i, 1.0, 20.0); o.transform.setScale(0.5);
+    o.stationary = 1; scene.add(o); i = i + 1;
+  }
+  const cubo = new GameObject("Cubo"); cubo.setMesh(1, 200, 100, 100);
+  cubo.transform.setPosition(0.0 - 20.0, 5.0, 0.0 - 20.0);
+  cubo.transform.setScale(1.0); scene.add(cubo);
+  let s = 0;
+  while (s < 120) {
+    cubo.transform.vy = cubo.transform.vy - 9.8 * 0.016;
+    cubo.transform.py = cubo.transform.py + cubo.transform.vy * 0.016;
+    scene.computeWorld(); scene.resolveCollisions();
+    s = s + 1;
+  }
+  ok("  segurou longe do centro, via grid", cubo.transform.py > 0.6 && cubo.transform.py < 0.85 ? 1 : 0);
+}
+
+io.print("== CAIXA x ESFERA: a bola pousa na plataforma ==");
+{
+  scene.clear();
+  const plat = new GameObject("Plat"); plat.setMesh(1, 80, 80, 80);
+  plat.transform.setPosition(0.0, 0.0, 0.0);
+  plat.transform.sx = 10.0; plat.transform.sy = 1.0; plat.transform.sz = 10.0;
+  plat.stationary = 1; scene.add(plat);
+  const bola = new GameObject("Bola"); bola.setMesh(4, 100, 200, 100);
+  bola.transform.setPosition(0.0, 6.0, 0.0); bola.transform.setScale(2.0);
+  scene.add(bola);
+  ok("  esfera default = colisor de ESFERA", bola.colShape === 0 ? 1 : 0);
+  let s = 0;
+  while (s < 120) {
+    bola.transform.vy = bola.transform.vy - 9.8 * 0.016;
+    bola.transform.py = bola.transform.py + bola.transform.vy * 0.016;
+    scene.computeWorld(); scene.resolveCollisions();
+    s = s + 1;
+  }
+  const y = bola.transform.py;
+  io.print("  bola parou em y=" + y + " (esperado 1.5 = topo 0.5 + raio 1.0)");
+  ok("  a plataforma segurou a bola", y > 1.4 && y < 1.65 ? 1 : 0);
+}
+
+io.print("== PAREDE: caixa alta bloqueia movimento lateral ==");
+{
+  scene.clear();
+  const parede = new GameObject("Parede"); parede.setMesh(1, 80, 80, 80);
+  parede.transform.setPosition(3.0, 2.0, 0.0);
+  parede.transform.sx = 0.5; parede.transform.sy = 4.0; parede.transform.sz = 10.0;
+  parede.stationary = 1; scene.add(parede);
+  const u = new GameObject("U"); u.setMesh(1, 200, 100, 100);
+  u.transform.setPosition(0.0, 2.0, 0.0); u.transform.setScale(1.0);
+  scene.add(u);
+  let s = 0;
+  while (s < 200) {   // anda para a direita, contra a parede
+    u.transform.px = u.transform.px + 0.05;
+    scene.computeWorld(); scene.resolveCollisions();
+    s = s + 1;
+  }
+  io.print("  unidade parou em x=" + u.transform.px + " (parede em 3.0, face 2.75)");
+  ok("  a parede BLOQUEOU", u.transform.px < 2.8 ? 1 : 0);
+}
+
 io.print("");
 io.print("[resultado] " + pass + " ok, " + fail + " falhas");
 if (fail > 0) io.print("[FALHOU]");

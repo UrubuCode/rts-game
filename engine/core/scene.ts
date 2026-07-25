@@ -1,7 +1,7 @@
 // Engine RTS — Scene: a lista de GameObjects + o laço de update polimórfico.
 // O render pass roda separado (main.ts) lendo os objetos desta cena.
 
-import { GameObject } from "./gameobject";
+import { GameObject, COL_BOX } from "./gameobject";
 import { Transform } from "./transform";
 import { Behavior, KIND_CAMERA } from "./behavior";
 import math from "rts:math";
@@ -39,7 +39,7 @@ export class Scene {
   /// 9 células dele é trabalho jogado fora. Num RTS a maioria das unidades está
   /// parada a qualquer instante (esperando ordem, em formação, minerando), então
   /// isto tira a colisão do caminho quente em vez de só deixá-la mais barata.
-  lastX: f64[]; lastZ: f64[];
+  lastX: f64[]; lastY: f64[]; lastZ: f64[];
   done: number[];                    // flags de "já computado" do computeWorld
   /// 1 = a lista de colisores (`cIdx`) precisa ser reconstruída. A coleta
   /// varre a cena inteira lendo um campo por objeto, e num cenário de RTS a
@@ -64,6 +64,7 @@ export class Scene {
     this.gCell = [];
     this.gUsed = 0;
     this.lastX = [];
+    this.lastY = [];
     this.lastZ = [];
     this.done = [];
     this.trs = [];
@@ -316,7 +317,7 @@ export class Scene {
     while (this.gHead.length < CGRID_CAP) this.gHead.push(0 - 1);
     while (this.gNext.length < m) { this.gNext.push(0 - 1); this.gCell.push(0); }
     // 1e30 = "nunca resolvido": força a primeira passada a olhar todo mundo
-    while (this.lastX.length < this.objects.length) { this.lastX.push(1e30); this.lastZ.push(1e30); }
+    while (this.lastX.length < this.objects.length) { this.lastX.push(1e30); this.lastY.push(1e30); this.lastZ.push(1e30); }
     // limpa APENAS os buckets que a passada anterior sujou (no máximo m),
     // mantendo a invariante "gHead é todo -1 na entrada"
     let k = 0;
@@ -341,7 +342,7 @@ export class Scene {
     // perdem as provas de tipo e cada `this.objects[i].transform.px` cai no
     // caminho dinâmico de propriedade. Este é o laço mais quente do motor.
     resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastZ, inv);
+                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv);
   }
 
 }
@@ -352,7 +353,7 @@ export class Scene {
 /// conhece os shapes e lê cada campo por offset constante.
 function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
                      gHead: number[], gNext: number[],
-                     lastX: f64[], lastZ: f64[], inv: f64): void {
+                     lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64): void {
   let k = 0;
   while (k < m) {
     const oi = cIdx[k];
@@ -362,11 +363,15 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
     // COLISÃO REATIVA: quem não saiu do lugar já foi separado no frame em que
     // se mexeu, e nada pode ter vindo até ele sem que ESSE alguém se movesse —
     // e quem se move varre a vizinhança COMPLETA, então vê o par pelo seu lado.
-    const px = t.px; const pz = t.pz;
+    // O grid é 2D (XZ), mas o teste de "se moveu" tem de olhar os TRÊS eixos:
+    // um corpo em QUEDA LIVRE só muda Y, e ignorá-lo fazia dele um objeto
+    // "parado" que atravessava o chão sem nunca ser testado.
+    const px = t.px; const py = t.py; const pz = t.pz;
     const dxm = px - lastX[oi];
+    const dym = py - lastY[oi];
     const dzm = pz - lastZ[oi];
-    if (dxm * dxm + dzm * dzm < MOVE_EPS2) { k = k + 1; continue; }
-    lastX[oi] = px; lastZ[oi] = pz;
+    if (dxm * dxm + dym * dym + dzm * dzm < MOVE_EPS2) { k = k + 1; continue; }
+    lastX[oi] = px; lastY[oi] = py; lastZ[oi] = pz;
     const gx = mfloor(px * inv);
     const gz = mfloor(pz * inv);
     // a célula própria + as 8 vizinhas (vizinhança COMPLETA, ver acima)
@@ -410,24 +415,92 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   if (a.stationary !== 0 && b.stationary !== 0) return;   // nada a mover
   const ta: Transform = trs[ia];
   const tb: Transform = trs[ib];
-  const ra: f64 = radiusOf(ta);
-  const rb: f64 = radiusOf(tb);
-  const rs: f64 = ra + rb;
-  const dx: f64 = tb.px - ta.px;
-  // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
-  if (dx > rs || dx < 0.0 - rs) return;
-  const dz: f64 = tb.pz - ta.pz;
-  if (dz > rs || dz < 0.0 - rs) return;
-  const dy: f64 = tb.py - ta.py;
-  if (dy > rs || dy < 0.0 - rs) return;
-  const d2: f64 = dx * dx + dy * dy + dz * dz;
-  if (d2 >= rs * rs || d2 <= 0.0001) return;
 
-  const d: f64 = math.sqrt(d2);
-  const nx: f64 = dx / d;
-  const ny: f64 = dy / d;
-  const nz: f64 = dz / d;
-  const overlap: f64 = rs - d;
+  // Normal do contato e profundidade da sobreposição. Como sai depende das
+  // FORMAS: caixa-caixa é AABB (eixo de menor penetração), caixa-esfera projeta
+  // o centro na caixa, esfera-esfera é a distância entre centros.
+  let nx: f64 = 0.0; let ny: f64 = 0.0; let nz: f64 = 0.0;
+  let overlap: f64 = 0.0;
+
+  const boxA = a.colShape === COL_BOX ? 1 : 0;
+  const boxB = b.colShape === COL_BOX ? 1 : 0;
+
+  if (boxA !== 0 && boxB !== 0) {
+    // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
+    // Sobreposição por eixo; se algum for <= 0 não há contato. A normal é o
+    // eixo de MENOR penetração — é o que faz um cubo caindo num chão largo ser
+    // empurrado para CIMA (menor penetração em Y) e não para o lado.
+    const ex = (ta.sx + tb.sx) * 0.5;
+    const dx = tb.px - ta.px;
+    const ox = ex - (dx < 0.0 ? 0.0 - dx : dx);
+    if (ox <= 0.0) return;
+    const ey = (ta.sy + tb.sy) * 0.5;
+    const dy = tb.py - ta.py;
+    const oy = ey - (dy < 0.0 ? 0.0 - dy : dy);
+    if (oy <= 0.0) return;
+    const ez = (ta.sz + tb.sz) * 0.5;
+    const dz = tb.pz - ta.pz;
+    const oz = ez - (dz < 0.0 ? 0.0 - dz : dz);
+    if (oz <= 0.0) return;
+    if (oy <= ox && oy <= oz) {
+      overlap = oy; ny = dy < 0.0 ? 0.0 - 1.0 : 1.0;
+    } else if (ox <= oz) {
+      overlap = ox; nx = dx < 0.0 ? 0.0 - 1.0 : 1.0;
+    } else {
+      overlap = oz; nz = dz < 0.0 ? 0.0 - 1.0 : 1.0;
+    }
+  } else if (boxA !== 0 || boxB !== 0) {
+    // ── CAIXA × ESFERA ────────────────────────────────────────────────────
+    // Ponto da caixa mais próximo do centro da esfera; se a distância até ele
+    // for menor que o raio, há contato e a normal aponta do ponto ao centro.
+    // `bt`/`st` são caixa e esfera; `sgn` devolve a normal na convenção
+    // "de A para B" no fim.
+    const bt: Transform = boxA !== 0 ? ta : tb;
+    const st: Transform = boxA !== 0 ? tb : ta;
+    const sgn: f64 = boxA !== 0 ? 1.0 : 0.0 - 1.0;
+    const r: f64 = radiusOf(st);
+    const hx = bt.sx * 0.5; const hy = bt.sy * 0.5; const hz = bt.sz * 0.5;
+    let qx = st.px - bt.px; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
+    let qy = st.py - bt.py; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
+    let qz = st.pz - bt.pz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
+    const vx = st.px - (bt.px + qx);
+    const vy = st.py - (bt.py + qy);
+    const vz = st.pz - (bt.pz + qz);
+    const d2 = vx * vx + vy * vy + vz * vz;
+    if (d2 >= r * r) return;
+    if (d2 > 0.000001) {
+      const d = math.sqrt(d2);
+      overlap = r - d;
+      nx = (vx / d) * sgn; ny = (vy / d) * sgn; nz = (vz / d) * sgn;
+    } else {
+      // centro DENTRO da caixa: empurra pela face mais próxima (menor folga)
+      const gx = hx - (qx < 0.0 ? 0.0 - qx : qx);
+      const gy = hy - (qy < 0.0 ? 0.0 - qy : qy);
+      const gz = hz - (qz < 0.0 ? 0.0 - qz : qz);
+      if (gy <= gx && gy <= gz) { overlap = gy + r; ny = (qy < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
+      else if (gx <= gz) { overlap = gx + r; nx = (qx < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
+      else { overlap = gz + r; nz = (qz < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
+    }
+  } else {
+    // ── ESFERA × ESFERA ───────────────────────────────────────────────────
+    const ra: f64 = radiusOf(ta);
+    const rb: f64 = radiusOf(tb);
+    const rs: f64 = ra + rb;
+    const dx: f64 = tb.px - ta.px;
+    // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
+    if (dx > rs || dx < 0.0 - rs) return;
+    const dz: f64 = tb.pz - ta.pz;
+    if (dz > rs || dz < 0.0 - rs) return;
+    const dy: f64 = tb.py - ta.py;
+    if (dy > rs || dy < 0.0 - rs) return;
+    const d2: f64 = dx * dx + dy * dy + dz * dz;
+    if (d2 >= rs * rs || d2 <= 0.0001) return;
+    const d: f64 = math.sqrt(d2);
+    nx = dx / d; ny = dy / d; nz = dz / d;
+    overlap = rs - d;
+  }
+
+  // ── separação (comum às três formas) ──────────────────────────────────────
   let pushA: f64 = overlap * 0.5;
   let pushB: f64 = overlap * 0.5;
   if (a.stationary !== 0) { pushA = 0.0; pushB = overlap; }
@@ -593,7 +666,18 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[]): 
       out.push(i);
       if (o.stationary === 0) movers = movers + 1;
       const t: Transform = trs[i];   // espelho paralelo (ver `trs`)
-      const r: f64 = radiusOf(t);
+      // O grid dimensiona a célula por ESTE raio, então ele tem de cobrir o
+      // volume REAL do colisor. Para uma CAIXA isso é a maior meia-extensão em
+      // X/Z (o grid é 2D em XZ), não `radiusOf` — que devolve a metade da MENOR
+      // escala e faria um chão 60x0.4x60 reportar 0.2. Com isso a célula ficava
+      // minúscula e um objeto caindo longe do centro do chão nunca o encontrava
+      // na vizinhança: atravessava.
+      let r: f64 = radiusOf(t);
+      if (o.colShape === COL_BOX) {
+        r = t.sx * 0.5;
+        const hz = t.sz * 0.5;
+        if (hz > r) r = hz;
+      }
       if (r > maxR) maxR = r;
     }
     i = i + 1;

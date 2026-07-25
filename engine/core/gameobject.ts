@@ -6,6 +6,10 @@ import { Transform } from "./transform";
 import { Behavior, KIND_MATERIAL, KIND_RENDERER } from "./behavior";
 import { Material } from "./material";
 
+/// Formas de colisor (ver `GameObject.colShape`).
+export const COL_SPHERE = 0;
+export const COL_BOX = 1;
+
 // meshKind: 0 = vazio (só nó), 1 = cubo. (grid/luz/câmera entram depois)
 export class GameObject {
   name: string;
@@ -28,6 +32,18 @@ export class GameObject {
   /// roda sobre a cena inteira TODO frame, e cada acesso a campo custa ~2 µs.
   /// Recalculado por `refreshCollide()` nas mutações que o afetam.
   collideFlag: number;
+  /// Forma do colisor: 0 = ESFERA (raio = metade da menor escala), 1 = CAIXA
+  /// (AABB de meia-extensão = escala/2 em cada eixo).
+  ///
+  /// A esfera era a única opção e não serve para cenário: um chão 60x0.4x60
+  /// vira uma esfera de raio 0.2 (metade da MENOR escala) e praticamente não
+  /// colide — nada se apoia nele. A caixa cobre o volume real, que é o que um
+  /// chão, uma parede ou uma plataforma precisam.
+  ///
+  /// Default por malha (`setMesh`): cubo -> CAIXA, esfera/pirâmide/octaedro ->
+  /// ESFERA. É o palpite certo na maioria dos casos, e `colShape` fica exposto
+  /// para o usuário sobrescrever.
+  colShape: number;
   matIdx: number;      // índice do component Material em behaviors (-1 = nenhum). Cache O(1) pro render.
   rendIdx: number;     // índice do component MeshRenderer (-1 = nenhum). Cache O(1) pro render.
 
@@ -48,6 +64,7 @@ export class GameObject {
     this.meshPart = 0;
     this.selFlag = 0;
     this.collideFlag = 0;
+    this.colShape = COL_SPHERE;
     this.matIdx = 0 - 1;
     this.rendIdx = 0 - 1;
   }
@@ -131,6 +148,11 @@ export class GameObject {
   setMesh(kind: number, r: number, g: number, b: number): GameObject {
     this.meshKind = kind;
     this.cr = r; this.cg = g; this.cb = b;
+    // Palpite de colisor pela malha: um cubo quase sempre é cenário (chão,
+    // parede, caixa) e quer volume; as demais primitivas são arredondadas.
+    // Quem quiser outra coisa escreve `o.colShape = COL_BOX` depois.
+    if (kind === 1) this.colShape = COL_BOX;
+    else this.colShape = COL_SPHERE;
     this.refreshCollide();
     return this;
   }
