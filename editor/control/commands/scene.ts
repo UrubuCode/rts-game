@@ -1,6 +1,7 @@
 // Comandos de CENA/sessão: select, delete, cam, focus, play, pause, clear, loadscene.
 import math from "rts:math";
 import { playTone, activeVoices, audioReady, audioRate } from "../../../engine/audio/audio";
+import { logTail, logClear, logCount, logCountAtLeast, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_DEBUG } from "../../../engine/core/logger";
 import { scene, S } from "../session";
 import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "../../sceneio";
 import { GameObject } from "../../../engine/core/gameobject";
@@ -210,10 +211,18 @@ export function cmdFocus(parts: string[]): string {
 }
 
 export function cmdDelete(parts: string[]): string {
-  scene.removeAt(parseFloat(parts[1]) | 0);
+  const i = parseFloat(parts[1]) | 0;
+  // `removeAt` ignora índice fora da faixa, então sem esta checagem o comando
+  // reportava "[ok] delete" sem ter apagado nada — falha em silêncio, que é o
+  // pior tipo. Apareceu no log: `delete 99999 -> [ok] delete`.
+  if (i < 0 || i >= scene.objects.length) {
+    return "[erro] indice invalido: " + i + " (a cena tem " + scene.objects.length + " objetos)";
+  }
+  const nome = scene.objects[i].name;
+  scene.removeAt(i);
   if (S.selected >= scene.objects.length) S.selected = scene.objects.length - 1;
   if (S.selected < 0) S.selected = 0;
-  return "[ok] delete";
+  return "[ok] delete #" + i + " (" + nome + ")";
 }
 
 /// delsel — remove TODOS os objetos da multi-seleção (ou o único selecionado).
@@ -365,4 +374,38 @@ export function cmdSnd(parts: string[]): string {
   return "[snd] " + (got !== 0 ? "tocando" : "SEM VOZ LIVRE") +
          " freq=" + f + " dur=" + d + " vol=" + v +
          " | vozes ativas=" + activeVoices() + " rate=" + audioRate();
+}
+
+/// log [n|nivel|texto] — histórico do log da engine.
+///   log            últimas 20
+///   log 50         últimas 50
+///   log erro       só erros
+///   log warn       avisos e erros
+///   log textura    só linhas contendo "textura"
+///   log clear      esvazia
+///
+/// Existe porque `io.print` some no stdout assim que a janela do editor abre:
+/// não havia como ler o que a engine registrou sem fechar o programa. Com isto
+/// dá para investigar com o editor VIVO, que é como o resto da verificação
+/// desta engine funciona.
+export function cmdLog(parts: string[]): string {
+  let n = 20;
+  let level = LOG_INFO;
+  let filter = "";
+  if (parts.length > 1) {
+    const a = parts[1];
+    if (a === "clear") { logClear(); return "[log] limpo"; }
+    if (a === "erro" || a === "error") level = LOG_ERROR;
+    else if (a === "warn" || a === "aviso") level = LOG_WARN;
+    else if (a === "debug") level = LOG_DEBUG;
+    else {
+      const num = parseFloat(a);
+      if (num === num && num > 0.0) n = num | 0;   // NaN !== NaN: não é número
+      else filter = a;
+    }
+  }
+  const errs = logCountAtLeast(LOG_ERROR);
+  const warns = logCountAtLeast(LOG_WARN);
+  const head = "[resumo] " + logCount() + " mensagens, " + warns + " avisos+, " + errs + " erros | ";
+  return head + logTail(n, level, filter);
 }

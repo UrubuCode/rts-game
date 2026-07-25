@@ -26,6 +26,7 @@ import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } 
 import { history } from "./editor/undo";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { initAudio, pumpAudio } from "./engine/audio/audio";
+import { logInfo, logTick } from "./engine/core/logger";
 
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
@@ -107,6 +108,8 @@ function ctxCreate(name: string, kind: number, r: number, g: number, b: number,
     o.refreshCollide();
   }
   S.selected = scene.objects.length - 1;
+  logInfo("criado " + o.name + " (#" + S.selected + ")" +
+          (parentIdx >= 0 ? " filho de #" + parentIdx : " na raiz"));
   return o;
 }
 
@@ -316,6 +319,7 @@ io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos")
 // (scene/S) despacham corretamente em função, não no top-level do while.
 function frame(): void {
   // ── layout RESPONSIVO: lê o tamanho lógico atual da janela (segue o resize) ──
+  logTick();   // avança o contador de frames do log
   const nw = winWidth(WIN);
   const nh = winHeight(WIN);
   if (nw > 400) W = nw;

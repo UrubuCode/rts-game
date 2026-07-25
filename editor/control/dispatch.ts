@@ -3,7 +3,8 @@
 import { cmdState, cmdRes, cmdHelp, cmdVsync } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
-import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd} from "./commands/scene";
+import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog} from "./commands/scene";
+import { logInfo, logError } from "../../engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
@@ -23,7 +24,27 @@ function isMutating(c: string): boolean {
     c === "drop" || c === "dropat" || c === "dropon";
 }
 
+/// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`;
+/// esta camada existe só para o registro, porque o `switch` lá dentro tem
+/// `return` em cada caso e capturar em todos seria repetir 60 vezes.
+///
+/// `log` e `state` não são registrados: são consultas, e registrá-las encheria
+/// o histórico com as próprias perguntas — inclusive a consulta ao log.
 export function execCommand(w: number, h: number, line: string): string {
+  const out = execCommandInner(w, h, line);
+  const c = line.split(" ")[0];
+  if (c !== "log" && c !== "state" && c !== "help" && c !== "doc") {
+    // erro do comando vira nível de erro: é o que se procura ao investigar
+    if (out.length > 6 && out.charCodeAt(1) === 101 && out.charCodeAt(2) === 114) {
+      logError(line + "  ->  " + out);
+    } else {
+      logInfo(line + "  ->  " + out);
+    }
+  }
+  return out;
+}
+
+function execCommandInner(w: number, h: number, line: string): string {
   const parts = line.split(" ");
   const cmd = parts[0];
   const np = parts.length;
@@ -63,6 +84,7 @@ export function execCommand(w: number, h: number, line: string): string {
     }
     case "hier": return cmdHier(parts);
     case "snd": return cmdSnd(parts);
+    case "log": return cmdLog(parts);
     case "res": return cmdRes(w, h);
     case "vsync": return cmdVsync(parts);
     case "help": return cmdHelp();
