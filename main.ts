@@ -502,6 +502,7 @@ function frame(): void {
           if (gizmoAxis === 1) so.transform.sy = so.transform.sy + sc;
           if (gizmoAxis === 2) so.transform.sz = so.transform.sz + sc;
           if (so.transform.sx < 0.05) so.transform.sx = 0.05;
+          scene.colDirty = 1;   // a escala define o raio de colisão (cacheado)
           if (so.transform.sy < 0.05) so.transform.sy = 0.05;
           if (so.transform.sz < 0.05) so.transform.sz = 0.05;
         } else if (S.tool === TOOL_ROTATE) {
@@ -950,6 +951,7 @@ function frame(): void {
   const nsx = numField(WIN, 530, fx0, BAR_H + 144, fw, "X", AXIS_X, sel.transform.sx, mx, my, mDownNow, mPressed);
   const nsy = numField(WIN, 531, fx0 + fw + g2, BAR_H + 144, fw, "Y", AXIS_Y, sel.transform.sy, mx, my, mDownNow, mPressed);
   const nsz = numField(WIN, 532, fx0 + (fw + g2) * 2, BAR_H + 144, fw, "Z", AXIS_Z, sel.transform.sz, mx, my, mDownNow, mPressed);
+  if (sel.transform.sx !== nsx) scene.colDirty = 1;   // raio de colisão cacheado
   sel.transform.sx = nsx; sel.transform.sy = nsy; sel.transform.sz = nsz;
 
   // ── mesh + textura: SLOTS que aceitam DROP do Project (estilo Unity) ─────────
@@ -972,7 +974,14 @@ function frame(): void {
     sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1;
     sel.customMesh = 0; sel.meshPath = "";   // voltar pro primitivo descarta o .obj
   }
-  sel.stationary = app.checkbox(ix + 134, BAR_H + 226, sel.stationary, "Estatico");
+  {
+    // Trocar "Estatico" muda quem PODE se mover, e isso é cacheado (Scene.cIdx):
+    // sem invalidar, o objeto continuaria estático (ou móvel) até a próxima
+    // mutação da cena.
+    const wasStat = sel.stationary;
+    sel.stationary = app.checkbox(ix + 134, BAR_H + 226, sel.stationary, "Estatico");
+    if (sel.stationary !== wasStat) scene.colDirty = 1;
+  }
 
   // ── componentes do objeto — cada um com CABEÇALHO + campos de CONFIG editáveis
   //    + botão remover; e a lista "Add Component" no fim (estilo Inspector Unity)

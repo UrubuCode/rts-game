@@ -290,6 +290,47 @@ io.print("== ESPELHO trs[]: acompanha objects[] em toda mutacao ==");
   ok("  moveSubtree: espelho em sincronia", sync);
 }
 
+io.print("== CACHE de colisores: invalida quando a cena muda ==");
+{
+  // `cIdx` (quem colide) é cacheado entre frames e só reconstruído quando
+  // `colDirty` marca. Se a invalidação falhar, objetos novos NÃO colidem — ou
+  // removidos continuam colidindo, com índices que já não existem.
+  scene.clear();
+  const a = mk("A", 0.0, 1.0, 0.0, 1.0);
+  const b = mk("B", 0.4, 1.0, 0.0, 1.0);
+  scene.add(a); scene.add(b);
+  scene.resolveCollisions();          // popula o cache
+  near("  par inicial separado", dist(a, b), 1.0, 0.001);
+
+  // Um objeto NOVO tem que entrar na colisão sem passo manual. Fica PERTO de A
+  // (não em cima): distância zero é descartada como degenerada, e o teste
+  // mediria o descarte em vez do cache.
+  const c = mk("C", a.transform.px + 0.3, 1.0, 0.0, 1.0);
+  scene.add(c);
+  const antes = dist(a, c);
+  scene.resolveCollisions();
+  // Basta que tenha SIDO EMPURRADO: um passe posicional com três corpos em
+  // cadeia não separa tudo de uma vez (C empurra A e B no mesmo frame).
+  ok("  objeto novo entrou na colisao", dist(a, c) > antes ? 1 : 0);
+
+  // remover não pode deixar índice velho no cache
+  scene.removeAt(2);
+  scene.resolveCollisions();
+  ok("  remover nao quebra", scene.objects.length === 2 ? 1 : 0);
+
+  // trocar `stationary` muda quem PODE se mover
+  scene.clear();
+  const p = mk("P", 0.0, 1.0, 0.0, 1.0); p.stationary = 1;
+  const q = mk("Q", 0.4, 1.0, 0.0, 1.0); q.stationary = 1;
+  scene.add(p); scene.add(q);
+  scene.resolveCollisions();          // ambos estáticos: nada se move
+  near("  dois estaticos ficam parados", q.transform.px, 0.4, 0.0001);
+  q.stationary = 0;
+  scene.colDirty = 1;                 // o editor faz isto ao trocar o checkbox
+  scene.resolveCollisions();
+  ok("  virou movel e foi empurrado", q.transform.px > 0.5 ? 1 : 0);
+}
+
 io.print("");
 io.print("[resultado] " + pass + " ok, " + fail + " falhas");
 if (fail > 0) io.print("[FALHOU]");

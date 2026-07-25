@@ -15,6 +15,14 @@ export class Scene {
   cIdx: number[];                    // índices dos objetos colidíveis
   grid: Map<number, number[]>;       // hash espacial XZ -> bucket de índices
   done: number[];                    // flags de "já computado" do computeWorld
+  /// 1 = a lista de colisores (`cIdx`) precisa ser reconstruída. A coleta
+  /// varre a cena inteira lendo um campo por objeto, e num cenário de RTS a
+  /// composição quase nunca muda entre frames — só quando alguém entra, sai,
+  /// é reparenteado ou troca de mesh. Marcar sujo custa nada; revarrer custa
+  /// ~1 ms com 500 objetos.
+  colDirty: number;
+  colMaxR: f64;      // maior raio entre os colisores (cacheado com cIdx)
+  colMovers: number; // quantos colisores podem se mover (cacheado com cIdx)
   /// Array PARALELO a `objects` com os transforms. Chegar ao transform por
   /// `objects[i].transform` paga um acesso a campo (~2 µs) por objeto, todo
   /// frame; lê-lo de um array direto custa ~4x menos. Mantido em sincronia por
@@ -28,12 +36,16 @@ export class Scene {
     this.grid = new Map<number, number[]>();
     this.done = [];
     this.trs = [];
+    this.colDirty = 1;
+    this.colMaxR = 0.0001;
+    this.colMovers = 0;
   }
 
   add(go: GameObject): GameObject {
     go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
+    this.colDirty = 1;
     go.mount();
     return go;
   }
@@ -50,6 +62,7 @@ export class Scene {
   clear(): void {
     this.objects = [];
     this.trs = [];
+    this.colDirty = 1;
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
@@ -133,6 +146,7 @@ export class Scene {
     this.trs.length = 0;
     let ti = 0;
     while (ti < order.length) { this.trs.push(order[ti].transform); ti = ti + 1; }
+    this.colDirty = 1;
     let j = 0;
     while (j < order.length) {
       const o = order[j];
@@ -168,6 +182,7 @@ export class Scene {
     }
     this.objects.length = w;
     this.trs.length = w;
+    this.colDirty = 1;
   }
 
   /// Índice do objeto ATIVO que carrega a câmera principal (-1 = nenhuma).
@@ -233,16 +248,23 @@ export class Scene {
     // coordenada local com a de outro objeto move a peça errada. (Antes isso
     // acontecia silenciosamente com qualquer hierarquia, e um modelo
     // multi-submesh solto na cena já cria uma.)
-    this.cIdx.length = 0;
     const objs: GameObject[] = this.objects;   // hoisted + tipado (ver computeWorld)
     // A coleta roda TODO frame sobre a cena inteira, então vive numa função
     // livre tipada pelo mesmo motivo do computeWorld: dentro do método os
     // acessos a campo caem no caminho dinâmico.
     // Os "retornos" saem por vars de módulo em vez de um array novo por frame:
     // alocar no laço mais quente do motor gerava pressão de GC à toa.
-    collectColliders(objs, this.trs, this.cIdx);
-    const maxR: f64 = ccMaxR;
-    const movers = ccMovers;
+    // Só revarre quando a COMPOSIÇÃO da cena mudou (add/remove/reparent/mesh).
+    // Entre frames a lista é a mesma, e revarrer 500 objetos custava ~1 ms.
+    if (this.colDirty !== 0) {
+      this.cIdx.length = 0;
+      collectColliders(objs, this.trs, this.cIdx);
+      this.colMaxR = ccMaxR;
+      this.colMovers = ccMovers;
+      this.colDirty = 0;
+    }
+    const maxR: f64 = this.colMaxR;
+    const movers = this.colMovers;
     const m = this.cIdx.length;
     if (m < 2) return;
     // NADA se move → nenhum par pode ser resolvido. Sai antes de montar o grid.

@@ -68,6 +68,7 @@ export function cmdMove(parts: string[]): string {
 
 export function cmdScl(parts: string[]): string {
   const o = scene.objects[parseFloat(parts[1]) | 0];
+  scene.colDirty = 1;   // a escala define o raio de colisão (cacheado em Scene)
   o.transform.sx = parseFloat(parts[2]);
   o.transform.sy = parseFloat(parts[3]);
   o.transform.sz = parseFloat(parts[4]);
