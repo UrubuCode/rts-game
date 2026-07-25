@@ -45,7 +45,7 @@ const MAX_SPEED: f64 = 26.0;
 /// um frame lento gera dt grande, que pede mais sub-passos, que deixam o frame
 /// ainda mais lento. Sem ele a demo caía de 17 para 2 fps e não se recuperava.
 /// Passando do teto a simulação roda em câmera lenta em vez de travar.
-const SUBSTEP: f64 = 0.010;
+const SUBSTEP: f64 = 0.020;
 const MAX_SUBSTEPS: f64 = 1.0;
 
 // Constantes dos kernels SPH (2D-ish normalizado — ajustado à mão para a escala
