@@ -60,6 +60,10 @@ const WALL_DAMP: f64 = 0.35;
 /// Teto de velocidade: um passe explícito pode divergir se uma partícula
 /// receber muita força num frame; o clamp mantém a simulação estável.
 const MAX_SPEED: f64 = 26.0;
+/// Velocidade (ao quadrado) abaixo da qual a partícula para de vez. Ver o uso
+/// em `integrate`. 0.25 = 0.5 u/s, bem abaixo de qualquer escoamento real e
+/// acima do residual numérico medido (~0.29 u/s).
+const SLEEP_SPEED2: f64 = 1.0;
 /// Duração de um sub-passo e quantos cabem num frame. O produto é o tempo
 /// MÁXIMO de simulação que um frame avança — o teto evita a ESPIRAL DA MORTE:
 /// um frame lento gera dt grande, que pede mais sub-passos, que deixam o frame
@@ -392,6 +396,15 @@ function integrate(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
     const t: Transform = trs[i];
     let nx = t.px + ux * dt;
     let ny = t.py + uy * dt;
+    // REPOUSO: abaixo deste limiar a partícula é considerada PARADA e a
+    // velocidade zera. Sem isto sobra um residual de ~0.3 u/s que não some
+    // sozinho — a 47 fps são 0.3 unidades por segundo, METADE do espaçamento
+    // entre partículas, e o líquido treme para sempre em vez de repousar.
+    //
+    // É a mesma ideia do "sleeping" de uma engine de física: abaixo de um piso
+    // de movimento, parar de verdade em vez de integrar ruído numérico.
+    const sp2 = ux * ux + uy * uy + uz * uz;
+    if (sp2 < SLEEP_SPEED2) { ux = 0.0; uy = 0.0; uz = 0.0; }
     let nz = t.pz + uz * dt;
     // paredes: reposiciona na borda e inverte a velocidade amortecida
     if (nx < minX) { nx = minX; ux = 0.0 - ux * WALL_DAMP; }
