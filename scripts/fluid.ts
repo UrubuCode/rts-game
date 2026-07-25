@@ -41,12 +41,19 @@ const H2: f64 = H * H;
 const REST_DENSITY: f64 = 6.5;
 /// Rigidez: quanto a pressão reage à compressão. Alto demais explode a
 /// simulação em dt grande; baixo demais deixa o líquido "esponjoso".
-const STIFFNESS: f64 = 22.0;
+///
+/// O valor é grande porque a força de pressão divide por ρ² (forma simétrica,
+/// ver `computeForces`): com ρ ≈ 6.5, isso é uma divisão por ~42. Medido a
+/// 500 frames: 22 deixa o líquido achatado no piso (topo 0.8), 1200 sustenta
+/// 2 camadas (topo 2.01) e 2000 já reagita (KE 244 contra 105).
+const STIFFNESS: f64 = 1200.0;
 /// Viscosidade: o que diferencia água (baixa) de mel (alta). É ela que faz o
 /// líquido ESCORRER em vez de as partículas quicarem como bolinhas soltas.
-/// Medido: a 1.4 o corpo assentado ainda tinha energia 1051; a 4.0 cai para
-/// 257, e a 8.0 vira mel (100, quase parado).
-const VISCOSITY: f64 = 4.0;
+///
+/// Escala com STIFFNESS — as duas forças competem, e subir uma sem a outra
+/// deixa o líquido agitado. Medido com STIFFNESS=1200: a 4.0 a energia
+/// assentada é 204, a 15.0 cai para 6.3 mantendo o volume (topo 1.96).
+const VISCOSITY: f64 = 15.0;
 const GRAVITY: f64 = 0.0 - 22.0;
 /// Amortecimento no contato com parede/chão (0 = gruda, 1 = quica).
 const WALL_DAMP: f64 = 0.35;
@@ -330,9 +337,18 @@ function computeForces(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
                   const r = math.sqrt(r2);
                   const dj = dens[j];
                   if (dj > 0.0001) {
-                    // PRESSÃO: gradiente do kernel spiky, na direção oposta ao vizinho
+                    // PRESSÃO: gradiente do kernel spiky, na direção oposta ao
+                    // vizinho. A forma é SIMÉTRICA — `pi/ρi² + pj/ρj²` — e isso
+                    // não é detalhe: dividindo só por `ρj` (o que estava aqui),
+                    // a força de A sobre B difere da de B sobre A. O par viola a
+                    // terceira lei de Newton e CRIA energia do nada.
+                    //
+                    // Medido com o bug: partindo de velocidade ZERO num líquido
+                    // já assentado, a energia subia sozinha para 223 em 60
+                    // frames — o líquido fervia sem ninguém tocar nele.
                     const diff = H - r;
-                    const pterm = SPIKY * diff * diff * (pi + pres[j]) * 0.5 / dj;
+                    const di = dens[i];
+                    const pterm = SPIKY * diff * diff * (pi / (di * di) + pres[j] / (dj * dj));
                     ax = ax + (ex / r) * pterm;
                     ay = ay + (ey / r) * pterm;
                     az = az + (ez / r) * pterm;
