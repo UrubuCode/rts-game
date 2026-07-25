@@ -14,11 +14,14 @@ export class Scene {
   // pressão de GC; estes são limpos (length=0 / clear) em vez de recriados.
   cIdx: number[];                    // índices dos objetos colidíveis
   // ── HASH ESPACIAL em ARRAYS (não `Map`) ──────────────────────────────────
-  // Era `Map<number, number[]>`: um `Map.get` custa ~37 µs neste runtime, e o
-  // laço faz 9 por objeto móvel por frame. Com 400 móveis eram 3600 lookups =
-  // ~130 ms/frame — a colisão sozinha custava 350 ms, 60x o simulador de
-  // fluido inteiro. Lista encadeada: `gHead[célula]` é a primeira partícula da
-  // célula e `gNext[k]` a seguinte, -1 termina. Zero alocação por frame.
+  // Era `Map<number, number[]>` e a colisão custava 350 ms/frame com 400 móveis.
+  // A causa é que `Map` NÃO é um hash neste runtime: é uma lista de associação
+  // com varredura LINEAR. Medido em mapa de 1000 entradas, 100 mil `get` da
+  // MESMA chave: 0,29 s se ela foi a primeira inserida, 25,35 s se foi a
+  // última — 86x pela posição. Ou seja, o grid ficava QUADRÁTICO no número de
+  // células ocupadas. Ver UrubuCode/rts#1998.
+  // Lista encadeada: `gHead[célula]` é o primeiro item da célula e `gNext[k]` o
+  // seguinte, -1 termina. Nenhum `set`, nenhuma alocação por frame.
   gHead: number[];   // bucket → primeiro item (-1 = célula vazia)
   gNext: number[];   // item k de cIdx → próximo na mesma célula (-1 = fim)
   gCell: number[];   // item k de cIdx → bucket em que foi inserido

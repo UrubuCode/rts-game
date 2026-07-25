@@ -67,10 +67,11 @@ export class Fluid {
   minX: f64; maxX: f64; minY: f64; minZ: f64; maxZ: f64;
 
   // ── HASH ESPACIAL em ARRAYS (não `Map`) ──────────────────────────────────
-  // Medido: 1,3 milhão de `Map.get` custa 48 s neste runtime (~37 µs cada),
-  // contra 0,46 s com array indexado — 100x. O laço de vizinhança faz ~27
-  // lookups por partícula, DUAS vezes por sub-passo, então o Map sozinho era
-  // o simulador inteiro.
+  // O `Map` daqui custava o simulador inteiro, mas NÃO por ser "lento": neste
+  // runtime ele não é um hash, e sim uma lista de associação com varredura
+  // LINEAR — o lookup é O(n) no número de entradas. Medido: 100 mil `get` da
+  // mesma chave num mapa de 1000 custam 0,29 s se ela é a primeira e 25,35 s se
+  // é a última. Um hash espacial vira quadrático assim. Ver UrubuCode/rts#1998.
   //
   // Lista encadeada clássica: `head[célula]` é a primeira partícula daquela
   // célula e `next[i]` a seguinte, com -1 terminando. Sem alocação por frame.
