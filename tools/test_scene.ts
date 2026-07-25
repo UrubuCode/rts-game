@@ -432,6 +432,93 @@ io.print("== PAREDE: caixa alta bloqueia movimento lateral ==");
 }
 
 io.print("");
+io.print("== IMPULSO: corpo em movimento POE OUTRO em movimento ==");
+{
+  // Antes a colisao so SEPARAVA: os dois paravam e nada era transmitido.
+  scene.clear();
+  const a = new GameObject("A"); a.setMesh(4,1,1,1);
+  a.transform.setPosition(0.0-3.0, 1.0, 0.0); a.transform.setScale(1.0);
+  a.transform.vx = 6.0; scene.add(a);
+  const b = new GameObject("B"); b.setMesh(4,1,1,1);
+  b.transform.setPosition(0.0, 1.0, 0.0); b.transform.setScale(1.0); scene.add(b);
+  let s = 0;
+  while (s < 90) {
+    a.transform.px = a.transform.px + a.transform.vx * 0.016;
+    b.transform.px = b.transform.px + b.transform.vx * 0.016;
+    scene.computeWorld(); scene.resolveCollisions(); s = s + 1;
+  }
+  io.print("  A.vx=" + a.transform.vx + " B.vx=" + b.transform.vx + " (soma = 6, momento conservado)");
+  ok("  B recebeu impulso", b.transform.vx > 0.5 ? 1 : 0);
+  ok("  A perdeu velocidade", a.transform.vx < 6.0 ? 1 : 0);
+}
+
+io.print("== MASSA: leve bate em pesado e e REBATIDO ==");
+{
+  scene.clear();
+  const leve = new GameObject("Leve"); leve.setMesh(4,1,1,1);
+  leve.transform.setPosition(0.0-3.0, 1.0, 0.0); leve.transform.setScale(1.0);
+  leve.transform.vx = 6.0; leve.transform.mass = 1.0; leve.transform.restitution = 0.9;
+  scene.add(leve);
+  const pes = new GameObject("Pesado"); pes.setMesh(4,1,1,1);
+  pes.transform.setPosition(0.0, 1.0, 0.0); pes.transform.setScale(1.0);
+  pes.transform.mass = 50.0; pes.transform.restitution = 0.9; scene.add(pes);
+  let s = 0;
+  while (s < 90) {
+    leve.transform.px = leve.transform.px + leve.transform.vx * 0.016;
+    pes.transform.px = pes.transform.px + pes.transform.vx * 0.016;
+    scene.computeWorld(); scene.resolveCollisions(); s = s + 1;
+  }
+  ok("  o leve ricocheteou (vx < 0)", leve.transform.vx < 0.0 ? 1 : 0);
+  ok("  o pesado mal se moveu", pes.transform.vx < 1.0 ? 1 : 0);
+}
+
+io.print("== RESTITUICAO: bola elastica QUICA ==");
+{
+  scene.clear();
+  const chao = new GameObject("Chao"); chao.setMesh(1,1,1,1);
+  chao.transform.setPosition(0.0, 0.0, 0.0);
+  chao.transform.sx = 40.0; chao.transform.sy = 1.0; chao.transform.sz = 40.0;
+  chao.stationary = 1; chao.transform.restitution = 0.8; scene.add(chao);
+  const bola = new GameObject("Bola"); bola.setMesh(4,1,1,1);
+  bola.transform.setPosition(0.0, 8.0, 0.0); bola.transform.setScale(1.0);
+  bola.transform.restitution = 0.8; scene.add(bola);
+  let maxAfter = 0.0 - 99.0;
+  let hit = 0;
+  let s = 0;
+  while (s < 200) {
+    bola.transform.vy = bola.transform.vy - 9.8 * 0.016;
+    bola.transform.py = bola.transform.py + bola.transform.vy * 0.016;
+    scene.computeWorld(); scene.resolveCollisions();
+    if (bola.transform.py < 1.2) hit = 1;
+    if (hit !== 0 && bola.transform.py > maxAfter) maxAfter = bola.transform.py;
+    s = s + 1;
+  }
+  io.print("  subiu ate y=" + maxAfter + " apos o primeiro toque");
+  ok("  quicou de volta", maxAfter > 2.0 ? 1 : 0);
+}
+
+io.print("== ATRITO: deslize sobre o chao PARA ==");
+{
+  scene.clear();
+  const chao = new GameObject("Chao"); chao.setMesh(1,1,1,1);
+  chao.transform.setPosition(0.0, 0.0, 0.0);
+  chao.transform.sx = 60.0; chao.transform.sy = 1.0; chao.transform.sz = 60.0;
+  chao.stationary = 1; chao.transform.friction = 0.9; scene.add(chao);
+  const cx = new GameObject("Caixa"); cx.setMesh(1,1,1,1);
+  cx.transform.setPosition(0.0, 1.0, 0.0); cx.transform.setScale(1.0);
+  cx.transform.vx = 10.0; cx.transform.friction = 0.9; scene.add(cx);
+  let s = 0;
+  while (s < 200) {
+    cx.transform.vy = cx.transform.vy - 9.8 * 0.016;
+    cx.transform.px = cx.transform.px + cx.transform.vx * 0.016;
+    cx.transform.py = cx.transform.py + cx.transform.vy * 0.016;
+    scene.computeWorld(); scene.resolveCollisions(); s = s + 1;
+  }
+  io.print("  vx: 10 -> " + cx.transform.vx);
+  ok("  o atrito freou", cx.transform.vx < 8.0 ? 1 : 0);
+}
+
+io.print("");
 io.print("[resultado] " + pass + " ok, " + fail + " falhas");
 if (fail > 0) io.print("[FALHOU]");
 else io.print("[PASSOU]");

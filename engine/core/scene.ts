@@ -511,13 +511,61 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   tb.px = tb.px + nx * pushB;
   tb.py = tb.py + ny * pushB;
   tb.pz = tb.pz + nz * pushB;
-  // contato vertical → zera a velocidade que empurra pra dentro
-  if (ny > 0.5) {
-    if (tb.vy < 0.0) tb.vy = 0.0;
-    if (ta.vy > 0.0) ta.vy = 0.0;
-  } else if (ny < 0.0 - 0.5) {
-    if (ta.vy < 0.0) ta.vy = 0.0;
-    if (tb.vy > 0.0) tb.vy = 0.0;
+  // ── RESPOSTA DE IMPULSO ───────────────────────────────────────────────────
+  // A separação acima resolve a INTERPENETRAÇÃO; isto resolve a VELOCIDADE.
+  // Sem ele dois corpos que se chocam apenas paravam — não havia troca de
+  // momento, então nada ricocheteava, deslizava ou empurrava.
+  //
+  // Impulso de corpo rígido clássico: j = -(1+e)·v_rel·n / (1/mA + 1/mB).
+  // Massa 0 = INFINITA (chão, parede): entra como inverso 0, então o corpo não
+  // é movido e o outro leva o impulso inteiro.
+  const imA: f64 = a.stationary !== 0 || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
+  const imB: f64 = b.stationary !== 0 || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
+  const imSum: f64 = imA + imB;
+  if (imSum > 0.0) {
+    // velocidade RELATIVA de B em relação a A, projetada na normal
+    const rvx = tb.vx - ta.vx;
+    const rvy = tb.vy - ta.vy;
+    const rvz = tb.vz - ta.vz;
+    const vn = rvx * nx + rvy * ny + rvz * nz;
+    // vn > 0 = já se afastando: resolver de novo os grudaria
+    if (vn < 0.0) {
+      let e: f64 = ta.restitution;
+      if (tb.restitution < e) e = tb.restitution;   // o menos elástico manda
+      const j: f64 = (0.0 - (1.0 + e)) * vn / imSum;
+      ta.vx = ta.vx - nx * j * imA;
+      ta.vy = ta.vy - ny * j * imA;
+      ta.vz = ta.vz - nz * j * imA;
+      tb.vx = tb.vx + nx * j * imB;
+      tb.vy = tb.vy + ny * j * imB;
+      tb.vz = tb.vz + nz * j * imB;
+
+      // ATRITO: freia a componente TANGENCIAL (o que sobra depois de tirar a
+      // normal). É o que faz um corpo parar de deslizar sobre o chão em vez de
+      // patinar para sempre.
+      let f: f64 = ta.friction;
+      if (tb.friction < f) f = tb.friction;
+      if (f > 0.0) {
+        const tvx = rvx - nx * vn;
+        const tvy = rvy - ny * vn;
+        const tvz = rvz - nz * vn;
+        const tl2 = tvx * tvx + tvy * tvy + tvz * tvz;
+        if (tl2 > 0.000001) {
+          const tl = math.sqrt(tl2);
+          // impulso tangencial limitado por Coulomb (jt <= f * j)
+          let jt: f64 = tl / imSum;
+          const cap: f64 = f * j;
+          if (jt > cap) jt = cap;
+          const ux = tvx / tl; const uy = tvy / tl; const uz = tvz / tl;
+          ta.vx = ta.vx + ux * jt * imA;
+          ta.vy = ta.vy + uy * jt * imA;
+          ta.vz = ta.vz + uz * jt * imA;
+          tb.vx = tb.vx - ux * jt * imB;
+          tb.vy = tb.vy - uy * jt * imB;
+          tb.vz = tb.vz - uz * jt * imB;
+        }
+      }
+    }
   }
 }
 
