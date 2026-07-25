@@ -60,10 +60,14 @@ const WALL_DAMP: f64 = 0.35;
 /// Teto de velocidade: um passe explícito pode divergir se uma partícula
 /// receber muita força num frame; o clamp mantém a simulação estável.
 const MAX_SPEED: f64 = 26.0;
-/// Velocidade (ao quadrado) abaixo da qual a partícula para de vez. Ver o uso
-/// em `integrate`. 0.25 = 0.5 u/s, bem abaixo de qualquer escoamento real e
-/// acima do residual numérico medido (~0.29 u/s).
-const SLEEP_SPEED2: f64 = 1.0;
+/// Velocidade (ao quadrado) abaixo da qual a partícula para de vez (ver
+/// `integrate`). 0.05 = 0.22 u/s.
+///
+/// O valor caiu de 1.0 depois que a pressão negativa passou a ser grampeada:
+/// aquele limiar existia para MASCARAR a agitação que a atração ilimitada
+/// causava. Com a causa corrigida, ele passou a congelar o líquido no ar — o
+/// topo parava em 3.81 em vez de assentar em 2.09.
+const SLEEP_SPEED2: f64 = 0.05;
 /// Duração de um sub-passo e quantos cabem num frame. O produto é o tempo
 /// MÁXIMO de simulação que um frame avança — o teto evita a ESPIRAL DA MORTE:
 /// um frame lento gera dt grande, que pede mais sub-passos, que deixam o frame
@@ -306,7 +310,22 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
     }
     nbrCnt[i] = cnt;
     dens[i] = rho;
-    pres[i] = STIFFNESS * (rho - REST_DENSITY);
+    // A pressão NEGATIVA (atração, quando a densidade está abaixo do repouso) é
+    // GRAMPEADA em zero. É o padrão em SPH de jogo, e a razão é estrutural:
+    //
+    // uma partícula nas bordas do fluido tem poucos vizinhos, então sua
+    // densidade fica muito abaixo de REST — e a pressão negativa cresce sem
+    // limite com esse déficit. Medido com o valor anterior: DUAS partículas
+    // isoladas a 0.62 uma da outra geravam força 938, contra gravidade 22.
+    // 43x a gravidade, e a configuração explodia sozinha do repouso.
+    //
+    // Sem atração o líquido não forma gotas no ar, mas ESCOA e empilha
+    // corretamente — que é o que esta demo mostra. Coesão de superfície é um
+    // termo próprio (tensão superficial), não um efeito colateral de pressão
+    // negativa ilimitada.
+    let pr = STIFFNESS * (rho - REST_DENSITY);
+    if (pr < 0.0) pr = 0.0;
+    pres[i] = pr;
     i = i + 1;
   }
 }
