@@ -73,9 +73,14 @@ handles** (drag two axes), **multi-selection** (the gizmo manipulates all select
 at once), **snap-to-grid** (position 0.5, rotation 15°). Keyboard shortcuts
 `Q/E/R` (tools) and `F` (frame selected).
 
-**Objects & hierarchy:** duplicate (single + **array** `dupn`, cloning all
-components), rename, reset transform, hide/isolate, delete (single + selection),
-**group / ungroup**, reparent.
+**Objects & hierarchy:** **right-click context menu** on the tree (create cube,
+sphere, pyramid, octahedron, empty or camera — as a child of the clicked object,
+or at the root from empty space; new objects spawn in front of the camera, not at
+the origin where they would be off-screen), **scrolling** (mouse wheel + a
+draggable bar; without it a 500-object scene left 477 of them unreachable),
+duplicate (single + **array** `dupn`, cloning all components), rename, reset
+transform, hide/isolate, delete (single + selection), **group / ungroup**,
+reparent.
 
 **Scene:** save / load (and **persists across sessions**), **undo / redo**
 (scene-snapshot), **scene-within-scene** instancing (Godot-style, via `SceneRef`),
@@ -86,8 +91,24 @@ control.
 checkbox), editable object name, per-field numeric config with click-to-type and
 drag-scrub, **X/Y/Z colored** Vector3 fields, **Add Component** with search.
 
-**Physics:** `Rigidbody` (gravity + ground collision + bounce) and
-sphere-vs-sphere collision between objects (stacking).
+**Physics:** **box and sphere colliders** (`colShape`, defaulted per mesh) with
+box-box, box-sphere and sphere-sphere resolution — so flat ground, walls and
+platforms are solid, which a sphere-only collider could never express (a
+60x0.4x60 floor became a radius-0.2 sphere). **Dynamic response**: rigid-body
+impulse over `mass` / `restitution` / `friction`, so bodies bounce, slide and
+push each other instead of merely stopping. Mass 0 means infinite (immovable).
+`Rigidbody` integrates all three axes, with `drag` and an optional safety floor.
+
+**Audio:** a voice mixer over the runtime's raw `audio` namespace (which only
+opens the device and takes interleaved f32 samples). Up to 24 voices — sine,
+square, noise — each with an attack/decay envelope, mixed per frame into the
+ring buffer. `AudioSource` is a component: fire on demand or on an interval. No
+audio device means the game runs **silent**, not crashed.
+
+**Animation:** `Animator` interpolates `(time, value)` keyframes over a transform
+channel, with linear / smoothstep / step curves and once / loop / ping-pong. Two
+Animators on one object animate different channels — that is how a door that
+opens while rising is built.
 
 **Serialization:** scenes are JSON (`JSON.stringify`/`parse`, native to the
 engine); components serialize themselves and are rebuilt on load.
