@@ -126,6 +126,44 @@ engine's latest release** (no engine rebuild — that binary is AOT-capable), ru
 `rts compile`, and **publishes a GitHub Release** of the executable + assets on
 every push to `master`.
 
+## Performance
+
+Measured on this machine, 300-frame runs, 10% of objects moving (a realistic RTS
+mix — most units idle at any instant). Budget for 60 fps is 16.7 ms/frame:
+
+| Objects | ms/frame | Verdict |
+|---|---|---|
+| 500 | 6.1 | comfortable |
+| 1000 | 11.7 | fits |
+| 2000 | 23.2 | ~43 fps |
+
+A realistic scene — 1000 objects, of which 200 are units with a movement script
+and 800 are static scenery — costs **13.7 ms/frame**. The SPH fluid demo
+(`fluid_demo.ts`) runs 168 particles at ~53 fps.
+
+**The single biggest lever, by far:** hot loops belong in **free functions with
+annotated parameters**, not methods. Inside a method the locals lose their type
+proofs and every `this.objects[i].transform.px` falls into the dynamic property
+path. Same logic, moved out and typed:
+
+- `computeWorld` → 3.3x (500 objects: 3.8 s → 1.1 s)
+- collision resolve pass → up to 3.1x (500 moving: 12.3 s → 3.9 s)
+- script dispatch, one level of indirection removed → up to 2.9x
+
+Second lever: **arrays, not `Map`**, for anything rebuilt per frame. `Map` used
+to be O(n) per lookup in the runtime (fixed upstream in UrubuCode/rts#1998), but
+a linked list in flat arrays is still faster — it allocates nothing.
+
+Third: **do not redo what has not changed.** Collision skips any object that has
+not moved since last frame (`lastX`/`lastZ`), and the collider list is only
+rebuilt when the scene composition changes (`colDirty`). Both are cheap flags
+guarding expensive work.
+
+Two things that sound right and **measurably are not** (both tried, both
+reverted — see the comments in `engine/core/scene.ts`): guarding the spatial
+grid rebuild behind a "did anything change?" check, and shrinking the neighbour
+cap in the fluid. In both cases the check cost more than the work it saved.
+
 ## Engine notes
 
 `rts.exe` is copied from the `rts` repo (gitignored). A few RTS-engine bugs were
