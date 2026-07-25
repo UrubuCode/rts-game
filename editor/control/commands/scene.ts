@@ -318,3 +318,32 @@ export function cmdInstScene(parts: string[]): string {
   if (n === 0) return "[erro] falha ao instanciar (arquivo/objetos): " + parts[1];
   return "[ok] instscene " + parts[1] + " -> " + n + " objs sob #" + host + " (cena agora com " + scene.objects.length + ")";
 }
+
+/// hier [linha] — inspeciona (e opcionalmente move) o SCROLL da hierarquia.
+/// Sem argumento devolve o estado; com um número rola até aquela linha.
+///
+/// Existe porque não havia como verificar o scroll sem olhar a tela. O estado
+/// visível de uma UI imediata tem de ser inspecionável por comando, ou a única
+/// validação possível vira screenshot — que rouba o foco do usuário e falha em
+/// silêncio quando a janela está coberta.
+export function cmdHier(parts: string[]): string {
+  const n = scene.objects.length;
+  if (parts.length > 1) {
+    let want = parseFloat(parts[1]) | 0;
+    let maxS = n - S.hierVis;
+    if (maxS < 0) maxS = 0;
+    if (want < 0) want = 0;
+    if (want > maxS) want = maxS;
+    S.hierScroll = want;
+  }
+  let maxS = n - S.hierVis;
+  if (maxS < 0) maxS = 0;
+  const first = S.hierScroll;
+  let last = first + S.hierVis - 1;
+  if (last >= n) last = n - 1;
+  let m = "[hier] scroll=" + first + "/" + maxS + " visiveis=" + S.hierVis +
+          " objs=" + n + " mostrando linhas " + first + ".." + last;
+  if (n > 0 && first < n) m = m + " | topo=" + scene.objects[first].name;
+  if (n > 0 && last >= 0 && last < n) m = m + " | base=" + scene.objects[last].name;
+  return m;
+}

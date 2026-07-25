@@ -257,6 +257,14 @@ let hierDrag = 0 - 1;
 // pirâmide, octaedro, luz e câmera só existiam via WebSocket. `ctxOn` = aberto,
 // `ctxX/ctxY` = canto onde abriu, `ctxTarget` = linha clicada (-1 = área vazia,
 // o que cria na raiz em vez de como filho).
+/// Primeira linha visível da hierarquia. Sem isto a lista simplesmente cortava
+/// em "+N objetos (fora da lista)" e não havia como CHEGAR neles: numa cena de
+/// 500 objetos, 480 eram inalcançáveis pelo editor.
+/// Espelhado em `S.hierScroll` para o controle por WebSocket poder lê-lo.
+let hierScroll = 0;
+/// 1 = arrastando o polegar da barra de scroll da hierarquia.
+let hierBarDrag = 0;
+
 let ctxOn = 0;
 let ctxX = 0;
 let ctxY = 0;
@@ -868,8 +876,28 @@ function frame(): void {
   // isto o editor desenhava uma linha por objeto da cena inteira — com 500
   // objetos eram 500 caminhadas de árvore + 2000 chamadas de UI por frame,
   // fora da tela, e isso sozinho segurava o FPS em ~10 mesmo sem nada visível.
-  const hRowFirst = 0;
-  let hRowLast = ((H - (BAR_H + 52)) / 26) | 0;
+  // ── SCROLL ────────────────────────────────────────────────────────────────
+  // `visRows` = quantas linhas cabem; `hierScroll` = a primeira visível. A roda
+  // rola 3 linhas por clique (o passo que não desorienta), e o scroll é preso
+  // ao intervalo válido TODO frame — a lista muda de tamanho quando se cria ou
+  // deleta objeto, e um scroll velho apontaria para o vazio.
+  const visRows = ((H - (BAR_H + 52)) / 26) | 0;
+  S.hierVis = visRows;
+  if (S.hierScroll !== hierScroll) hierScroll = S.hierScroll;   // veio do WS
+  let maxScroll = scene.objects.length - visRows;
+  if (maxScroll < 0) maxScroll = 0;
+  const overHier = mx < HIER_W && my > BAR_H;
+  if (overHier) {
+    const wh: f64 = input.wheel(WIN);
+    if (wh > 0.5) hierScroll = hierScroll - 3;
+    else if (wh < 0.0 - 0.5) hierScroll = hierScroll + 3;
+  }
+  if (hierScroll > maxScroll) hierScroll = maxScroll;
+  if (hierScroll < 0) hierScroll = 0;
+  S.hierScroll = hierScroll;
+
+  const hRowFirst = hierScroll;
+  let hRowLast = hierScroll + visRows;
   if (hRowLast > scene.objects.length) hRowLast = scene.objects.length;
   let hi = hRowFirst;
   while (hi < hRowLast) {
@@ -878,7 +906,7 @@ function frame(): void {
     let pp = obj.parent;
     while (pp >= 0 && depth < 8) { depth = depth + 1; pp = scene.objects[pp].parent; }
     const indent = depth * 16;
-    const ry0 = BAR_H + 52 + hi * 26;
+    const ry0 = BAR_H + 52 + (hi - hierScroll) * 26;
     const inRow = mx < HIER_W && my >= ry0 && my < ry0 + 26;
     // botão DIREITO sobre a linha: abre o menu de contexto mirando este objeto
     if (mRight !== 0 && inRow && dndOn === 0) {
@@ -919,10 +947,35 @@ function frame(): void {
     if (my < BAR_H + 52 + hRowLast * 26) overRow = 1;
     if (overRow === 0) { ctxOn = 1; ctxX = mx | 0; ctxY = my | 0; ctxTarget = 0 - 1; }
   }
-  // avisa que há mais objetos além do que cabe na lista (não sumiram)
-  if (hRowLast < scene.objects.length) {
-    app.text(14, BAR_H + 52 + hRowLast * 26 - 4,
-      "+ " + (scene.objects.length - hRowLast) + " objetos (fora da lista)", 0x808080FF, 11);
+  // ── BARRA DE SCROLL ───────────────────────────────────────────────────────
+  // Só aparece quando há o que rolar. Além de indicar a posição, ela é
+  // ARRASTÁVEL: rolar 500 objetos de 3 em 3 na roda seria inviável.
+  if (maxScroll > 0) {
+    const trackY = BAR_H + 52;
+    const trackH = visRows * 26;
+    const bx = HIER_W - 10;
+    app.box(bx, trackY, 6, trackH, 0x2A2A2AFF, 0, 0, 3);
+    // altura proporcional ao quanto da lista está visível, com mínimo clicável
+    let thumbH = (trackH * visRows / scene.objects.length) | 0;
+    if (thumbH < 24) thumbH = 24;
+    const thumbY = trackY + (((trackH - thumbH) * hierScroll / maxScroll) | 0);
+    const stBar = app.clickable(1390, bx - 2, trackY, 10, trackH);
+    let barCol = 0x5A5A5AFF;
+    if (stBar === 1) barCol = 0x6E6E6EFF;
+    if (stBar === 2 || hierBarDrag !== 0) barCol = 0x8AA0BFFF;
+    app.box(bx, thumbY, 6, thumbH, barCol, 0, 0, 3);
+    // arrasto: enquanto o botão estiver preso, a posição do mouse na trilha
+    // define o scroll direto (mapeia o centro do polegar sob o cursor)
+    if (stBar === 2) hierBarDrag = 1;
+    if (mDownNow === 0) hierBarDrag = 0;
+    if (hierBarDrag !== 0) {
+      const rel: f64 = my - trackY - thumbH * 0.5;
+      const span: f64 = trackH - thumbH;
+      let f: f64 = span > 0.0 ? rel / span : 0.0;
+      if (f < 0.0) f = 0.0;
+      if (f > 1.0) f = 1.0;
+      hierScroll = (f * maxScroll) | 0;
+    }
   }
   // linha de inserção (irmão antes/depois)
   if (hierDrag >= 0 && (dropMode === 1 || dropMode === 3)) {
