@@ -376,8 +376,8 @@ export class Scene {
     if (a.stationary !== 0 && b.stationary !== 0) return;   // nada a mover
     const ta = a.transform;
     const tb = b.transform;
-    const ra: f64 = ta.sx * 0.5;
-    const rb: f64 = tb.sx * 0.5;
+    const ra: f64 = radiusOf(ta);
+    const rb: f64 = radiusOf(tb);
     const rs: f64 = ra + rb;
     const dx: f64 = tb.px - ta.px;
     // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
@@ -413,6 +413,24 @@ export class Scene {
       if (tb.vy > 0.0) tb.vy = 0.0;
     }
   }
+}
+
+/// Raio da esfera de colisão de um transform: METADE DA MENOR escala.
+///
+/// A colisão é esfera-esfera, mas os objetos são caixas. Usar só `sx` fazia um
+/// chão de 60×0.4×60 virar uma esfera de RAIO 30 — ele engolia a cena inteira,
+/// empurrava tudo para cima e, de quebra, dimensionava a célula do grid em 60
+/// unidades (todos os objetos numa célula só, matando o broad-phase).
+///
+/// A menor escala é a aproximação conservadora: a esfera cabe DENTRO da caixa,
+/// então nunca há empurrão fantasma. Um objeto achatado colide como um disco
+/// fino — imperfeito para um chão, mas correto no sentido de não inventar
+/// contato onde não há. (Colisor de CAIXA é a evolução natural daqui.)
+function radiusOf(t: Transform): f64 {
+  let m: f64 = t.sx;
+  if (t.sy < m) m = t.sy;
+  if (t.sz < m) m = t.sz;
+  return m * 0.5;
 }
 
 // floor pra inteiro que funciona com negativos (o `|0` trunca em direção a zero,
@@ -513,7 +531,7 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[]): 
       out.push(i);
       if (o.stationary === 0) movers = movers + 1;
       const t: Transform = trs[i];   // espelho paralelo (ver `trs`)
-      const r: f64 = t.sx * 0.5;
+      const r: f64 = radiusOf(t);
       if (r > maxR) maxR = r;
     }
     i = i + 1;
