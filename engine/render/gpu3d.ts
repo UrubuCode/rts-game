@@ -245,6 +245,16 @@ export function drawGPUMesh(win: i64, meshId: number, px: f64, py: f64, pz: f64,
   egui.drawMesh(win, meshId | 0, px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex | 0);
 }
 
+/// Liga/desliga o VSYNC da janela (1 = Fifo, o padrão; 0 = sem espera).
+///
+/// Com vsync o FPS fica preso ao refresh do monitor (~60 Hz), o que é o certo
+/// pra uma UI mas ESCONDE a performance real: um frame de 5 ms e um de 16 ms
+/// medem os mesmos 60 fps. Desligar revela o custo verdadeiro do frame — é o
+/// que o comando ws `vsync 0` faz pra medir otimizações.
+export function setVsync(win: i64, on: number): void {
+  egui.setVsync(win, on);
+}
+
 /// Define a câmera do frame 3D (fly cam).
 export function setCam(win: i64, cx: f64, cy: f64, cz: f64, yaw: f64, pitch: f64, fovY: f64, aspect: f64): void {
   egui.setCamera(win, cx, cy, cz, yaw, pitch, fovY, aspect);

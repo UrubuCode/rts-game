@@ -1,5 +1,6 @@
 // Comandos de CONSULTA (só leem estado): state, res, help.
 import { scene, S } from "../session";
+import { setVsync } from "../../../engine/render/gpu3d";
 
 /// Estado completo da cena + câmera (para a IA inspecionar).
 export function cmdState(): string {
@@ -44,4 +45,15 @@ export function cmdHelp(): string {
     " pickat <sx> <sy> | groundat <sx> <sy> | thumb <path> [cols]  (preview do asset)" +
     " || ARQUIVOS: ls [path] | mkdir <path> | rmpath <path> | readfile <path> |" +
     " writefile <path> <conteudo> | mv <de> <para>";
+}
+
+/// vsync [0|1] — liga/desliga a espera pelo refresh do monitor.
+///
+/// Com vsync ligado (padrão) o FPS satura em ~60 e ESCONDE o custo real do
+/// frame: 5 ms e 16 ms medem igual. Desligar mede a performance de verdade.
+export function cmdVsync(parts: string[]): string {
+  if (parts.length < 2) return "[vsync] uso: vsync 0|1  (0 = sem espera, mede o custo real)";
+  const on = parseFloat(parts[1]) | 0;
+  setVsync(S.win, on);
+  return "[ok] vsync " + (on !== 0 ? "LIGADO (limitado ao monitor)" : "DESLIGADO (mede o frame real)");
 }

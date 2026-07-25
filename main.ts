@@ -12,6 +12,7 @@ import fs from "rts:fs";
 import process from "rts:process";
 
 import { GameObject } from "./engine/core/gameobject";
+import { Transform } from "./engine/core/transform";
 import { UIScene } from "./engine/ui/uiscene";
 import { UIPanel, ANCHOR_TL, ANCHOR_BL, ANCHOR_BR } from "./engine/ui/uipanel";
 import { numField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./editor/widgets";
@@ -570,7 +571,7 @@ function frame(): void {
     // testada ANTES do dispatch virtual do MeshRenderer/Material, que era pago
     // por objeto mesmo pros que nem seriam desenhados.
     if (o.active === 0) { oi = oi + 1; continue; }
-    const tr = o.transform;
+    const tr: Transform = o.transform;   // tipado: campos por offset constante
     let rmax: f64 = tr.sx;
     if (tr.sy > rmax) rmax = tr.sy;
     if (tr.sz > rmax) rmax = tr.sz;
@@ -606,12 +607,14 @@ function frame(): void {
           if (tid > 0) texArg = tid; else texArg = m.matTexMode();
           emisArg = m.matEmissive();
         }
+        // Usa o `tr` já hoisted: `o.transform.wx` repetido 9x por objeto era
+        // NOVE acessos aninhados de propriedade por desenho.
         if (customMesh > 0) {
-          drawGPUMesh(WIN, customMesh, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
+          drawGPUMesh(WIN, customMesh, tr.wx, tr.wy, tr.wz,
+            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
         } else {
-          drawGPU(WIN, meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
+          drawGPU(WIN, meshKind, tr.wx, tr.wy, tr.wz,
+            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
         }
         drawnN = drawnN + 1;
       }

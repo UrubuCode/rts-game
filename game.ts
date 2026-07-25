@@ -18,7 +18,9 @@ import fs from "rts:fs";
 import input from "rts:input";
 
 import { scene, S } from "./editor/control/session";
+import { Transform } from "./engine/core/transform";
 import { loadSceneFrom } from "./editor/sceneio";
+import { GameObject } from "./engine/core/gameobject";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh,
          frustumBegin, inFrustumFast, winWidth, winHeight } from "./engine/render/gpu3d";
 
@@ -142,8 +144,10 @@ function frame(): void {
 
   let oi = 0;
   let drawnN = 0;
-  while (oi < scene.objects.length) {
-    const o = scene.objects[oi];
+  const objs: GameObject[] = scene.objects;   // tipado: campos por offset constante
+  const objsN = objs.length;
+  while (oi < objsN) {
+    const o = objs[oi];
     let meshKind = o.meshKind;
     let customMesh = o.customMesh;
     if (o.rendIdx >= 0) {
@@ -152,10 +156,13 @@ function frame(): void {
       customMesh = r.rCustomMesh() | 0;
     }
     if (o.active !== 0 && (meshKind !== 0 || customMesh > 0)) {
-      let rmax: f64 = o.transform.sx;
-      if (o.transform.sy > rmax) rmax = o.transform.sy;
-      if (o.transform.sz > rmax) rmax = o.transform.sz;
-      const vis = inFrustumFast(o.transform.wx, o.transform.wy, o.transform.wz, rmax * 0.87);
+      // hoista o transform: `o.transform.X` repetido vira um acesso aninhado
+      // de propriedade por leitura (ver o mesmo padrão no main.ts)
+      const tr: Transform = o.transform;
+      let rmax: f64 = tr.sx;
+      if (tr.sy > rmax) rmax = tr.sy;
+      if (tr.sz > rmax) rmax = tr.sz;
+      const vis = inFrustumFast(tr.wx, tr.wy, tr.wz, rmax * 0.87);
       if (vis !== 0) {
         const col = ((o.cr | 0) << 16) | ((o.cg | 0) << 8) | (o.cb | 0);
         let texArg = o.tex;
@@ -168,11 +175,11 @@ function frame(): void {
           emisArg = m.matEmissive();
         }
         if (customMesh > 0) {
-          drawGPUMesh(WIN, customMesh, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
+          drawGPUMesh(WIN, customMesh, tr.wx, tr.wy, tr.wz,
+            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
         } else {
-          drawGPU(WIN, meshKind, o.transform.wx, o.transform.wy, o.transform.wz,
-            o.transform.wrx, o.transform.wry, o.transform.sx, o.transform.sy, o.transform.sz, col, emisArg, texArg);
+          drawGPU(WIN, meshKind, tr.wx, tr.wy, tr.wz,
+            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
         }
         drawnN = drawnN + 1;
       }

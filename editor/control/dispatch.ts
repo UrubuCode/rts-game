@@ -1,6 +1,6 @@
 // Despacho de comandos de controle — um SWITCH que roteia para o handler de cada
 // comando (definidos em commands/*.ts). Devolve a resposta em texto.
-import { cmdState, cmdRes, cmdHelp } from "./commands/query";
+import { cmdState, cmdRes, cmdHelp, cmdVsync } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight } from "./commands/scene";
@@ -62,6 +62,7 @@ export function execCommand(w: number, h: number, line: string): string {
         " | ultimo " + last.name + " world(" + last.transform.wx + "," + last.transform.wy + "," + last.transform.wz + ")";
     }
     case "res": return cmdRes(w, h);
+    case "vsync": return cmdVsync(parts);
     case "help": return cmdHelp();
     case "spawn": return cmdSpawn(parts, np);
     case "move": return cmdMove(parts);
