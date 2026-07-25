@@ -14,6 +14,8 @@ import { Behavior } from "../engine/core/behavior";
 import { Spinner } from "../scripts/spinner";
 import { Bobber } from "../scripts/bobber";
 import { Rigidbody } from "../scripts/rigidbody";
+import { AudioSource } from "../scripts/audiosource";
+import { Animator, CH_PY, EASE_SMOOTH } from "../scripts/animator";
 import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
@@ -23,7 +25,7 @@ import { MeshRenderer } from "../engine/core/meshrenderer";
 import { Camera } from "../engine/core/camera";
 
 /// Nomes dos componentes disponíveis (aparecem na lista "Add Component").
-export const COMPONENT_NAMES: string[] = ["Camera", "MeshRenderer", "Material", "Spinner", "Bobber", "Rigidbody", "Mover", "Pulse", "Orbit", "Patrol"];
+export const COMPONENT_NAMES: string[] = ["Camera", "MeshRenderer", "Material", "Spinner", "Bobber", "Rigidbody", "Mover", "Pulse", "Orbit", "Patrol", "AudioSource", "Animator"];
 
 /// Cria um componente pelo nome, com valores padrão sensatos.
 export function createComponent(name: string): Behavior {
@@ -32,6 +34,16 @@ export function createComponent(name: string): Behavior {
   if (name === "Material") return new Material();
   if (name === "Bobber") return new Bobber(0.6, 1.5, 2.0);
   if (name === "Rigidbody") return new Rigidbody(0 - 9.8, 0.5);
+  // beep curto de 440 Hz; `every`=0 => só toca quando outro script chamar play()
+  if (name === "AudioSource") return new AudioSource(0.0, 440.0, 0.15, 0.3);
+  // sobe e desce 1..3 em 1s, suave e em ping-pong: ao anexar, o objeto JÁ anima
+  // (um Animator sem keyframes não faria nada e pareceria quebrado)
+  if (name === "Animator") {
+    const a = new Animator(CH_PY * 1.0, EASE_SMOOTH * 1.0);
+    a.loop = 2.0;
+    a.key(0.0, 1.0); a.key(1.0, 3.0);
+    return a;
+  }
   if (name === "Mover") return new Mover(1.0, 0.0, 0.0);
   if (name === "Pulse") return new Pulse(0.3, 2.0, 1.0);
   if (name === "Orbit") return new Orbit(4.0, 1.0, 0.0, 0.0);

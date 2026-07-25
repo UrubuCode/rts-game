@@ -25,6 +25,7 @@ import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./edit
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "./editor/dnd";
 import { history } from "./editor/undo";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
+import { initAudio, pumpAudio } from "./engine/audio/audio";
 
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
@@ -288,6 +289,8 @@ initMeshes(WIN);
 assetsInit();
 ctrlServe(7777);   // porta de controle da LLM (ws://127.0.0.1:7777)
 S.win = WIN;
+// áudio: se a máquina não tiver saída, `initAudio` devolve 0 e o editor segue mudo
+initAudio();
 
 // ── L3 (fundação "tudo é GameObject"): a UI-scene. Um HUD que é um GameObject
 // com um component UIPanel, desenhado no mesmo frame que o resto. Prova o seam;
@@ -1357,6 +1360,9 @@ function frame(): void {
     const overMenu = mx >= cx && mx < cx + CW && my >= cy && my < cy + CH;
     if ((mPressed !== 0 || mRight !== 0) && !overMenu) ctxOn = 0;
   }
+
+  // mantém o ring de áudio cheio (ver engine/audio/audio.ts)
+  pumpAudio();
 
   app.endFrame();
 }

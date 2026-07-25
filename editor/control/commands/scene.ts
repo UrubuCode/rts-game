@@ -1,5 +1,6 @@
 // Comandos de CENA/sessão: select, delete, cam, focus, play, pause, clear, loadscene.
 import math from "rts:math";
+import { playTone, activeVoices, audioReady, audioRate } from "../../../engine/audio/audio";
 import { scene, S } from "../session";
 import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "../../sceneio";
 import { GameObject } from "../../../engine/core/gameobject";
@@ -346,4 +347,22 @@ export function cmdHier(parts: string[]): string {
   if (n > 0 && first < n) m = m + " | topo=" + scene.objects[first].name;
   if (n > 0 && last >= 0 && last < n) m = m + " | base=" + scene.objects[last].name;
   return m;
+}
+
+/// snd [freq] [dur] [vol] — toca um beep e devolve o estado do mixer.
+/// Sem áudio audível do outro lado, é assim que se verifica que o subsistema
+/// está vivo: o retorno diz se o dispositivo abriu e quantas vozes estão
+/// soando, o que é inspecionável por teste.
+export function cmdSnd(parts: string[]): string {
+  if (audioReady() === 0) return "[snd] sem dispositivo de audio (o jogo roda mudo)";
+  let f: f64 = 440.0;
+  let d: f64 = 0.2;
+  let v: f64 = 0.3;
+  if (parts.length > 1) f = parseFloat(parts[1]);
+  if (parts.length > 2) d = parseFloat(parts[2]);
+  if (parts.length > 3) v = parseFloat(parts[3]);
+  const got = playTone(f, d, v);
+  return "[snd] " + (got !== 0 ? "tocando" : "SEM VOZ LIVRE") +
+         " freq=" + f + " dur=" + d + " vol=" + v +
+         " | vozes ativas=" + activeVoices() + " rate=" + audioRate();
 }

@@ -7,6 +7,7 @@ import io from "rts:io";
 import math from "rts:math";
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";
+import { Animator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "../scripts/animator";
 
 let pass = 0;
 let fail = 0;
@@ -516,6 +517,48 @@ io.print("== ATRITO: deslize sobre o chao PARA ==");
   }
   io.print("  vx: 10 -> " + cx.transform.vx);
   ok("  o atrito freou", cx.transform.vx < 8.0 ? 1 : 0);
+}
+
+io.print("");
+io.print("== ANIMATOR: keyframes interpolados ==");
+{
+  scene.clear();
+  const o = new GameObject("A"); o.setMesh(1,1,1,1); scene.add(o);
+  const a = new Animator(CH_PY * 1.0, EASE_LINEAR * 1.0);
+  a.loop = 0.0;
+  a.key(0.0, 0.0); a.key(1.0, 10.0);
+  o.addBehavior(a);
+  ok("  duracao = ultimo key", a.duration() === 1.0 ? 1 : 0);
+  ok("  meio = 5 (linear)", a.sample(0.5) === 5.0 ? 1 : 0);
+  ok("  antes do 1o key devolve o 1o", a.sample(0.0 - 5.0) === 0.0 ? 1 : 0);
+  ok("  depois do ultimo devolve o ultimo", a.sample(99.0) === 10.0 ? 1 : 0);
+  // keys fora de ordem: a interpolacao varre em ordem, um key fora de lugar
+  // faria o valor SALTAR no meio da animacao
+  const b = new Animator(CH_PY * 1.0, EASE_LINEAR * 1.0);
+  b.key(1.0, 10.0); b.key(0.0, 0.0); b.key(0.5, 5.0);
+  ok("  keys fora de ordem sao ordenados", (b.kt[0] === 0.0 && b.kt[1] === 0.5 && b.kt[2] === 1.0) ? 1 : 0);
+  const c = new Animator(CH_PY * 1.0, EASE_SMOOTH * 1.0);
+  c.key(0.0, 0.0); c.key(1.0, 10.0);
+  ok("  smooth: meio igual ao linear", c.sample(0.5) === 5.0 ? 1 : 0);
+  ok("  smooth: acelera devagar (0.25 < 2.5)", c.sample(0.25) < 2.5 ? 1 : 0);
+  let s = 0;
+  while (s < 30) { scene.update(0.016); s = s + 1; }
+  io.print("  apos 0.48s: py=" + o.transform.py);
+  ok("  animou pela cena", o.transform.py > 3.0 && o.transform.py < 6.0 ? 1 : 0);
+}
+
+io.print("== ANIMATOR: modos de loop ==");
+{
+  scene.clear();
+  const o = new GameObject("A"); o.setMesh(1,1,1,1); scene.add(o);
+  const a = new Animator(CH_PY * 1.0, EASE_LINEAR * 1.0);
+  a.loop = 0.0;                      // para no fim
+  a.key(0.0, 0.0); a.key(0.2, 10.0);
+  o.addBehavior(a);
+  let s = 0;
+  while (s < 60) { scene.update(0.016); s = s + 1; }   // ~1s, bem alem de 0.2
+  ok("  loop=0 para no ultimo valor", o.transform.py === 10.0 ? 1 : 0);
+  ok("  loop=0 marca como parado", a.playing === 0.0 ? 1 : 0);
 }
 
 io.print("");
