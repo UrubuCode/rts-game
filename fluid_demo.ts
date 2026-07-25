@@ -52,14 +52,13 @@ wall("ParedeF", 0.0, 2.5, TANK_Z + 0.4, TANK_X * 2.0 + 1.0, 5.0, 0.5, 80, 90, 10
 // ── partículas ────────────────────────────────────────────────────────────
 // Uma COLUNA densa de um lado do tanque: ao soltar, ela desaba e espalha —
 // o "dam break", que mostra de uma vez pressão, viscosidade e onda de retorno.
-// 8×10×5 = 400 partículas: o ponto em que o SPH roda em TEMPO REAL neste
-// runtime (~24 ms/frame). Mais que isso e o passo de simulação passa a
-// dominar o frame — o custo é O(n × vizinhos), não do render.
-// 6×7×3 = 126 partículas. O SPH custa O(n × vizinhos) e este runtime faz
-// ~35 µs por lookup de vizinhança; 224 é onde o passo cabe num frame de 60 fps
-// COM folga para o render. Subir isso derruba o fps rápido — ver a issue
-// UrubuCode/rts#1998, que é o que limita a contagem aqui.
-const COLS = 6;
+// 8×7×3 = 168 partículas. O custo é O(n × vizinhos) e está no PISO do runtime,
+// não no algoritmo: medido, 3,2 M de visitas de vizinho nuas (só ler px/py/pz e
+// a distância ao quadrado) custam 0,64 s — um terço do simulador inteiro. O
+// resto é a matemática SPH de verdade. 168 é onde o passo cabe num frame de
+// 60 fps com folga para o render; ver UrubuCode/rts#1997 para o custo por
+// acesso a campo, que é o que fixa esse teto.
+const COLS = 8;
 const ROWS = 7;
 const LAYERS = 3;
 const SPACING: f64 = 0.62;

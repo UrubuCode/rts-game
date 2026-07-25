@@ -77,6 +77,10 @@ export class Fluid {
   head: number[];        // hash da célula → primeira partícula (-1 = vazia)
   next: number[];        // partícula → próxima na mesma célula (-1 = fim)
   cellOf: number[];      // partícula → hash da sua célula
+  // Vizinhos JÁ filtrados por raio, achatados: os de `i` ficam em
+  // nbr[i*MAX_NBR .. i*MAX_NBR+nbrCnt[i]]. A densidade monta, as forças reusam.
+  nbr: number[];
+  nbrCnt: number[];
 
   constructor() {
     this.trs = [];
@@ -90,6 +94,8 @@ export class Fluid {
     this.head = [];
     this.next = [];
     this.cellOf = [];
+    this.nbr = [];
+    this.nbrCnt = [];
   }
 
   /// Define a caixa que contém o líquido (paredes + chão).
@@ -110,6 +116,10 @@ export class Fluid {
       this.fx.push(0.0); this.fy.push(0.0); this.fz.push(0.0);
       this.next.push(0 - 1);
       this.cellOf.push(0);
+      // reserva a fatia desta partícula na lista achatada de vizinhos
+      this.nbrCnt.push(0);
+      let q = 0;
+      while (q < MAX_NBR) { this.nbr.push(0); q = q + 1; }
       this.n = this.n + 1;
       // a partícula é movida por ESTE sistema, não pela colisão da cena
       o.stationary = 1;
@@ -133,13 +143,33 @@ export class Fluid {
     }
   }
 
-  substep(dt: f64): void {
-    // a tabela de head só cresce; alocá-la por frame seria pressão de GC
+  // Sondas de perfil: cada uma roda UMA fase do sub-passo isoladamente, para
+  // medir onde o tempo vai sem adivinhar. Usadas por tools/, não pelo jogo.
+  probeGrid(): void {
     while (this.head.length < HASH_CAP) this.head.push(0 - 1);
     buildFluidGrid(this.trs, this.head, this.next, this.cellOf, this.n);
-    computeDensity(this.trs, this.dens, this.pres, this.head, this.next, this.n);
+  }
+  probeDensity(): void {
+    this.probeGrid();
+    computeDensity(this.trs, this.dens, this.pres, this.head, this.next, this.n,
+                   this.nbr, this.nbrCnt);
+  }
+  probeForces(): void {
+    this.probeDensity();
     computeForces(this.trs, this.vx, this.vy, this.vz, this.dens, this.pres,
-                  this.fx, this.fy, this.fz, this.head, this.next, this.n);
+                  this.fx, this.fy, this.fz, this.nbr, this.nbrCnt, this.n);
+  }
+
+  substep(dt: f64): void {
+    // A tabela de head só cresce; alocá-la por frame seria pressão de GC.
+    // Nasce toda em -1, e daí em diante `buildFluidGrid` mantém essa invariante
+    // limpando o que sujou — por isso ela nunca precisa ser varrida de novo.
+    while (this.head.length < HASH_CAP) this.head.push(0 - 1);
+    buildFluidGrid(this.trs, this.head, this.next, this.cellOf, this.n);
+    computeDensity(this.trs, this.dens, this.pres, this.head, this.next, this.n,
+                   this.nbr, this.nbrCnt);
+    computeForces(this.trs, this.vx, this.vy, this.vz, this.dens, this.pres,
+                  this.fx, this.fy, this.fz, this.nbr, this.nbrCnt, this.n);
     integrate(this.trs, this.vx, this.vy, this.vz, this.fx, this.fy, this.fz,
               this.dens, this.n, dt,
               this.minX, this.maxX, this.minY, this.minZ, this.maxZ);
@@ -162,6 +192,8 @@ function cellKey(x: f64, y: f64, z: f64): number {
 /// Tamanho da tabela de hash espacial (potência de 2 para o AND ser barato).
 /// Generoso o bastante para milhares de partículas sem colisão excessiva.
 const HASH_CAP = 8192;
+/// Teto de vizinhos guardados por partícula (ver computeDensity).
+const MAX_NBR = 16;
 const HASH_MASK = 8191;
 
 /// Bucket de uma célula: hash da tripla (gx,gy,gz) dobrado na tabela.
@@ -185,9 +217,12 @@ function ffloor(v: f64): number {
 
 function buildFluidGrid(trs: Transform[], head: number[], next: number[],
                         cellOf: number[], n: number): void {
-  // limpa só os buckets (a tabela é reusada entre frames)
+  // Limpa APENAS os buckets que a passada anterior usou — no máximo `n`, não
+  // HASH_CAP. Varrer as 8192 entradas custava mais que a simulação inteira:
+  // com 126 partículas eram 65 escritas de limpeza para cada uma de trabalho
+  // útil, um custo FIXO que não caía nem reduzindo o líquido.
   let c = 0;
-  while (c < HASH_CAP) { head[c] = 0 - 1; c = c + 1; }
+  while (c < n) { head[cellOf[c]] = 0 - 1; c = c + 1; }
   let i = 0;
   while (i < n) {
     const t: Transform = trs[i];
@@ -202,8 +237,15 @@ function buildFluidGrid(trs: Transform[], head: number[], next: number[],
 /// Densidade por partícula (kernel poly6 sobre os vizinhos) e a pressão que ela
 /// gera. Pressão negativa (abaixo da densidade de repouso) faz o líquido se
 /// manter coeso em vez de virar poeira.
+/// Além da densidade, GRAVA a lista de vizinhos de cada partícula em
+/// `nbr`/`nbrCnt` (achatada: os vizinhos de `i` ocupam `nbr[i*MAX_NBR ...]`).
+/// As forças reusam essa lista em vez de refazer a travessia das 27 células —
+/// era o dobro de trabalho para chegar exatamente ao mesmo conjunto.
+/// Vizinhos além de MAX_NBR são descartados: a esta densidade o kernel já
+/// saturou, e o teto evita alocação dinâmica no laço mais quente do motor.
 function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
-                        head: number[], next: number[], n: number): void {
+                        head: number[], next: number[], n: number,
+                        nbr: number[], nbrCnt: number[]): void {
   let i = 0;
   while (i < n) {
     const ti: Transform = trs[i];
@@ -211,6 +253,8 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
     // célula BASE calculada UMA vez; as 26 vizinhas saem por soma de offset
     const bx = ffloor(px / H); const by = ffloor(py / H); const bz = ffloor(pz / H);
     let rho: f64 = 0.0;
+    const base = i * MAX_NBR;
+    let cnt = 0;
     let dz = 0 - 1;
     while (dz <= 1) {
       let dy = 0 - 1;
@@ -225,6 +269,7 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
             if (r2 < H2) {
               const w = H2 - r2;
               rho = rho + POLY6 * w * w * w;
+              if (cnt < MAX_NBR) { nbr[base + cnt] = j; cnt = cnt + 1; }
             }
             j = next[j];
           }
@@ -234,6 +279,7 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
       }
       dz = dz + 1;
     }
+    nbrCnt[i] = cnt;
     dens[i] = rho;
     pres[i] = STIFFNESS * (rho - REST_DENSITY);
     i = i + 1;
@@ -244,24 +290,23 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
 /// velocidades) + gravidade.
 function computeForces(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
                        dens: f64[], pres: f64[], fx: f64[], fy: f64[], fz: f64[],
-                       head: number[], next: number[], n: number): void {
+                       nbr: number[], nbrCnt: number[], n: number): void {
   let i = 0;
   while (i < n) {
     const ti: Transform = trs[i];
     const px = ti.px; const py = ti.py; const pz = ti.pz;
     const pi = pres[i];
     const vix = vx[i]; const viy = vy[i]; const viz = vz[i];
-    // célula BASE uma vez (ver computeDensity)
-    const bcx = ffloor(px / H); const bcy = ffloor(py / H); const bcz = ffloor(pz / H);
     let ax: f64 = 0.0; let ay: f64 = 0.0; let az: f64 = 0.0;
-    let dz = 0 - 1;
-    while (dz <= 1) {
-      let dy = 0 - 1;
-      while (dy <= 1) {
-        let dx = 0 - 1;
-        while (dx <= 1) {
-          let j = head[bucketOf(bcx + dx, bcy + dy, bcz + dz)];
-          while (j >= 0) {
+    // percorre a lista JÁ montada pela densidade — todos dentro de H
+    const base = i * MAX_NBR;
+    const cnt = nbrCnt[i];
+    let k = 0;
+    {
+      {
+        {
+          while (k < cnt) {
+            const j = nbr[base + k];
             {
               if (j !== i) {
                 const tj: Transform = trs[j];
@@ -286,13 +331,10 @@ function computeForces(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
                 }
               }
             }
-            j = next[j];
+            k = k + 1;
           }
-          dx = dx + 1;
         }
-        dy = dy + 1;
       }
-      dz = dz + 1;
     }
     fx[i] = ax;
     fy[i] = ay + GRAVITY;
