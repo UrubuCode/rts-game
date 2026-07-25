@@ -13,7 +13,22 @@ export class Scene {
   // computeWorld. Alocar por frame no laço mais quente do motor gerava
   // pressão de GC; estes são limpos (length=0 / clear) em vez de recriados.
   cIdx: number[];                    // índices dos objetos colidíveis
-  grid: Map<number, number[]>;       // hash espacial XZ -> bucket de índices
+  // ── HASH ESPACIAL em ARRAYS (não `Map`) ──────────────────────────────────
+  // Era `Map<number, number[]>`: um `Map.get` custa ~37 µs neste runtime, e o
+  // laço faz 9 por objeto móvel por frame. Com 400 móveis eram 3600 lookups =
+  // ~130 ms/frame — a colisão sozinha custava 350 ms, 60x o simulador de
+  // fluido inteiro. Lista encadeada: `gHead[célula]` é a primeira partícula da
+  // célula e `gNext[k]` a seguinte, -1 termina. Zero alocação por frame.
+  gHead: number[];   // bucket → primeiro item (-1 = célula vazia)
+  gNext: number[];   // item k de cIdx → próximo na mesma célula (-1 = fim)
+  gCell: number[];   // item k de cIdx → bucket em que foi inserido
+  gUsed: number;     // quantos itens a última passada inseriu (para limpar)
+  /// Última posição em que cada colisor foi RESOLVIDO. Um objeto que não saiu
+  /// do lugar desde o frame passado já está separado de tudo — reconsultar as
+  /// 9 células dele é trabalho jogado fora. Num RTS a maioria das unidades está
+  /// parada a qualquer instante (esperando ordem, em formação, minerando), então
+  /// isto tira a colisão do caminho quente em vez de só deixá-la mais barata.
+  lastX: f64[]; lastZ: f64[];
   done: number[];                    // flags de "já computado" do computeWorld
   /// 1 = a lista de colisores (`cIdx`) precisa ser reconstruída. A coleta
   /// varre a cena inteira lendo um campo por objeto, e num cenário de RTS a
@@ -33,7 +48,12 @@ export class Scene {
     this.name = name;
     this.objects = [];
     this.cIdx = [];
-    this.grid = new Map<number, number[]>();
+    this.gHead = [];
+    this.gNext = [];
+    this.gCell = [];
+    this.gUsed = 0;
+    this.lastX = [];
+    this.lastZ = [];
     this.done = [];
     this.trs = [];
     this.colDirty = 1;
@@ -281,21 +301,28 @@ export class Scene {
     // mais de uma célula de distância, e checar os 9 vizinhos basta.
     const cell: f64 = maxR * 2.0;
     const inv: f64 = 1.0 / cell;
-    // hash das colunas: chave = (gx, gz) empacotados. Sem Map de tupla no motor,
-    // usa-se um bucket por chave inteira via Map<number, number[]>.
-    this.grid.clear();
+    // hash das colunas: chave = (gx, gz) dobrada na tabela por AND.
+    while (this.gHead.length < CGRID_CAP) this.gHead.push(0 - 1);
+    while (this.gNext.length < m) { this.gNext.push(0 - 1); this.gCell.push(0); }
+    // 1e30 = "nunca resolvido": força a primeira passada a olhar todo mundo
+    while (this.lastX.length < this.objects.length) { this.lastX.push(1e30); this.lastZ.push(1e30); }
+    // limpa APENAS os buckets que a passada anterior sujou (no máximo m),
+    // mantendo a invariante "gHead é todo -1 na entrada"
     let k = 0;
+    while (k < this.gUsed) { this.gHead[this.gCell[k]] = 0 - 1; k = k + 1; }
+    k = 0;
     while (k < m) {
       const oi = this.cIdx[k];
-      const t = this.objects[oi].transform;
+      const t = this.trs[oi];
       const gx = mfloor(t.px * inv);
       const gz = mfloor(t.pz * inv);
-      const key = gx * 73856093 + gz * 19349663;   // hash espacial clássico
-      const b = this.grid.get(key);
-      if (b === undefined) { const nb: number[] = [oi]; this.grid.set(key, nb); }
-      else b.push(oi);
+      const b = ((gx * 73856093 + gz * 19349663) & CGRID_MASK);
+      this.gCell[k] = b;
+      this.gNext[k] = this.gHead[b];   // encadeia na frente do bucket
+      this.gHead[b] = k;
       k = k + 1;
     }
+    this.gUsed = m;
 
     // ── 3) resolve: cada objeto contra a própria célula + as 8 vizinhas ───────
     // Para não testar o mesmo par duas vezes, só olha metade da vizinhança
@@ -310,19 +337,27 @@ export class Scene {
       const oi = this.cIdx[k];
       const ob = this.objects[oi];
       if (ob.stationary !== 0) { k = k + 1; continue; }
-      const t = ob.transform;
+      const t = this.trs[oi];
+      // COLISÃO REATIVA: quem não saiu do lugar já foi separado no frame em que
+      // se mexeu, e nada pode ter vindo até ele sem que ESSE alguém se movesse —
+      // e quem se move varre a vizinhança COMPLETA, então vê o par pelo seu lado.
+      // Por isso pular o parado não perde contato nenhum.
+      const dxm = t.px - this.lastX[oi];
+      const dzm = t.pz - this.lastZ[oi];
+      if (dxm * dxm + dzm * dzm < MOVE_EPS2) { k = k + 1; continue; }
+      this.lastX[oi] = t.px; this.lastZ[oi] = t.pz;
       const gx = mfloor(t.px * inv);
       const gz = mfloor(t.pz * inv);
       // célula própria: pula a si mesmo (o par duplo móvel-móvel é inofensivo —
       // a segunda resolução vê os corpos já separados e sai no teste de esfera)
-      const self = this.grid.get(gx * 73856093 + gz * 19349663);
-      if (self !== undefined) this.collideSelf(oi, self);
+      this.collideBucket(oi, ((gx * 73856093 + gz * 19349663) & CGRID_MASK));
       // vizinhança COMPLETA (8 células)
       let dz = 0 - 1;
       while (dz <= 1) {
         let dx = 0 - 1;
         while (dx <= 1) {
-          if (dx !== 0 || dz !== 0) this.collideNeighbor(oi, gx + dx, gz + dz, inv);
+          if (dx !== 0 || dz !== 0)
+            this.collideBucket(oi, (((gx + dx) * 73856093 + (gz + dz) * 19349663) & CGRID_MASK));
           dx = dx + 1;
         }
         dz = dz + 1;
@@ -331,29 +366,16 @@ export class Scene {
     }
   }
 
-  // testa `oi` contra a própria célula, pulando ele mesmo.
-  collideSelf(oi: number, bucket: number[]): void {
-    let q = 0;
-    while (q < bucket.length) {
-      const other = bucket[q];
+  // Testa `oi` contra todos os itens de um bucket, percorrendo a lista
+  // encadeada. Substitui o antigo trio collideSelf/collideNeighbor/collidePair:
+  // com a lista não há `Map.get` nem array de bucket, e o "pula a si mesmo" do
+  // caso próprio vira um teste de índice que os vizinhos nunca disparam.
+  collideBucket(oi: number, bucket: number): void {
+    let q = this.gHead[bucket];
+    while (q >= 0) {
+      const other = this.cIdx[q];
       if (other !== oi) this.solveOne(oi, other);
-      q = q + 1;
-    }
-  }
-
-  // testa `oi` contra todos os objetos de uma célula vizinha (se existir).
-  collideNeighbor(oi: number, gx: number, gz: number, inv: f64): void {
-    const b = this.grid.get(gx * 73856093 + gz * 19349663);
-    if (b === undefined) return;
-    this.collidePair(oi, b, 0);
-  }
-
-  // testa `oi` contra bucket[from..] resolvendo cada sobreposição.
-  collidePair(oi: number, bucket: number[], from: number): void {
-    let q = from;
-    while (q < bucket.length) {
-      this.solveOne(oi, bucket[q]);
-      q = q + 1;
+      q = this.gNext[q];
     }
   }
 
@@ -435,6 +457,15 @@ function radiusOf(t: Transform): f64 {
 
 // floor pra inteiro que funciona com negativos (o `|0` trunca em direção a zero,
 // o que faria as células -0.5 e +0.5 caírem na mesma faixa).
+/// Tamanho da tabela do hash espacial da colisão (potência de 2: o AND é
+/// barato). Nome com prefixo CGRID porque um `const` de topo COLIDE em silêncio
+/// entre módulos neste runtime — já nos custou um bug caro.
+/// Movimento mínimo (ao quadrado) para um objeto reconsultar a vizinhança.
+/// Bem abaixo de um passo de unidade, mas acima do jitter de ponto flutuante.
+const MOVE_EPS2: f64 = 0.000001;
+const CGRID_CAP = 8192;
+const CGRID_MASK = 8191;
+
 function mfloor(v: f64): number {
   const t = v | 0;
   if (v < 0.0 && (t * 1.0) !== v) return t - 1;
