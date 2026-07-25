@@ -530,8 +530,10 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     const vn = rvx * nx + rvy * ny + rvz * nz;
     // vn > 0 = já se afastando: resolver de novo os grudaria
     if (vn < 0.0) {
-      let e: f64 = ta.restitution;
-      if (tb.restitution < e) e = tb.restitution;   // o menos elástico manda
+      // MÉDIA, não mínimo. Com mínimo, uma bola de borracha (0.9) num chão de
+      // concreto (0.1) daria 0.1 e não quicaria — o material do chão apagava o
+      // da bola. A média é o que engines usam e preserva a intenção dos dois.
+      const e: f64 = (ta.restitution + tb.restitution) * 0.5;
       const j: f64 = (0.0 - (1.0 + e)) * vn / imSum;
       ta.vx = ta.vx - nx * j * imA;
       ta.vy = ta.vy - ny * j * imA;
@@ -543,8 +545,10 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
       // ATRITO: freia a componente TANGENCIAL (o que sobra depois de tirar a
       // normal). É o que faz um corpo parar de deslizar sobre o chão em vez de
       // patinar para sempre.
-      let f: f64 = ta.friction;
-      if (tb.friction < f) f = tb.friction;
+      // MÉDIA GEOMÉTRICA (o padrão em engines): gelo (0.05) contra borracha
+      // (0.9) dá 0.21 — escorregadio, dominado pelo gelo, mas não zero. A
+      // média aritmética daria 0.47, que "sente" como asfalto.
+      const f: f64 = math.sqrt(ta.friction * tb.friction);
       if (f > 0.0) {
         const tvx = rvx - nx * vn;
         const tvy = rvy - ny * vn;

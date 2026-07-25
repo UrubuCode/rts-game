@@ -9,6 +9,7 @@ import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";
 import { Animator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "../scripts/animator";
 import { Rigidbody } from "../scripts/rigidbody";
+import { PhysicsMaterial, MAT_RUBBER, MAT_ICE, MAT_STONE, MAT_WOOD } from "../scripts/physicsmaterial";
 
 let pass = 0;
 let fail = 0;
@@ -584,6 +585,84 @@ io.print("== ANTI-TUNNELING: corpo rapido nao atravessa o chao ==");
   io.print("  caiu de y=60, parou em y=" + b.transform.py);
   ok("  o colisor segurou (nao atravessou)", b.transform.py > 0.5 ? 1 : 0);
   ok("  parou na altura certa (~1.3)", b.transform.py > 1.0 && b.transform.py < 1.6 ? 1 : 0);
+}
+
+io.print("");
+io.print("== MATERIAL FISICO: massa = densidade x volume ==");
+{
+  // Antes a massa era um campo solto do Transform com default 1 para TUDO.
+  // Agora sai do material e da escala: uma pedra grande pesa mais que uma
+  // pequena sem o usuario calcular nada.
+  scene.clear();
+  const p = new GameObject("Pedra"); p.setMesh(1,1,1,1); p.transform.setScale(1.0);
+  p.addBehavior(new PhysicsMaterial(MAT_STONE)); scene.add(p);
+  const g = new GameObject("Grande"); g.setMesh(1,1,1,1); g.transform.setScale(4.0);
+  g.addBehavior(new PhysicsMaterial(MAT_STONE)); scene.add(g);
+  const m = new GameObject("Madeira"); m.setMesh(1,1,1,1); m.transform.setScale(1.0);
+  m.addBehavior(new PhysicsMaterial(MAT_WOOD)); scene.add(m);
+  scene.update(0.016);
+  io.print("  pedra=" + p.transform.mass + " grande=" + g.transform.mass + " madeira=" + m.transform.mass);
+  ok("  4x a escala = 64x a massa", g.transform.mass > p.transform.mass * 63.0 ? 1 : 0);
+  ok("  pedra mais densa que madeira", p.transform.mass > m.transform.mass ? 1 : 0);
+}
+
+io.print("== MATERIAL: borracha QUICA em chao de pedra ==");
+{
+  // A combinacao e MEDIA, nao minimo. Com minimo, borracha(0.85) contra
+  // pedra(0.15) daria 0.15 — o chao apagava o material da bola e ela morria
+  // no primeiro toque.
+  scene.clear();
+  const ch = new GameObject("Chao"); ch.setMesh(1,1,1,1);
+  ch.transform.setPosition(0.0,0.0,0.0);
+  ch.transform.sx=40.0; ch.transform.sy=1.0; ch.transform.sz=40.0;
+  ch.stationary=1; ch.addBehavior(new PhysicsMaterial(MAT_STONE)); scene.add(ch);
+  const b = new GameObject("Bola"); b.setMesh(4,1,1,1);
+  b.transform.setPosition(0.0, 10.0, 0.0); b.transform.setScale(1.0);
+  b.addBehavior(new PhysicsMaterial(MAT_RUBBER)); scene.add(b);
+  let hit = 0; let maxAfter = 0.0-99.0;
+  let s = 0;
+  while (s < 300) {
+    scene.update(0.016);
+    b.transform.vy = b.transform.vy - 9.8 * 0.016;
+    b.transform.py = b.transform.py + b.transform.vy * 0.016;
+    scene.computeWorld(); scene.resolveCollisions();
+    if (b.transform.py < 1.2) hit = 1;
+    if (hit !== 0 && b.transform.py > maxAfter) maxAfter = b.transform.py;
+    s = s + 1;
+  }
+  io.print("  subiu ate y=" + maxAfter);
+  ok("  quicou de verdade", maxAfter > 2.0 ? 1 : 0);
+}
+
+io.print("== MATERIAL: gelo escorrega mais que pedra ==");
+{
+  // Atrito combina por MEDIA GEOMETRICA (padrao em engines): gelo contra gelo
+  // e escorregadio, pedra contra pedra trava.
+  const slide = (mat: number): f64 => {
+    scene.clear();
+    const ch = new GameObject("Chao"); ch.setMesh(1,1,1,1);
+    ch.transform.setPosition(0.0,0.0,0.0);
+    ch.transform.sx=80.0; ch.transform.sy=1.0; ch.transform.sz=80.0;
+    ch.stationary=1; ch.addBehavior(new PhysicsMaterial(mat)); scene.add(ch);
+    const c = new GameObject("Caixa"); c.setMesh(1,1,1,1);
+    c.transform.setPosition(0.0, 1.0, 0.0); c.transform.setScale(1.0);
+    c.transform.vx = 12.0;
+    c.addBehavior(new PhysicsMaterial(mat)); scene.add(c);
+    let s = 0;
+    while (s < 150) {
+      scene.update(0.016);
+      c.transform.vy = c.transform.vy - 9.8 * 0.016;
+      c.transform.px = c.transform.px + c.transform.vx * 0.016;
+      c.transform.py = c.transform.py + c.transform.vy * 0.016;
+      scene.computeWorld(); scene.resolveCollisions();
+      s = s + 1;
+    }
+    return c.transform.px;
+  };
+  const dIce = slide(MAT_ICE);
+  const dStone = slide(MAT_STONE);
+  io.print("  gelo=" + dIce + " pedra=" + dStone);
+  ok("  o gelo escorrega mais", dIce > dStone ? 1 : 0);
 }
 
 io.print("");
