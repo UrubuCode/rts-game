@@ -425,12 +425,23 @@ function integrate(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
     const sp2 = ux * ux + uy * uy + uz * uz;
     if (sp2 < SLEEP_SPEED2) { ux = 0.0; uy = 0.0; uz = 0.0; }
     let nz = t.pz + uz * dt;
-    // paredes: reposiciona na borda e inverte a velocidade amortecida
-    if (nx < minX) { nx = minX; ux = 0.0 - ux * WALL_DAMP; }
-    else if (nx > maxX) { nx = maxX; ux = 0.0 - ux * WALL_DAMP; }
-    if (nz < minZ) { nz = minZ; uz = 0.0 - uz * WALL_DAMP; }
-    else if (nz > maxZ) { nz = maxZ; uz = 0.0 - uz * WALL_DAMP; }
-    if (ny < minY) { ny = minY; uy = 0.0 - uy * WALL_DAMP; }
+    // ── PAREDES ───────────────────────────────────────────────────────────
+    // A parede ABSORVE a componente normal em vez de REFLETI-LA. Refletir
+    // (`u = -u * damp`, o que estava aqui) devolve a partícula para dentro com
+    // energia; a pressão do líquido a empurra contra a parede de novo, e o
+    // ciclo se repete — ela quica para sempre.
+    //
+    // Medido: após assentar, as 81 partículas encostadas na parede tinham
+    // |v| = 0.193 e as 43 do fundo 0.217, enquanto as 43 do MEIO estavam em
+    // ZERO. O líquido inteiro parecia agitado por causa das bordas.
+    //
+    // Um líquido real não quica na parede do copo: ele escorrega ao longo dela.
+    // Zerar só a componente normal preserva o escorregamento tangencial.
+    if (nx < minX) { nx = minX; if (ux < 0.0) ux = 0.0; }
+    else if (nx > maxX) { nx = maxX; if (ux > 0.0) ux = 0.0; }
+    if (nz < minZ) { nz = minZ; if (uz < 0.0) uz = 0.0; }
+    else if (nz > maxZ) { nz = maxZ; if (uz > 0.0) uz = 0.0; }
+    if (ny < minY) { ny = minY; if (uy < 0.0) uy = 0.0; }
     t.px = nx; t.py = ny; t.pz = nz;
     vx[i] = ux; vy[i] = uy; vz[i] = uz;
     i = i + 1;
