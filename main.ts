@@ -86,6 +86,29 @@ function wrapDeg(d: f64): f64 {
 }
 
 // posiciona a câmera do editor pra ENQUADRAR o objeto idx (Unity "frame selected").
+/// Cria um objeto pelo menu de contexto e o seleciona. `kind` é a malha
+/// (0=vazio, 1=cubo, 2=pirâmide, 3=octaedro, 4=esfera) e `parentIdx` o pai
+/// (-1 = raiz). Nasce à frente da câmera, não na origem: criar na origem faz o
+/// objeto aparecer fora da tela quando a câmera já foi movida — o usuário clica
+/// em "criar" e não vê nada acontecer.
+function ctxCreate(name: string, kind: number, r: number, g: number, b: number,
+                   parentIdx: number): GameObject {
+  history.snapshot();
+  const o = new GameObject(name + "." + spawnN);
+  spawnN = spawnN + 1;
+  if (kind > 0) o.setMesh(kind, r, g, b);
+  const cy = math.cos(S.camYaw); const sy = math.sin(S.camYaw);
+  const cp = math.cos(S.camPitch); const sp = math.sin(S.camPitch);
+  o.transform.setPosition(S.camX + sy * cp * 8.0, S.camY + sp * 8.0, S.camZ + cy * cp * 8.0);
+  scene.add(o);
+  if (parentIdx >= 0 && parentIdx < scene.objects.length - 1) {
+    o.parent = parentIdx;
+    o.refreshCollide();
+  }
+  S.selected = scene.objects.length - 1;
+  return o;
+}
+
 function frameObject(idx: number): void {
   if (idx < 0 || idx >= scene.objects.length) return;
   const o = scene.objects[idx];
@@ -229,6 +252,16 @@ function containsCI(name: string, filter: string): boolean {
   return false;
 }
 let hierDrag = 0 - 1;
+// ── MENU DE CONTEXTO da hierarquia (botão direito, como na Unity) ──────────
+// Antes só dava para criar Cubo e Esfera, pelos dois botões fixos da barra:
+// pirâmide, octaedro, luz e câmera só existiam via WebSocket. `ctxOn` = aberto,
+// `ctxX/ctxY` = canto onde abriu, `ctxTarget` = linha clicada (-1 = área vazia,
+// o que cria na raiz em vez de como filho).
+let ctxOn = 0;
+let ctxX = 0;
+let ctxY = 0;
+let ctxTarget = 0 - 1;
+
 let hierLastClick = 0 - 1;      // duplo-clique na hierarquia (enquadra a câmera)
 let hierLastClickFrame = 0 - 999;
 let lastMx: f64 = 0.0;
@@ -344,6 +377,8 @@ function frame(): void {
 
   // ── PICKING + DRAG: pressionar seleciona; segurando, ARRASTA o objeto ───────
   const mPressed = input.mousePressed(WIN, 0);
+  // botão DIREITO: abre/fecha o menu de contexto da hierarquia
+  const mRight = input.mousePressed(WIN, 1);
   const mDownNow = input.mouseDown(WIN, 0);
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
@@ -845,6 +880,10 @@ function frame(): void {
     const indent = depth * 16;
     const ry0 = BAR_H + 52 + hi * 26;
     const inRow = mx < HIER_W && my >= ry0 && my < ry0 + 26;
+    // botão DIREITO sobre a linha: abre o menu de contexto mirando este objeto
+    if (mRight !== 0 && inRow && dndOn === 0) {
+      ctxOn = 1; ctxX = mx | 0; ctxY = my | 0; ctxTarget = hi; S.selected = hi;
+    }
     if (mPressed !== 0 && inRow && dndOn === 0) {
       // duplo-clique = enquadra a câmera no objeto (Unity "F"); simples = seleciona
       const dbl = (hi === hierLastClick && frames - hierLastClickFrame < 24) ? 1 : 0;
@@ -873,6 +912,12 @@ function frame(): void {
     if (obj.meshKind === 4) icon = "[S]";
     app.text(14 + indent, ry0 + 6, icon + " " + obj.name, 0xC8C8C8FF, 13);
     hi = hi + 1;
+  }
+  // clique DIREITO na área vazia da hierarquia: menu criando na RAIZ
+  if (mRight !== 0 && mx < HIER_W && my > BAR_H + 52 && dndOn === 0) {
+    let overRow = 0;
+    if (my < BAR_H + 52 + hRowLast * 26) overRow = 1;
+    if (overRow === 0) { ctxOn = 1; ctxX = mx | 0; ctxY = my | 0; ctxTarget = 0 - 1; }
   }
   // avisa que há mais objetos além do que cabe na lista (não sumiram)
   if (hRowLast < scene.objects.length) {
@@ -1188,6 +1233,76 @@ function frame(): void {
     // o "fantasma" com o nome do arquivo só aparece quando NÃO há preview 3D:
     // dentro do viewport o próprio objeto renderizado já é a prévia.
     if (previewIdx < 0) drawAssetDragGhost(WIN, mx, my);
+  }
+
+  // ── MENU DE CONTEXTO (por último: fica ACIMA de tudo) ─────────────────────
+  // Desenhado no fim do frame de propósito — a UI é imediata, então quem desenha
+  // depois cobre. Um menu que aparecesse sob a lista seria inclicável.
+  if (ctxOn !== 0) {
+    const CW = 168;
+    const items = 8;
+    const CH = 12 + items * 24;
+    let cx = ctxX;
+    let cy = ctxY;
+    if (cx + CW > W) cx = W - CW - 4;          // não vaza pela direita
+    if (cy + CH > H) cy = H - CH - 4;          // nem por baixo
+    app.box(cx, cy, CW, CH, 0x252525FF, 1, 0x3C3C3CFF, 4);
+    // cabeçalho: mostra SE vai criar como filho, e de quem
+    let head = "Criar na raiz";
+    if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
+      head = "Filho de " + subStr(scene.objects[ctxTarget].name, 0, 14);
+    }
+    app.text(cx + 10, cy + 6, head, 0x8AA0BFFF, 11);
+    let iy = cy + 24;
+    let clicked = 0 - 1;
+    let n = 0;
+    while (n < items) {
+      const st = app.clickable(1400 + n, cx + 4, iy, CW - 8, 22);
+      if (st === 1 || st === 2) app.box(cx + 4, iy, CW - 8, 22, 0x3A5A8AFF, 0, 0, 3);
+      if (st === 3) clicked = n;
+      iy = iy + 24;
+      n = n + 1;
+    }
+    // rótulos (mesma ordem do índice tratado abaixo)
+    let ly = cy + 24;
+    app.text(cx + 12, ly + 4, "Cubo", 0xC8C8C8FF, 12); ly = ly + 24;
+    app.text(cx + 12, ly + 4, "Esfera", 0xC8C8C8FF, 12); ly = ly + 24;
+    app.text(cx + 12, ly + 4, "Piramide", 0xC8C8C8FF, 12); ly = ly + 24;
+    app.text(cx + 12, ly + 4, "Octaedro", 0xC8C8C8FF, 12); ly = ly + 24;
+    app.text(cx + 12, ly + 4, "Objeto vazio", 0xC8C8C8FF, 12); ly = ly + 24;
+    app.text(cx + 12, ly + 4, "Camera", 0xC8C8C8FF, 12); ly = ly + 24;
+    app.text(cx + 12, ly + 4, "Duplicar", 0xC8C8C8FF, 12); ly = ly + 24;
+    app.text(cx + 12, ly + 4, "Deletar", 0xE08080FF, 12);
+
+    if (clicked >= 0) {
+      if (clicked === 0) ctxCreate("Cube", 1, 150, 180, 220, ctxTarget);
+      else if (clicked === 1) ctxCreate("Sphere", 4, 220, 170, 150, ctxTarget);
+      else if (clicked === 2) ctxCreate("Pyramid", 2, 170, 210, 170, ctxTarget);
+      else if (clicked === 3) ctxCreate("Octa", 3, 200, 180, 230, ctxTarget);
+      else if (clicked === 4) ctxCreate("Empty", 0, 0, 0, 0, ctxTarget);
+      else if (clicked === 5) {
+        const cam = ctxCreate("Camera", 0, 0, 0, 0, ctxTarget);
+        cam.addBehavior(createComponent("Camera"));
+      } else if (clicked === 6) {
+        if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
+          history.snapshot();
+          const g = cloneObject(scene.objects[ctxTarget]);
+          g.transform.px = g.transform.px + 1.0;
+          scene.add(g);
+          S.selected = scene.objects.length - 1;
+        }
+      } else if (clicked === 7) {
+        if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
+          history.snapshot();
+          scene.removeAt(ctxTarget);
+          if (S.selected >= scene.objects.length) S.selected = scene.objects.length - 1;
+        }
+      }
+      ctxOn = 0;
+    }
+    // clique FORA (ou botão direito de novo) fecha sem fazer nada
+    const overMenu = mx >= cx && mx < cx + CW && my >= cy && my < cy + CH;
+    if ((mPressed !== 0 || mRight !== 0) && !overMenu) ctxOn = 0;
   }
 
   app.endFrame();
