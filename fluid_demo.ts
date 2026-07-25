@@ -30,8 +30,12 @@ S.win = WIN;
 initMeshes(WIN);
 
 // ── tanque ────────────────────────────────────────────────────────────────
-const TANK_X: f64 = 7.0;    // meia-largura
-const TANK_Z: f64 = 5.0;    // meia-profundidade
+const TANK_X: f64 = 2.6;    // meia-largura
+const TANK_Z: f64 = 2.2;    // meia-profundidade
+// O tanque era 7x5 e o líquido virava uma POÇA de uma partícula de espessura:
+// 364 partículas cabem numa única camada dessa área, e só há 168. Fisicamente
+// correto, visualmente decepcionante — não parece líquido, parece bolinhas
+// espalhadas. Estreitando, o mesmo volume forma profundidade.
 const FLOOR_Y: f64 = 0.5;
 
 // chão + 4 paredes (visuais; a contenção do líquido é feita por `setBounds`)
@@ -58,9 +62,12 @@ wall("ParedeF", 0.0, 2.5, TANK_Z + 0.4, TANK_X * 2.0 + 1.0, 5.0, 0.5, 80, 90, 10
 // resto é a matemática SPH de verdade. 168 é onde o passo cabe num frame de
 // 60 fps com folga para o render; ver UrubuCode/rts#1997 para o custo por
 // acesso a campo, que é o que fixa esse teto.
-const COLS = 8;
-const ROWS = 7;
-const LAYERS = 3;
+// A coluna nasce como um BLOCO no canto do tanque e desaba (dam break). 6x14x2
+// = 168, as mesmas partículas de antes, mas ALTAS e estreitas: é o formato que
+// mostra o colapso, e cabe no tanque de 5.2 x 4.4.
+const COLS = 6;
+const ROWS = 14;
+const LAYERS = 2;
 const SPACING: f64 = 0.62;
 const PARTICLE_SCALE: f64 = 0.62;
 
@@ -77,7 +84,7 @@ function spawnColumn(): void {
         const shade = 40 + (r * 6);
         o.setMesh(4, 60, 130 + (shade / 3), 210 + (shade / 8));
         o.transform.setPosition(
-          0.0 - TANK_X + 0.7 + c * SPACING,
+          0.0 - TANK_X + 0.5 + c * SPACING,
           FLOOR_Y + 0.35 + r * SPACING,
           0.0 - (LAYERS - 1) * SPACING * 0.5 + l * SPACING
         );
@@ -102,8 +109,8 @@ io.print("[liquido] " + N_PART + " particulas (" + COLS + "x" + ROWS + "x" + LAY
 io.print("[liquido] WASD voa | botao DIR gira | ESPACO sobe | R reinicia");
 
 // ── câmera ────────────────────────────────────────────────────────────────
-S.camX = 0.0; S.camY = 9.0; S.camZ = 0.0 - 18.0;
-S.camYaw = 0.0; S.camPitch = 0.0 - 0.35;
+S.camX = 0.0; S.camY = 5.0; S.camZ = 0.0 - 9.0;
+S.camYaw = 0.0; S.camPitch = 0.0 - 0.38;
 S.lightX = 8.0; S.lightY = 16.0; S.lightZ = 0.0 - 10.0; S.lightAmb = 0.34;
 setVsync(WIN, 1);
 
@@ -152,7 +159,7 @@ function frame(): void {
           if (idx <= lastParticle) {
             const t: Transform = scene.objects[idx].transform;
             t.setPosition(
-              0.0 - TANK_X + 0.7 + c * SPACING,
+              0.0 - TANK_X + 0.5 + c * SPACING,
               FLOOR_Y + 0.35 + r * SPACING,
               0.0 - (LAYERS - 1) * SPACING * 0.5 + l * SPACING
             );

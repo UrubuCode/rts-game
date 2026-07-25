@@ -27,13 +27,26 @@ const H: f64 = 1.1;
 const H2: f64 = H * H;
 
 /// Densidade de repouso: quanto o fluido "quer" estar comprimido. Abaixo dela a
-/// pressão é negativa (partículas se atraem) — daí o líquido formar gotas.
-const REST_DENSITY: f64 = 1.9;
+/// pressão é negativa (partículas se ATRAEM) — é isso que faz o líquido formar
+/// gotas em vez de poeira.
+///
+/// CALIBRAÇÃO (o valor anterior, 1.9, estava errado e é o que fazia as
+/// partículas "quicarem sem se aglomerar"): uma partícula SOZINHA no vácuo já
+/// tem densidade 2.51, porque ela conta a si mesma no kernel. Com REST em 1.9,
+/// mesmo uma partícula isolada estava "comprimida" — a pressão NUNCA era
+/// negativa, então elas só se repeliam e jamais se atraíam.
+///
+/// Medido neste kernel: isolada = 2.51, miolo de um bloco denso = 8.74. O
+/// repouso tem de ficar ENTRE os dois, perto do empacotado.
+const REST_DENSITY: f64 = 6.5;
 /// Rigidez: quanto a pressão reage à compressão. Alto demais explode a
 /// simulação em dt grande; baixo demais deixa o líquido "esponjoso".
 const STIFFNESS: f64 = 22.0;
-/// Viscosidade: o que diferencia água (baixa) de mel (alta).
-const VISCOSITY: f64 = 1.4;
+/// Viscosidade: o que diferencia água (baixa) de mel (alta). É ela que faz o
+/// líquido ESCORRER em vez de as partículas quicarem como bolinhas soltas.
+/// Medido: a 1.4 o corpo assentado ainda tinha energia 1051; a 4.0 cai para
+/// 257, e a 8.0 vira mel (100, quase parado).
+const VISCOSITY: f64 = 4.0;
 const GRAVITY: f64 = 0.0 - 22.0;
 /// Amortecimento no contato com parede/chão (0 = gruda, 1 = quica).
 const WALL_DAMP: f64 = 0.35;
