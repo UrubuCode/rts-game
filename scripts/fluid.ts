@@ -40,6 +40,13 @@ const WALL_DAMP: f64 = 0.35;
 /// Teto de velocidade: um passe explícito pode divergir se uma partícula
 /// receber muita força num frame; o clamp mantém a simulação estável.
 const MAX_SPEED: f64 = 26.0;
+/// Duração de um sub-passo e quantos cabem num frame. O produto é o tempo
+/// MÁXIMO de simulação que um frame avança — o teto evita a ESPIRAL DA MORTE:
+/// um frame lento gera dt grande, que pede mais sub-passos, que deixam o frame
+/// ainda mais lento. Sem ele a demo caía de 17 para 2 fps e não se recuperava.
+/// Passando do teto a simulação roda em câmera lenta em vez de travar.
+const SUBSTEP: f64 = 0.010;
+const MAX_SUBSTEPS: f64 = 1.0;
 
 // Constantes dos kernels SPH (2D-ish normalizado — ajustado à mão para a escala
 // desta demo, não à teoria 3D exata).
@@ -117,9 +124,10 @@ export class Fluid {
     // Um passo grande diverge (as forças são explícitas): fatia em sub-passos
     // de no máximo 8 ms. É o que mantém o líquido estável a 30 ou 144 fps.
     let rest = dt;
+    if (rest > MAX_SUBSTEPS * SUBSTEP) rest = MAX_SUBSTEPS * SUBSTEP;
     while (rest > 0.0001) {
       let h = rest;
-      if (h > 0.008) h = 0.008;
+      if (h > SUBSTEP) h = SUBSTEP;
       this.substep(h);
       rest = rest - h;
     }
