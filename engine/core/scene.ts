@@ -26,6 +26,14 @@ export class Scene {
   gNext: number[];   // item k de cIdx → próximo na mesma célula (-1 = fim)
   gCell: number[];   // item k de cIdx → bucket em que foi inserido
   gUsed: number;     // quantos itens a última passada inseriu (para limpar)
+  /// NÃO TENTE de novo (ambas medidas e revertidas): pular a REMONTAGEM do grid
+  /// quando ninguém trocou de célula piora. Com um passe de verificação próprio,
+  /// 2,16 s -> 2,71 s (o passe custa mais que a remontagem que evita). Derivando
+  /// o sinal do próprio passe de resolução, o caso parado melhora (2,16 ->
+  /// 1,79 s) mas os outros pioram muito (50/500 andando: 3,73 -> 3,77 s;
+  /// 500/500: 12,3 -> 13,1 s), porque UM objeto que se mova já suja o grid
+  /// inteiro. A remontagem é O(n) com constante baixa; não vale proteger.
+  ///
   /// Última posição em que cada colisor foi RESOLVIDO. Um objeto que não saiu
   /// do lugar desde o frame passado já está separado de tudo — reconsultar as
   /// 9 células dele é trabalho jogado fora. Num RTS a maioria das unidades está
