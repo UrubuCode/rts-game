@@ -8,6 +8,7 @@ import math from "rts:math";
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";
 import { Animator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "../scripts/animator";
+import { Rigidbody } from "../scripts/rigidbody";
 
 let pass = 0;
 let fail = 0;
@@ -559,6 +560,30 @@ io.print("== ANIMATOR: modos de loop ==");
   while (s < 60) { scene.update(0.016); s = s + 1; }   // ~1s, bem alem de 0.2
   ok("  loop=0 para no ultimo valor", o.transform.py === 10.0 ? 1 : 0);
   ok("  loop=0 marca como parado", a.playing === 0.0 ? 1 : 0);
+}
+
+io.print("");
+io.print("== ANTI-TUNNELING: corpo rapido nao atravessa o chao ==");
+{
+  // Um corpo rapido o bastante percorre mais que a espessura do colisor num
+  // frame e passa direto — e, uma vez abaixo, a gravidade o acelera para
+  // sempre. Apareceu com a bola caindo de alto SEM o chao implicito: ia a
+  // y=-8806. O teto de velocidade do Rigidbody e o que impede.
+  scene.clear();
+  const chao = new GameObject("Chao"); chao.setMesh(1,70,80,95);
+  chao.transform.setPosition(0.0,0.0,0.0);
+  chao.transform.sx = 40.0; chao.transform.sy = 1.0; chao.transform.sz = 40.0;
+  chao.stationary = 1; scene.add(chao);
+  const b = new GameObject("Bola"); b.setMesh(4,240,170,90);
+  b.transform.setPosition(0.0, 60.0, 0.0); b.transform.setScale(1.6);
+  const rb = new Rigidbody(0.0 - 9.8, 0.85);
+  rb.floorY = 0.0 - 1e9;         // desliga a rede: quem segura e o COLISOR
+  b.addBehavior(rb); scene.add(b);
+  let s = 0;
+  while (s < 400) { scene.update(0.016); scene.computeWorld(); scene.resolveCollisions(); s = s + 1; }
+  io.print("  caiu de y=60, parou em y=" + b.transform.py);
+  ok("  o colisor segurou (nao atravessou)", b.transform.py > 0.5 ? 1 : 0);
+  ok("  parou na altura certa (~1.3)", b.transform.py > 1.0 && b.transform.py < 1.6 ? 1 : 0);
 }
 
 io.print("");

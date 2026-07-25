@@ -11,6 +11,9 @@
 import { Behavior } from "../engine/core/behavior";
 import math from "rts:math";
 
+/// Velocidade máxima de queda (ver o teto anti-tunneling em `update`).
+const MAX_FALL: f64 = 60.0;
+
 export class Rigidbody extends Behavior {
   g: f64;        // gravidade (negativa)
   bounce: f64;   // restituição (0 = não quica, 1 = elástico)
@@ -39,6 +42,16 @@ export class Rigidbody extends Behavior {
     t.mass = this.mass;
     t.restitution = this.bounce;
     t.vy = t.vy + this.g * dt;
+    // TETO DE VELOCIDADE (anti-tunneling). Um corpo rápido o bastante percorre
+    // mais que a espessura do colisor num único frame e o ATRAVESSA — e, uma vez
+    // abaixo do chão, a gravidade o acelera para sempre. Medido: com vy=-200 a
+    // bola passava direto por um chão de 1 unidade e ia a y=-59 em 20 frames.
+    //
+    // O teto é a solução barata e estável (o correto seria varredura contínua,
+    // que custa uma raiz por par e não cabe no orçamento do broad-phase atual).
+    // 60 u/s a 60 fps = 1 unidade por frame: qualquer colisor mais espesso que
+    // isso é sempre visto.
+    if (t.vy < 0.0 - MAX_FALL) t.vy = 0.0 - MAX_FALL;
     if (this.drag > 0.0) {
       let k: f64 = 1.0 - this.drag * dt;
       if (k < 0.0) k = 0.0;
