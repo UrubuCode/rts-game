@@ -564,6 +564,7 @@ function frame(): void {
   // `o.campo` usa offset constante em vez do caminho dinâmico de propriedade
   // (medido: 3,9x mais rápido por leitura). Sem a anotação o tipo se perde.
   const objs: GameObject[] = scene.objects;
+  const trs: Transform[] = scene.trs;   // espelho paralelo (ver Scene.trs)
   const objsN = objs.length;
   while (oi < objsN) {
     const o = objs[oi];
@@ -571,7 +572,7 @@ function frame(): void {
     // testada ANTES do dispatch virtual do MeshRenderer/Material, que era pago
     // por objeto mesmo pros que nem seriam desenhados.
     if (o.active === 0) { oi = oi + 1; continue; }
-    const tr: Transform = o.transform;   // tipado: campos por offset constante
+    const tr: Transform = trs[oi];   // espelho: evita o hop `o.transform`
     let rmax: f64 = tr.sx;
     if (tr.sy > rmax) rmax = tr.sy;
     if (tr.sz > rmax) rmax = tr.sz;

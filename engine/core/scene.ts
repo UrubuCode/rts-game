@@ -15,6 +15,11 @@ export class Scene {
   cIdx: number[];                    // índices dos objetos colidíveis
   grid: Map<number, number[]>;       // hash espacial XZ -> bucket de índices
   done: number[];                    // flags de "já computado" do computeWorld
+  /// Array PARALELO a `objects` com os transforms. Chegar ao transform por
+  /// `objects[i].transform` paga um acesso a campo (~2 µs) por objeto, todo
+  /// frame; lê-lo de um array direto custa ~4x menos. Mantido em sincronia por
+  /// `add`/`removeAt`/`moveSubtree` — as três únicas mutações da lista.
+  trs: Transform[];
 
   constructor(name: string) {
     this.name = name;
@@ -22,11 +27,13 @@ export class Scene {
     this.cIdx = [];
     this.grid = new Map<number, number[]>();
     this.done = [];
+    this.trs = [];
   }
 
   add(go: GameObject): GameObject {
     go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
+    this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
     go.mount();
     return go;
   }
@@ -42,6 +49,7 @@ export class Scene {
   /// Esvazia a cena (pra carregar outra por cima).
   clear(): void {
     this.objects = [];
+    this.trs = [];
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
@@ -121,6 +129,10 @@ export class Scene {
     }
     // aplica + remapeia parent por referência
     this.objects = order;
+    // o espelho de transforms segue a NOVA ordem (ver `trs`)
+    this.trs.length = 0;
+    let ti = 0;
+    while (ti < order.length) { this.trs.push(order[ti].transform); ti = ti + 1; }
     let j = 0;
     while (j < order.length) {
       const o = order[j];
@@ -151,10 +163,11 @@ export class Scene {
       const o = this.objects[k];
       if (o.parent === i) { o.parent = 0 - 1; o.refreshCollide(); }   // filho do removido vira raiz
       else if (o.parent > i) o.parent = o.parent - 1; // índices acima deslocam (raiz-ness não muda)
-      if (k !== i) { this.objects[w] = o; w = w + 1; }
+      if (k !== i) { this.objects[w] = o; this.trs[w] = o.transform; w = w + 1; }
       k = k + 1;
     }
     this.objects.length = w;
+    this.trs.length = w;
   }
 
   /// Índice do objeto ATIVO que carrega a câmera principal (-1 = nenhuma).
@@ -195,7 +208,7 @@ export class Scene {
     // vira uma leitura DINÂMICA de propriedade. Medido com 500 objetos × 300
     // frames: 3,8 s como método contra 1,1 s como função livre — 3,3x, com a
     // lógica idêntica.
-    computeWorldInto(this.objects, this.done);
+    computeWorldInto(this.objects, this.trs, this.done);
   }
 
   /// Colisão esfera-esfera entre objetos (raio = escala*0.5). Sobreposição:
@@ -227,7 +240,7 @@ export class Scene {
     // acessos a campo caem no caminho dinâmico.
     // Os "retornos" saem por vars de módulo em vez de um array novo por frame:
     // alocar no laço mais quente do motor gerava pressão de GC à toa.
-    collectColliders(objs, this.cIdx);
+    collectColliders(objs, this.trs, this.cIdx);
     const maxR: f64 = ccMaxR;
     const movers = ccMovers;
     const m = this.cIdx.length;
@@ -395,7 +408,7 @@ function mfloor(v: f64): number {
 /// parâmetros anotados o compilador conhece o shape e lê cada campo por offset
 /// constante. Mesma lógica, 3,3x mais rápido (500 objetos × 300 frames:
 /// 3,8 s → 1,1 s).
-function computeWorldInto(objs: GameObject[], done: number[]): void {
+function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]): void {
   const n = objs.length;
   let k = 0;
   while (k < n) { done[k] = 0; k = k + 1; }
@@ -409,7 +422,7 @@ function computeWorldInto(objs: GameObject[], done: number[]): void {
   let i = 0;
   while (i < n) {
     const o = objs[i];
-    const t: Transform = o.transform;
+    const t: Transform = trs[i];   // espelho paralelo: evita o hop `o.transform`
     const par = o.parent;
     if (par < 0 || par >= n) {
       if (t.wx !== t.px || t.wy !== t.py || t.wz !== t.pz || t.wrx !== t.rx || t.wry !== t.ry) {
@@ -464,7 +477,7 @@ function updateAll(objs: GameObject[], dt: f64): void {
 let ccMaxR: f64 = 0.0001;
 let ccMovers = 0;
 
-function collectColliders(objs: GameObject[], out: number[]): void {
+function collectColliders(objs: GameObject[], trs: Transform[], out: number[]): void {
   const n = objs.length;
   let maxR: f64 = 0.0001;
   let movers = 0;
@@ -477,7 +490,7 @@ function collectColliders(objs: GameObject[], out: number[]): void {
     if (o.collideFlag !== 0) {
       out.push(i);
       if (o.stationary === 0) movers = movers + 1;
-      const t: Transform = o.transform;
+      const t: Transform = trs[i];   // espelho paralelo (ver `trs`)
       const r: f64 = t.sx * 0.5;
       if (r > maxR) maxR = r;
     }

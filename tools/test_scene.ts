@@ -254,6 +254,42 @@ io.print("== REMOVEAT: indice invalido e ignorado ==");
   ok("  cena intacta", scene.objects.length === 1 ? 1 : 0);
 }
 
+io.print("== ESPELHO trs[]: acompanha objects[] em toda mutacao ==");
+{
+  // O espelho paralelo de transforms (Scene.trs) é o que faz os laços quentes
+  // pularem o hop `objects[i].transform`. Se ele divergir da lista, o motor
+  // move o objeto ERRADO — e silenciosamente. Estes testes travam isso.
+  scene.clear();
+  const a = mk("A", 1.0, 0.0, 0.0, 1.0);
+  const b = mk("B", 2.0, 0.0, 0.0, 1.0);
+  const c = mk("C", 3.0, 0.0, 0.0, 1.0);
+  scene.add(a); scene.add(b); scene.add(c);
+  ok("  add: tamanhos batem", scene.trs.length === scene.objects.length ? 1 : 0);
+  ok("  add: trs[1] e o transform de B", scene.trs[1] === b.transform ? 1 : 0);
+
+  scene.removeAt(1);   // remove B
+  ok("  removeAt: tamanhos batem", scene.trs.length === scene.objects.length ? 1 : 0);
+  ok("  removeAt: trs[1] agora e o de C", scene.trs[1] === c.transform ? 1 : 0);
+
+  scene.clear();
+  ok("  clear: espelho zerado", scene.trs.length === 0 ? 1 : 0);
+
+  // moveSubtree reordena a lista inteira: o espelho tem que seguir
+  scene.clear();
+  const p1 = mk("P1", 0.0, 0.0, 0.0, 1.0);
+  const p2 = mk("P2", 1.0, 0.0, 0.0, 1.0);
+  const p3 = mk("P3", 2.0, 0.0, 0.0, 1.0);
+  scene.add(p1); scene.add(p2); scene.add(p3);
+  scene.moveSubtree(2, 0, 0 - 1);   // move P3 pro início
+  let sync = 1;
+  let q = 0;
+  while (q < scene.objects.length) {
+    if (scene.trs[q] !== scene.objects[q].transform) sync = 0;
+    q = q + 1;
+  }
+  ok("  moveSubtree: espelho em sincronia", sync);
+}
+
 io.print("");
 io.print("[resultado] " + pass + " ok, " + fail + " falhas");
 if (fail > 0) io.print("[FALHOU]");
