@@ -23,6 +23,11 @@ export class GameObject {
   meshPath: string;    // path do modelo que gerou customMesh ("" = primitivo). Exibição + reload no load de cena.
   meshPart: number;    // qual SUBMESH do modelo (0 = a primeira/única). Modelos multi-material têm várias.
   selFlag: number;     // 1 = está na multi-seleção do editor. Cache O(1) pro render (evita varrer a lista por objeto).
+  /// 1 = participa da colisão: tem mesh E é raiz. Combina três leituras de
+  /// campo (`meshKind`, `customMesh`, `parent`) numa só — a coleta de colisores
+  /// roda sobre a cena inteira TODO frame, e cada acesso a campo custa ~2 µs.
+  /// Recalculado por `refreshCollide()` nas mutações que o afetam.
+  collideFlag: number;
   matIdx: number;      // índice do component Material em behaviors (-1 = nenhum). Cache O(1) pro render.
   rendIdx: number;     // índice do component MeshRenderer (-1 = nenhum). Cache O(1) pro render.
 
@@ -42,6 +47,7 @@ export class GameObject {
     this.meshPath = "";
     this.meshPart = 0;
     this.selFlag = 0;
+    this.collideFlag = 0;
     this.matIdx = 0 - 1;
     this.rendIdx = 0 - 1;
   }
@@ -125,7 +131,15 @@ export class GameObject {
   setMesh(kind: number, r: number, g: number, b: number): GameObject {
     this.meshKind = kind;
     this.cr = r; this.cg = g; this.cb = b;
+    this.refreshCollide();
     return this;
+  }
+
+  /// Recalcula `collideFlag` (mesh + raiz). Chamar após mudar `meshKind`,
+  /// `customMesh` ou `parent`.
+  refreshCollide(): void {
+    if ((this.meshKind !== 0 || this.customMesh > 0) && this.parent < 0) this.collideFlag = 1;
+    else this.collideFlag = 0;
   }
 
   /// mount de todos os scripts (chamado pela cena ao adicionar).

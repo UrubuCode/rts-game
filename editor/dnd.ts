@@ -148,6 +148,7 @@ export function instantiateAt(kind: string, path: string, wx: f64, wy: f64, wz: 
     while (i < parts.length) {
       const child = partToObject(parts[i], parts[i].name, path, i, win);
       child.parent = rootIdx;   // offset local zero: a submesh já vem no espaço do modelo
+      child.refreshCollide();   // virou filho: sai da colisão (ver collideFlag)
       scene.add(child);
       i = i + 1;
     }
@@ -197,6 +198,7 @@ export function applyMeshToObject(idx: number, path: string, win: number): numbe
   const sm = parts[0];
   const o = scene.objects[idx];
   o.customMesh = sm.meshId;
+  o.refreshCollide();
   o.meshPath = path;
   o.cr = sm.cr; o.cg = sm.cg; o.cb = sm.cb;
   if (sm.texPath.length > 0) {

@@ -40,6 +40,7 @@ export function cmdSetCustom(parts: string[]): string {
   const mid = parseFloat(parts[2]) | 0;
   if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
   scene.objects[oi].customMesh = mid;
+  scene.objects[oi].refreshCollide();
   return "[ok] setcustom #" + oi + " customMesh=" + mid;
 }
 

@@ -61,7 +61,7 @@ export function cmdGroup(parts: string[]): string {
   let j = 0;
   while (j < sel.length) {
     const oi = sel[j];
-    if (oi >= 0 && oi < scene.objects.length && oi !== gidx) scene.objects[oi].parent = gidx;
+    if (oi >= 0 && oi < scene.objects.length && oi !== gidx) { scene.objects[oi].parent = gidx; scene.objects[oi].refreshCollide(); }
     j = j + 1;
   }
   S.selected = gidx; S.selection = [];

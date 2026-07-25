@@ -25,18 +25,14 @@ export class Scene {
   }
 
   add(go: GameObject): GameObject {
+    go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
     go.mount();
     return go;
   }
 
   update(dt: f64): void {
-    let i = 0;
-    while (i < this.objects.length) {
-      const o = this.objects[i];
-      if (o.active !== 0) o.update(dt);
-      i = i + 1;
-    }
+    updateAll(this.objects, dt);   // função livre tipada (ver computeWorldInto)
   }
 
   count(): number {
@@ -128,13 +124,14 @@ export class Scene {
     let j = 0;
     while (j < order.length) {
       const o = order[j];
-      if (ohasP[j] === 0) { o.parent = 0 - 1; }
+      if (ohasP[j] === 0) { o.parent = 0 - 1; o.refreshCollide(); }
       else {
         let pj = 0; let found = 0 - 1;
         while (pj < order.length) {
           if (order[pj] === opref[j]) { found = pj; pj = order.length; } else pj = pj + 1;
         }
         o.parent = found;
+        o.refreshCollide();
       }
       j = j + 1;
     }
@@ -152,8 +149,8 @@ export class Scene {
     let w = 0;
     while (k < n) {
       const o = this.objects[k];
-      if (o.parent === i) o.parent = 0 - 1;          // filho do removido vira raiz
-      else if (o.parent > i) o.parent = o.parent - 1; // índices acima deslocam
+      if (o.parent === i) { o.parent = 0 - 1; o.refreshCollide(); }   // filho do removido vira raiz
+      else if (o.parent > i) o.parent = o.parent - 1; // índices acima deslocam (raiz-ness não muda)
       if (k !== i) { this.objects[w] = o; w = w + 1; }
       k = k + 1;
     }
@@ -451,6 +448,18 @@ function computeWorldInto(objs: GameObject[], done: number[]): void {
 /// Preenche `out` com os índices dos objetos COLIDÍVEIS (mesh + raiz) e devolve
 /// `[maiorRaio, quantosSeMovem]`. Função livre de parâmetros tipados pelo mesmo
 /// motivo de `computeWorldInto` — roda todo frame sobre a cena inteira.
+/// Roda o `update` de cada objeto ativo. Função livre de parâmetros tipados
+/// pelo mesmo motivo de `computeWorldInto`.
+function updateAll(objs: GameObject[], dt: f64): void {
+  const n = objs.length;
+  let i = 0;
+  while (i < n) {
+    const o = objs[i];
+    if (o.active !== 0) o.update(dt);
+    i = i + 1;
+  }
+}
+
 // Saídas de `collectColliders` (evita alocar um array de retorno por frame).
 let ccMaxR: f64 = 0.0001;
 let ccMovers = 0;
@@ -462,7 +471,10 @@ function collectColliders(objs: GameObject[], out: number[]): void {
   let i = 0;
   while (i < n) {
     const o = objs[i];
-    if ((o.meshKind !== 0 || o.customMesh > 0) && o.parent < 0) {
+    // `collideFlag` combina as três condições (mesh, customMesh, raiz) num só
+    // campo: cada acesso a campo custa ~2 µs, e ler três por objeto sobre a
+    // cena inteira, todo frame, era metade do custo da física.
+    if (o.collideFlag !== 0) {
       out.push(i);
       if (o.stationary === 0) movers = movers + 1;
       const t: Transform = o.transform;
