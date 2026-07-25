@@ -34,7 +34,12 @@ export function cmdCompList(): string {
 export function cmdAddComp(parts: string[]): string {
   const oi = parseFloat(parts[1]) | 0;
   if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
-  scene.objects[oi].addBehavior(createComponent(parts[2]));
+  const o = scene.objects[oi];
+  o.addBehavior(createComponent(parts[2]));
+  // Um corpo com Rigidbody NÃO é estático: `spawn` marca `stationary = 1` (para
+  // a posição pedida grudar), mas a colisão pula estáticos — o objeto caía
+  // atravessando o chão porque nunca era testado. Anexar física desfaz a marca.
+  if (parts[2] === "Rigidbody") { o.stationary = 0; o.refreshCollide(); }
   return "[ok] addcomp " + parts[2] + " -> #" + oi;
 }
 
