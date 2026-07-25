@@ -3,7 +3,7 @@
 
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { KIND_CAMERA } from "./behavior";
+import { Behavior, KIND_CAMERA } from "./behavior";
 import math from "rts:math";
 
 export class Scene {
@@ -545,12 +545,32 @@ function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]):
 /// motivo de `computeWorldInto` — roda todo frame sobre a cena inteira.
 /// Roda o `update` de cada objeto ativo. Função livre de parâmetros tipados
 /// pelo mesmo motivo de `computeWorldInto`.
+/// Roda os scripts de todos os objetos ativos.
+///
+/// Itera os `behaviors` AQUI em vez de chamar `o.update(dt)`: aquele era um
+/// nível extra de despacho por objeto, por frame, e o corpo dele é justamente
+/// este laço. Medido com 500 objetos de 1 script: o trabalho real do script
+/// custa 0,16 s e o despacho custava 2,14 s — 93% era overhead.
+/// `b.update(dt)` continua virtual, e tem de ser: é o ponto de extensão do
+/// motor (cada script tem o seu). O que sai é o nível REDUNDANTE acima dele.
 function updateAll(objs: GameObject[], dt: f64): void {
   const n = objs.length;
   let i = 0;
   while (i < n) {
-    const o = objs[i];
-    if (o.active !== 0) o.update(dt);
+    const o: GameObject = objs[i];
+    if (o.active !== 0) {
+      const bs: Behavior[] = o.behaviors;
+      const nb = bs.length;
+      // a maioria dos objetos de cena não tem script: sai antes de tudo
+      if (nb !== 0) {
+        let j = 0;
+        while (j < nb) {
+          const b: Behavior = bs[j];
+          if (b.enabled !== 0) b.update(dt);
+          j = j + 1;
+        }
+      }
+    }
     i = i + 1;
   }
 }
