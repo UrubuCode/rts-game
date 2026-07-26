@@ -459,7 +459,22 @@ export function cmdFluid(parts: string[]): string {
         t.pz < f.minZ - 0.5 || t.pz > f.maxZ + 0.5 || t.py < f.minY - 0.5) fora = fora + 1;
     k = k + 1;
   }
+  // localiza o MAIS RAPIDO e a MAIOR PRESSAO — os dois suspeitos de sempre
+  let fastI = 0; let fastV: f64 = 0.0;
+  let hiPresI = 0; let hiPres: f64 = 0.0;
+  k = 0;
+  while (k < n) {
+    const v = math.sqrt(f.vx[k]*f.vx[k] + f.vy[k]*f.vy[k] + f.vz[k]*f.vz[k]);
+    if (v > fastV) { fastV = v; fastI = k; }
+    if (f.pres[k] > hiPres) { hiPres = f.pres[k]; hiPresI = k; }
+    k = k + 1;
+  }
+  const ft = f.trs[fastI];
+  const pt = f.trs[hiPresI];
   let m = "[fluid] " + n + " particulas dt=" + flR2(inspDt * 1000.0) + "ms" +
+          " | RAPIDA #" + fastI + " v=" + flR2(fastV) + " em(" + flR2(ft.px) + "," + flR2(ft.py) + "," + flR2(ft.pz) + ")" +
+          " | PRESSAO #" + hiPresI + " p=" + flR2(hiPres) + " dens=" + flR2(f.dens[hiPresI]) +
+          " em(" + flR2(pt.px) + "," + flR2(pt.py) + "," + flR2(pt.pz) + ") viz=" + f.nbrCnt[hiPresI] +
           " | X " + flR2(x0) + ".." + flR2(x1) +
           " Y " + flR2(y0) + ".." + flR2(y1) +
           " Z " + flR2(z0) + ".." + flR2(z1) +

@@ -23,8 +23,16 @@ import { Scene } from "../engine/core/scene";
 
 /// Raio de influência: além disto uma partícula não sente a outra. Define a
 /// escala do líquido — e o tamanho da célula do hash de vizinhança.
-const H: f64 = 1.1;
-const H2: f64 = H * H;
+///
+/// Prefixo FL_ OBRIGATÓRIO: um nome de topo COLIDE em silêncio entre módulos
+/// neste runtime, e o antigo `const H` daqui batia com o `let H` (ALTURA DA
+/// JANELA) do fluid_demo. A demo escrevia ~950 nesse slot todo frame; dentro do
+/// kernel, `diff = H - r` virava ~949 em vez de ~1 — força gigante em TODO par,
+/// grampeada no teto de aceleração, para sempre. Era a fonte final da agitação:
+/// o líquido convergia perfeito em QUALQUER teste headless (sem janela, sem
+/// `H`) e nunca na demo com render.
+const FL_H: f64 = 1.1;
+const FL_H2: f64 = FL_H * FL_H;
 
 /// Densidade de repouso: acima dela a pressão é positiva e as partículas se
 /// EMPURRAM. (A pressão negativa é grampeada em zero — ver `computeDensity`.)
@@ -50,9 +58,12 @@ const STIFFNESS: f64 = 1200.0;
 /// líquido ESCORRER em vez de as partículas quicarem como bolinhas soltas.
 ///
 /// Escala com STIFFNESS — as duas forças competem, e subir uma sem a outra
-/// deixa o líquido agitado. Medido com STIFFNESS=1200: a 4.0 a energia
-/// assentada é 204, a 15.0 cai para 6.3 mantendo o volume (topo 1.96).
-const VISCOSITY: f64 = 15.0;
+/// deixa o líquido agitado.
+///
+/// O valor subiu de 15 quando o termo virou simétrico (`/(di*dj)` em vez de
+/// `/dj`): com densidade típica ~4.5, o divisor cresceu ~4.5x, então a
+/// constante acompanha para manter a mesma viscosidade efetiva.
+const VISCOSITY: f64 = 68.0;
 const GRAVITY: f64 = 0.0 - 22.0;
 /// Amortecimento no contato com parede/chão (0 = gruda, 1 = quica).
 const WALL_DAMP: f64 = 0.35;
@@ -63,6 +74,8 @@ const MAX_SPEED: f64 = 26.0;
 /// Em múltiplos da gravidade: 40x22 = 880, forte o bastante para separar
 /// partículas em rota de colisão e longe do pico numérico de 200 mil.
 const MAX_ACCEL: f64 = 300.0;
+/// Teto da pressão por partícula (ver `computeDensity`).
+const MAX_PRESSURE: f64 = 3000.0;
 /// Velocidade (ao quadrado) abaixo da qual a partícula para de vez (ver
 /// `integrate`). 0.05 = 0.22 u/s.
 ///
@@ -213,19 +226,25 @@ export class Fluid {
 // cai no caminho dinâmico (~3x mais lento). Estes são os laços mais quentes do
 // motor inteiro — O(n × vizinhos) por sub-passo.
 
-/// Chave da célula de uma posição. Célula = H, então dois vizinhos a menos de H
+/// Chave da célula de uma posição. Célula = FL_H, então dois vizinhos a menos de FL_H
 /// estão sempre em células adjacentes e checar as 27 vizinhas basta.
 function cellKey(x: f64, y: f64, z: f64): number {
-  const gx = ffloor(x / H);
-  const gy = ffloor(y / H);
-  const gz = ffloor(z / H);
+  const gx = ffloor(x / FL_H);
+  const gy = ffloor(y / FL_H);
+  const gz = ffloor(z / FL_H);
   return gx * 73856093 + gy * 19349663 + gz * 83492791;
 }
 /// Tamanho da tabela de hash espacial (potência de 2 para o AND ser barato).
 /// Generoso o bastante para milhares de partículas sem colisão excessiva.
 const HASH_CAP = 8192;
 /// Teto de vizinhos guardados por partícula (ver computeDensity).
-const MAX_NBR = 16;
+///
+/// 40, não 16: o truncamento QUEBRA PARES. Se a lista de A enche antes de
+/// registrar B, mas B registra A, a interação vira de mão única — força sem
+/// reação, momento criado do nada. As partículas presas nos cantos estavam
+/// exatamente saturadas em viz=16. Com 40 o truncamento só ocorre em
+/// configurações degeneradas, que o teto de pressão já contém.
+const MAX_NBR = 40;
 const HASH_MASK = 8191;
 
 /// Bucket de uma célula: hash da tripla (gx,gy,gz) dobrado na tabela.
@@ -258,7 +277,7 @@ function buildFluidGrid(trs: Transform[], head: number[], next: number[],
   let i = 0;
   while (i < n) {
     const t: Transform = trs[i];
-    const b = bucketOf(ffloor(t.px / H), ffloor(t.py / H), ffloor(t.pz / H));
+    const b = bucketOf(ffloor(t.px / FL_H), ffloor(t.py / FL_H), ffloor(t.pz / FL_H));
     cellOf[i] = b;
     next[i] = head[b];   // encadeia na frente da lista do bucket
     head[b] = i;
@@ -283,7 +302,7 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
     const ti: Transform = trs[i];
     const px = ti.px; const py = ti.py; const pz = ti.pz;
     // célula BASE calculada UMA vez; as 26 vizinhas saem por soma de offset
-    const bx = ffloor(px / H); const by = ffloor(py / H); const bz = ffloor(pz / H);
+    const bx = ffloor(px / FL_H); const by = ffloor(py / FL_H); const bz = ffloor(pz / FL_H);
     let rho: f64 = 0.0;
     const base = i * MAX_NBR;
     let cnt = 0;
@@ -298,8 +317,8 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
             const tj: Transform = trs[j];
             const ex = tj.px - px; const ey = tj.py - py; const ez = tj.pz - pz;
             const r2 = ex * ex + ey * ey + ez * ez;
-            if (r2 < H2) {
-              const w = H2 - r2;
+            if (r2 < FL_H2) {
+              const w = FL_H2 - r2;
               rho = rho + POLY6 * w * w * w;
               if (cnt < MAX_NBR) { nbr[base + cnt] = j; cnt = cnt + 1; }
             }
@@ -328,6 +347,15 @@ function computeDensity(trs: Transform[], dens: f64[], pres: f64[],
     // negativa ilimitada.
     let pr = STIFFNESS * (rho - REST_DENSITY);
     if (pr < 0.0) pr = 0.0;
+    // TETO DE PRESSÃO. Partículas empilhadas no mesmo canto do tanque chegavam
+    // a densidade 40 (o repouso é 4.5) e pressão 43 MIL — medido na demo ao
+    // vivo. Essa pressão vira força enorme nas vizinhas, que saem voando, caem
+    // e reempilham: é a energia que "aparecia do nada" e mantinha o líquido
+    // reativo por tempo indefinido.
+    //
+    // O teto não altera o líquido normal (a pressão de trabalho fica na casa
+    // das centenas); ele só corta o caso degenerado do acúmulo em canto.
+    if (pr > MAX_PRESSURE) pr = MAX_PRESSURE;
     pres[i] = pr;
     i = i + 1;
   }
@@ -345,7 +373,7 @@ function computeForces(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
     const pi = pres[i];
     const vix = vx[i]; const viy = vy[i]; const viz = vz[i];
     let ax: f64 = 0.0; let ay: f64 = 0.0; let az: f64 = 0.0;
-    // percorre a lista JÁ montada pela densidade — todos dentro de H
+    // percorre a lista JÁ montada pela densidade — todos dentro de FL_H
     const base = i * MAX_NBR;
     const cnt = nbrCnt[i];
     let k = 0;
@@ -359,7 +387,18 @@ function computeForces(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
                 const tj: Transform = trs[j];
                 const ex = px - tj.px; const ey = py - tj.py; const ez = pz - tj.pz;
                 const r2 = ex * ex + ey * ey + ez * ez;
-                if (r2 < H2 && r2 > 0.000001) {
+                // SOBREPOSIÇÃO EXATA: sem direção (`ex/r` é 0/0), o par ficava
+                // INVISÍVEL um ao outro — e o clamp da parede FABRICA esse caso,
+                // porque mapeia uma região inteira para o ponto exato do canto.
+                // Medido na demo: duas partículas em pos idêntica, densidade 42,
+                // v=0, irradiando pres=3000 em quem chegasse perto — uma fonte
+                // perpétua de energia. O empurrão determinístico (i<j decide o
+                // lado) separa o par; dali em diante a pressão normal age.
+                if (r2 <= 0.000001) {
+                  const dir: f64 = i < j ? 1.0 : 0.0 - 1.0;
+                  ax = ax + dir * 60.0;
+                  az = az + dir * 42.0;
+                } else if (r2 < FL_H2) {
                   const r = math.sqrt(r2);
                   const dj = dens[j];
                   if (dj > 0.0001) {
@@ -372,14 +411,21 @@ function computeForces(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
                     // Medido com o bug: partindo de velocidade ZERO num líquido
                     // já assentado, a energia subia sozinha para 223 em 60
                     // frames — o líquido fervia sem ninguém tocar nele.
-                    const diff = H - r;
+                    const diff = FL_H - r;
                     const di = dens[i];
                     const pterm = SPIKY * diff * diff * (pi / (di * di) + pres[j] / (dj * dj));
                     ax = ax + (ex / r) * pterm;
                     ay = ay + (ey / r) * pterm;
                     az = az + (ez / r) * pterm;
-                    // VISCOSIDADE: puxa a velocidade na direção da do vizinho
-                    const vterm = VISCOSITY * diff / dj;
+                    // VISCOSIDADE: puxa a velocidade na direção da do vizinho.
+                    // Também SIMÉTRICA (`/(di*dj)`), pelo mesmo motivo da
+                    // pressão: dividindo só por `dj`, a força de A sobre B
+                    // difere da de B sobre A quando as densidades diferem — e
+                    // num canto (densidade 40 contra 2.5) a diferença era 16x.
+                    // Cada par assim CRIA momento, e a viscosidade, que deveria
+                    // ser a força que ACALMA o líquido, era uma fonte de
+                    // agitação exatamente onde ele mais precisava assentar.
+                    const vterm = VISCOSITY * diff / (di * dj);
                     ax = ax + (vx[j] - vix) * vterm;
                     ay = ay + (vy[j] - viy) * vterm;
                     az = az + (vz[j] - viz) * vterm;
@@ -428,9 +474,6 @@ function integrate(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
       const sc = MAX_SPEED / math.sqrt(sp2);
       ux = ux * sc; uy = uy * sc; uz = uz * sc;
     }
-    const t: Transform = trs[i];
-    let nx = t.px + ux * dt;
-    let ny = t.py + uy * dt;
     // REPOUSO: abaixo deste limiar a partícula é considerada PARADA e a
     // velocidade zera. Sem isto sobra um residual de ~0.3 u/s que não some
     // sozinho — a 47 fps são 0.3 unidades por segundo, METADE do espaçamento
@@ -438,8 +481,14 @@ function integrate(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
     //
     // É a mesma ideia do "sleeping" de uma engine de física: abaixo de um piso
     // de movimento, parar de verdade em vez de integrar ruído numérico.
-    const sp2 = ux * ux + uy * uy + uz * uz;
+    //
+    // O teste vem ANTES de calcular as novas posições — antes ele ficava entre
+    // `ny` e `nz`, então ao dormir a partícula ainda andava o passo em X e Y
+    // mas não em Z (e `sp2` era declarado duas vezes na mesma função).
     if (sp2 < SLEEP_SPEED2) { ux = 0.0; uy = 0.0; uz = 0.0; }
+    const t: Transform = trs[i];
+    let nx = t.px + ux * dt;
+    let ny = t.py + uy * dt;
     let nz = t.pz + uz * dt;
     // ── PAREDES ───────────────────────────────────────────────────────────
     // A parede ABSORVE a componente normal em vez de REFLETI-LA. Refletir
@@ -453,6 +502,21 @@ function integrate(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
     //
     // Um líquido real não quica na parede do copo: ele escorrega ao longo dela.
     // Zerar só a componente normal preserva o escorregamento tangencial.
+    // A partícula é posta um pouco DENTRO da borda, não colada nela. Colar
+    // (`nx = minX`) empilha várias no mesmo ponto exato: medido na demo, as dos
+    // cantos chegavam a densidade 40 (o repouso é 4.5) e pressão 43 mil — a
+    // energia que aparecia "do nada" e mantinha o líquido reativo. A margem
+    // varia com o índice para que duas partículas nunca parem na MESMA posição,
+    // que é o caso degenerado onde o kernel explode.
+    // A componente normal é ZERADA (a parede não devolve energia), mas as
+    // TANGENCIAIS são preservadas — é o que deixa a partícula escorregar ao
+    // longo da parede em vez de TRAVAR nela.
+    //
+    // Travar era o problema: num canto, duas ou três normais eram zeradas ao
+    // mesmo tempo e a partícula ficava presa no vértice exato. Outras chegavam
+    // e paravam no MESMO ponto — medido na demo ao vivo, duas partículas em
+    // pos(-2.6, 0.8, 2.2) idêntica, densidade 50 e 16 vizinhos. Esse aglomerado
+    // degenerado é a fonte da energia que mantinha o líquido reativo.
     if (nx < minX) { nx = minX; if (ux < 0.0) ux = 0.0; }
     else if (nx > maxX) { nx = maxX; if (ux > 0.0) ux = 0.0; }
     if (nz < minZ) { nz = minZ; if (uz < 0.0) uz = 0.0; }

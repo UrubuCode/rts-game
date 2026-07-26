@@ -189,7 +189,6 @@ function frame(): void {
   setInspectDt(dts);
   fluid.step(dts, scene);
   scene.computeWorld();
-
   // ── RENDER ───────────────────────────────────────────────────────────────
   setCam(WIN, S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
   setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);
