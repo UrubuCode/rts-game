@@ -28,7 +28,7 @@ import { Scene } from "../core/scene";
 import { cfInit, cfSpawnBlock, cfSyncColliders, cfStep, cfX, cfY, cfZ,
          cfVelX, cfVelY, cfVelZ, cfHidden, cfCount, cfSetState, cfSetRest,
          cfRestDensity } from "./cpufluid";
-import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep,
+import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep, gfPull, gfKick, gfService,
          gfX, gfY, gfZ, gfVelX, gfVelY, gfVelZ, gfHidden, gfCount,
          gfSetState, gfUploadState, gfReadState, gfSetRest,
          gfRestDensity, gfPosBufferId, gfApplyWaterForces } from "./gpufluid";
@@ -76,6 +76,20 @@ export function flApplyForces(sc: Scene, strength: f64): void {
 
 export function flStep(substeps: number): void {
   if (flMode === 1) gfStep(substeps);
+  else cfStep(substeps);
+}
+/// PULL/KICK separados (GPU): juntar os pulls de TODOS os sistemas num único
+/// ponto do frame = uma espera só. No CPU, pull é no-op e kick é o passo.
+export function flPull(): void { if (flMode === 1) gfPull(); }
+/// Física como serviço (assíncrona): 1 = estado novo aplicado neste frame.
+/// No CPU o passo é síncrono e sempre "chega".
+export function flService(substeps: number): number {
+  if (flMode === 1) return gfService(substeps);
+  cfStep(substeps);
+  return 1;
+}
+export function flKick(substeps: number): void {
+  if (flMode === 1) gfKick(substeps);
   else cfStep(substeps);
 }
 

@@ -144,7 +144,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 // IMPULSOS acumulados por colisor (atomic i32 em ponto fixo x1000 — WGSL nao
 // tem atomic de float): [k*4+0..2] = soma dos delta-v aplicados as particulas
 // (o bloco recebe o OPOSTO), [k*4+3] = contagem de contatos.
-@group(0) @binding(3) var<storage, read_write> imp: array<atomic<i32>>;
+@group(0) @binding(3) var<storage, read_write> imp: array<i32>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let n = arrayLength(&pos);
@@ -210,11 +210,15 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
           // transfere momento util). Sem o corte, agua assentada contra a
           // muralha fazia atomicAdd em massa nos mesmos enderecos e a fila da
           // GPU crescia sem teto (medido: 20 -> 45 ms/frame).
+          // NAO-atomico de proposito: atomics aqui custavam +33 ms/frame
+          // (pessimizacao do driver DX12 no pass inteiro — medido 53 vs 19.5).
+          // Corridas entre particulas perdem parte do agregado; para um
+          // impulso somado por colisor isso e ruido aceitavel.
           if (world[2u + k * 2u].w > 0.5 && dot(dvv, dvv) > 0.04) {
-            atomicAdd(&imp[k * 4u], i32(dvv.x * 1000.0));
-            atomicAdd(&imp[k * 4u + 1u], i32(dvv.y * 1000.0));
-            atomicAdd(&imp[k * 4u + 2u], i32(dvv.z * 1000.0));
-            atomicAdd(&imp[k * 4u + 3u], 1);
+            imp[k * 4u] = imp[k * 4u] + i32(dvv.x * 1000.0);
+            imp[k * 4u + 1u] = imp[k * 4u + 1u] + i32(dvv.y * 1000.0);
+            imp[k * 4u + 2u] = imp[k * 4u + 2u] + i32(dvv.z * 1000.0);
+            imp[k * 4u + 3u] = imp[k * 4u + 3u] + 1;
           }
         }
       } else {
@@ -440,8 +444,37 @@ export function gfSetRest(v: f64): void {
 /// Um frame de física: LÊ o resultado do frame anterior (pipelining — a GPU já
 /// terminou) e submete `substeps` sub-passos novos sem esperar.
 export function gfStep(substeps: number): void {
+  gfPull();
+  gfKick(substeps);
+}
+let gfTicket: i64 = 0;
+
+/// FÍSICA COMO SERVIÇO (assíncrona; ver rbService): aplica quando chega,
+/// nunca espera. 1 = espelhos com estado novo neste frame.
+export function gfService(substeps: number): number {
+  if (gfPipeForce === 0) return 0;
+  if (gfTicket === 0) {
+    gfKick(substeps);
+    gfTicket = gpu.read_begin(gfGPos, gfN * 4 * 4);
+    return 0;
+  }
+  const got = gpu.read_poll(gfTicket, gfPosBuf);
+  if (got === 0) return 0;
+  gfTicket = 0;
+  if (got < 0) return 0;
+  gfKick(substeps);
+  gfTicket = gpu.read_begin(gfGPos, gfN * 4 * 4);
+  return 1;
+}
+
+/// PULL: só o readback (encostar no único ponto de espera do frame).
+export function gfPull(): void {
   if (gfPipeForce === 0) return;
   gpu.read(gfGPos, gfPosBuf, gfN * 4 * 4);
+}
+/// KICK: só os dispatches (zero espera).
+export function gfKick(substeps: number): void {
+  if (gfPipeForce === 0) return;
   let s = 0;
   while (s < substeps) {
     gpu.dispatch(gfPipeDens, gfGroups, 1, 1);

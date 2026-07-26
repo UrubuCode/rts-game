@@ -267,16 +267,46 @@ export function rbSyncStatics(sc: Scene): void {
   gpu.write(rbGWorld, rbWorldBuf, (1 + m * 2) * 16);
 }
 
-/// Um frame: LÊ o resultado do frame anterior (pipelined) e submete
-/// `substeps` passos novos sem esperar — o mesmo relógio próprio do fluido.
-export function rbStep(substeps: number): void {
+let rbTicket: i64 = 0;
+
+/// FÍSICA COMO SERVIÇO (assíncrona): nunca espera a GPU. Se o resultado do
+/// passo anterior CHEGOU, aplica nos espelhos, despacha o próximo passo e
+/// agenda a próxima leitura; senão, devolve 0 e o jogo desenha o estado
+/// antigo. Devolve 1 quando os espelhos têm estado novo.
+export function rbService(substeps: number): number {
+  if (rbPipe === 0) return 0;
+  if (rbTicket === 0) {
+    rbKick(substeps);
+    rbTicket = gpu.read_begin(rbGPos, rbN * 16);
+    return 0;
+  }
+  const got = gpu.read_poll(rbTicket, rbPosBuf);
+  if (got === 0) return 0;             // em voo — segue o jogo
+  rbTicket = 0;
+  if (got < 0) return 0;
+  rbKick(substeps);
+  rbTicket = gpu.read_begin(rbGPos, rbN * 16);
+  return 1;
+}
+
+/// PULL: lê o resultado do frame anterior (o ÚNICO ponto que espera a GPU).
+export function rbPull(): void {
   if (rbPipe === 0) return;
   gpu.read(rbGPos, rbPosBuf, rbN * 16);
+}
+/// KICK: submete `substeps` passos novos SEM esperar.
+export function rbKick(substeps: number): void {
+  if (rbPipe === 0) return;
   let s = 0;
   while (s < substeps) {
     gpu.dispatch(rbPipe, rbGroups, 1, 1);
     s = s + 1;
   }
+}
+/// Compat: pull + kick (um frame completo).
+export function rbStep(substeps: number): void {
+  rbPull();
+  rbKick(substeps);
 }
 
 /// Sincroniza TAMBÉM as velocidades (handoff GPU->CPU; posições já vêm no step).
