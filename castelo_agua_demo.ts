@@ -321,6 +321,8 @@ let tSyn: f64 = 0.0;
 let tAgu: f64 = 0.0;
 let tDrC: f64 = 0.0;
 let tDrA: f64 = 0.0;
+let tFim: f64 = 0.0;      // endFrame: egui + submissao + PRESENT (espera a GPU)
+let tFimMax: f64 = 0.0;
 
 function frame(): void {
   const nw = winWidth(WIN);
@@ -503,18 +505,27 @@ function frame(): void {
 
   tDrA = tDrA + (performance.now() - td1);
   pumpAudio();
+  const te0 = performance.now();
 
   app.text(14, 12, "CASTELO SOB FOGO E AGUA [" + (flBackend() === 1 ? "agua:GPU" : "agua:CPU") + "] — tiro " + shots + "/" + SHOTS_PER_ROUND + "   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
   app.text(14, 34, "WASD voa | botao DIR gira | R reconstroi o castelo", 0x90A8C0FF, 12);
   app.endFrame();
+  {
+    const te = performance.now() - te0;
+    tFim = tFim + te;
+    if (te > tFimMax) tFimMax = te;
+  }
   if (frames % 300 === 0) {
     io.print("[t] fisCPU=" + math.floor(tFis / 30.0) / 10.0 +
              " sync=" + math.floor(tSyn / 30.0) / 10.0 +
              " agua=" + math.floor(tAgu / 30.0) / 10.0 +
              " drawCena=" + math.floor(tDrC / 30.0) / 10.0 +
-             " drawAgua=" + math.floor(tDrA / 30.0) / 10.0 + " (ms/frame)");
+             " drawAgua=" + math.floor(tDrA / 30.0) / 10.0 +
+             " endFrame=" + math.floor(tFim / 30.0) / 10.0 +
+             " endMAX=" + math.floor(tFimMax) + " (ms/frame)");
     dtSum = 0.0; dtMax = 0.0;
     tFis = 0.0; tSyn = 0.0; tAgu = 0.0; tDrC = 0.0; tDrA = 0.0;
+    tFim = 0.0; tFimMax = 0.0;
   }
 }
 
