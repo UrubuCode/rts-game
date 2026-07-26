@@ -315,267 +315,108 @@ export class Scene {
     // gera empurrão). É a saída que faz um cenário de RTS parado custar zero.
     if (m === 0 && this.bIdx.length === 0) return;
 
-    // Poucos dinâmicos: laço direto (todos × todos + grandes + estáticos).
-    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m, this.sIdx, this.bIdx); return; }
+    // prepara buffers por-objeto
+    const nAll = this.objects.length;
+    while (this.lastX.length < nAll) { this.lastX.push(1e30); this.lastY.push(1e30); this.lastZ.push(1e30); }
+    while (ctSwept.length < nAll) ctSwept.push(0);
+    ctCount = 0;
 
-    // ── 2) monta o grid ──────────────────────────────────────────────────────
-    // Célula = 2× o maior raio: assim dois objetos que se tocam NUNCA estão a
-    // mais de uma célula de distância, e checar os 9 vizinhos basta.
-    const cell: f64 = maxR * 2.0;
-    const inv: f64 = 1.0 / cell;
-    // hash das colunas: chave = (gx, gz) dobrada na tabela por AND.
-    while (this.gHead.length < CGRID_CAP) this.gHead.push(0 - 1);
-    while (this.gNext.length < m) { this.gNext.push(0 - 1); this.gCell.push(0); }
-    // 1e30 = "nunca resolvido": força a primeira passada a olhar todo mundo
-    while (this.lastX.length < this.objects.length) { this.lastX.push(1e30); this.lastY.push(1e30); this.lastZ.push(1e30); }
-    // limpa APENAS os buckets que a passada anterior sujou (no máximo m),
-    // mantendo a invariante "gHead é todo -1 na entrada"
-    let k = 0;
-    while (k < this.gUsed) { this.gHead[this.gCell[k]] = 0 - 1; k = k + 1; }
-    k = 0;
-    while (k < m) {
-      const oi = this.cIdx[k];
-      const t = this.trs[oi];
-      const gx = mfloor(t.px * inv);
-      const gz = mfloor(t.pz * inv);
-      const b = ((gx * 73856093 + gz * 19349663) & CGRID_MASK);
-      this.gCell[k] = b;
-      this.gNext[k] = this.gHead[b];   // encadeia na frente do bucket
-      this.gHead[b] = k;
-      k = k + 1;
-    }
-    this.gUsed = m;
-
-    // ── 3) resolve ───────────────────────────────────────────────────────────
-    // O CORPO vive numa FUNÇÃO LIVRE de parâmetros tipados, pelo mesmo motivo
-    // do `computeWorld` (ver `computeWorldInto`): dentro de um método os locais
-    // perdem as provas de tipo e cada `this.objects[i].transform.px` cai no
-    // caminho dinâmico de propriedade. Este é o laço mais quente do motor.
-    resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, this.bIdx, 1);
-    // SEGUNDA iteração, SEM a reatividade: uma pilha alta empurra o bloco de
-    // baixo para dentro do chão mais do que UMA resolução devolve — o de baixo
-    // afundava 0.34 em regime e, espremido o bastante, era CUSPIDO pelo fundo
-    // (medido: bloco a y=-6 com vy=-10). A segunda passada redistribui as
-    // correções de baixo para cima. Corpos dormindo continuam fora.
-    resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, this.bIdx, 0);
-  }
-
-}
-
-/// Passe de resolução da colisão como FUNÇÃO LIVRE de parâmetros TIPADOS —
-/// mesmo motivo do `computeWorldInto`: dentro de um método `this.objects[i]`
-/// e `.transform.px` caem no caminho dinâmico de propriedade. Aqui o compilador
-/// conhece os shapes e lê cada campo por offset constante.
-function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
-                     gHead: number[], gNext: number[],
-                     lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64,
-                     sIdx: number[], bIdx: number[], reactive: number): void {
-  const ns = sIdx.length;
-  const nb = bIdx.length;
-  let k = 0;
-  while (k < m) {
-    const oi = cIdx[k];
-    const ob: GameObject = objs[oi];
-    if (ob.stationary !== 0) { k = k + 1; continue; }
-    const t: Transform = trs[oi];
-    // na passada EXTRA (reactive=0), corpo dormindo fica fora — o resto resolve
-    if (reactive === 0 && t.asleep !== 0) { k = k + 1; continue; }
-    // COLISÃO REATIVA: quem não saiu do lugar já foi separado no frame em que
-    // se mexeu, e nada pode ter vindo até ele sem que ESSE alguém se movesse —
-    // e quem se move varre a vizinhança COMPLETA, então vê o par pelo seu lado.
-    // O grid é 2D (XZ), mas o teste de "se moveu" tem de olhar os TRÊS eixos:
-    // um corpo em QUEDA LIVRE só muda Y, e ignorá-lo fazia dele um objeto
-    // "parado" que atravessava o chão sem nunca ser testado.
-    // (Só na passada reativa: a extra resolve incondicionalmente.)
-    const px = t.px; const py = t.py; const pz = t.pz;
-    let bigMove = 0;
-    if (reactive !== 0) {
-      const dxm = px - lastX[oi];
-      const dym = py - lastY[oi];
-      const dzm = pz - lastZ[oi];
-      const moved2: f64 = dxm * dxm + dym * dym + dzm * dzm;
-      if (moved2 < MOVE_EPS2) { k = k + 1; continue; }
-      lastX[oi] = px; lastY[oi] = py; lastZ[oi] = pz;
-      // movimento GRANDE (não o micro-assentamento): este corpo pode estar
-      // saindo de sob alguém — os dormentes da vizinhança precisam acordar e
-      // reavaliar o próprio apoio (senão o telhado flutua quando a torre sai)
-      if (moved2 > 0.0004) bigMove = 1;
-    }
-    const gx = mfloor(px * inv);
-    const gz = mfloor(pz * inv);
-    // a célula própria + as 8 vizinhas (vizinhança COMPLETA, ver acima)
-    let dz = 0 - 1;
-    while (dz <= 1) {
-      let dx = 0 - 1;
-      while (dx <= 1) {
-        const b = (((gx + dx) * 73856093 + (gz + dz) * 19349663) & CGRID_MASK);
-        let q = gHead[b];
-        while (q >= 0) {
-          const other = cIdx[q];
-          if (other !== oi) {
-            // despertar por PARTIDA: um corpo em movimento real acorda os
-            // dormentes próximos — é o evento "meu apoio pode ter sumido"
-            if (bigMove !== 0) {
-              const to: Transform = trs[other];
-              if (to.asleep !== 0) { to.asleep = 0; to.quiet = 0; }
-            }
-            // NOTA: o par É resolvido dos dois lados (A varre B e B varre A).
-            // Deduplicar foi tentado e PIOROU (8.9 s -> 13.2 s na demolição):
-            // a repetição funciona como iteração extra do solver, e sem ela a
-            // pilha converge mais devagar e fica mais tempo acordada.
-            solvePair(objs, trs, oi, other);
-          }
-          q = gNext[q];
-        }
-        dx = dx + 1;
+    if (m >= 24) {
+      // ── 2) monta o grid (só dinâmicos PEQUENOS; ver sIdx/bIdx) ────────────
+      const cell: f64 = maxR * 2.0;
+      const inv: f64 = 1.0 / cell;
+      while (this.gHead.length < CGRID_CAP) this.gHead.push(0 - 1);
+      while (this.gNext.length < m) { this.gNext.push(0 - 1); this.gCell.push(0); }
+      let k = 0;
+      while (k < this.gUsed) { this.gHead[this.gCell[k]] = 0 - 1; k = k + 1; }
+      k = 0;
+      while (k < m) {
+        const oi = this.cIdx[k];
+        const t = this.trs[oi];
+        const gx = mfloor(t.px * inv);
+        const gz = mfloor(t.pz * inv);
+        const b = ((gx * 73856093 + gz * 19349663) & CGRID_MASK);
+        this.gCell[k] = b;
+        this.gNext[k] = this.gHead[b];
+        this.gHead[b] = k;
+        k = k + 1;
       }
-      dz = dz + 1;
-    }
-    // estáticos: lista DIRETA (chão, paredes — poucos e grandes demais pro grid)
-    let sq = 0;
-    while (sq < ns) {
-      solvePair(objs, trs, oi, sIdx[sq]);
-      sq = sq + 1;
-    }
-    // dinâmicos GRANDES: também por lista (um telhado dormindo em cima da
-    // torre precisa ser visto pelo bloco que se move sob ele)
-    sq = 0;
-    while (sq < nb) {
-      solvePair(objs, trs, oi, bIdx[sq]);
-      sq = sq + 1;
-    }
-    k = k + 1;
-  }
-
-  // ── GRANDES como MOVERS: contra tudo, por lista (são poucos) ─────────────
-  let bi = 0;
-  while (bi < nb) {
-    const oi = bIdx[bi];
-    const ob: GameObject = objs[oi];
-    if (ob.stationary !== 0) { bi = bi + 1; continue; }
-    const t: Transform = trs[oi];
-    if (reactive === 0 && t.asleep !== 0) { bi = bi + 1; continue; }
-    if (reactive !== 0) {
-      const dxm = t.px - lastX[oi];
-      const dym = t.py - lastY[oi];
-      const dzm = t.pz - lastZ[oi];
-      if (dxm * dxm + dym * dym + dzm * dzm < MOVE_EPS2) { bi = bi + 1; continue; }
-      lastX[oi] = t.px; lastY[oi] = t.py; lastZ[oi] = t.pz;
-    }
-    let q = 0;
-    while (q < m) { solvePair(objs, trs, oi, cIdx[q]); q = q + 1; }
-    q = 0;
-    while (q < nb) {
-      const oth = bIdx[q];
-      if (oth !== oi) solvePair(objs, trs, oi, oth);
-      q = q + 1;
-    }
-    q = 0;
-    while (q < ns) { solvePair(objs, trs, oi, sIdx[q]); q = q + 1; }
-    bi = bi + 1;
-  }
-
-  if (reactive === 0) return;   // contabilidade do sono só na passada reativa
-
-  let sb = 0;
-  while (sb < nb) {
-    const t: Transform = trs[bIdx[sb]];
-    if (t.asleep === 0) {
-      const sp2 = t.vx * t.vx + t.vy * t.vy + t.vz * t.vz;
-      if (sp2 < SLEEP_SPEED2R) {
-        t.quiet = t.quiet + 1;
-        if (t.quiet >= SLEEP_FRAMES) { t.asleep = 1; t.quiet = 0; }
-      } else {
-        t.quiet = 0;
-      }
-    }
-    sb = sb + 1;
-  }
-
-  // ── SLEEPING (pós-passe, critério de VELOCIDADE) ─────────────────────────
-  // O critério era posição-por-frame e falhava em cascata: com fps baixo o dt
-  // cresce, a penetração da gravidade por frame cresce junto, ninguém fica
-  // "quase parado" e ninguém dorme — que mantém o fps baixo. A VELOCIDADE
-  // pós-resolução não depende do dt: o contato de apoio zera o vy do corpo
-  // apoiado, então corpo em repouso mede ~0 aqui em qualquer framerate.
-  k = 0;
-  while (k < m) {
-    const t: Transform = trs[cIdx[k]];
-    if (t.asleep !== 0) {
-      // dormindo é PERMANENTE: só acorda por contato de verdade (solvePair) ou
-      // por um vizinho que SAI de perto (ver o despertar por partida, acima).
-      // A revalidação periódica que existia aqui era a fonte do tremor: cada
-      // bloco dormindo acordava a cada ~2 s, afundava um passo de gravidade e
-      // era devolvido — dezenas de blocos "respirando" sem ação por perto.
+      this.gUsed = m;
+      // ── 3) COLETA os contatos (uma entrada por par) ───────────────────────
+      collectContacts(this.objects, this.trs, this.cIdx, m,
+                      this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ,
+                      inv, this.sIdx, this.bIdx);
     } else {
-      const sp2 = t.vx * t.vx + t.vy * t.vy + t.vz * t.vz;
-      if (sp2 < SLEEP_SPEED2R) {
-        t.quiet = t.quiet + 1;
-        if (t.quiet >= SLEEP_FRAMES) { t.asleep = 1; t.quiet = 0; }
-      } else {
-        t.quiet = 0;
-      }
+      collectRange(this.objects, this.trs, this.cIdx, m, this.sIdx, this.bIdx);
     }
-    k = k + 1;
+
+    // ── 4) resolve: N iterações de VELOCIDADE + M de POSIÇÃO ────────────────
+    if (ctCount > 0) {
+      // buffers por PARÂMETRO anotado: lidos como gcell de módulo, cada acesso
+      // no laço de iteração caía no caminho dinâmico (medido: 3x mais lento)
+      solveVelocity(this.trs, ctA, ctB, ctNX, ctNY, ctNZ, ctIMA, ctIMB,
+                    ctE, ctVN0, ctJN, ctMU, ctCount);
+      solvePosition(this.trs, ctA, ctB, ctNX, ctNY, ctNZ, ctOV, ctD0,
+                    ctIMA, ctIMB, ctCount);
+      warmStore(ctA, ctB, ctJN, ctCount);
+    }
+    // ── 5) sono (critério de velocidade pós-solve) ──────────────────────────
+    sleepPass(this.trs, this.cIdx, m, this.bIdx);
   }
 }
 
-/// Laço direto A×B (usado quando há poucos objetos pro grid valer a pena).
-function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
-                          sIdx: number[], bIdx: number[]): void {
-  const ns = sIdx.length;
-  const nb = bIdx.length;
-  let i = 0;
-  while (i < m) {
-    let j = i + 1;
-    while (j < m) { solvePair(objs, trs, cIdx[i], cIdx[j]); j = j + 1; }
-    let q = 0;
-    while (q < ns) { solvePair(objs, trs, cIdx[i], sIdx[q]); q = q + 1; }
-    q = 0;
-    while (q < nb) { solvePair(objs, trs, cIdx[i], bIdx[q]); q = q + 1; }
-    i = i + 1;
-  }
-  // grandes entre si e contra estáticos
-  i = 0;
-  while (i < nb) {
-    let j = i + 1;
-    while (j < nb) { solvePair(objs, trs, bIdx[i], bIdx[j]); j = j + 1; }
-    let q = 0;
-    while (q < ns) { solvePair(objs, trs, bIdx[i], sIdx[q]); q = q + 1; }
-    i = i + 1;
-  }
-}
+// ═══ SOLVER DE IMPULSO SEQUENCIAL ════════════════════════════════════════════
+// O solver antigo resolvia cada par NA HORA (posição+impulso de uma vez), e
+// pilhas densas só convergiam graças à repetição acidental do par (A varre B e
+// B varre A — medido: remover a repetição piorava 8,9 s para 13,2 s). Este é o
+// desenho que as engines usam: coletar contatos UMA vez, iterar velocidade
+// sobre a lista com IMPULSO ACUMULADO (clamp em zero no acumulado), e corrigir
+// posição em passes próprios recomputando a penetração ao longo da normal.
+//
+// Buffers de MÓDULO (não campos da Scene): as funções livres os alcançam sem
+// listas de 20 parâmetros. Prefixo ct — nomes de topo colidem entre módulos.
+let ctA: number[] = [];
+let ctB: number[] = [];
+let ctNX: f64[] = []; let ctNY: f64[] = []; let ctNZ: f64[] = [];
+let ctOV: f64[] = [];    // penetração na coleta
+let ctD0: f64[] = [];    // (pB-pA)·n na coleta — p/ recomputar penetração barato
+let ctIMA: f64[] = []; let ctIMB: f64[] = [];
+let ctE: f64[] = [];     // restituição do par (0 se contato lento)
+let ctMU: f64[] = [];
+let ctVN0: f64[] = [];   // velocidade normal de aproximação na coleta
+let ctJN: f64[] = [];    // impulso normal acumulado
+let ctCount = 0;
+let ctSwept: number[] = [];
+// ── WARM START ──────────────────────────────────────────────────────────────
+// Cache do impulso normal ACUMULADO por PAR, entre frames. Sem ele, as fileiras
+// de baixo de uma pilha nunca convergiam: 8 iterações partindo de zero não
+// cancelam o peso da coluna inteira, e o residual (~0.29) impedia o sono.
+// Semear com o impulso do frame anterior (pré-aplicado às velocidades) é o que
+// faz pilhas ficarem rígidas com poucas iterações — o padrão de toda engine.
+// Hash aberto simples: colisão de bucket só perde o warm start daquele par.
+let wsPair: f64[] = [];
+let wsJN: f64[] = [];
+const WS_MASK = 65535;
 
-/// Resolve UM par: se as esferas se sobrepõem, separa e amortece a queda.
-/// Trabalha em coordenada LOCAL quando ambos são raiz (o caso comum) — que é
-/// o que o resto do motor espera do passe posicional.
-/// Livre e tipada (ver `resolveInto`): é chamada uma vez por par candidato,
-/// então o caminho dinâmico de propriedade aqui custaria mais que todo o resto.
-function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number): void {
+/// Iterações. Velocidade converge rápido com acumulação; posição usa a folga.
+const CT_VEL_ITERS = 8;
+const CT_POS_ITERS = 2;
+
+/// Registra um contato entre `ia` e `ib` se houver sobreposição. Toda a
+/// geometria (caixa vs caixa, caixa vs esfera, esfera vs esfera) vive aqui.
+function collectPair(objs: GameObject[], trs: Transform[], ia: number, ib: number): void {
   const a: GameObject = objs[ia];
   const b: GameObject = objs[ib];
-  if (a.stationary !== 0 && b.stationary !== 0) return;   // nada a mover
+  if (a.stationary !== 0 && b.stationary !== 0) return;
   const ta: Transform = trs[ia];
   const tb: Transform = trs[ib];
 
-  // Normal do contato e profundidade da sobreposição. Como sai depende das
-  // FORMAS: caixa-caixa é AABB (eixo de menor penetração), caixa-esfera projeta
-  // o centro na caixa, esfera-esfera é a distância entre centros.
   let nx: f64 = 0.0; let ny: f64 = 0.0; let nz: f64 = 0.0;
   let overlap: f64 = 0.0;
-
   const boxA = a.colShape === COL_BOX ? 1 : 0;
   const boxB = b.colShape === COL_BOX ? 1 : 0;
 
   if (boxA !== 0 && boxB !== 0) {
-    // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
-    // Sobreposição por eixo; se algum for <= 0 não há contato. A normal é o
-    // eixo de MENOR penetração — é o que faz um cubo caindo num chão largo ser
-    // empurrado para CIMA (menor penetração em Y) e não para o lado.
     const ex = (ta.sx + tb.sx) * 0.5;
     const dx = tb.px - ta.px;
     const ox = ex - (dx < 0.0 ? 0.0 - dx : dx);
@@ -588,19 +429,10 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     const dz = tb.pz - ta.pz;
     const oz = ez - (dz < 0.0 ? 0.0 - dz : dz);
     if (oz <= 0.0) return;
-    if (oy <= ox && oy <= oz) {
-      overlap = oy; ny = dy < 0.0 ? 0.0 - 1.0 : 1.0;
-    } else if (ox <= oz) {
-      overlap = ox; nx = dx < 0.0 ? 0.0 - 1.0 : 1.0;
-    } else {
-      overlap = oz; nz = dz < 0.0 ? 0.0 - 1.0 : 1.0;
-    }
+    if (oy <= ox && oy <= oz) { overlap = oy; ny = dy < 0.0 ? 0.0 - 1.0 : 1.0; }
+    else if (ox <= oz) { overlap = ox; nx = dx < 0.0 ? 0.0 - 1.0 : 1.0; }
+    else { overlap = oz; nz = dz < 0.0 ? 0.0 - 1.0 : 1.0; }
   } else if (boxA !== 0 || boxB !== 0) {
-    // ── CAIXA × ESFERA ────────────────────────────────────────────────────
-    // Ponto da caixa mais próximo do centro da esfera; se a distância até ele
-    // for menor que o raio, há contato e a normal aponta do ponto ao centro.
-    // `bt`/`st` são caixa e esfera; `sgn` devolve a normal na convenção
-    // "de A para B" no fim.
     const bt: Transform = boxA !== 0 ? ta : tb;
     const st: Transform = boxA !== 0 ? tb : ta;
     const sgn: f64 = boxA !== 0 ? 1.0 : 0.0 - 1.0;
@@ -619,7 +451,6 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
       overlap = r - d;
       nx = (vx / d) * sgn; ny = (vy / d) * sgn; nz = (vz / d) * sgn;
     } else {
-      // centro DENTRO da caixa: empurra pela face mais próxima (menor folga)
       const gx = hx - (qx < 0.0 ? 0.0 - qx : qx);
       const gy = hy - (qy < 0.0 ? 0.0 - qy : qy);
       const gz = hz - (qz < 0.0 ? 0.0 - qz : qz);
@@ -628,96 +459,266 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
       else { overlap = gz + r; nz = (qz < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
     }
   } else {
-    // ── ESFERA × ESFERA ───────────────────────────────────────────────────
     const ra: f64 = radiusOf(ta);
     const rb: f64 = radiusOf(tb);
     const rs: f64 = ra + rb;
     const dx: f64 = tb.px - ta.px;
-    // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
     if (dx > rs || dx < 0.0 - rs) return;
     const dz: f64 = tb.pz - ta.pz;
     if (dz > rs || dz < 0.0 - rs) return;
     const dy: f64 = tb.py - ta.py;
     if (dy > rs || dy < 0.0 - rs) return;
     const d2: f64 = dx * dx + dy * dy + dz * dz;
-    if (d2 >= rs * rs || d2 <= 0.0001) return;
-    const d: f64 = math.sqrt(d2);
-    nx = dx / d; ny = dy / d; nz = dz / d;
-    overlap = rs - d;
+    if (d2 >= rs * rs) return;
+    if (d2 <= 0.000001) {
+      // sobreposição exata: separa por convenção determinística
+      nx = ia < ib ? 1.0 : 0.0 - 1.0; ny = 0.0; nz = 0.0;
+      overlap = rs;
+    } else {
+      const d = math.sqrt(d2);
+      nx = dx / d; ny = dy / d; nz = dz / d;
+      overlap = rs - d;
+    }
   }
 
-  // ── separação (comum às três formas) ──────────────────────────────────────
-  // FOLGA POSICIONAL (slop): penetração de até 0.04 não é corrigida, e o resto
-  // só a 85%. Corrigir 100% fazia a pilha RESPIRAR — cada resolução devolvia o
-  // bloco ao contato exato, a gravidade re-afundava, e o vaivém (o "tremor")
-  // nunca convergia. Com a folga, o bloco assenta DENTRO da banda e para.
-  //
-  // 0.04 medido contra 0.01 e 0.02 na demolição de 400 blocos: 8.8 / 9.1 /
-  // 7.1 s — e só com 0.04 a cena inteira DORME (401/401 contra 351). Folga
-  // maior = menos churn posicional = convergência mais rápida. O custo é
-  // penetração visual de ~3% do tamanho do bloco, invisível.
-  let corr: f64 = (overlap - 0.04) * 0.85;
-  if (corr < 0.0) corr = 0.0;
-  let pushA: f64 = corr * 0.5;
-  let pushB: f64 = corr * 0.5;
-  if (a.stationary !== 0) { pushA = 0.0; pushB = corr; }
-  else if (b.stationary !== 0) { pushA = corr; pushB = 0.0; }
-  ta.px = ta.px - nx * pushA;
-  ta.py = ta.py - ny * pushA;
-  ta.pz = ta.pz - nz * pushA;
-  tb.px = tb.px + nx * pushB;
-  tb.py = tb.py + ny * pushB;
-  tb.pz = tb.pz + nz * pushB;
-  // ── RESPOSTA DE IMPULSO ───────────────────────────────────────────────────
-  // A separação acima resolve a INTERPENETRAÇÃO; isto resolve a VELOCIDADE.
-  // Sem ele dois corpos que se chocam apenas paravam — não havia troca de
-  // momento, então nada ricocheteava, deslizava ou empurrava.
-  //
-  // Impulso de corpo rígido clássico: j = -(1+e)·v_rel·n / (1/mA + 1/mB).
-  // Massa 0 = INFINITA (chão, parede): entra como inverso 0, então o corpo não
-  // é movido e o outro leva o impulso inteiro.
   const imA: f64 = a.stationary !== 0 || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
   const imB: f64 = b.stationary !== 0 || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
-  const imSum: f64 = imA + imB;
-  if (imSum > 0.0) {
-    // velocidade RELATIVA de B em relação a A, projetada na normal
-    const rvx = tb.vx - ta.vx;
-    const rvy = tb.vy - ta.vy;
-    const rvz = tb.vz - ta.vz;
-    const vn = rvx * nx + rvy * ny + rvz * nz;
-    // vn > 0 = já se afastando: resolver de novo os grudaria
-    if (vn < 0.0) {
-      // ACORDA os dois num contato de VERDADE (rápido ou fundo). Contatos de
-      // repouso — a gravidade afundando 2 mm no apoio — não acordam ninguém,
-      // senão pilha nenhuma dormiria nunca.
-      if (vn < 0.0 - 0.8 || overlap > 0.06) {
-        ta.asleep = 0; ta.quiet = 0;
-        tb.asleep = 0; tb.quiet = 0;
+  if (imA + imB <= 0.0) return;
+
+  const vn0: f64 = (tb.vx - ta.vx) * nx + (tb.vy - ta.vy) * ny + (tb.vz - ta.vz) * nz;
+  // ACORDA num contato de verdade: RÁPIDO (vn) ou intrusão FUNDA. O limiar de
+  // profundidade fica ACIMA da penetração de equilíbrio de uma pilha (slop
+  // 0.04 + fluência sob pressão ≈ 0.06-0.08): com 0.06 aqui, o próprio contato
+  // de repouso das fileiras de baixo re-acordava os blocos a cada coleta e o
+  // sono nunca fechava — eram os 20 insones da demolição.
+  if (vn0 < 0.0 - 0.8 || overlap > 0.15) {
+    ta.asleep = 0; ta.quiet = 0;
+    tb.asleep = 0; tb.quiet = 0;
+  }
+  // restituição: média do par, CORTADA em contato lento (o anti-chacoalho)
+  let e: f64 = (ta.restitution + tb.restitution) * 0.5;
+  if (vn0 > 0.0 - 1.0) e = 0.0;
+
+  const c = ctCount;
+  while (ctA.length <= c) {
+    ctA.push(0); ctB.push(0);
+    ctNX.push(0.0); ctNY.push(0.0); ctNZ.push(0.0);
+    ctOV.push(0.0); ctD0.push(0.0);
+    ctIMA.push(0.0); ctIMB.push(0.0);
+    ctE.push(0.0); ctMU.push(0.0); ctVN0.push(0.0);
+    ctJN.push(0.0);
+  }
+  ctA[c] = ia; ctB[c] = ib;
+  ctNX[c] = nx; ctNY[c] = ny; ctNZ[c] = nz;
+  ctOV[c] = overlap;
+  ctD0[c] = (tb.px - ta.px) * nx + (tb.py - ta.py) * ny + (tb.pz - ta.pz) * nz;
+  ctIMA[c] = imA; ctIMB[c] = imB;
+  ctE[c] = e;
+  ctMU[c] = math.sqrt(ta.friction * tb.friction);
+  ctVN0[c] = vn0;
+  // WARM START: se este PAR tinha contato no frame passado, parte do impulso
+  // acumulado dele (pré-aplicado às velocidades). É o que segura o peso de uma
+  // coluna sem precisar de dezenas de iterações.
+  while (wsPair.length <= WS_MASK) { wsPair.push(0.0 - 1.0); wsJN.push(0.0); }
+  const pairId: f64 = ia < ib ? ia * 131072.0 + ib : ib * 131072.0 + ia;
+  let h = ((ia < ib ? ia * 92821 + ib : ib * 92821 + ia)) & WS_MASK;
+  let jw: f64 = 0.0;
+  if (wsPair[h] === pairId) jw = wsJN[h];
+  else {
+    // sondagem dupla: uma colisão de bucket fazia o par perder o warm start em
+    // frames alternados — o pico residual resetava o sono das fileiras de baixo
+    const h2 = (h + 1) & WS_MASK;
+    if (wsPair[h2] === pairId) { jw = wsJN[h2]; h = h2; }
+  }
+  // AMORTECIDO (0.9) e só em contato CARREGADO (overlap além do slop): o warm
+  // start integral pré-aplicado em contato raso dava overshoot — torres com
+  // vãos de 0.05 LANÇAVAM blocos para cima (medido: vy=+2.98 a y=14) enquanto
+  // o muro mais folgado assentava bem.
+  jw = jw * 0.9;
+  if (overlap < 0.04) jw = 0.0;
+  if (jw > 0.0) {
+    ta.vx = ta.vx - nx * jw * imA;
+    ta.vy = ta.vy - ny * jw * imA;
+    ta.vz = ta.vz - nz * jw * imA;
+    tb.vx = tb.vx + nx * jw * imB;
+    tb.vy = tb.vy + ny * jw * imB;
+    tb.vz = tb.vz + nz * jw * imB;
+  }
+  ctJN[c] = jw;
+  ctCount = c + 1;
+}
+
+/// Grava o impulso acumulado de cada contato no cache de warm start.
+function warmStore(cA: number[], cB: number[], cJN: f64[], n: number): void {
+  let c = 0;
+  while (c < n) {
+    const ia = cA[c];
+    const ib = cB[c];
+    const pairId: f64 = ia < ib ? ia * 131072.0 + ib : ib * 131072.0 + ia;
+    let h = ((ia < ib ? ia * 92821 + ib : ib * 92821 + ia)) & WS_MASK;
+    // não despeja outro par vivo se o slot vizinho estiver livre/for meu
+    if (wsPair[h] !== pairId && wsPair[h] >= 0.0) {
+      const h2 = (h + 1) & WS_MASK;
+      if (wsPair[h2] === pairId || wsPair[h2] < 0.0) h = h2;
+    }
+    wsPair[h] = pairId;
+    wsJN[h] = cJN[c];
+    c = c + 1;
+  }
+}
+
+/// Varre a vizinhança e COLETA contatos (a estrutura do antigo resolveInto,
+/// com a reatividade e o despertar por partida preservados).
+function collectContacts(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
+                         gHead: number[], gNext: number[],
+                         lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64,
+                         sIdx: number[], bIdx: number[]): void {
+  const ns = sIdx.length;
+  const nb = bIdx.length;
+  let cw = 0;
+  while (cw < m) { ctSwept[cIdx[cw]] = 0; cw = cw + 1; }
+  cw = 0;
+  while (cw < nb) { ctSwept[bIdx[cw]] = 0; cw = cw + 1; }
+
+  let k = 0;
+  while (k < m) {
+    const oi = cIdx[k];
+    const ob: GameObject = objs[oi];
+    if (ob.stationary !== 0) { k = k + 1; continue; }
+    const t: Transform = trs[oi];
+    const px = t.px; const py = t.py; const pz = t.pz;
+    const dxm = px - lastX[oi];
+    const dym = py - lastY[oi];
+    const dzm = pz - lastZ[oi];
+    const moved2: f64 = dxm * dxm + dym * dym + dzm * dzm;
+    if (moved2 < MOVE_EPS2) { k = k + 1; continue; }
+    lastX[oi] = px; lastY[oi] = py; lastZ[oi] = pz;
+    let bigMove = 0;
+    if (moved2 > 0.0004) bigMove = 1;
+    const gx = mfloor(px * inv);
+    const gz = mfloor(pz * inv);
+    let dz = 0 - 1;
+    while (dz <= 1) {
+      let dx = 0 - 1;
+      while (dx <= 1) {
+        const b = (((gx + dx) * 73856093 + (gz + dz) * 19349663) & CGRID_MASK);
+        let q = gHead[b];
+        while (q >= 0) {
+          const other = cIdx[q];
+          if (other !== oi) {
+            if (bigMove !== 0) {
+              const to: Transform = trs[other];
+              if (to.asleep !== 0) { to.asleep = 0; to.quiet = 0; }
+            }
+            // DEDUPE: se `other` já varreu, o par já foi coletado do lado dele.
+            // (No solver imediato a dedupe PIORAVA — a repetição era iteração
+            // grátis. Aqui as iterações são explícitas, e cada par deve entrar
+            // UMA vez na lista.)
+            if (ctSwept[other] === 0) collectPair(objs, trs, oi, other);
+          }
+          q = gNext[q];
+        }
+        dx = dx + 1;
       }
-      // MÉDIA, não mínimo. Com mínimo, uma bola de borracha (0.9) num chão de
-      // concreto (0.1) daria 0.1 e não quicaria — o material do chão apagava o
-      // da bola. A média é o que engines usam e preserva a intenção dos dois.
-      let e: f64 = (ta.restitution + tb.restitution) * 0.5;
-      // CORTE DE RESTITUIÇÃO (o "chacoalho"): contato mais lento que 1 u/s não
-      // quica. Sem isto, o micro-ciclo de repouso — gravidade afunda, impulso
-      // devolve COM QUIQUE — realimentava para sempre: 392 blocos empilhados
-      // tremiam sem terem sofrido nada. É o mesmo padrão de toda engine
-      // (restitution velocity threshold).
-      if (vn > 0.0 - 1.0) e = 0.0;
-      const j: f64 = (0.0 - (1.0 + e)) * vn / imSum;
-      // ── CONTATO DE APOIO (vn lento + normal vertical): SEM impulso normal.
-      // O impulso num contato de repouso reinjetava velocidade no corpo de
-      // BAIXO (a reação de segurar o de cima) e criava CICLOS-LIMITE: numa
-      // coluna de 3, o miolo congelava em vy=-0.63 eterno, trocando velocidade
-      // com os vizinhos, e o sono nunca engatava. No repouso, o de cima HERDA a
-      // velocidade vertical do apoio — o zero do chão propaga para cima e a
-      // coluna converge em poucos frames. Impacto de verdade (vn rápido) segue
-      // no impulso clássico. O `j` ainda é calculado: é o teto do atrito.
-      const resting = (vn > 0.0 - 1.0 && (ny > 0.5 || ny < 0.0 - 0.5)) ? 1 : 0;
-      if (resting !== 0) {
-        if (ny > 0.5) tb.vy = ta.vy;        // b está em cima de a
-        else ta.vy = tb.vy;                 // a está em cima de b
-      } else {
+      dz = dz + 1;
+    }
+    let sq = 0;
+    while (sq < ns) { collectPair(objs, trs, oi, sIdx[sq]); sq = sq + 1; }
+    sq = 0;
+    while (sq < nb) {
+      if (ctSwept[bIdx[sq]] === 0) collectPair(objs, trs, oi, bIdx[sq]);
+      sq = sq + 1;
+    }
+    ctSwept[oi] = 1;
+    k = k + 1;
+  }
+
+  // GRANDES como movers
+  let bi = 0;
+  while (bi < nb) {
+    const oi = bIdx[bi];
+    const ob: GameObject = objs[oi];
+    if (ob.stationary !== 0) { bi = bi + 1; continue; }
+    const t: Transform = trs[oi];
+    const dxm = t.px - lastX[oi];
+    const dym = t.py - lastY[oi];
+    const dzm = t.pz - lastZ[oi];
+    if (dxm * dxm + dym * dym + dzm * dzm < MOVE_EPS2) { bi = bi + 1; continue; }
+    lastX[oi] = t.px; lastY[oi] = t.py; lastZ[oi] = t.pz;
+    let q = 0;
+    while (q < m) {
+      if (ctSwept[cIdx[q]] === 0) collectPair(objs, trs, oi, cIdx[q]);
+      q = q + 1;
+    }
+    q = 0;
+    while (q < nb) {
+      const oth = bIdx[q];
+      if (oth !== oi && ctSwept[oth] === 0) collectPair(objs, trs, oi, oth);
+      q = q + 1;
+    }
+    q = 0;
+    while (q < ns) { collectPair(objs, trs, oi, sIdx[q]); q = q + 1; }
+    ctSwept[oi] = 1;
+    bi = bi + 1;
+  }
+}
+
+/// Caminho de POUCOS dinâmicos: coleta todos os pares, sem grid.
+function collectRange(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
+                      sIdx: number[], bIdx: number[]): void {
+  const ns = sIdx.length;
+  const nb = bIdx.length;
+  let i = 0;
+  while (i < m) {
+    let j = i + 1;
+    while (j < m) { collectPair(objs, trs, cIdx[i], cIdx[j]); j = j + 1; }
+    let q = 0;
+    while (q < ns) { collectPair(objs, trs, cIdx[i], sIdx[q]); q = q + 1; }
+    q = 0;
+    while (q < nb) { collectPair(objs, trs, cIdx[i], bIdx[q]); q = q + 1; }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < nb) {
+    let j = i + 1;
+    while (j < nb) { collectPair(objs, trs, bIdx[i], bIdx[j]); j = j + 1; }
+    let q = 0;
+    while (q < ns) { collectPair(objs, trs, bIdx[i], sIdx[q]); q = q + 1; }
+    i = i + 1;
+  }
+}
+
+/// Iterações de VELOCIDADE: impulso normal ACUMULADO com clamp em zero (o clamp
+/// no acumulado — não no incremento — permite uma iteração DESFAZER excesso da
+/// anterior sem grudar os corpos; é o coração do impulso sequencial). Atrito só
+/// na última iteração, limitado por Coulomb sobre o impulso normal acumulado.
+function solveVelocity(trs: Transform[], cA: number[], cB: number[],
+                       cNX: f64[], cNY: f64[], cNZ: f64[],
+                       cIMA: f64[], cIMB: f64[], cE: f64[], cVN0: f64[],
+                       cJN: f64[], cMU: f64[], n: number): void {
+  let it = 0;
+  while (it < CT_VEL_ITERS) {
+    const last = it === CT_VEL_ITERS - 1 ? 1 : 0;
+    let c = 0;
+    while (c < n) {
+      const ta: Transform = trs[cA[c]];
+      const tb: Transform = trs[cB[c]];
+      const nx = cNX[c]; const ny = cNY[c]; const nz = cNZ[c];
+      const imA = cIMA[c]; const imB = cIMB[c];
+      const imSum = imA + imB;
+      const rvx = tb.vx - ta.vx;
+      const rvy = tb.vy - ta.vy;
+      const rvz = tb.vz - ta.vz;
+      const vn = rvx * nx + rvy * ny + rvz * nz;
+      // alvo: anular a aproximação (e devolver e·vn0 se o contato foi rápido)
+      const target: f64 = cE[c] > 0.0 ? (0.0 - cE[c]) * cVN0[c] : 0.0;
+      let j: f64 = (target - vn) / imSum;
+      const acc = cJN[c];
+      let newAcc = acc + j;
+      if (newAcc < 0.0) newAcc = 0.0;
+      j = newAcc - acc;
+      cJN[c] = newAcc;
+      if (j !== 0.0) {
         ta.vx = ta.vx - nx * j * imA;
         ta.vy = ta.vy - ny * j * imA;
         ta.vz = ta.vz - nz * j * imA;
@@ -725,36 +726,102 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
         tb.vy = tb.vy + ny * j * imB;
         tb.vz = tb.vz + nz * j * imB;
       }
-
-      // ATRITO: freia a componente TANGENCIAL (o que sobra depois de tirar a
-      // normal). É o que faz um corpo parar de deslizar sobre o chão em vez de
-      // patinar para sempre.
-      // MÉDIA GEOMÉTRICA (o padrão em engines): gelo (0.05) contra borracha
-      // (0.9) dá 0.21 — escorregadio, dominado pelo gelo, mas não zero. A
-      // média aritmética daria 0.47, que "sente" como asfalto.
-      const f: f64 = math.sqrt(ta.friction * tb.friction);
-      if (f > 0.0) {
-        const tvx = rvx - nx * vn;
-        const tvy = rvy - ny * vn;
-        const tvz = rvz - nz * vn;
-        const tl2 = tvx * tvx + tvy * tvy + tvz * tvz;
-        if (tl2 > 0.000001) {
-          const tl = math.sqrt(tl2);
-          // impulso tangencial limitado por Coulomb (jt <= f * j)
-          let jt: f64 = tl / imSum;
-          const cap: f64 = f * j;
-          if (jt > cap) jt = cap;
-          const ux = tvx / tl; const uy = tvy / tl; const uz = tvz / tl;
-          ta.vx = ta.vx + ux * jt * imA;
-          ta.vy = ta.vy + uy * jt * imA;
-          ta.vz = ta.vz + uz * jt * imA;
-          tb.vx = tb.vx - ux * jt * imB;
-          tb.vy = tb.vy - uy * jt * imB;
-          tb.vz = tb.vz - uz * jt * imB;
+      if (last !== 0) {
+        const mu = cMU[c];
+        if (mu > 0.0 && cJN[c] > 0.0) {
+          const r2x = tb.vx - ta.vx;
+          const r2y = tb.vy - ta.vy;
+          const r2z = tb.vz - ta.vz;
+          const vn2 = r2x * nx + r2y * ny + r2z * nz;
+          const tvx = r2x - nx * vn2;
+          const tvy = r2y - ny * vn2;
+          const tvz = r2z - nz * vn2;
+          const tl2 = tvx * tvx + tvy * tvy + tvz * tvz;
+          if (tl2 > 0.000001) {
+            const tl = math.sqrt(tl2);
+            let jt: f64 = tl / imSum;
+            const cap: f64 = mu * cJN[c];
+            if (jt > cap) jt = cap;
+            const ux = tvx / tl; const uy = tvy / tl; const uz = tvz / tl;
+            ta.vx = ta.vx + ux * jt * imA;
+            ta.vy = ta.vy + uy * jt * imA;
+            ta.vz = ta.vz + uz * jt * imA;
+            tb.vx = tb.vx - ux * jt * imB;
+            tb.vy = tb.vy - uy * jt * imB;
+            tb.vz = tb.vz - uz * jt * imB;
+          }
         }
       }
-
+      c = c + 1;
     }
+    it = it + 1;
+  }
+}
+
+/// Iterações de POSIÇÃO: recomputa a penetração ao longo da normal ORIGINAL
+/// pelo deslocamento do par desde a coleta — um dot product, barato. Aplica a
+/// FOLGA (slop 0.04) e corrige 85%, repartido pelo inverso da massa.
+function solvePosition(trs: Transform[], cA: number[], cB: number[],
+                       cNX: f64[], cNY: f64[], cNZ: f64[],
+                       cOV: f64[], cD0: f64[],
+                       cIMA: f64[], cIMB: f64[], n: number): void {
+  let it = 0;
+  while (it < CT_POS_ITERS) {
+    let c = 0;
+    while (c < n) {
+      const ta: Transform = trs[cA[c]];
+      const tb: Transform = trs[cB[c]];
+      const nx = cNX[c]; const ny = cNY[c]; const nz = cNZ[c];
+      const dNow = (tb.px - ta.px) * nx + (tb.py - ta.py) * ny + (tb.pz - ta.pz) * nz;
+      const pen = cOV[c] - (dNow - cD0[c]);
+      if (pen > 0.04) {
+        const imA = cIMA[c]; const imB = cIMB[c];
+        const imSum = imA + imB;
+        const corr = (pen - 0.04) * 0.85;
+        const shA = corr * (imA / imSum);
+        const shB = corr * (imB / imSum);
+        ta.px = ta.px - nx * shA;
+        ta.py = ta.py - ny * shA;
+        ta.pz = ta.pz - nz * shA;
+        tb.px = tb.px + nx * shB;
+        tb.py = tb.py + ny * shB;
+        tb.pz = tb.pz + nz * shB;
+      }
+      c = c + 1;
+    }
+    it = it + 1;
+  }
+}
+
+/// Sono por VELOCIDADE pós-solve (mesmo critério do solver anterior).
+function sleepPass(trs: Transform[], cIdx: number[], m: number, bIdx: number[]): void {
+  let k = 0;
+  while (k < m) {
+    const t: Transform = trs[cIdx[k]];
+    if (t.asleep === 0) {
+      const sp2 = t.vx * t.vx + t.vy * t.vy + t.vz * t.vz;
+      if (sp2 < SLEEP_SPEED2R) {
+        t.quiet = t.quiet + 1;
+        if (t.quiet >= SLEEP_FRAMES) { t.asleep = 1; t.quiet = 0; }
+      } else {
+        t.quiet = 0;
+      }
+    }
+    k = k + 1;
+  }
+  k = 0;
+  while (k < bIdx.length) {
+    const t: Transform = trs[bIdx[k]];
+    if (t.asleep === 0) {
+      const sp2 = t.vx * t.vx + t.vy * t.vy + t.vz * t.vz;
+      if (sp2 < SLEEP_SPEED2R) {
+        t.quiet = t.quiet + 1;
+        if (t.quiet >= SLEEP_FRAMES) { t.asleep = 1; t.quiet = 0; }
+      } else {
+        t.quiet = 0;
+      }
+    }
+    k = k + 1;
   }
 }
 
