@@ -44,7 +44,7 @@ import { initAudio, pumpAudio, playNoise, playSquare } from "./engine/audio/audi
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
-import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbService,
+import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep,
          rbReadState, rbX, rbY, rbZ, rbSleep } from "./engine/rigid/gpurigid";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
          flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "./engine/fluid/fluid";
@@ -327,7 +327,10 @@ function fire(): void {
 S.camX = 0.0 - 22.0; S.camY = 22.0; S.camZ = 0.0 - 40.0;
 S.camYaw = 0.62; S.camPitch = 0.0 - 0.36;
 S.lightX = 12.0; S.lightY = 26.0; S.lightZ = 0.0 - 14.0; S.lightAmb = 0.34;
-setVsync(WIN, 0);   // sem vsync: mostra o desempenho REAL no contador
+// VSYNC LIGADO (2026-07-26): a fase de medição acabou. Sem vsync o loop roda
+// solto (110+ fps) e CRAVA um núcleo de CPU por design; com vsync o loop
+// dorme na apresentação e o uso de CPU despenca. Para medir de novo: 0.
+setVsync(WIN, 1);
 
 /// Acumulador do PASSO FIXO da física. A física roda a 16 ms SEMPRE — as
 /// suítes headless passavam e a demo ao vivo explodia porque a demo integrava
@@ -352,6 +355,7 @@ let tDrC: f64 = 0.0;
 let tDrA: f64 = 0.0;
 let tFim: f64 = 0.0;      // endFrame: egui + submissao + PRESENT (espera a GPU)
 let tFimMax: f64 = 0.0;
+let rigApl = 0;           // quantas vezes o servico rigido APLICOU na janela
 
 function frame(): void {
   const nw = winWidth(WIN);
@@ -405,7 +409,13 @@ function frame(): void {
   // (1-2 frames de latência) e ESPELHA nos Transforms — render, água e WS
   // seguem intactos. NUNCA espera a GPU; frame sem resultado desenha o
   // estado anterior. O solver da CPU não roda neste demo.
-  if (rbService(1) !== 0) {
+  // PULL SÍNCRONO (decisão 2026-07-26): o map assíncrono do wgpu/DX12 para de
+  // disparar callbacks sob carga (~13 s, sem erro — rigApl caía a 0/300) e a
+  // simulação congelava. Com o grid, o read síncrono custa ~1-2 ms — barato e
+  // À PROVA DE CONGELAMENTO. O rbService fica para quando o runtime estabilizar.
+  rbStep(1);
+  rigApl = rigApl + 1;
+  {
     const iTrs: Transform[] = scene.trs;
     let mk = 0;
     while (mk < rIdx.length) {
@@ -547,7 +557,8 @@ function frame(): void {
              " drawCena=" + math.floor(tDrC / 30.0) / 10.0 +
              " drawAgua=" + math.floor(tDrA / 30.0) / 10.0 +
              " endFrame=" + math.floor(tFim / 30.0) / 10.0 +
-             " endMAX=" + math.floor(tFimMax) + " (ms/frame)");
+             " endMAX=" + math.floor(tFimMax) + " rigApl=" + rigApl + "/300 (ms/frame)");
+    rigApl = 0;
     dtSum = 0.0; dtMax = 0.0;
     tFis = 0.0; tSyn = 0.0; tAgu = 0.0; tDrC = 0.0; tDrA = 0.0;
     tFim = 0.0; tFimMax = 0.0;
