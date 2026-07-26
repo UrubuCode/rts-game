@@ -319,6 +319,45 @@ export function gfSyncColliders(sc: Scene): void {
   gpu.write(gfGParams, gfParamsBuf, 16);
 }
 
+// ── HANDOFF (fachada engine/fluid/fluid.ts): ler/escrever o estado completo —
+// é o que permite TROCAR de backend em pleno voo sem a água teleportar.
+
+/// Sincroniza os DOIS espelhos CPU (posição E velocidade) com a GPU agora.
+export function gfReadState(): void {
+  if (gfPipeForce === 0) return;
+  gpu.read(gfGPos, gfPosBuf, gfN * 4 * 4);
+  gpu.read(gfGVel, gfVelBuf, gfN * 4 * 4);
+}
+export function gfVelX(i: number): f64 { return buffer.read_f32(gfVelBuf, (i * 4) * 4); }
+export function gfVelY(i: number): f64 { return buffer.read_f32(gfVelBuf, (i * 4 + 1) * 4); }
+export function gfVelZ(i: number): f64 { return buffer.read_f32(gfVelBuf, (i * 4 + 2) * 4); }
+
+/// Escreve o estado de uma partícula nos espelhos (chamar `gfUploadState` ao
+/// final para efetivar na GPU).
+export function gfSetState(i: number, x: f64, y: f64, z: f64,
+                           vx: f64, vy: f64, vz: f64): void {
+  buffer.write_f32(gfPosBuf, (i * 4) * 4, x);
+  buffer.write_f32(gfPosBuf, (i * 4 + 1) * 4, y);
+  buffer.write_f32(gfPosBuf, (i * 4 + 2) * 4, z);
+  buffer.write_f32(gfPosBuf, (i * 4 + 3) * 4, 0.0);
+  buffer.write_f32(gfVelBuf, (i * 4) * 4, vx);
+  buffer.write_f32(gfVelBuf, (i * 4 + 1) * 4, vy);
+  buffer.write_f32(gfVelBuf, (i * 4 + 2) * 4, vz);
+  buffer.write_f32(gfVelBuf, (i * 4 + 3) * 4, 0.0);
+}
+export function gfUploadState(): void {
+  if (gfPipeForce === 0) return;
+  gpu.write(gfGPos, gfPosBuf, gfN * 4 * 4);
+  gpu.write(gfGVel, gfVelBuf, gfN * 4 * 4);
+}
+/// Fixa a densidade de repouso vinda do OUTRO backend (handoff) — sem isso a
+/// água recalibraria num estado comprimido e mudaria de comportamento.
+export function gfSetRest(v: f64): void {
+  gfRest = v;
+  buffer.write_f32(gfParamsBuf, 4, v);
+  gpu.write(gfGParams, gfParamsBuf, 16);
+}
+
 /// Um frame de física: LÊ o resultado do frame anterior (pipelining — a GPU já
 /// terminou) e submete `substeps` sub-passos novos sem esperar.
 export function gfStep(substeps: number): void {
