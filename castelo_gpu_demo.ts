@@ -46,7 +46,7 @@ import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep,
-         rbReadState, rbX, rbY, rbZ, rbSleep } from "./engine/rigid/gpurigid";
+         rbPoke, rbX, rbY, rbZ, rbSleep } from "./engine/rigid/gpurigid";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
          flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "./engine/fluid/fluid";
 
@@ -250,10 +250,13 @@ function soltaAgua(): void {
   // bloco alto colado na muralha leste (x=29): desaba e vira onda contra ela
   flSpawnBlock(16, 16, 16, FORT_X + FORT_HALF + 3.0, 1.4, 0.0 - 2.7, 0.36);
 }
+const CD_AGUA = 0;   // DISCRIMINADOR NaN: 0 = agua totalmente desligada
 scene.computeWorld();
-flInit(CD_NAGUA);
-flSyncColliders(scene);
-soltaAgua();
+if (CD_AGUA !== 0) {
+  flInit(CD_NAGUA);
+  flSyncColliders(scene);
+  soltaAgua();
+}
 io.print("[castelo] agua ligada: " + CD_NAGUA + " particulas, backend " +
          (flBackend() === 1 ? "GPU" : "CPU (fallback)"));
 
@@ -310,12 +313,13 @@ function fire(): void {
   const vz: f64 = ((aimSeed % 100) - 50) * 0.16;        // -8 .. +8 (varre a fortaleza inteira)
   aimSeed = (aimSeed * 1103515245 + 12345) & 0x7FFFFFFF;
   const vy: f64 = 2.0 + (aimSeed % 60) * 0.14;          // 2 .. 10.3 (as altas acertam o torreão)
-  // snapshot do estado REAL da GPU -> altera so a bala -> devolve inteiro
-  // (o rts:gpu ainda nao escreve com offset; upload parcial e trabalho futuro)
-  rbReadState();
+  // POKE PARCIAL (gpu.write_at): so a bala e escrita na GPU. O caminho antigo
+  // (rbReadState + rbUpload COMPLETOS) reescrevia as velocidades de todos os
+  // corpos com valores velhos em pleno colapso — e era o vetor provavel da
+  // infeccao de NaN (leitura completa flaky do modo janela re-subida inteira).
   rbSetBody(rIdx.length + nextBall, 0.0 - 24.0, 2.4, 0.0, 0.85, 0.85, 0.85, 32.0);
   rbSetVel(rIdx.length + nextBall, 34.0, vy, vz);
-  rbUpload();
+  rbPoke(rIdx.length + nextBall);
   nextBall = nextBall + 1;
   if (nextBall >= ballIdx.length) nextBall = 0;
   shots = shots + 1;
@@ -441,10 +445,10 @@ function frame(): void {
 
   // ── ÁGUA (fachada, relógio próprio): sincroniza os AABBs (a demolição move
   // blocos — sync a cada 2 frames divide o custo) e dá o passo
-  if (frames % 2 === 0) flSyncColliders(scene);
+  if (CD_AGUA !== 0 && frames % 2 === 0) flSyncColliders(scene);
   const tf2 = performance.now();
   tSyn = tSyn + (tf2 - tf1);
-  flStep(2);
+  if (CD_AGUA !== 0) flStep(2);
   // agua->bloco DESLIGADO aqui: flApplyForces escreve nos Transforms da CPU e
   // o estado rigido mora na GPU — o acoplamento correto e GPU<->GPU (proximo
   // passo da campanha). bloco->agua segue via colisores espelhados.
@@ -521,7 +525,7 @@ function frame(): void {
   // ÁGUA: backend GPU desenha INSTANCIADO — 1 draw call lendo o buffer da
   // física direto (sem readback, culling de casca no vertex shader). Backend
   // CPU (fallback) cai no laço por partícula de sempre.
-  const gb = flPosGpuBuf();
+  const gb = CD_AGUA !== 0 ? flPosGpuBuf() : 0;
   if (gb !== 0) {
     drawWaterGPU(WIN, gb, CD_NAGUA, 0.32);
   } else {

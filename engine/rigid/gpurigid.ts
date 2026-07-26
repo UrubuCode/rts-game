@@ -137,6 +137,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   }
 
   // ── PARES DINÂMICOS (gather: eu aplico SÓ a minha metade) ────────────────
+  // Jacobi precisa de RELAXAÇÃO menor que o sequencial: um corpo soterrado
+  // soma correções de DEZENAS de vizinhos no mesmo passo — com 0.85 a pilha
+  // profunda explodia (o castelo "sumiu" no colapso total). 0.30 por par +
+  // teto de deslocamento total por passo mantêm o monte coeso.
+  let pAntes = p;
   for (var j: u32 = 0u; j < n; j = j + 1u) {
     if (j == id.x) { continue; }
     let pj = pos[j].xyz;
@@ -162,22 +167,37 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         v.x = v.x + (vj.x - v.x) * 0.10;
         v.z = v.z + (vj.z - v.z) * 0.10;
       }
-      p.y = p.y + s * max(d.y - 0.04, 0.0) * 0.85 * share;
+      p.y = p.y + s * max(d.y - 0.04, 0.0) * 0.30 * share;
     } else if (d.x <= d.z) {
       let s = select(-1.0, 1.0, p.x >= pj.x);
       let vn = (v.x - vj.x) * s;
       if (vn < 0.0) { v.x = v.x - s * vn * share; if (vn < -1.0) { slp = 0.0; } }
-      p.x = p.x + s * max(d.x - 0.04, 0.0) * 0.85 * share;
+      p.x = p.x + s * max(d.x - 0.04, 0.0) * 0.30 * share;
     } else {
       let s = select(-1.0, 1.0, p.z >= pj.z);
       let vn = (v.z - vj.z) * s;
       if (vn < 0.0) { v.z = v.z - s * vn * share; if (vn < -1.0) { slp = 0.0; } }
-      p.z = p.z + s * max(d.z - 0.04, 0.0) * 0.85 * share;
+      p.z = p.z + s * max(d.z - 0.04, 0.0) * 0.30 * share;
     }
   }
+  // teto de correção posicional POR PASSO (anti-explosão de monte profundo)
+  let dcorr = p - pAntes;
+  let dlen = length(dcorr);
+  if (dlen > 0.25) { p = pAntes + dcorr * (0.25 / dlen); }
 
   // quem caiu do mundo estaciona (mesma regra da demo do castelo)
   if (p.y < -18.0) { p = vec3<f32>(p.x, -18.0, p.z); v = vec3<f32>(0.0, 0.0, 0.0); }
+
+  // QUARENTENA DE NaN (visto ao vivo: posicoes NaN sumiam o castelo e NaN
+  // nunca dorme — comparacoes com NaN sao falsas). Corpo contaminado e
+  // estacionado em -18 com v=0 em vez de espalhar NaN pelos vizinhos no
+  // proximo gather. A CACA a origem fica registrada para a proxima sessao.
+  if (p.x != p.x || p.y != p.y || p.z != p.z ||
+      v.x != v.x || v.y != v.y || v.z != v.z) {
+    p = vec3<f32>(0.0, -18.0, 0.0);
+    v = vec3<f32>(0.0, 0.0, 0.0);
+    slp = 10.0;
+  }
 
   // ── SLEEPING por velocidade pós-resolução (a regra que funcionou) ────────
   if (dot(v, v) < ${RB_SLEEP_SPEED2}) { slp = slp + 1.0; } else { slp = 0.0; }
@@ -226,6 +246,15 @@ export function rbSetVel(i: number, vx: f64, vy: f64, vz: f64): void {
   buffer.write_f32(rbVelBuf, (i * 4 + 1) * 4, vy);
   buffer.write_f32(rbVelBuf, (i * 4 + 2) * 4, vz);
   buffer.write_f32(rbPosBuf, (i * 4 + 3) * 4, 0.0);
+}
+
+/// Cutuca UM corpo na GPU: escreve pos+vel do espelho SÓ dele (write_at).
+/// É o caminho do disparo/respawn em pleno jogo — o upload completo
+/// reescrevia as velocidades de TODOS com valores velhos do espelho.
+export function rbPoke(i: number): void {
+  if (rbPipe === 0) return;
+  gpu.write_at(rbGPos, rbPosBuf, i * 16, i * 16, 16);
+  gpu.write_at(rbGVel, rbVelBuf, i * 16, i * 16, 16);
 }
 
 /// Sobe TODO o estado dos espelhos para a GPU (chamar após spawn/handoff).
