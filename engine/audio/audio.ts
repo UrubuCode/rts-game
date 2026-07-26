@@ -50,6 +50,11 @@ let vSeed: number[] = [];   // estado do ruído (por voz, determinístico)
 /// Buffer de saída reaproveitado entre frames — alocar por frame no caminho do
 /// áudio geraria pressão de GC no pior lugar possível.
 let mixBuf: i64 = 0;
+/// Buffer de SILÊNCIO pré-zerado. Com zero vozes ativas, o pump escrevia
+/// ~800 amostras × 2 canais de zeros VIA FFI (write_f32 por amostra) todo
+/// frame — 4 a 6 ms que custavam os 60 fps do jogo em silêncio. Este buffer é
+/// zerado UMA vez e reenviado inteiro (uma chamada de FFI).
+let silBuf: i64 = 0;
 
 /// Abre o dispositivo. Devolve 1 se há áudio, 0 se não (o jogo segue mudo, sem
 /// erro: uma máquina sem placa de som não deve derrubar o jogo).
@@ -70,6 +75,10 @@ export function initAudio(): number {
   }
   // 4 bytes por sample f32, MAX_PUMP frames, devCh canais
   mixBuf = buffer.alloc(MAX_PUMP * devCh * 4);
+  silBuf = buffer.alloc(MAX_PUMP * devCh * 4);
+  let z = 0;
+  const zn = MAX_PUMP * devCh;
+  while (z < zn) { buffer.write_f32(silBuf, z * 4, 0.0); z = z + 1; }
   return 1;
 }
 
@@ -127,6 +136,9 @@ export function pumpAudio(): number {
   let need = TARGET_FRAMES - queued;
   if (need <= 0) return 0;
   if (need > MAX_PUMP) need = MAX_PUMP;
+  // ATALHO DE SILÊNCIO: sem voz ativa, manda o buffer pré-zerado — uma chamada
+  // em vez de ~1600 write_f32 por frame (medido: 4-6 ms de frame recuperados)
+  if (activeVoices() === 0) return audio.write(dev, silBuf, need * devCh);
   mixInto(mixBuf, need, devCh, devRate);
   return audio.write(dev, mixBuf, need * devCh);
 }

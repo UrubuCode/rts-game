@@ -323,27 +323,14 @@ export class Scene {
     // mais de uma célula de distância, e checar os 9 vizinhos basta.
     const cell: f64 = maxR * 2.0;
     const inv: f64 = 1.0 / cell;
-    // hash das colunas: chave = (gx, gz) dobrada na tabela por AND.
     while (this.gHead.length < CGRID_CAP) this.gHead.push(0 - 1);
     while (this.gNext.length < m) { this.gNext.push(0 - 1); this.gCell.push(0); }
     // 1e30 = "nunca resolvido": força a primeira passada a olhar todo mundo
     while (this.lastX.length < this.objects.length) { this.lastX.push(1e30); this.lastY.push(1e30); this.lastZ.push(1e30); }
-    // limpa APENAS os buckets que a passada anterior sujou (no máximo m),
-    // mantendo a invariante "gHead é todo -1 na entrada"
-    let k = 0;
-    while (k < this.gUsed) { this.gHead[this.gCell[k]] = 0 - 1; k = k + 1; }
-    k = 0;
-    while (k < m) {
-      const oi = this.cIdx[k];
-      const t = this.trs[oi];
-      const gx = mfloor(t.px * inv);
-      const gz = mfloor(t.pz * inv);
-      const b = ((gx * 73856093 + gz * 19349663) & CGRID_MASK);
-      this.gCell[k] = b;
-      this.gNext[k] = this.gHead[b];   // encadeia na frente do bucket
-      this.gHead[b] = k;
-      k = k + 1;
-    }
+    // a REMONTAGEM vive numa função livre tipada: dentro do método, os acessos
+    // a campo do laço caíam no caminho dinâmico — 5,8 ms POR FRAME com a cena
+    // inteira dormindo (o custo fixo que impedia os 60 fps no repouso)
+    buildSceneGrid(this.trs, this.cIdx, m, this.gHead, this.gNext, this.gCell, this.gUsed, inv);
     this.gUsed = m;
 
     // ── 3) resolve ───────────────────────────────────────────────────────────
@@ -787,12 +774,33 @@ const MOVE_EPS2: f64 = 0.000001;
 /// Sleeping: velocidade (ao quadrado) abaixo da qual o corpo conta como quieto
 /// (0.3 u/s), quantos frames quietos até dormir, e de quantos em quantos frames
 /// um adormecido REVALIDA o apoio (ver o pós-passe em `resolveInto`).
-const SLEEP_SPEED2R: f64 = 0.09;
+const SLEEP_SPEED2R: f64 = 0.2;   // 0.45 u/s — medido: dorme antes sem congelar visivel
 const SLEEP_FRAMES = 10;
 /// Raio acima do qual um dinâmico sai do grid para a lista `bIdx`.
 const BIG_R: f64 = 1.0;
 const CGRID_CAP = 8192;
 const CGRID_MASK = 8191;
+
+/// Remontagem do grid da colisão como FUNÇÃO LIVRE tipada (ver o chamador).
+function buildSceneGrid(trs: Transform[], cIdx: number[], m: number,
+                        gHead: number[], gNext: number[], gCell: number[],
+                        gUsedPrev: number, inv: f64): void {
+  // limpa APENAS os buckets que a passada anterior sujou (no máximo m)
+  let k = 0;
+  while (k < gUsedPrev) { gHead[gCell[k]] = 0 - 1; k = k + 1; }
+  k = 0;
+  while (k < m) {
+    const oi = cIdx[k];
+    const t: Transform = trs[oi];
+    const gx = mfloor(t.px * inv);
+    const gz = mfloor(t.pz * inv);
+    const b = ((gx * 73856093 + gz * 19349663) & CGRID_MASK);
+    gCell[k] = b;
+    gNext[k] = gHead[b];   // encadeia na frente do bucket
+    gHead[b] = k;
+    k = k + 1;
+  }
+}
 
 function mfloor(v: f64): number {
   const t = v | 0;

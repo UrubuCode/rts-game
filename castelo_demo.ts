@@ -270,7 +270,7 @@ function fire(): void {
 S.camX = 0.0 - 22.0; S.camY = 22.0; S.camZ = 0.0 - 40.0;
 S.camYaw = 0.62; S.camPitch = 0.0 - 0.36;
 S.lightX = 12.0; S.lightY = 26.0; S.lightZ = 0.0 - 14.0; S.lightAmb = 0.34;
-setVsync(WIN, 1);
+setVsync(WIN, 0);   // sem vsync: mostra o desempenho REAL no contador
 
 /// Acumulador do PASSO FIXO da física. A física roda a 16 ms SEMPRE — as
 /// suítes headless passavam e a demo ao vivo explodia porque a demo integrava
@@ -278,6 +278,9 @@ setVsync(WIN, 1);
 /// errado no solver e o caos se auto-sustenta. Mesma lição do fluido (SUBSTEP).
 /// Teto de 3 sub-passos: frame muito lento vira câmera lenta, não instabilidade.
 let phAcc: f64 = 0.0;
+// medidor honesto de fps: media e pior frame por janela de 300
+let dtSum: f64 = 0.0;
+let dtMax: f64 = 0.0;
 
 /// Um tiro a cada ~2,5 s; 10 tiros por rodada; reconstrói 6 s após o último.
 const FIRE_EVERY = 120;
@@ -294,6 +297,8 @@ function frame(): void {
   if (dt > 60) dt = 60;
   const dts: f64 = dt / 1000.0;
   frames = frames + 1;
+  dtSum = dtSum + dt;
+  if (dt > dtMax) dtMax = dt;
 
   // câmera livre
   const kW = app.keyDown(122); const kS = app.keyDown(118);
@@ -331,15 +336,20 @@ function frame(): void {
 
   // ── FÍSICA em PASSO FIXO de 16 ms (o mesmo dt das suítes headless) ───────
   phAcc = phAcc + dts;
-  if (phAcc > 0.034) phAcc = 0.034;  // teto: 2 sub-passos — o pico do desabamento vira CAMERA LENTA em vez de arrasto
+  if (phAcc > 0.017) phAcc = 0.017;  // teto: 1 sub-passo — 60 fps sempre; o pico do desabamento vira câmera lenta
   while (phAcc >= 0.016) {
     phAcc = phAcc - 0.016;
     scene.update(0.016);
+    // arrays HOISTADOS e tipados: ler `scene.objects` pelo import a cada
+    // iteração custava 3,3 ms por frame só neste laço (caminho dinâmico)
+    const iObjs: GameObject[] = scene.objects;
+    const iTrs: Transform[] = scene.trs;
+    const iN = iObjs.length;
     let i = 0;
-    while (i < scene.objects.length) {
-      const o = scene.objects[i];
+    while (i < iN) {
+      const o: GameObject = iObjs[i];
       if (o.stationary === 0) {
-        const t: Transform = o.transform;
+        const t: Transform = iTrs[i];
         if (t.asleep !== 0) { i = i + 1; continue; }   // dormindo: nao integra
         t.vy = t.vy - 9.8 * 0.016;
         // teto anti-tunneling (um impulso de bala atravessaria o chão num passo)
@@ -380,7 +390,7 @@ function frame(): void {
       dq2 = dq2 + 1;
     }
     const tmx = scene.objects[vmxI].transform;
-    io.print("[c] f" + frames + " dt=" + dt + " dormindo=" + dorm + " lentos=" + lentos +
+    io.print("[c] f" + frames + " dtMED=" + (math.floor(dtSum / 300.0 * 10.0) / 10.0) + " dtMAX=" + dtMax + " dormindo=" + dorm + " lentos=" + lentos +
              "/" + scene.objects.length + " | vmax=" + (math.floor(math.sqrt(vmx) * 100.0) / 100.0) +
              " " + scene.objects[vmxI].name + " y=" + (math.floor(tmx.py * 100.0) / 100.0) +
              " vy=" + (math.floor(tmx.vy * 100.0) / 100.0));
@@ -428,6 +438,7 @@ function frame(): void {
   app.text(14, 12, "CASTELO SOB FOGO — tiro " + shots + "/" + SHOTS_PER_ROUND + "   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
   app.text(14, 34, "WASD voa | botao DIR gira | R reconstroi o castelo", 0x90A8C0FF, 12);
   app.endFrame();
+  if (frames % 300 === 0) { dtSum = 0.0; dtMax = 0.0; }
 }
 
 while (app.running()) {
