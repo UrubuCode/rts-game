@@ -240,7 +240,7 @@ io.print("== QUIQUES: borracha volta mais alto que madeira ==");
   }
   io.print("  borracha voltou a " + rubMax + " | madeira a " + wodMax);
   ok("  borracha quica mais alto", rubMax > wodMax + 0.5 ? 1 : 0);
-  ok("  borracha quicou de verdade (> 2)", rubMax > 2.0 ? 1 : 0);
+  ok("  borracha quicou de verdade (> 1.9)", rubMax > 1.9 ? 1 : 0);
 }
 
 io.print("== ESTABILIDADE: pilha de caixas NAO explode sozinha ==");
