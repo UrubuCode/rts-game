@@ -19,6 +19,11 @@ export class Scene {
   /// célula agora é dimensionada só pelos dinâmicos, e cada móvel testa os
   /// estáticos por lista direta (eles são poucos: chão, paredes, rampas).
   sIdx: number[];
+  /// Dinâmicos GRANDES (raio > BIG_R), também fora do grid — pelo mesmo motivo
+  /// dos estáticos: um telhado de 5 de largura dimensionava a célula em 5 e
+  /// cada varredura de 9 células visitava ~100 vizinhos em vez de ~6. Grandes
+  /// são poucos (telhados, balas) e testam contra tudo por lista direta.
+  bIdx: number[];
   // ── HASH ESPACIAL em ARRAYS (não `Map`) ──────────────────────────────────
   // Era `Map<number, number[]>` e a colisão custava 350 ms/frame com 400 móveis.
   // A causa é que `Map` NÃO é um hash neste runtime: é uma lista de associação
@@ -66,6 +71,7 @@ export class Scene {
     this.objects = [];
     this.cIdx = [];
     this.sIdx = [];
+    this.bIdx = [];
     this.gHead = [];
     this.gNext = [];
     this.gCell = [];
@@ -298,7 +304,8 @@ export class Scene {
     if (this.colDirty !== 0) {
       this.cIdx.length = 0;
       this.sIdx.length = 0;
-      collectColliders(objs, this.trs, this.cIdx, this.sIdx);
+      this.bIdx.length = 0;
+      collectColliders(objs, this.trs, this.cIdx, this.sIdx, this.bIdx);
       this.colMaxR = ccMaxR;
       this.colDirty = 0;
     }
@@ -306,10 +313,10 @@ export class Scene {
     const m = this.cIdx.length;
     // NADA dinâmico → nenhum par pode se resolver (estático × estático nunca
     // gera empurrão). É a saída que faz um cenário de RTS parado custar zero.
-    if (m === 0) return;
+    if (m === 0 && this.bIdx.length === 0) return;
 
-    // Poucos dinâmicos: laço direto (todos × todos + estáticos) sem grid.
-    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m, this.sIdx); return; }
+    // Poucos dinâmicos: laço direto (todos × todos + grandes + estáticos).
+    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m, this.sIdx, this.bIdx); return; }
 
     // ── 2) monta o grid ──────────────────────────────────────────────────────
     // Célula = 2× o maior raio: assim dois objetos que se tocam NUNCA estão a
@@ -346,7 +353,7 @@ export class Scene {
     // caminho dinâmico de propriedade. Este é o laço mais quente do motor.
     resolveInto(this.objects, this.trs, this.cIdx, m,
                 this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, 1);
+                this.sIdx, this.bIdx, 1);
     // SEGUNDA iteração, SEM a reatividade: uma pilha alta empurra o bloco de
     // baixo para dentro do chão mais do que UMA resolução devolve — o de baixo
     // afundava 0.34 em regime e, espremido o bastante, era CUSPIDO pelo fundo
@@ -354,7 +361,7 @@ export class Scene {
     // correções de baixo para cima. Corpos dormindo continuam fora.
     resolveInto(this.objects, this.trs, this.cIdx, m,
                 this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, 0);
+                this.sIdx, this.bIdx, 0);
   }
 
 }
@@ -366,8 +373,9 @@ export class Scene {
 function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
                      gHead: number[], gNext: number[],
                      lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64,
-                     sIdx: number[], reactive: number): void {
+                     sIdx: number[], bIdx: number[], reactive: number): void {
   const ns = sIdx.length;
+  const nb = bIdx.length;
   let k = 0;
   while (k < m) {
     const oi = cIdx[k];
@@ -415,6 +423,10 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
               const to: Transform = trs[other];
               if (to.asleep !== 0) { to.asleep = 0; to.quiet = 0; }
             }
+            // NOTA: o par É resolvido dos dois lados (A varre B e B varre A).
+            // Deduplicar foi tentado e PIOROU (8.9 s -> 13.2 s na demolição):
+            // a repetição funciona como iteração extra do solver, e sem ela a
+            // pilha converge mais devagar e fica mais tempo acordada.
             solvePair(objs, trs, oi, other);
           }
           q = gNext[q];
@@ -429,10 +441,60 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
       solvePair(objs, trs, oi, sIdx[sq]);
       sq = sq + 1;
     }
+    // dinâmicos GRANDES: também por lista (um telhado dormindo em cima da
+    // torre precisa ser visto pelo bloco que se move sob ele)
+    sq = 0;
+    while (sq < nb) {
+      solvePair(objs, trs, oi, bIdx[sq]);
+      sq = sq + 1;
+    }
     k = k + 1;
   }
 
+  // ── GRANDES como MOVERS: contra tudo, por lista (são poucos) ─────────────
+  let bi = 0;
+  while (bi < nb) {
+    const oi = bIdx[bi];
+    const ob: GameObject = objs[oi];
+    if (ob.stationary !== 0) { bi = bi + 1; continue; }
+    const t: Transform = trs[oi];
+    if (reactive === 0 && t.asleep !== 0) { bi = bi + 1; continue; }
+    if (reactive !== 0) {
+      const dxm = t.px - lastX[oi];
+      const dym = t.py - lastY[oi];
+      const dzm = t.pz - lastZ[oi];
+      if (dxm * dxm + dym * dym + dzm * dzm < MOVE_EPS2) { bi = bi + 1; continue; }
+      lastX[oi] = t.px; lastY[oi] = t.py; lastZ[oi] = t.pz;
+    }
+    let q = 0;
+    while (q < m) { solvePair(objs, trs, oi, cIdx[q]); q = q + 1; }
+    q = 0;
+    while (q < nb) {
+      const oth = bIdx[q];
+      if (oth !== oi) solvePair(objs, trs, oi, oth);
+      q = q + 1;
+    }
+    q = 0;
+    while (q < ns) { solvePair(objs, trs, oi, sIdx[q]); q = q + 1; }
+    bi = bi + 1;
+  }
+
   if (reactive === 0) return;   // contabilidade do sono só na passada reativa
+
+  let sb = 0;
+  while (sb < nb) {
+    const t: Transform = trs[bIdx[sb]];
+    if (t.asleep === 0) {
+      const sp2 = t.vx * t.vx + t.vy * t.vy + t.vz * t.vz;
+      if (sp2 < SLEEP_SPEED2R) {
+        t.quiet = t.quiet + 1;
+        if (t.quiet >= SLEEP_FRAMES) { t.asleep = 1; t.quiet = 0; }
+      } else {
+        t.quiet = 0;
+      }
+    }
+    sb = sb + 1;
+  }
 
   // ── SLEEPING (pós-passe, critério de VELOCIDADE) ─────────────────────────
   // O critério era posição-por-frame e falhava em cascata: com fps baixo o dt
@@ -464,14 +526,26 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
 
 /// Laço direto A×B (usado quando há poucos objetos pro grid valer a pena).
 function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
-                          sIdx: number[]): void {
+                          sIdx: number[], bIdx: number[]): void {
   const ns = sIdx.length;
+  const nb = bIdx.length;
   let i = 0;
   while (i < m) {
     let j = i + 1;
     while (j < m) { solvePair(objs, trs, cIdx[i], cIdx[j]); j = j + 1; }
     let q = 0;
     while (q < ns) { solvePair(objs, trs, cIdx[i], sIdx[q]); q = q + 1; }
+    q = 0;
+    while (q < nb) { solvePair(objs, trs, cIdx[i], bIdx[q]); q = q + 1; }
+    i = i + 1;
+  }
+  // grandes entre si e contra estáticos
+  i = 0;
+  while (i < nb) {
+    let j = i + 1;
+    while (j < nb) { solvePair(objs, trs, bIdx[i], bIdx[j]); j = j + 1; }
+    let q = 0;
+    while (q < ns) { solvePair(objs, trs, bIdx[i], sIdx[q]); q = q + 1; }
     i = i + 1;
   }
 }
@@ -710,6 +784,8 @@ const MOVE_EPS2: f64 = 0.000001;
 /// um adormecido REVALIDA o apoio (ver o pós-passe em `resolveInto`).
 const SLEEP_SPEED2R: f64 = 0.09;
 const SLEEP_FRAMES = 10;
+/// Raio acima do qual um dinâmico sai do grid para a lista `bIdx`.
+const BIG_R: f64 = 1.0;
 const CGRID_CAP = 8192;
 const CGRID_MASK = 8191;
 
@@ -815,7 +891,7 @@ function updateAll(objs: GameObject[], dt: f64): void {
 let ccMaxR: f64 = 0.0001;
 
 function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
-                          outStatic: number[]): void {
+                          outStatic: number[], outBig: number[]): void {
   const n = objs.length;
   let maxR: f64 = 0.0001;
   let i = 0;
@@ -846,7 +922,13 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
         const hz = t.sz * 0.5;
         if (hz > r) r = hz;
       }
-      if (r > maxR) maxR = r;
+      // GRANDE sai do grid (ver `bIdx`): ele dimensionaria a célula para todos
+      if (r > BIG_R) {
+        out.length = out.length - 1;   // desfaz o push: vai para a outra lista
+        outBig.push(i);
+      } else if (r > maxR) {
+        maxR = r;
+      }
     }
     i = i + 1;
   }

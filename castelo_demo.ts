@@ -331,7 +331,7 @@ function frame(): void {
 
   // ── FÍSICA em PASSO FIXO de 16 ms (o mesmo dt das suítes headless) ───────
   phAcc = phAcc + dts;
-  if (phAcc > 0.05) phAcc = 0.05;   // teto: 3 sub-passos (frame lento = câmera lenta)
+  if (phAcc > 0.034) phAcc = 0.034;  // teto: 2 sub-passos — o pico do desabamento vira CAMERA LENTA em vez de arrasto
   while (phAcc >= 0.016) {
     phAcc = phAcc - 0.016;
     scene.update(0.016);
