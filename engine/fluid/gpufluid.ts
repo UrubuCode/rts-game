@@ -68,6 +68,9 @@ export function gfX(i: number): f64 { return buffer.read_f32(gfPosBuf, (i * 4) *
 export function gfY(i: number): f64 { return buffer.read_f32(gfPosBuf, (i * 4 + 1) * 4); }
 export function gfZ(i: number): f64 { return buffer.read_f32(gfPosBuf, (i * 4 + 2) * 4); }
 export function gfCount(): number { return gfN; }
+/// Id do buffer de POSIÇÕES na GPU (vec4: xyz + densidade assinada) — para o
+/// render instanciado (`drawWaterGPU`) desenhar direto, sem readback.
+export function gfPosBufferId(): i64 { return gfGPos; }
 /// `w` ASSINADO da partícula `i`: |w| = densidade; w < 0 = CERCADA nas 6
 /// direções (invisível de qualquer ângulo — o render pode cortar com
 /// segurança; ver o kernel de densidade).

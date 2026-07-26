@@ -23,6 +23,7 @@ let idPyra = 0;
 let idOcta = 0;
 let idSphere = 0;
 let ready = 0;
+let idSphereLow: number = 0;
 
 /// Sobe uma mesh pra VRAM e devolve o mesh id (0 = falhou).
 /// Layout do vértice: 8 f32 INTERLEAVED — [x,y,z, nx,ny,nz, u,v].
@@ -147,6 +148,44 @@ export function initMeshes(win: i64): void {
     ri = ri + 1;
   }
   idSphere = upload(win, sv, sf);
+
+  // ── esfera LOD-BAIXO p/ ÁGUA instanciada: LAT 6 × LON 8 = 96 tris. A cheia
+  // (768 tris) × 16k partículas = 12M tris/frame de gordura pura; a baixa dá
+  // 1,5M e ninguém vê a diferença numa gota de 0.3 de raio.
+  const wv: f64[] = [];
+  const wf: number[] = [];
+  const WLAT = 6;
+  const WLON = 8;
+  let wi = 0;
+  while (wi <= WLAT) {
+    const theta: f64 = PI * (wi / WLAT);
+    const st: f64 = math.sin(theta);
+    const ct: f64 = math.cos(theta);
+    let wj = 0;
+    while (wj < WLON) {
+      const phi: f64 = 2.0 * PI * (wj / WLON);
+      pushV(wv, 0.5 * st * math.cos(phi), 0.5 * ct, 0.5 * st * math.sin(phi), wj / WLON, wi / WLAT);
+      wj = wj + 1;
+    }
+    wi = wi + 1;
+  }
+  let wr = 0;
+  while (wr < WLAT) {
+    let wj = 0;
+    while (wj < WLON) {
+      let wn = wj + 1;
+      if (wn >= WLON) wn = 0;
+      const a = wr * WLON + wj;
+      const b = wr * WLON + wn;
+      const c = (wr + 1) * WLON + wn;
+      const d = (wr + 1) * WLON + wj;
+      wf.push(a); wf.push(c); wf.push(b);
+      wf.push(a); wf.push(d); wf.push(c);
+      wj = wj + 1;
+    }
+    wr = wr + 1;
+  }
+  idSphereLow = upload(win, wv, wf);
 
   ready = 1;
 }
@@ -338,6 +377,14 @@ function inFrustumSlow(camx: f64, camy: f64, camz: f64, yaw: f64, pitch: f64,
   if (y2 - radius > z2 * tanV) return 0;
   if (0 - y2 - radius > z2 * tanV) return 0;
   return 1;
+}
+
+/// ÁGUA INSTANCIADA: desenha `count` partículas em UMA chamada, lendo as
+/// instâncias (vec4: xyz + densidade assinada) DIRETO do buffer `gbuf` do
+/// rts:gpu — zero readback, zero FFI por partícula. O culling de casca roda
+/// no vertex shader (w<0 colapsa a partícula). `scale` = raio de desenho.
+export function drawWaterGPU(win: i64, gbuf: i64, count: number, scale: f64): number {
+  return egui.drawWater(win, idSphereLow, gbuf, count, scale);
 }
 
 /// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).

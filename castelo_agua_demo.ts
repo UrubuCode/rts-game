@@ -36,11 +36,11 @@ import { GameObject } from "./engine/core/gameobject";
 import { Transform } from "./engine/core/transform";
 import { PhysicsMaterial, MAT_STONE, MAT_WOOD, MAT_METAL } from "./scripts/physicsmaterial";
 import { initAudio, pumpAudio, playNoise, playSquare } from "./engine/audio/audio";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU,
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { flInit, flSpawnBlock, flSyncColliders, flStep,
-         flX, flY, flZ, flHidden, flBackend } from "./engine/fluid/fluid";
+         flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "./engine/fluid/fluid";
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
 // runtime (o `let H` de uma demo já corrompeu o raio do kernel do fluido).
@@ -485,8 +485,13 @@ function frame(): void {
   const td1 = performance.now();
   tDrC = tDrC + (td1 - td0);
 
-  // casca da água (culling geométrico por octantes; miolo invisível não desenha)
-  {
+  // ÁGUA: backend GPU desenha INSTANCIADO — 1 draw call lendo o buffer da
+  // física direto (sem readback, culling de casca no vertex shader). Backend
+  // CPU (fallback) cai no laço por partícula de sempre.
+  const gb = flPosGpuBuf();
+  if (gb !== 0) {
+    drawWaterGPU(WIN, gb, CD_NAGUA, 0.32);
+  } else {
     let wi = 0;
     while (wi < CD_NAGUA) {
       if (flHidden(wi) === 0) {

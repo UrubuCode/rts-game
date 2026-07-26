@@ -31,7 +31,7 @@ import { cfInit, cfSpawnBlock, cfSyncColliders, cfStep, cfX, cfY, cfZ,
 import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep,
          gfX, gfY, gfZ, gfVelX, gfVelY, gfVelZ, gfHidden, gfCount,
          gfSetState, gfUploadState, gfReadState, gfSetRest,
-         gfRestDensity } from "./gpufluid";
+         gfRestDensity, gfPosBufferId } from "./gpufluid";
 
 let flMode = 0;      // 0 = CPU, 1 = GPU
 let flN = 0;
@@ -72,6 +72,10 @@ export function flStep(substeps: number): void {
   if (flMode === 1) gfStep(substeps);
   else cfStep(substeps);
 }
+
+/// Id do buffer GPU de posições para o render INSTANCIADO (drawWaterGPU).
+/// 0 no backend CPU — aí o consumidor desenha pelo laço flX/flY/flZ.
+export function flPosGpuBuf(): i64 { return flMode === 1 ? gfPosBufferId() : 0; }
 
 export function flX(i: number): f64 { return flMode === 1 ? gfX(i) : cfX(i); }
 export function flY(i: number): f64 { return flMode === 1 ? gfY(i) : cfY(i); }
