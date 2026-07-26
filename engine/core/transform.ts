@@ -15,6 +15,15 @@ export class Transform {
   /// Massa para a resposta de impulso. 0 = INFINITA (corpo imóvel: chão, parede).
   /// Um corpo leve batendo num pesado é rebatido; o inverso mal o move.
   mass: f64;
+  /// SLEEPING de corpo rígido. `quiet` conta frames quase sem movimento; ao
+  /// passar do limiar a colisão marca `asleep = 1` e quem INTEGRA (Rigidbody,
+  /// demos) deve pular o corpo — é o contrato que tira um castelo em repouso do
+  /// caminho quente. A colisão ACORDA o corpo quando um contato de verdade
+  /// chega (ver `solvePair`). Sem isto, 392 blocos empilhados chacoalhavam para
+  /// sempre: a gravidade os afundava 2 mm no apoio, o impulso devolvia com
+  /// quique, e o passe inteiro rodava todo frame — o fps despencava.
+  asleep: number;
+  quiet: number;
   /// Restituição (0 = não quica, 1 = elástico) e atrito tangencial (0 = gelo,
   /// 1 = trava). Vivem no Transform e não no script porque a COLISÃO os lê, e
   /// ela roda sobre `trs[]` sem tocar em behaviors.
@@ -31,6 +40,8 @@ export class Transform {
     this.vy = 0.0;
     this.vz = 0.0;
     this.mass = 1.0;
+    this.asleep = 0;
+    this.quiet = 0;
     this.restitution = 0.0;
     this.friction = 0.35;
     this.wx = 0.0; this.wy = 0.0; this.wz = 0.0;

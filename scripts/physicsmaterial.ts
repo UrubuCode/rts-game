@@ -80,13 +80,17 @@ export class PhysicsMaterial extends Behavior {
     t.friction = this.friction;
   }
 
-  mount(): void { this.apply(); }
-
-  update(dt: f64): void {
-    // Reaplica todo frame porque a MASSA depende da escala, e escalar um objeto
-    // pelo gizmo tem de mudar o peso dele. É barato: três multiplicações.
+  mount(): void {
     this.apply();
+    // Sem update por frame: numa cena de 355 blocos com sub-passos, só o
+    // DESPACHO das chamadas virtuais custava ~10 ms/frame para reaplicar
+    // valores que não mudam. `fieldSet` (inspector) e `setPreset` continuam
+    // aplicando na hora; o único caso perdido é escalar pelo GIZMO depois de
+    // criar — aí a massa não acompanha até um `fieldSet` reaplicar.
+    this.enabled = 0;
   }
+
+  update(dt: f64): void {}
 
   /// Troca para outro preset (recarrega os três valores).
   setPreset(p: number): void {

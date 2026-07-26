@@ -202,6 +202,7 @@ function frame(): void {
     const o = scene.objects[i];
     if (o.stationary === 0) {
       const t: Transform = o.transform;
+      if (t.asleep !== 0) { i = i + 1; continue; }   // dormindo: nao integra
       t.vy = t.vy - 9.8 * dts;
       t.px = t.px + t.vx * dts;
       t.py = t.py + t.vy * dts;

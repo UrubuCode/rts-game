@@ -38,6 +38,9 @@ export class Rigidbody extends Behavior {
 
   update(dt: f64): void {
     const t = this.host;
+    // corpo DORMINDO não integra — é o contrato do sleeping da colisão; ela o
+    // acorda quando um contato de verdade chegar
+    if (t.asleep !== 0) return;
     // mantém em dia se o usuário editar pelo inspector
     t.mass = this.mass;
     t.restitution = this.bounce;

@@ -12,7 +12,13 @@ export class Scene {
   // Buffers REAPROVEITADOS entre frames pelo broad-phase da colisão e pelo
   // computeWorld. Alocar por frame no laço mais quente do motor gerava
   // pressão de GC; estes são limpos (length=0 / clear) em vez de recriados.
-  cIdx: number[];                    // índices dos objetos colidíveis
+  cIdx: number[];                    // índices dos colidíveis DINÂMICOS
+  /// Colidíveis ESTÁTICOS, FORA do grid. Um chão de 90 de largura dimensionava
+  /// a célula (2× o maior raio = 180): TODOS os corpos caíam na mesma célula e
+  /// a colisão virava O(n²) — a fortaleza de 392 blocos rodava a ~6 fps. A
+  /// célula agora é dimensionada só pelos dinâmicos, e cada móvel testa os
+  /// estáticos por lista direta (eles são poucos: chão, paredes, rampas).
+  sIdx: number[];
   // ── HASH ESPACIAL em ARRAYS (não `Map`) ──────────────────────────────────
   // Era `Map<number, number[]>` e a colisão custava 350 ms/frame com 400 móveis.
   // A causa é que `Map` NÃO é um hash neste runtime: é uma lista de associação
@@ -59,6 +65,7 @@ export class Scene {
     this.name = name;
     this.objects = [];
     this.cIdx = [];
+    this.sIdx = [];
     this.gHead = [];
     this.gNext = [];
     this.gCell = [];
@@ -290,23 +297,19 @@ export class Scene {
     // Entre frames a lista é a mesma, e revarrer 500 objetos custava ~1 ms.
     if (this.colDirty !== 0) {
       this.cIdx.length = 0;
-      collectColliders(objs, this.trs, this.cIdx);
+      this.sIdx.length = 0;
+      collectColliders(objs, this.trs, this.cIdx, this.sIdx);
       this.colMaxR = ccMaxR;
-      this.colMovers = ccMovers;
       this.colDirty = 0;
     }
     const maxR: f64 = this.colMaxR;
-    const movers = this.colMovers;
     const m = this.cIdx.length;
-    if (m < 2) return;
-    // NADA se move → nenhum par pode ser resolvido. Sai antes de montar o grid.
-    // Um cenário de RTS é quase todo cenário estático (prédios, terreno), e sem
-    // esta saída pagávamos o hash + varredura de vizinhança de tudo, todo frame,
-    // pra no fim descartar cada par dentro do solveOne.
-    if (movers === 0) return;
+    // NADA dinâmico → nenhum par pode se resolver (estático × estático nunca
+    // gera empurrão). É a saída que faz um cenário de RTS parado custar zero.
+    if (m === 0) return;
 
-    // Poucos objetos: o overhead do grid não compensa — laço direto é mais rápido.
-    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m); return; }
+    // Poucos dinâmicos: laço direto (todos × todos + estáticos) sem grid.
+    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m, this.sIdx); return; }
 
     // ── 2) monta o grid ──────────────────────────────────────────────────────
     // Célula = 2× o maior raio: assim dois objetos que se tocam NUNCA estão a
@@ -342,7 +345,16 @@ export class Scene {
     // perdem as provas de tipo e cada `this.objects[i].transform.px` cai no
     // caminho dinâmico de propriedade. Este é o laço mais quente do motor.
     resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv);
+                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
+                this.sIdx, 1);
+    // SEGUNDA iteração, SEM a reatividade: uma pilha alta empurra o bloco de
+    // baixo para dentro do chão mais do que UMA resolução devolve — o de baixo
+    // afundava 0.34 em regime e, espremido o bastante, era CUSPIDO pelo fundo
+    // (medido: bloco a y=-6 com vy=-10). A segunda passada redistribui as
+    // correções de baixo para cima. Corpos dormindo continuam fora.
+    resolveInto(this.objects, this.trs, this.cIdx, m,
+                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
+                this.sIdx, 0);
   }
 
 }
@@ -353,25 +365,38 @@ export class Scene {
 /// conhece os shapes e lê cada campo por offset constante.
 function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
                      gHead: number[], gNext: number[],
-                     lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64): void {
+                     lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64,
+                     sIdx: number[], reactive: number): void {
+  const ns = sIdx.length;
   let k = 0;
   while (k < m) {
     const oi = cIdx[k];
     const ob: GameObject = objs[oi];
     if (ob.stationary !== 0) { k = k + 1; continue; }
     const t: Transform = trs[oi];
+    // na passada EXTRA (reactive=0), corpo dormindo fica fora — o resto resolve
+    if (reactive === 0 && t.asleep !== 0) { k = k + 1; continue; }
     // COLISÃO REATIVA: quem não saiu do lugar já foi separado no frame em que
     // se mexeu, e nada pode ter vindo até ele sem que ESSE alguém se movesse —
     // e quem se move varre a vizinhança COMPLETA, então vê o par pelo seu lado.
     // O grid é 2D (XZ), mas o teste de "se moveu" tem de olhar os TRÊS eixos:
     // um corpo em QUEDA LIVRE só muda Y, e ignorá-lo fazia dele um objeto
     // "parado" que atravessava o chão sem nunca ser testado.
+    // (Só na passada reativa: a extra resolve incondicionalmente.)
     const px = t.px; const py = t.py; const pz = t.pz;
-    const dxm = px - lastX[oi];
-    const dym = py - lastY[oi];
-    const dzm = pz - lastZ[oi];
-    if (dxm * dxm + dym * dym + dzm * dzm < MOVE_EPS2) { k = k + 1; continue; }
-    lastX[oi] = px; lastY[oi] = py; lastZ[oi] = pz;
+    let bigMove = 0;
+    if (reactive !== 0) {
+      const dxm = px - lastX[oi];
+      const dym = py - lastY[oi];
+      const dzm = pz - lastZ[oi];
+      const moved2: f64 = dxm * dxm + dym * dym + dzm * dzm;
+      if (moved2 < MOVE_EPS2) { k = k + 1; continue; }
+      lastX[oi] = px; lastY[oi] = py; lastZ[oi] = pz;
+      // movimento GRANDE (não o micro-assentamento): este corpo pode estar
+      // saindo de sob alguém — os dormentes da vizinhança precisam acordar e
+      // reavaliar o próprio apoio (senão o telhado flutua quando a torre sai)
+      if (moved2 > 0.0004) bigMove = 1;
+    }
     const gx = mfloor(px * inv);
     const gz = mfloor(pz * inv);
     // a célula própria + as 8 vizinhas (vizinhança COMPLETA, ver acima)
@@ -383,23 +408,70 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
         let q = gHead[b];
         while (q >= 0) {
           const other = cIdx[q];
-          if (other !== oi) solvePair(objs, trs, oi, other);
+          if (other !== oi) {
+            // despertar por PARTIDA: um corpo em movimento real acorda os
+            // dormentes próximos — é o evento "meu apoio pode ter sumido"
+            if (bigMove !== 0) {
+              const to: Transform = trs[other];
+              if (to.asleep !== 0) { to.asleep = 0; to.quiet = 0; }
+            }
+            solvePair(objs, trs, oi, other);
+          }
           q = gNext[q];
         }
         dx = dx + 1;
       }
       dz = dz + 1;
     }
+    // estáticos: lista DIRETA (chão, paredes — poucos e grandes demais pro grid)
+    let sq = 0;
+    while (sq < ns) {
+      solvePair(objs, trs, oi, sIdx[sq]);
+      sq = sq + 1;
+    }
+    k = k + 1;
+  }
+
+  if (reactive === 0) return;   // contabilidade do sono só na passada reativa
+
+  // ── SLEEPING (pós-passe, critério de VELOCIDADE) ─────────────────────────
+  // O critério era posição-por-frame e falhava em cascata: com fps baixo o dt
+  // cresce, a penetração da gravidade por frame cresce junto, ninguém fica
+  // "quase parado" e ninguém dorme — que mantém o fps baixo. A VELOCIDADE
+  // pós-resolução não depende do dt: o contato de apoio zera o vy do corpo
+  // apoiado, então corpo em repouso mede ~0 aqui em qualquer framerate.
+  k = 0;
+  while (k < m) {
+    const t: Transform = trs[cIdx[k]];
+    if (t.asleep !== 0) {
+      // dormindo é PERMANENTE: só acorda por contato de verdade (solvePair) ou
+      // por um vizinho que SAI de perto (ver o despertar por partida, acima).
+      // A revalidação periódica que existia aqui era a fonte do tremor: cada
+      // bloco dormindo acordava a cada ~2 s, afundava um passo de gravidade e
+      // era devolvido — dezenas de blocos "respirando" sem ação por perto.
+    } else {
+      const sp2 = t.vx * t.vx + t.vy * t.vy + t.vz * t.vz;
+      if (sp2 < SLEEP_SPEED2R) {
+        t.quiet = t.quiet + 1;
+        if (t.quiet >= SLEEP_FRAMES) { t.asleep = 1; t.quiet = 0; }
+      } else {
+        t.quiet = 0;
+      }
+    }
     k = k + 1;
   }
 }
 
 /// Laço direto A×B (usado quando há poucos objetos pro grid valer a pena).
-function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number): void {
+function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
+                          sIdx: number[]): void {
+  const ns = sIdx.length;
   let i = 0;
   while (i < m) {
     let j = i + 1;
     while (j < m) { solvePair(objs, trs, cIdx[i], cIdx[j]); j = j + 1; }
+    let q = 0;
+    while (q < ns) { solvePair(objs, trs, cIdx[i], sIdx[q]); q = q + 1; }
     i = i + 1;
   }
 }
@@ -501,10 +573,16 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   }
 
   // ── separação (comum às três formas) ──────────────────────────────────────
-  let pushA: f64 = overlap * 0.5;
-  let pushB: f64 = overlap * 0.5;
-  if (a.stationary !== 0) { pushA = 0.0; pushB = overlap; }
-  else if (b.stationary !== 0) { pushA = overlap; pushB = 0.0; }
+  // FOLGA POSICIONAL (slop): penetração de até 0.02 não é corrigida, e o resto
+  // só a 85%. Corrigir 100% fazia a pilha RESPIRAR — cada resolução devolvia o
+  // bloco ao contato exato, a gravidade re-afundava, e o vaivém (o "tremor")
+  // nunca convergia. Com a folga, o bloco assenta DENTRO da banda e para.
+  let corr: f64 = (overlap - 0.02) * 0.85;
+  if (corr < 0.0) corr = 0.0;
+  let pushA: f64 = corr * 0.5;
+  let pushB: f64 = corr * 0.5;
+  if (a.stationary !== 0) { pushA = 0.0; pushB = corr; }
+  else if (b.stationary !== 0) { pushA = corr; pushB = 0.0; }
   ta.px = ta.px - nx * pushA;
   ta.py = ta.py - ny * pushA;
   ta.pz = ta.pz - nz * pushA;
@@ -530,17 +608,44 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     const vn = rvx * nx + rvy * ny + rvz * nz;
     // vn > 0 = já se afastando: resolver de novo os grudaria
     if (vn < 0.0) {
+      // ACORDA os dois num contato de VERDADE (rápido ou fundo). Contatos de
+      // repouso — a gravidade afundando 2 mm no apoio — não acordam ninguém,
+      // senão pilha nenhuma dormiria nunca.
+      if (vn < 0.0 - 0.8 || overlap > 0.06) {
+        ta.asleep = 0; ta.quiet = 0;
+        tb.asleep = 0; tb.quiet = 0;
+      }
       // MÉDIA, não mínimo. Com mínimo, uma bola de borracha (0.9) num chão de
       // concreto (0.1) daria 0.1 e não quicaria — o material do chão apagava o
       // da bola. A média é o que engines usam e preserva a intenção dos dois.
-      const e: f64 = (ta.restitution + tb.restitution) * 0.5;
+      let e: f64 = (ta.restitution + tb.restitution) * 0.5;
+      // CORTE DE RESTITUIÇÃO (o "chacoalho"): contato mais lento que 1 u/s não
+      // quica. Sem isto, o micro-ciclo de repouso — gravidade afunda, impulso
+      // devolve COM QUIQUE — realimentava para sempre: 392 blocos empilhados
+      // tremiam sem terem sofrido nada. É o mesmo padrão de toda engine
+      // (restitution velocity threshold).
+      if (vn > 0.0 - 1.0) e = 0.0;
       const j: f64 = (0.0 - (1.0 + e)) * vn / imSum;
-      ta.vx = ta.vx - nx * j * imA;
-      ta.vy = ta.vy - ny * j * imA;
-      ta.vz = ta.vz - nz * j * imA;
-      tb.vx = tb.vx + nx * j * imB;
-      tb.vy = tb.vy + ny * j * imB;
-      tb.vz = tb.vz + nz * j * imB;
+      // ── CONTATO DE APOIO (vn lento + normal vertical): SEM impulso normal.
+      // O impulso num contato de repouso reinjetava velocidade no corpo de
+      // BAIXO (a reação de segurar o de cima) e criava CICLOS-LIMITE: numa
+      // coluna de 3, o miolo congelava em vy=-0.63 eterno, trocando velocidade
+      // com os vizinhos, e o sono nunca engatava. No repouso, o de cima HERDA a
+      // velocidade vertical do apoio — o zero do chão propaga para cima e a
+      // coluna converge em poucos frames. Impacto de verdade (vn rápido) segue
+      // no impulso clássico. O `j` ainda é calculado: é o teto do atrito.
+      const resting = (vn > 0.0 - 1.0 && (ny > 0.5 || ny < 0.0 - 0.5)) ? 1 : 0;
+      if (resting !== 0) {
+        if (ny > 0.5) tb.vy = ta.vy;        // b está em cima de a
+        else ta.vy = tb.vy;                 // a está em cima de b
+      } else {
+        ta.vx = ta.vx - nx * j * imA;
+        ta.vy = ta.vy - ny * j * imA;
+        ta.vz = ta.vz - nz * j * imA;
+        tb.vx = tb.vx + nx * j * imB;
+        tb.vy = tb.vy + ny * j * imB;
+        tb.vz = tb.vz + nz * j * imB;
+      }
 
       // ATRITO: freia a componente TANGENCIAL (o que sobra depois de tirar a
       // normal). É o que faz um corpo parar de deslizar sobre o chão em vez de
@@ -569,6 +674,7 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
           tb.vz = tb.vz - uz * jt * imB;
         }
       }
+
     }
   }
 }
@@ -599,6 +705,11 @@ function radiusOf(t: Transform): f64 {
 /// Movimento mínimo (ao quadrado) para um objeto reconsultar a vizinhança.
 /// Bem abaixo de um passo de unidade, mas acima do jitter de ponto flutuante.
 const MOVE_EPS2: f64 = 0.000001;
+/// Sleeping: velocidade (ao quadrado) abaixo da qual o corpo conta como quieto
+/// (0.3 u/s), quantos frames quietos até dormir, e de quantos em quantos frames
+/// um adormecido REVALIDA o apoio (ver o pós-passe em `resolveInto`).
+const SLEEP_SPEED2R: f64 = 0.09;
+const SLEEP_FRAMES = 10;
 const CGRID_CAP = 8192;
 const CGRID_MASK = 8191;
 
@@ -702,12 +813,11 @@ function updateAll(objs: GameObject[], dt: f64): void {
 
 // Saídas de `collectColliders` (evita alocar um array de retorno por frame).
 let ccMaxR: f64 = 0.0001;
-let ccMovers = 0;
 
-function collectColliders(objs: GameObject[], trs: Transform[], out: number[]): void {
+function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
+                          outStatic: number[]): void {
   const n = objs.length;
   let maxR: f64 = 0.0001;
-  let movers = 0;
   let i = 0;
   while (i < n) {
     const o = objs[i];
@@ -715,15 +825,21 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[]): 
     // campo: cada acesso a campo custa ~2 µs, e ler três por objeto sobre a
     // cena inteira, todo frame, era metade do custo da física.
     if (o.collideFlag !== 0) {
+      // ESTÁTICO sai do grid, para a lista direta (ver `sIdx`): um chão de 90
+      // de largura dimensionava a célula em 180 e punha a cena inteira num
+      // único bucket — colisão O(n²), fortaleza de 392 blocos a ~6 fps.
+      if (o.stationary !== 0) {
+        outStatic.push(i);
+        i = i + 1;
+        continue;
+      }
       out.push(i);
-      if (o.stationary === 0) movers = movers + 1;
       const t: Transform = trs[i];   // espelho paralelo (ver `trs`)
-      // O grid dimensiona a célula por ESTE raio, então ele tem de cobrir o
-      // volume REAL do colisor. Para uma CAIXA isso é a maior meia-extensão em
-      // X/Z (o grid é 2D em XZ), não `radiusOf` — que devolve a metade da MENOR
-      // escala e faria um chão 60x0.4x60 reportar 0.2. Com isso a célula ficava
-      // minúscula e um objeto caindo longe do centro do chão nunca o encontrava
-      // na vizinhança: atravessava.
+      // O grid dimensiona a célula por ESTE raio (só dos DINÂMICOS agora), e
+      // ele tem de cobrir o volume real do colisor. Para uma CAIXA isso é a
+      // maior meia-extensão em X/Z (o grid é 2D em XZ), não `radiusOf` — que
+      // devolve a metade da MENOR escala e faria uma laje achatada reportar um
+      // raio minúsculo, com célula pequena demais para achá-la na vizinhança.
       let r: f64 = radiusOf(t);
       if (o.colShape === COL_BOX) {
         r = t.sx * 0.5;
@@ -735,7 +851,6 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[]): 
     i = i + 1;
   }
   ccMaxR = maxR;
-  ccMovers = movers;
 }
 
 /// Compõe o transform de mundo do filho a partir do pai (offset local

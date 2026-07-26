@@ -39,7 +39,13 @@ export function cmdAddComp(parts: string[]): string {
   // Um corpo com Rigidbody NÃO é estático: `spawn` marca `stationary = 1` (para
   // a posição pedida grudar), mas a colisão pula estáticos — o objeto caía
   // atravessando o chão porque nunca era testado. Anexar física desfaz a marca.
-  if (parts[2] === "Rigidbody") { o.stationary = 0; o.refreshCollide(); }
+  if (parts[2] === "Rigidbody") {
+    o.stationary = 0;
+    o.refreshCollide();
+    // o corpo muda de LISTA na colisão (estáticos vivem fora do grid): sem
+    // recoletar, ele continuaria na lista de estáticos e cairia pelo chão
+    scene.colDirty = 1;
+  }
   return "[ok] addcomp " + parts[2] + " -> #" + oi;
 }
 
