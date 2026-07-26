@@ -44,8 +44,8 @@ import { initAudio, pumpAudio, playNoise, playSquare } from "./engine/audio/audi
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
-import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep,
-         rbX, rbY, rbZ, rbSleep } from "./engine/rigid/gpurigid";
+import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbService,
+         rbReadState, rbX, rbY, rbZ, rbSleep } from "./engine/rigid/gpurigid";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
          flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "./engine/fluid/fluid";
 
@@ -256,27 +256,47 @@ soltaAgua();
 io.print("[castelo] agua ligada: " + CD_NAGUA + " particulas, backend " +
          (flBackend() === 1 ? "GPU" : "CPU (fallback)"));
 
-io.print("[castelo] " + rIdx.length + " blocos + " + ballIdx.length + " balas | ws://127.0.0.1:7777");
+// ── RÍGIDOS NA GPU: blocos + balas viram corpos do gpurigid ─────────────────
+const RB_N = rIdx.length + ballIdx.length;
+if (rbInit(RB_N) === 0) { io.print("[castelo] SEM GPU p/ rigidos"); app.close(); }
+rbSyncStatics(scene);
+{
+  let k = 0;
+  while (k < rIdx.length) {
+    const t: Transform = scene.objects[rIdx[k]].transform;
+    let bm: f64 = t.mass;
+    if (bm < 0.1) bm = 4.0;
+    rbSetBody(k, t.px, t.py, t.pz, t.sx * 0.5, t.sy * 0.5, t.sz * 0.5, bm);
+    k = k + 1;
+  }
+  let b = 0;
+  while (b < ballIdx.length) {
+    const t: Transform = scene.objects[ballIdx[b]].transform;
+    rbSetBody(rIdx.length + b, t.px, t.py, t.pz, 0.85, 0.85, 0.85, 32.0);
+    b = b + 1;
+  }
+  rbUpload();
+}
+
+io.print("[castelo] " + rIdx.length + " blocos + " + ballIdx.length + " balas RIGIDOS NA GPU | ws://127.0.0.1:7777");
 io.print("[castelo] WASD voa | botao DIR gira | R reconstroi");
 
-/// Reconstrói o castelo e estaciona as balas.
+/// Reconstrói o castelo (na GPU) e estaciona as balas.
 function rebuild(): void {
   let k = 0;
   while (k < rIdx.length) {
     const t: Transform = scene.objects[rIdx[k]].transform;
-    t.px = rX[k]; t.py = rY[k]; t.pz = rZ[k];
-    t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
-    t.asleep = 0; t.quiet = 0;
+    let bm: f64 = t.mass;
+    if (bm < 0.1) bm = 4.0;
+    rbSetBody(k, rX[k], rY[k], rZ[k], t.sx * 0.5, t.sy * 0.5, t.sz * 0.5, bm);
     k = k + 1;
   }
   k = 0;
   while (k < ballIdx.length) {
-    const t: Transform = scene.objects[ballIdx[k]].transform;
-    t.px = 0.0 - 26.0 - k * 4.0; t.py = 0.0 - 16.0; t.pz = 0.0;
-    t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
-    t.asleep = 0; t.quiet = 0;
+    rbSetBody(rIdx.length + k, 0.0 - 26.0 - k * 4.0, 0.0 - 16.0, 0.0, 0.85, 0.85, 0.85, 32.0);
     k = k + 1;
   }
+  rbUpload();
   soltaAgua();
 }
 
@@ -289,10 +309,12 @@ function fire(): void {
   const vz: f64 = ((aimSeed % 100) - 50) * 0.16;        // -8 .. +8 (varre a fortaleza inteira)
   aimSeed = (aimSeed * 1103515245 + 12345) & 0x7FFFFFFF;
   const vy: f64 = 2.0 + (aimSeed % 60) * 0.14;          // 2 .. 10.3 (as altas acertam o torreão)
-  const t: Transform = scene.objects[ballIdx[nextBall]].transform;
-  t.px = 0.0 - 24.0; t.py = 2.4; t.pz = 0.0;
-  t.vx = 34.0; t.vy = vy; t.vz = vz;
-  t.asleep = 0; t.quiet = 0;
+  // snapshot do estado REAL da GPU -> altera so a bala -> devolve inteiro
+  // (o rts:gpu ainda nao escreve com offset; upload parcial e trabalho futuro)
+  rbReadState();
+  rbSetBody(rIdx.length + nextBall, 0.0 - 24.0, 2.4, 0.0, 0.85, 0.85, 0.85, 32.0);
+  rbSetVel(rIdx.length + nextBall, 34.0, vy, vz);
+  rbUpload();
   nextBall = nextBall + 1;
   if (nextBall >= ballIdx.length) nextBall = 0;
   shots = shots + 1;
@@ -379,38 +401,26 @@ function frame(): void {
 
   // ── FÍSICA em PASSO FIXO de 16 ms (o mesmo dt das suítes headless) ───────
   const tf0 = performance.now();
-  phAcc = phAcc + dts;
-  if (phAcc > 0.017) phAcc = 0.017;  // teto: 1 sub-passo — 60 fps sempre; o pico do desabamento vira câmera lenta
-  while (phAcc >= 0.016) {
-    phAcc = phAcc - 0.016;
-    scene.update(0.016);
-    // arrays HOISTADOS e tipados: ler `scene.objects` pelo import a cada
-    // iteração custava 3,3 ms por frame só neste laço (caminho dinâmico)
-    const iObjs: GameObject[] = scene.objects;
+  // ── RÍGIDOS NA GPU (física como serviço): aplica o resultado QUANDO chega
+  // (1-2 frames de latência) e ESPELHA nos Transforms — render, água e WS
+  // seguem intactos. NUNCA espera a GPU; frame sem resultado desenha o
+  // estado anterior. O solver da CPU não roda neste demo.
+  if (rbService(1) !== 0) {
     const iTrs: Transform[] = scene.trs;
-    const iN = iObjs.length;
-    let i = 0;
-    while (i < iN) {
-      const o: GameObject = iObjs[i];
-      if (o.stationary === 0) {
-        const t: Transform = iTrs[i];
-        if (t.asleep !== 0) { i = i + 1; continue; }   // dormindo: nao integra
-        t.vy = t.vy - 9.8 * 0.016;
-        // teto anti-tunneling (um impulso de bala atravessaria o chão num passo)
-        const spd2 = t.vx * t.vx + t.vy * t.vy + t.vz * t.vz;
-        if (spd2 > 2304.0) {   // 48 u/s
-          const sc = 48.0 / math.sqrt(spd2);
-          t.vx = t.vx * sc; t.vy = t.vy * sc; t.vz = t.vz * sc;
-        }
-        t.px = t.px + t.vx * 0.016;
-        t.py = t.py + t.vy * 0.016;
-        t.pz = t.pz + t.vz * 0.016;
-        // quem caiu da borda fica ESTACIONADO sob o mundo
-        if (t.py < 0.0 - 18.0) { t.py = 0.0 - 18.0; t.vy = 0.0; t.vx = 0.0; t.vz = 0.0; }
-      }
-      i = i + 1;
+    let mk = 0;
+    while (mk < rIdx.length) {
+      const t: Transform = iTrs[rIdx[mk]];
+      t.px = rbX(mk); t.py = rbY(mk); t.pz = rbZ(mk);
+      t.asleep = rbSleep(mk) >= 10.0 ? 1 : 0;
+      mk = mk + 1;
     }
-    scene.resolveCollisions();
+    mk = 0;
+    while (mk < ballIdx.length) {
+      const t: Transform = iTrs[ballIdx[mk]];
+      const rb = rIdx.length + mk;
+      t.px = rbX(rb); t.py = rbY(rb); t.pz = rbZ(rb);
+      mk = mk + 1;
+    }
   }
   scene.computeWorld();
   const tf1 = performance.now();
@@ -422,8 +432,9 @@ function frame(): void {
   const tf2 = performance.now();
   tSyn = tSyn + (tf2 - tf1);
   flStep(2);
-  // a agua EMPURRA os blocos: impulso agregado por colisor, lido 1x/frame
-  flApplyForces(scene, 0.028);
+  // agua->bloco DESLIGADO aqui: flApplyForces escreve nos Transforms da CPU e
+  // o estado rigido mora na GPU — o acoplamento correto e GPU<->GPU (proximo
+  // passo da campanha). bloco->agua segue via colisores espelhados.
   const tf3 = performance.now();
   tAgu = tAgu + (tf3 - tf2);
 
@@ -475,7 +486,7 @@ function frame(): void {
   const trs: Transform[] = scene.trs;
   const n = objs.length;
   let drawn = 0;
-  i = 0;
+  let i = 0;
   while (i < n) {
     const o = objs[i];
     const t: Transform = trs[i];
