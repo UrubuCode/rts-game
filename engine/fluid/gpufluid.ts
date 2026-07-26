@@ -35,6 +35,14 @@ import { Transform } from "../core/transform";
 
 /// Máximo de AABBs enviados ao kernel (12 KB de buffer; a fortaleza usa ~400).
 export const GF_MAX_COLLIDERS = 768;
+/// GRID espacial: célula = H; 8192 buckets (hash), 32 vagas por bucket.
+/// Colisão de hash só gera candidato extra (o teste de r² filtra).
+const GF_NCELLS = 8192;
+const GF_SLOT = 32;
+/// Base (em vec4) da região de IMPULSOS na cauda do buffer WORLD:
+/// [0] params, [1 .. 1+768*2) estáticos, [IMP_BASE .. IMP_BASE+768) impulsos.
+const GF_IMP_BASE = 1537;
+const GF_WORLD_VEC4 = 1537 + 768;
 /// Raio de kernel SPH. As demais constantes derivam dele nos shaders.
 const GF_H = "0.45";
 /// Sub-passo fixo da física (lição do CPU: NUNCA integrar com dt real).
@@ -51,13 +59,13 @@ let gfPipeDens: i64 = 0;
 let gfPipeForce: i64 = 0;
 let gfGPos: i64 = 0;
 let gfGVel: i64 = 0;
-let gfGWorld: i64 = 0;    // params + colisores, fundidos (limite de 4 buffers)
-let gfGImp: i64 = 0;      // impulsos por colisor (atomic i32 x1000)
+let gfGWorld: i64 = 0;    // params + colisores + IMPULSOS (limite de 4 buffers)
+let gfGGrid: i64 = 0;     // grid espacial: [0..NC) contagens, depois as vagas
+let gfPipeGrid: i64 = 0;
 let gfPosBuf: i64 = 0;      // espelho CPU das posições (leitura pós-readback)
 let gfVelBuf: i64 = 0;
 let gfWorldBuf: i64 = 0;
-let gfImpBuf: i64 = 0;
-let gfImpZero: i64 = 0;   // zeros pre-alocados (limpa o acumulador por frame)
+let gfGridZero: i64 = 0;  // zeros p/ limpar as CONTAGENS do grid por sub-passo
 /// indice de cena de cada colisor k (para aplicar o impulso de volta)
 const gfColScene: number[] = [];
 let gfGroups = 0;
@@ -92,8 +100,36 @@ export function gfInit(n: number): number {
   gfN = n;
   gfGroups = ((n + 63) / 64) | 0;
 
+  // hash 3D compartilhado (o mesmo do buildSceneGrid da CPU)
+  const hashFn = `
+fn cellHash(gx: i32, gy: i32, gz: i32) -> u32 {
+  return u32((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & 8191u;
+}
+`;
+  // CONSTRUCAO do grid: os UNICOS atomics do fluido, isolados neste kernel
+  // minusculo (licao medida: atomic no kernel quente pessimiza o pass inteiro
+  // no DX12 — +33 ms/frame). Contagens em [0..NC); vagas em [NC + c*SLOT ...).
+  const gridSrc = `
+@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> grid: array<atomic<i32>>;
+${hashFn}
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let n = arrayLength(&pos);
+  if (id.x >= n) { return; }
+  let p = pos[id.x].xyz;
+  let c = cellHash(i32(floor(p.x / ${GF_H})), i32(floor(p.y / ${GF_H})), i32(floor(p.z / ${GF_H})));
+  let s = atomicAdd(&grid[c], 1);
+  if (s < 32) { atomicStore(&grid[8192u + c * 32u + u32(s)], i32(id.x)); }
+}
+`;
+  gfPipeGrid = gpu.shader(gridSrc);
+  if (gfPipeGrid === 0) return 0;
+
   const densSrc = `
 @group(0) @binding(0) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> grid: array<i32>;
+${hashFn}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let n = arrayLength(&pos);
@@ -102,31 +138,33 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let h2 = h * h;
   let p = pos[id.x].xyz;
   var d: f32 = 0.0;
-  // COBERTURA: uma particula so e invisivel (de QUALQUER angulo) se tem
-  // vizinho proximo nos 8 OCTANTES ao redor. So 6 direcoes axiais deixava
-  // frestas diagonais visiveis em angulo rasante (medido na tela). O veredito
-  // viaja no SINAL do w: w < 0 => cercada; |w| = densidade.
   var cover: u32 = 0u;
-  for (var j: u32 = 0u; j < n; j = j + 1u) {
-    let dv = p - pos[j].xyz;
-    let r2 = dot(dv, dv);
-    if (r2 < h2) { let w = h2 - r2; d = d + w * w * w; }
-    // 0.3025 = 0.55^2 — MENOR que o raio que o teste verifica (0.65): o
-    // veredito e calculado ANTES da integracao e vale por 1 frame; a margem
-    // engole o deslocamento maximo por frame (~0.12) sem virar buraco.
-    if (j != id.x && r2 < 0.3025) {
-      let nb = pos[j].xyz - p;
-      // octante SOLIDO: componente > 0.13 (maior que o drift de 1 frame) nao
-      // troca de sinal ate a verificacao/desenho — sem isso, vizinho em cima
-      // do plano do eixo flipava de octante e abria fresta.
-      if (abs(nb.x) > 0.13 && abs(nb.y) > 0.13 && abs(nb.z) > 0.13) {
-        let bx = select(0u, 1u, nb.x > 0.0);
-        let by = select(0u, 1u, nb.y > 0.0);
-        let bz = select(0u, 1u, nb.z > 0.0);
-        cover = cover | (1u << (bx | (by << 1u) | (bz << 2u)));
+  let bx0 = i32(floor(p.x / h));
+  let by0 = i32(floor(p.y / h));
+  let bz0 = i32(floor(p.z / h));
+  // 27 celulas vizinhas via grid: O(N*vizinhos) — era O(N^2) (~17 ms/frame)
+  for (var cz: i32 = -1; cz <= 1; cz = cz + 1) {
+  for (var cy: i32 = -1; cy <= 1; cy = cy + 1) {
+  for (var cx: i32 = -1; cx <= 1; cx = cx + 1) {
+    let cell = cellHash(bx0 + cx, by0 + cy, bz0 + cz);
+    let cnt = u32(clamp(grid[cell], 0, 32));
+    for (var s: u32 = 0u; s < cnt; s = s + 1u) {
+      let j = u32(grid[8192u + cell * 32u + s]);
+      let dv = p - pos[j].xyz;
+      let r2 = dot(dv, dv);
+      if (r2 < h2) { let w = h2 - r2; d = d + w * w * w; }
+      // COBERTURA por 8 octantes SOLIDOS (sinal do w = cercada) — ver testes
+      if (j != id.x && r2 < 0.3025) {
+        let nb = pos[j].xyz - p;
+        if (abs(nb.x) > 0.13 && abs(nb.y) > 0.13 && abs(nb.z) > 0.13) {
+          let obx = select(0u, 1u, nb.x > 0.0);
+          let oby = select(0u, 1u, nb.y > 0.0);
+          let obz = select(0u, 1u, nb.z > 0.0);
+          cover = cover | (1u << (obx | (oby << 1u) | (obz << 2u)));
+        }
       }
     }
-  }
+  }}}
   let cercada = cover == 255u;
   pos[id.x].w = select(d, -d, cercada);
 }
@@ -136,15 +174,13 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   const forceSrc = `
 @group(0) @binding(0) var<storage, read_write> pos: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> vel: array<vec4<f32>>;
-// WORLD: [0] = params (dt, rest, colCount, raio); depois, por colisor k:
-// [1+k*2] = centro, [2+k*2] = meia-extensao. Fundidos num buffer so porque o
-// device downlevel limita 4 storage buffers por estagio — o slot que sobrou
-// e dos IMPULSOS.
-@group(0) @binding(2) var<storage, read> world: array<vec4<f32>>;
-// IMPULSOS acumulados por colisor (atomic i32 em ponto fixo x1000 — WGSL nao
-// tem atomic de float): [k*4+0..2] = soma dos delta-v aplicados as particulas
-// (o bloco recebe o OPOSTO), [k*4+3] = contagem de contatos.
-@group(0) @binding(3) var<storage, read_write> imp: array<i32>;
+// WORLD (read_write): [0] params (dt, rest, colCount, raio); [1..1537)
+// estaticos (centro, meia-ext); [1537..2305) IMPULSOS por colisor (vec4:
+// soma dos delta-v + contagem, f32 com corrida — agregado tolera; atomics
+// aqui custavam +33 ms no pass inteiro).
+@group(0) @binding(2) var<storage, read_write> world: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read> grid: array<i32>;
+${hashFn}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let n = arrayLength(&pos);
@@ -162,7 +198,16 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let di = abs(wi);
   let pi = stiff * max(di - rest, 0.0);
   var f = vec3<f32>(0.0, -9.8, 0.0);
-  for (var j: u32 = 0u; j < n; j = j + 1u) {
+  let bx0 = i32(floor(p.x / h));
+  let by0 = i32(floor(p.y / h));
+  let bz0 = i32(floor(p.z / h));
+  for (var cz: i32 = -1; cz <= 1; cz = cz + 1) {
+  for (var cy: i32 = -1; cy <= 1; cy = cy + 1) {
+  for (var cx: i32 = -1; cx <= 1; cx = cx + 1) {
+    let cell = cellHash(bx0 + cx, by0 + cy, bz0 + cz);
+    let cnt = u32(clamp(grid[cell], 0, 32));
+    for (var sl: u32 = 0u; sl < cnt; sl = sl + 1u) {
+    let j = u32(grid[8192u + cell * 32u + sl]);
     if (j == id.x) { continue; }
     let dv = p - pos[j].xyz;
     let r2 = dot(dv, dv);
@@ -180,7 +225,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         f = f + dv * (55.0 * q * q / r);
       }
     }
-  }
+    }
+  }}}
   var nv = v + f * dt;
   let sp = length(nv);
   if (sp > 14.0) { nv = nv * (14.0 / sp); }
@@ -210,15 +256,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
           // transfere momento util). Sem o corte, agua assentada contra a
           // muralha fazia atomicAdd em massa nos mesmos enderecos e a fila da
           // GPU crescia sem teto (medido: 20 -> 45 ms/frame).
-          // NAO-atomico de proposito: atomics aqui custavam +33 ms/frame
-          // (pessimizacao do driver DX12 no pass inteiro — medido 53 vs 19.5).
-          // Corridas entre particulas perdem parte do agregado; para um
-          // impulso somado por colisor isso e ruido aceitavel.
+          // impulso agregado na CAUDA do world (f32 com corrida; so colisor
+          // DINAMICO e so impacto real — ver historico no git)
           if (world[2u + k * 2u].w > 0.5 && dot(dvv, dvv) > 0.04) {
-            imp[k * 4u] = imp[k * 4u] + i32(dvv.x * 1000.0);
-            imp[k * 4u + 1u] = imp[k * 4u + 1u] + i32(dvv.y * 1000.0);
-            imp[k * 4u + 2u] = imp[k * 4u + 2u] + i32(dvv.z * 1000.0);
-            imp[k * 4u + 3u] = imp[k * 4u + 3u] + 1;
+            world[1537u + k] = world[1537u + k] + vec4<f32>(dvv, 1.0);
           }
         }
       } else {
@@ -249,22 +290,25 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
   gfGPos = gpu.buffer(n * 4 * 4);
   gfGVel = gpu.buffer(n * 4 * 4);
-  gfGWorld = gpu.buffer((1 + GF_MAX_COLLIDERS * 2) * 4 * 4);
-  gfGImp = gpu.buffer(GF_MAX_COLLIDERS * 4 * 4);
+  gfGWorld = gpu.buffer(GF_WORLD_VEC4 * 16);
+  gfGGrid = gpu.buffer((GF_NCELLS + GF_NCELLS * GF_SLOT) * 4);
   gfPosBuf = buffer.alloc(n * 4 * 4);
   gfVelBuf = buffer.alloc(n * 4 * 4);
-  gfWorldBuf = buffer.alloc((1 + GF_MAX_COLLIDERS * 2) * 4 * 4);
-  gfImpBuf = buffer.alloc(GF_MAX_COLLIDERS * 4 * 4);
-  gfImpZero = buffer.alloc(GF_MAX_COLLIDERS * 4 * 4);
+  gfWorldBuf = buffer.alloc(GF_WORLD_VEC4 * 16);
   let z = 0;
-  while (z < GF_MAX_COLLIDERS * 4) { buffer.write_i32(gfImpZero, z * 4, 0); z = z + 1; }
-  gpu.write(gfGImp, gfImpZero, GF_MAX_COLLIDERS * 4 * 4);
+  while (z < GF_WORLD_VEC4 * 4) { buffer.write_f32(gfWorldBuf, z * 4, 0.0); z = z + 1; }
+  gfGridZero = buffer.alloc(GF_NCELLS * 4);
+  z = 0;
+  while (z < GF_NCELLS) { buffer.write_i32(gfGridZero, z * 4, 0); z = z + 1; }
 
+  gpu.bind_buffer(gfPipeGrid, 0, gfGPos);
+  gpu.bind_buffer(gfPipeGrid, 1, gfGGrid);
   gpu.bind_buffer(gfPipeDens, 0, gfGPos);
+  gpu.bind_buffer(gfPipeDens, 1, gfGGrid);
   gpu.bind_buffer(gfPipeForce, 0, gfGPos);
   gpu.bind_buffer(gfPipeForce, 1, gfGVel);
   gpu.bind_buffer(gfPipeForce, 2, gfGWorld);
-  gpu.bind_buffer(gfPipeForce, 3, gfGImp);
+  gpu.bind_buffer(gfPipeForce, 3, gfGGrid);
   return 1;
 }
 
@@ -362,40 +406,39 @@ export function gfSyncColliders(sc: Scene): void {
 /// NAO-estaticos (que acordam pelo caminho normal do solver). `strength` faz o
 /// papel da massa da particula: dv_bloco = -impulso * strength / massa_bloco.
 /// Chamar 1x por frame, DEPOIS de gfStep. Zera o acumulador na GPU.
-/// DEBUG: soma dos contadores de contato de todos os colisores (inspecao).
-export function gfDebugContactCount(): number {
-  if (gfColCount === 0) return 0;
-  gpu.read(gfGImp, gfImpBuf, gfColCount * 4 * 4);
-  let acc = 0;
-  let k = 0;
-  while (k < gfColCount) { acc = acc + buffer.read_i32(gfImpBuf, (k * 4 + 3) * 4); k = k + 1; }
-  return acc;
-}
+let gfImpRead: i64 = 0;   // espelho da leitura do world (cauda de impulsos)
 
 export function gfApplyWaterForces(sc: Scene, strength: f64): void {
   if (gfPipeForce === 0 || gfColCount === 0) return;
-  gpu.read(gfGImp, gfImpBuf, gfColCount * 4 * 4);
-  gpu.write(gfGImp, gfImpZero, gfColCount * 4 * 4);
+  if (gfImpRead === 0) gfImpRead = buffer.alloc(GF_WORLD_VEC4 * 16);
+  gpu.read(gfGWorld, gfImpRead, (GF_IMP_BASE + gfColCount) * 16);
+  // zera a cauda reescrevendo o world do espelho (cauda do espelho é 0 sempre)
+  gpu.write(gfGWorld, gfWorldBuf, GF_WORLD_VEC4 * 16);
   const objs: GameObject[] = sc.objects;
   const trs: Transform[] = sc.trs;
   let k = 0;
   while (k < gfColCount) {
-    const cnt = buffer.read_i32(gfImpBuf, (k * 4 + 3) * 4);
-    if (cnt > 0) {
+    const base = (GF_IMP_BASE + k) * 4;
+    const cnt = buffer.read_f32(gfImpRead, (base + 3) * 4);
+    if (cnt > 0.5) {
       const o: GameObject = objs[gfColScene[k]];
       if (o.stationary === 0) {
         const t: Transform = trs[gfColScene[k]];
         let mass: f64 = t.mass;
         if (mass < 0.1) mass = 0.1;
         const f: f64 = strength / mass;
-        // o kernel soma dvv; a PARTICULA recebe -dvv (nv = nv - dvv), logo o
-        // bloco recebe +dvv (acao e reacao — sinal conferido no probe: coluna
-        // desabando EMPURRA o bloco para longe, nao o puxa)
-        t.vx = t.vx + buffer.read_i32(gfImpBuf, (k * 4) * 4) * 0.001 * f;
-        t.vy = t.vy + buffer.read_i32(gfImpBuf, (k * 4 + 1) * 4) * 0.001 * f;
-        t.vz = t.vz + buffer.read_i32(gfImpBuf, (k * 4 + 2) * 4) * 0.001 * f;
-        t.asleep = 0;
-        t.quiet = 0;
+        // o kernel soma dvv; a PARTICULA recebe -dvv, o bloco recebe +dvv.
+        // ZONA MORTA (0.06 u/s): agua encostada nao acorda bloco p/ sempre.
+        const dvx: f64 = buffer.read_f32(gfImpRead, (base) * 4) * f;
+        const dvy: f64 = buffer.read_f32(gfImpRead, (base + 1) * 4) * f;
+        const dvz: f64 = buffer.read_f32(gfImpRead, (base + 2) * 4) * f;
+        if (dvx * dvx + dvy * dvy + dvz * dvz > 0.0036) {
+          t.vx = t.vx + dvx;
+          t.vy = t.vy + dvy;
+          t.vz = t.vz + dvz;
+          t.asleep = 0;
+          t.quiet = 0;
+        }
       }
     }
     k = k + 1;
@@ -472,11 +515,14 @@ export function gfPull(): void {
   if (gfPipeForce === 0) return;
   gpu.read(gfGPos, gfPosBuf, gfN * 4 * 4);
 }
-/// KICK: só os dispatches (zero espera).
+/// KICK: só os dispatches (zero espera). Cada sub-passo reconstrói o grid
+/// (limpa as contagens + kernel de build) antes de densidade/força.
 export function gfKick(substeps: number): void {
   if (gfPipeForce === 0) return;
   let s = 0;
   while (s < substeps) {
+    gpu.write(gfGGrid, gfGridZero, GF_NCELLS * 4);
+    gpu.dispatch(gfPipeGrid, gfGroups, 1, 1);
     gpu.dispatch(gfPipeDens, gfGroups, 1, 1);
     gpu.dispatch(gfPipeForce, gfGroups, 1, 1);
     s = s + 1;
