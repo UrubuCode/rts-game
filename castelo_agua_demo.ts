@@ -39,7 +39,7 @@ import { initAudio, pumpAudio, playNoise, playSquare } from "./engine/audio/audi
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
-import { flInit, flSpawnBlock, flSyncColliders, flStep,
+import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
          flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "./engine/fluid/fluid";
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
@@ -415,6 +415,8 @@ function frame(): void {
   const tf2 = performance.now();
   tSyn = tSyn + (tf2 - tf1);
   flStep(2);
+  // a agua EMPURRA os blocos: impulso agregado por colisor, lido 1x/frame
+  flApplyForces(scene, 0.028);
   const tf3 = performance.now();
   tAgu = tAgu + (tf3 - tf2);
 

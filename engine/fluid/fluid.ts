@@ -31,7 +31,7 @@ import { cfInit, cfSpawnBlock, cfSyncColliders, cfStep, cfX, cfY, cfZ,
 import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep,
          gfX, gfY, gfZ, gfVelX, gfVelY, gfVelZ, gfHidden, gfCount,
          gfSetState, gfUploadState, gfReadState, gfSetRest,
-         gfRestDensity, gfPosBufferId } from "./gpufluid";
+         gfRestDensity, gfPosBufferId, gfApplyWaterForces } from "./gpufluid";
 
 let flMode = 0;      // 0 = CPU, 1 = GPU
 let flN = 0;
@@ -66,6 +66,12 @@ export function flSpawnBlock(cols: number, rows: number, layers: number,
 export function flSyncColliders(sc: Scene): void {
   if (flMode === 1) gfSyncColliders(sc);
   else cfSyncColliders(sc);
+}
+
+/// AGUA EMPURRA O MUNDO: aplica os impulsos agregados nos blocos nao-estaticos
+/// da cena (backend GPU; no CPU e no-op por ora). Chamar apos flStep.
+export function flApplyForces(sc: Scene, strength: f64): void {
+  if (flMode === 1) gfApplyWaterForces(sc, strength);
 }
 
 export function flStep(substeps: number): void {
