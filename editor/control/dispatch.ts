@@ -3,7 +3,7 @@
 import { cmdState, cmdRes, cmdHelp, cmdVsync } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
-import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog} from "./commands/scene";
+import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
 import { logInfo, logError } from "../../engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
@@ -85,6 +85,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "hier": return cmdHier(parts);
     case "snd": return cmdSnd(parts);
     case "log": return cmdLog(parts);
+    case "fluid": return cmdFluid(parts);
     case "res": return cmdRes(w, h);
     case "vsync": return cmdVsync(parts);
     case "help": return cmdHelp();

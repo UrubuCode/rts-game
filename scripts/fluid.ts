@@ -59,6 +59,10 @@ const WALL_DAMP: f64 = 0.35;
 /// Teto de velocidade: um passe explícito pode divergir se uma partícula
 /// receber muita força num frame; o clamp mantém a simulação estável.
 const MAX_SPEED: f64 = 26.0;
+/// Teto da aceleração de pressão+viscosidade por partícula (ver `computeForces`).
+/// Em múltiplos da gravidade: 40x22 = 880, forte o bastante para separar
+/// partículas em rota de colisão e longe do pico numérico de 200 mil.
+const MAX_ACCEL: f64 = 300.0;
 /// Velocidade (ao quadrado) abaixo da qual a partícula para de vez (ver
 /// `integrate`). 0.05 = 0.22 u/s.
 ///
@@ -387,6 +391,19 @@ function computeForces(trs: Transform[], vx: f64[], vy: f64[], vz: f64[],
           }
         }
       }
+    }
+    // TETO DE ACELERAÇÃO. O termo direcional da força é `(ex/r)`, que DIVIDE
+    // pela distância: duas partículas quase sobrepostas produzem uma força
+    // enorme (medido: 200 mil, contra uma gravidade de 22). Uma única
+    // quase-sobreposição virava um chute que lançava a partícula a y=190 — era
+    // isso que "acelerava do nada" na demo, com todas as vizinhas em pres=0.
+    //
+    // Grampear a MAGNITUDE preserva a direção (as partículas ainda se separam,
+    // que é o que o teste do canhão exige) e corta só o pico numérico.
+    const a2 = ax * ax + ay * ay + az * az;
+    if (a2 > MAX_ACCEL * MAX_ACCEL) {
+      const s = MAX_ACCEL / math.sqrt(a2);
+      ax = ax * s; ay = ay * s; az = az * s;
     }
     fx[i] = ax;
     fy[i] = ay + GRAVITY;

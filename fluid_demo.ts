@@ -19,6 +19,11 @@ import { Transform } from "./engine/core/transform";
 import { Fluid } from "./scripts/fluid";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
+// Porta de controle: permite INSPECIONAR a simulação rodando, por comando, em
+// vez de olhar a tela. Verificar líquido por screenshot não funciona — a foto
+// rouba o foco do usuário e mostra a janela que estiver por cima.
+import { ctrlServe, ctrlPoll } from "./editor/control/server";
+import { setInspectFluid, setInspectDt } from "./editor/control/commands/scene";
 
 let W = 1280;
 let H = 720;
@@ -106,6 +111,9 @@ fluid.setBounds(0.0 - TANK_X, TANK_X, FLOOR_Y + 0.3, 0.0 - TANK_Z, TANK_Z);
 fluid.addFrom(scene, firstParticle, lastParticle);
 
 io.print("[liquido] " + N_PART + " particulas (" + COLS + "x" + ROWS + "x" + LAYERS + ")");
+ctrlServe(7777);
+setInspectFluid(fluid, firstParticle);
+io.print("[liquido] inspecione com: python tools/ws_client.py \"fluid\"");
 io.print("[liquido] WASD voa | botao DIR gira | ESPACO sobe | R reinicia");
 
 // ── câmera ────────────────────────────────────────────────────────────────
@@ -177,6 +185,8 @@ function frame(): void {
   prevR = kR;
 
   // ── SIMULAÇÃO ────────────────────────────────────────────────────────────
+  ctrlPoll(W, H);   // atende o WebSocket (não-bloqueante)
+  setInspectDt(dts);
   fluid.step(dts, scene);
   scene.computeWorld();
 

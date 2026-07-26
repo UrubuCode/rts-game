@@ -2,6 +2,8 @@
 import math from "rts:math";
 import { playTone, activeVoices, audioReady, audioRate } from "../../../engine/audio/audio";
 import { logTail, logClear, logCount, logCountAtLeast, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_DEBUG } from "../../../engine/core/logger";
+import math from "rts:math";
+import { Fluid } from "../../../scripts/fluid";
 import { scene, S } from "../session";
 import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "../../sceneio";
 import { GameObject } from "../../../engine/core/gameobject";
@@ -408,4 +410,82 @@ export function cmdLog(parts: string[]): string {
   const warns = logCountAtLeast(LOG_WARN);
   const head = "[resumo] " + logCount() + " mensagens, " + warns + " avisos+, " + errs + " erros | ";
   return head + logTail(n, level, filter);
+}
+
+// ── inspeção do SIMULADOR DE LÍQUIDO ────────────────────────────────────────
+// O `fluid_demo` registra aqui o seu Fluid; sem isso não havia como inspecionar
+// a simulação em execução — a única saída era screenshot, que rouba o foco do
+// usuário e mostra qualquer janela que esteja por cima.
+let inspFluid: Fluid | null = null;
+let inspFirst = 0;
+/// Último dt que a demo passou ao `step` — a diferença mais provável entre a
+/// simulação que roda na tela e a que roda num teste headless.
+let inspDt: f64 = 0.0;
+export function setInspectDt(v: f64): void { inspDt = v; }
+export function setInspectFluid(f: Fluid, first: number): void {
+  inspFluid = f;
+  inspFirst = first;
+}
+
+/// fluid [n] — estado da simulação de líquido em TEMPO DE EXECUÇÃO.
+/// Sem argumento: resumo (extensão, velocidade, densidade, quantas paradas).
+/// Com um número: também as N primeiras partículas, uma a uma.
+export function cmdFluid(parts: string[]): string {
+  const f = inspFluid;
+  if (f === null) return "[fluid] nenhum simulador registrado (rode fluid_demo.ts)";
+  const n = f.n;
+  if (n === 0) return "[fluid] 0 particulas";
+  let x0: f64 = 1e9; let x1: f64 = 0.0 - 1e9;
+  let y0: f64 = 1e9; let y1: f64 = 0.0 - 1e9;
+  let z0: f64 = 1e9; let z1: f64 = 0.0 - 1e9;
+  let vsum: f64 = 0.0; let vmax: f64 = 0.0;
+  let paradas = 0;
+  let fora = 0;
+  let k = 0;
+  while (k < n) {
+    const t = f.trs[k];
+    if (t.px < x0) x0 = t.px;
+    if (t.px > x1) x1 = t.px;
+    if (t.py < y0) y0 = t.py;
+    if (t.py > y1) y1 = t.py;
+    if (t.pz < z0) z0 = t.pz;
+    if (t.pz > z1) z1 = t.pz;
+    const v = math.sqrt(f.vx[k]*f.vx[k] + f.vy[k]*f.vy[k] + f.vz[k]*f.vz[k]);
+    vsum = vsum + v;
+    if (v > vmax) vmax = v;
+    if (v === 0.0) paradas = paradas + 1;
+    // fora da caixa? (margem de 0.5 para o reposicionamento na borda)
+    if (t.px < f.minX - 0.5 || t.px > f.maxX + 0.5 ||
+        t.pz < f.minZ - 0.5 || t.pz > f.maxZ + 0.5 || t.py < f.minY - 0.5) fora = fora + 1;
+    k = k + 1;
+  }
+  let m = "[fluid] " + n + " particulas dt=" + flR2(inspDt * 1000.0) + "ms" +
+          " | X " + flR2(x0) + ".." + flR2(x1) +
+          " Y " + flR2(y0) + ".." + flR2(y1) +
+          " Z " + flR2(z0) + ".." + flR2(z1) +
+          " | camadas=" + flR2((y1 - y0) / 0.62) +
+          " | |v| medio=" + flR2(vsum / n) + " max=" + flR2(vmax) +
+          " | paradas=" + paradas + "/" + n +
+          " | FORA da caixa=" + fora;
+  if (parts.length > 1) {
+    let q = parseFloat(parts[1]) | 0;
+    if (q > n) q = n;
+    let i = 0;
+    while (i < q) {
+      const t = f.trs[i];
+      // fy inclui GRAVITY (-22). Se fy > -22, ALGO esta empurrando pra cima.
+      m = m + " | #" + i + " pos(" + flR2(t.px) + "," + flR2(t.py) + "," + flR2(t.pz) +
+          ") v(" + flR2(f.vx[i]) + "," + flR2(f.vy[i]) + "," + flR2(f.vz[i]) +
+          ") dens=" + flR2(f.dens[i]) + " pres=" + flR2(f.pres[i]) +
+          " f(" + flR2(f.fx[i]) + "," + flR2(f.fy[i]) + "," + flR2(f.fz[i]) +
+          ") viz=" + f.nbrCnt[i];
+      i = i + 1;
+    }
+  }
+  return m;
+}
+
+/// duas casas decimais (o subset não tem toFixed)
+function flR2(v: f64): f64 {
+  return math.floor(v * 100.0) / 100.0;
 }
