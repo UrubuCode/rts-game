@@ -3,9 +3,13 @@
 // física de fluido fala SÓ com este módulo e nunca nomeia o backend).
 //
 //   flInit(n)            GPU sempre que houver; CPU só como fallback (política
-//                        do projeto — 2026-07-26). O modo automático por
-//                        tamanho (decide.ts) segue disponível via flInit2(n,-1).
-//   flInit2(n, modo)     força um backend (0 = CPU, 1 = GPU, -1 = auto)
+//                        do projeto — 2026-07-26). NENHUMA decisão automática:
+//                        troca de backend é REGRA EXPLÍCITA do dev, via
+//                        flSwitch — ex.: "fluido a mais de X da câmera vai
+//                        para a GPU": `if (dist > X && flBackend() === 0)
+//                        flSwitch(1);`. (O medidor decide.ts existe como
+//                        ferramenta de telemetria, mas o motor não o consulta.)
+//   flInit2(n, modo)     força um backend (0 = CPU, 1 = GPU)
 //   flSpawnBlock / flSyncColliders / flStep
 //   flX / flY / flZ / flHidden / flCount     leitura para o desenho
 //   flSwitch(modo)       TROCA DE BACKEND EM PLENO VOO — transfere posição,
@@ -21,7 +25,6 @@
 import io from "rts:io";
 
 import { Scene } from "../core/scene";
-import { fluidBackend, fluidCpuCostMs, fluidGpuCostMs } from "./decide";
 import { cfInit, cfSpawnBlock, cfSyncColliders, cfStep, cfX, cfY, cfZ,
          cfVelX, cfVelY, cfVelZ, cfHidden, cfCount, cfSetState, cfSetRest,
          cfRestDensity } from "./cpufluid";
@@ -39,21 +42,18 @@ export function flCount(): number { return flN; }
 /// GPU-first: usa a GPU se existir; sem GPU cai para a CPU sem erro.
 export function flInit(n: number): number { return flInit2(n, 1); }
 
-/// `modo`: 0 = CPU, 1 = GPU, -1 = automático (decide.ts).
+/// `modo`: 0 = CPU, 1 = GPU (sem GPU, o pedido de GPU cai para CPU sem erro).
 export function flInit2(n: number, modo: number): number {
   flN = n;
   let m = modo;
-  if (m < 0) m = fluidBackend(n);
   if (m === 1 && gfAvailable() === 0) m = 0;   // sem GPU não há escolha
   flMode = m;
   if (m === 1) {
     if (gfInit(n) === 0) { flMode = 0; return cfInit(n); }
-    io.print("[fluido] n=" + n + " => GPU (" + fluidGpuCostMs(n) + " vs CPU " +
-             fluidCpuCostMs(n) + " ms/frame estimados)");
+    io.print("[fluido] n=" + n + " => GPU");
     return 1;
   }
-  io.print("[fluido] n=" + n + " => CPU (" + fluidCpuCostMs(n) + " vs GPU " +
-           fluidGpuCostMs(n) + " ms/frame estimados)");
+  io.print("[fluido] n=" + n + " => CPU" + (modo === 1 ? " (fallback: sem GPU)" : ""));
   return cfInit(n);
 }
 
