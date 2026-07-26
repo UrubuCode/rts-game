@@ -35,6 +35,7 @@
 import io from "rts:io";
 import math from "rts:math";
 import input from "rts:input";
+import time from "rts:time";
 
 import { scene, S } from "./editor/control/session";
 import { GameObject } from "./engine/core/gameobject";
@@ -327,10 +328,11 @@ function fire(): void {
 S.camX = 0.0 - 22.0; S.camY = 22.0; S.camZ = 0.0 - 40.0;
 S.camYaw = 0.62; S.camPitch = 0.0 - 0.36;
 S.lightX = 12.0; S.lightY = 26.0; S.lightZ = 0.0 - 14.0; S.lightAmb = 0.34;
-// VSYNC LIGADO (2026-07-26): a fase de medição acabou. Sem vsync o loop roda
-// solto (110+ fps) e CRAVA um núcleo de CPU por design; com vsync o loop
-// dorme na apresentação e o uso de CPU despenca. Para medir de novo: 0.
-setVsync(WIN, 1);
+// VSYNC DESLIGADO de propósito (medido 2026-07-26): com FIFO, cada gpu.read
+// bloqueante alinha ao vblank e o frame acumulava 2-3 esperas de 16 ms
+// (fisCPU 3.5 -> 44 ms só de fence). O teto de fps é por SONO no fim do
+// frame (time.sleep_ms): CPU baixa E sem fence de vblank nos reads.
+setVsync(WIN, 0);
 
 /// Acumulador do PASSO FIXO da física. A física roda a 16 ms SEMPRE — as
 /// suítes headless passavam e a demo ao vivo explodia porque a demo integrava
@@ -409,10 +411,11 @@ function frame(): void {
   // (1-2 frames de latência) e ESPELHA nos Transforms — render, água e WS
   // seguem intactos. NUNCA espera a GPU; frame sem resultado desenha o
   // estado anterior. O solver da CPU não roda neste demo.
-  // PULL SÍNCRONO (decisão 2026-07-26): o map assíncrono do wgpu/DX12 para de
-  // disparar callbacks sob carga (~13 s, sem erro — rigApl caía a 0/300) e a
-  // simulação congelava. Com o grid, o read síncrono custa ~1-2 ms — barato e
-  // À PROVA DE CONGELAMENTO. O rbService fica para quando o runtime estabilizar.
+  // PULL SÍNCRONO — decisão final 2026-07-26 após DOIS fixes no runtime não
+  // curarem o async em modo janela (Poll genérico E espera dirigida por
+  // SubmissionIndex morrem na mesma janela ~3; issue UrubuCode/rts#2007 tem
+  // os dados). Com o grid o read síncrono custa 1-2 ms e é à prova de falha:
+  // rigApl=300/300 em todas as janelas, frame ~9 ms.
   rbStep(1);
   rigApl = rigApl + 1;
   {
@@ -545,6 +548,10 @@ function frame(): void {
   app.text(14, 12, "CASTELO SOB FOGO E AGUA [" + (flBackend() === 1 ? "agua:GPU" : "agua:CPU") + "] — tiro " + shots + "/" + SHOTS_PER_ROUND + "   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
   app.text(14, 34, "WASD voa | botao DIR gira | R reconstroi o castelo", 0x90A8C0FF, 12);
   app.endFrame();
+  // LIMITADOR DE FRAME por sono (teto ~60 fps): o que sobrar do orçamento de
+  // 16 ms o processo DORME — CPU baixa sem as fences de vblank do vsync.
+  const orcamento: f64 = 16.0 - (performance.now() - tf0);
+  if (orcamento >= 2.0) time.sleep_ms(orcamento - 1.0);
   {
     const te = performance.now() - te0;
     tFim = tFim + te;
