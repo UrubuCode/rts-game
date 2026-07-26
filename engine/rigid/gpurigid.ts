@@ -268,6 +268,7 @@ export function rbSyncStatics(sc: Scene): void {
 }
 
 let rbTicket: i64 = 0;
+let rbTicketAge = 0;
 
 /// FÍSICA COMO SERVIÇO (assíncrona): nunca espera a GPU. Se o resultado do
 /// passo anterior CHEGOU, aplica nos espelhos, despacha o próximo passo e
@@ -281,7 +282,14 @@ export function rbService(substeps: number): number {
     return 0;
   }
   const got = gpu.read_poll(rbTicket, rbPosBuf);
-  if (got === 0) return 0;             // em voo — segue o jogo
+  if (got === 0) {
+    // WATCHDOG: ticket preso (>60 frames sem resposta) e abandonado — a
+    // simulacao NUNCA pode congelar por uma leitura perdida.
+    rbTicketAge = rbTicketAge + 1;
+    if (rbTicketAge > 60) { rbTicket = 0; rbTicketAge = 0; }
+    return 0;
+  }
+  rbTicketAge = 0;
   rbTicket = 0;
   if (got < 0) return 0;
   rbKick(substeps);
