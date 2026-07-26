@@ -26,19 +26,18 @@ import { Scene } from "../engine/core/scene";
 const H: f64 = 1.1;
 const H2: f64 = H * H;
 
-/// Densidade de repouso: quanto o fluido "quer" estar comprimido. Abaixo dela a
-/// pressão é negativa (partículas se ATRAEM) — é isso que faz o líquido formar
-/// gotas em vez de poeira.
+/// Densidade de repouso: acima dela a pressão é positiva e as partículas se
+/// EMPURRAM. (A pressão negativa é grampeada em zero — ver `computeDensity`.)
 ///
-/// CALIBRAÇÃO (o valor anterior, 1.9, estava errado e é o que fazia as
-/// partículas "quicarem sem se aglomerar"): uma partícula SOZINHA no vácuo já
-/// tem densidade 2.51, porque ela conta a si mesma no kernel. Com REST em 1.9,
-/// mesmo uma partícula isolada estava "comprimida" — a pressão NUNCA era
-/// negativa, então elas só se repeliam e jamais se atraíam.
+/// Medido neste kernel: uma partícula isolada tem densidade 2.51 (conta a si
+/// mesma), duas encostadas ~4.5, e o miolo de um bloco denso 8.74.
 ///
-/// Medido neste kernel: isolada = 2.51, miolo de um bloco denso = 8.74. O
-/// repouso tem de ficar ENTRE os dois, perto do empacotado.
-const REST_DENSITY: f64 = 6.5;
+/// O valor tem de ficar perto do PAR, não do bloco. Calibrado em 6.5, duas
+/// partículas em rota de colisão nunca alcançavam o repouso: a pressão ficava
+/// zero, não havia repulsão nenhuma e elas SE ATRAVESSAVAM. Verificado com um
+/// "canhão" — duas partículas disparadas uma contra a outra a 8 u/s passavam
+/// direto uma pela outra. A 4.5 elas se repelem e caem, que é o correto.
+const REST_DENSITY: f64 = 4.5;
 /// Rigidez: quanto a pressão reage à compressão. Alto demais explode a
 /// simulação em dt grande; baixo demais deixa o líquido "esponjoso".
 ///

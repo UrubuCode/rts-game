@@ -153,6 +153,35 @@ io.print("== VOLUME: as particulas nao colapsam num ponto ==");
 }
 
 io.print("");
+io.print("== CANHAO: duas particulas opostas NAO se atravessam ==");
+{
+  // O teste que achou o bug: duas particulas disparadas uma contra a outra.
+  // Com REST calibrado alto demais (6.5), o par nunca alcancava a densidade de
+  // repouso, a pressao ficava ZERO e elas passavam direto uma pela outra.
+  scene.clear();
+  const a = new GameObject("A"); a.setMesh(4,1,1,1);
+  a.transform.setPosition(0.0-3.0, 10.0, 0.0); a.transform.setScale(0.62); scene.add(a);
+  const b = new GameObject("B"); b.setMesh(4,1,1,1);
+  b.transform.setPosition(3.0, 10.0, 0.0); b.transform.setScale(0.62); scene.add(b);
+  const f = new Fluid();
+  f.setBounds(0.0-50.0, 50.0, 0.0-500.0, 0.0-50.0, 50.0);
+  f.addFrom(scene, 0, 1);
+  f.vx[0] = 8.0; f.vx[1] = 0.0 - 8.0;
+  let keIni: f64 = f.vx[0]*f.vx[0] + f.vx[1]*f.vx[1];
+  let pico: f64 = 0.0;
+  let s = 0;
+  while (s < 150) {
+    const ke = f.vx[0]*f.vx[0] + f.vx[1]*f.vx[1];
+    if (ke > pico) pico = ke;
+    f.step(0.023, scene);
+    s = s + 1;
+  }
+  ok("  A nao ultrapassou B", f.trs[0].px < f.trs[1].px ? 1 : 0);
+  ok("  o impacto nao CRIOU energia", pico <= keIni + 1.0 ? 1 : 0);
+  ok("  as duas caem pela gravidade", (f.vy[0] < 0.0 - 5.0 && f.vy[1] < 0.0 - 5.0) ? 1 : 0);
+}
+
+io.print("");
 io.print("[resultado] " + pass + " ok, " + fail + " falhas");
 if (fail > 0) io.print("[FALHOU]");
 else io.print("[PASSOU]");
