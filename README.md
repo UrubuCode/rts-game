@@ -185,6 +185,98 @@ reverted — see the comments in `engine/core/scene.ts`): guarding the spatial
 grid rebuild behind a "did anything change?" check, and shrinking the neighbour
 cap in the fluid. In both cases the check cost more than the work it saved.
 
+## Road to a professional engine — what is guaranteed, and what is not
+
+A professional engine is not a feature list. It is **a ceiling that does not
+betray you**: every failure below is one that worked fine at small scale and
+then broke suddenly, or silently, at a size nobody had tried. So each line here
+carries a **measured number** and **how it is proven** — an item with no way to
+check it is a wish, not a guarantee.
+
+### Guaranteed (measured, with the test that pins it)
+
+| Guarantee | Number | Proven by |
+|---|---|---|
+| Physics advances by the CLOCK, not by frame count | 90 steps / 300 frames @ 200 fps = 60 Hz exact | the `rigApl` counter in the demo log |
+| One draw call per (mesh, texture) GROUP, not per object | 81 → 176 fps at 350 objects | `castelo_gpu_demo` with vsync and the frame limiter off |
+| Audio costs the same whether it is silent or sounding | 11–18 ms → 0–1 ms per frame | phase timing in the demo |
+| Positional audio is correct, not just plausible | 18 assertions, incl. constant energy over 16 angles | `tools/test_audio3d.ts` |
+| A `rts:buffer` handle survives the collector | ~166 k calls used to kill it; now unbounded | `tools/diag/claude-repro-minimo.ts` + UrubuCode/rts#2104 |
+| A module-level array is read as fast as a parameter | 260 ns → 20 ns per access | `tools/diag/claude-custo-param.ts` + UrubuCode/rts#2105 |
+
+### Not guaranteed yet, in order of how much ceiling they buy
+
+**1. Broadphase in the physics kernel.** `gpurigid`'s gather is **O(n²)**: every
+body walks every other one. At 355 bodies that is 126 000 pairs per step, and it
+is the hard ceiling on scene size — no amount of GPU hides a quadratic. Every
+engine uses a spatial grid, a BVH or sweep-and-prune so a body only tests
+neighbours.
+*Guaranteed when:* 5 000 bodies step in under 4 ms, and a test asserts the pair
+count grows linearly, not quadratically, between 500 and 5 000.
+
+**2. Render interpolation between physics steps.** Physics runs at 60 Hz and the
+renderer now hits 200 fps, so three consecutive frames draw the *same* state.
+That is visible micro-stutter, and it is a problem we created by fixing the
+timestep — the accumulator already holds what is needed
+(`alpha = acumulado / RB_DT`).
+*Guaranteed when:* the drawn position is `prev + (curr − prev) × alpha`, and a
+test asserts that a body moving at constant speed produces evenly spaced drawn
+positions at a render rate that is not a multiple of 60.
+
+**3. Gain ramp in the mixer (zipper noise).** Channel gains are recomputed once
+per block. A source crossing quickly changes gain by a step at the block edge,
+and a step is broadband — at 60 blocks/s it reads as a 60 Hz buzz. The fix is
+~2 ns/sample: ramp toward the target instead of jumping.
+*Guaranteed when:* the mixer holds current and target gains, and a test asserts
+no sample-to-sample jump above a threshold while a source crosses the listener.
+
+**4. Front and back sound identical.** Pure L/R panning cannot tell them apart —
+this is a limit of the model, documented in `engine/audio/spatial.ts`, not a bug.
+ITD (interaural delay, ~31 samples at the extreme, costs nothing but an index
+offset) plus a one-pole head-shadow filter buy most of the missing cue for ~5 %
+of the per-sample cost.
+*Guaranteed when:* a test asserts a source behind the listener differs
+measurably from the same source in front.
+
+**5. A native accumulate for audio.** Summing into the mix buffer costs 4 native
+calls per sample per voice (~44 % of what remains after the loop inversion). One
+`audio.mix_f32(buf, offset, L, R)` would take the voice ceiling from ~24 to
+~32–40.
+*Guaranteed when:* `tools/diag/claude-laco-invertido.ts` reports 24 voices under
+1.2 ms.
+
+**6. Occlusion culling and LOD.** Frustum culling exists; 350 objects are still
+350 draws' worth of geometry even when most are behind a wall.
+*Guaranteed when:* a scene with a wall in front of the castle draws measurably
+fewer triangles, asserted through `dbg`.
+
+**7. A render thread separate from game logic.** `endFrame` costs 5.8 ms and
+blocks the logic while it runs. Engines record command buffers on one thread and
+submit on another.
+*Guaranteed when:* logic time and present time overlap — measurable as a frame
+whose total is less than the sum of its phases.
+
+**8. A test that compares PIXELS.** Nothing here would catch a visual
+regression: wrong draw order, an object in the wrong instancing group, a shader
+change. The instancing work above was verified **by looking at the window**,
+which is honest but does not scale.
+*Guaranteed when:* a headless run renders a fixed scene and compares against a
+stored image within a tolerance.
+
+**9. `MAX_PUMP` is a latent spike.** A recovery block costs 3× a normal one, and
+it happens exactly on the frame the game is already late. With 32 voices that
+would be ~4 ms in a single frame.
+*Guaranteed when:* `MAX_PUMP` is 1200 and the worst-case pump is measured, not
+assumed.
+
+### The rule this list exists to enforce
+
+Every item above became visible only when something else got faster. Fixing the
+timestep exposed the interpolation gap; the instancing exposed the timestep bug;
+the audio fix exposed how much the mixer was hiding. **Speed reveals bugs it did
+not cause** — so a number here without a test beside it goes stale the first
+time someone makes an unrelated thing faster.
+
 ## Engine notes
 
 `rts.exe` is copied from the `rts` repo (gitignored). A few RTS-engine bugs were
