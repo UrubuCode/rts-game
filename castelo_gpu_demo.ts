@@ -47,6 +47,7 @@ import { setListener, setRolloff } from "./engine/audio/spatial";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
+import { RB_DT } from "./engine/rigid/gpurigid";
 import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep,
          rbPoke, rbX, rbY, rbZ, rbSleep } from "./engine/rigid/gpurigid";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
@@ -357,7 +358,10 @@ let dtSum: f64 = 0.0;
 let dtMax: f64 = 0.0;
 
 /// Um tiro a cada ~2,5 s; 10 tiros por rodada; reconstrói 6 s após o último.
-const FIRE_EVERY = 120;
+/// Intervalo entre tiros em SEGUNDOS. Era em FRAMES, e por isso o canhão
+/// atirava três vezes mais rápido quando o fps subia — o bug ficou visível
+/// quando o instancing levou de 81 para 176 fps.
+const FIRE_EVERY_S: f64 = 2.0;
 const SHOTS_PER_ROUND = 16;
 let frames = 0;
 let prevR = 0;
@@ -370,6 +374,12 @@ let tDrA: f64 = 0.0;
 let tFim: f64 = 0.0;      // endFrame: egui + submissao + PRESENT (espera a GPU)
 let tFimMax: f64 = 0.0;
 let rigApl = 0;           // quantas vezes o servico rigido APLICOU na janela
+/// Sobra de tempo real que ainda não virou passo de física (ver o acumulador).
+let acumulado: f64 = 0.0;
+/// Relógio do demo, em segundos — o que o canhão e a rodada consultam.
+let tempo: f64 = 0.0;
+let tRodada: f64 = 0.0;
+let tDesdeTiro: f64 = 0.0;
 
 function frame(): void {
   const nw = winWidth(WIN);
@@ -379,6 +389,7 @@ function frame(): void {
   let dt: f64 = app.delta();
   if (dt > 60) dt = 60;
   const dts: f64 = dt / 1000.0;
+  tempo = tempo + dts;
   frames = frames + 1;
   dtSum = dtSum + dt;
   if (dt > dtMax) dtMax = dt;
@@ -410,11 +421,18 @@ function frame(): void {
   // ── ciclo do canhão ──────────────────────────────────────────────────────
   // trégua inicial: o castelo assenta e DORME antes do primeiro tiro — dá para
   // ver o repouso de verdade, e é a janela que mede o sleeping sem ruído
-  if (frames >= 300 && frames % FIRE_EVERY === 0 && shots < SHOTS_PER_ROUND) fire();
-  if (shots >= SHOTS_PER_ROUND && frames % (FIRE_EVERY * SHOTS_PER_ROUND + 360) === 0) {
+  // O canhão anda pelo RELÓGIO, não pelo contador de frames.
+  if (tempo >= 5.0 && shots < SHOTS_PER_ROUND) {
+    tDesdeTiro = tDesdeTiro + dts;
+    if (tDesdeTiro >= FIRE_EVERY_S) { fire(); tDesdeTiro = 0.0; }
+  }
+  if (shots >= SHOTS_PER_ROUND && tempo - tRodada >= FIRE_EVERY_S * SHOTS_PER_ROUND + 6.0) {
     rebuild();
     shots = 0;
     frames = 1;
+    tempo = 0.0;
+    tRodada = 0.0;
+    tDesdeTiro = 0.0;
   }
 
   // ── FÍSICA em PASSO FIXO de 16 ms (o mesmo dt das suítes headless) ───────
@@ -428,8 +446,26 @@ function frame(): void {
   // SubmissionIndex morrem na mesma janela ~3; issue UrubuCode/rts#2007 tem
   // os dados). Com o grid o read síncrono custa 1-2 ms e é à prova de falha:
   // rigApl=300/300 em todas as janelas, frame ~9 ms.
-  rbStep(1);
-  rigApl = rigApl + 1;
+  // ── PASSO FIXO COM ACUMULADOR ────────────────────────────────────────────
+  // O kernel integra com `RB_DT` (1/60 s) CRAVADO. Rodá-lo uma vez por frame
+  // amarra a simulação à taxa de quadros: a 176 fps o mundo avançava 2,9 s por
+  // segundo real, e o castelo desmoronava quase três vezes mais rápido.
+  //
+  // Agora o tempo real é acumulado e a física dá quantos passos de 1/60 couberem
+  // — nem mais, nem menos. O teto de 4 passos é o guarda contra a espiral da
+  // morte: se um frame demorar 200 ms, tentar recuperar 12 passos deixaria o
+  // frame seguinte ainda mais lento, e o jogo nunca mais alcançaria o relógio.
+  // Passar do teto significa perder tempo de mundo, o que é a escolha certa: um
+  // jogo que engasga deve ficar em câmera lenta, não travar.
+  acumulado = acumulado + dts;
+  let passos = 0;
+  while (acumulado >= RB_DT && passos < 4) {
+    rbStep(1);
+    rigApl = rigApl + 1;
+    acumulado = acumulado - RB_DT;
+    passos = passos + 1;
+  }
+  if (acumulado > RB_DT * 4.0) acumulado = RB_DT * 4.0;
   {
     const iTrs: Transform[] = scene.trs;
     let mk = 0;
