@@ -41,7 +41,9 @@ import { scene, S } from "./editor/control/session";
 import { GameObject } from "./engine/core/gameobject";
 import { Transform } from "./engine/core/transform";
 import { PhysicsMaterial, MAT_STONE, MAT_WOOD, MAT_METAL } from "./scripts/physicsmaterial";
-import { initAudio, pumpAudio, playNoise, playSquare } from "./engine/audio/audio";
+import { initAudio, pumpAudio, playNoise, playSquare,
+         playNoiseAt, playSquareAt } from "./engine/audio/audio";
+import { setListener, setRolloff } from "./engine/audio/spatial";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "./engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
@@ -55,6 +57,10 @@ import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
 let CD_W = 1500;
 let CD_H = 950;
 const app = createAppAt("RTS — Castelo 100% GPU", CD_W, CD_H, 60, 40);
+// Raio de ganho cheio e alcance: o castelo tem ~40 unidades de ponta a ponta,
+// então 60 deixa o canhão audível de qualquer ponto da cena e cala o que estiver
+// fora dela.
+setRolloff(2.0, 60.0);
 const WIN = app._win;
 const CD_FOV: f64 = 1.05;
 
@@ -324,8 +330,10 @@ function fire(): void {
   if (nextBall >= ballIdx.length) nextBall = 0;
   shots = shots + 1;
   // ESTRONDO: ruído (a explosão) + quadrada grave (o corpo do disparo)
-  playNoise(0.22, 0.5);
-  playSquare(62.0, 0.28, 0.34);
+  // O estrondo sai DO CANHÃO, não da cabeça do jogador: a bala nasce em
+  // (-24, 2.4, 0) e é de lá que o som parte.
+  playNoiseAt(0.22, 0.5, 0.0 - 24.0, 2.4, 0.0);
+  playSquareAt(62.0, 0.28, 0.34, 0.0 - 24.0, 2.4, 0.0);
 }
 
 // ── câmera: diagonal alta, vendo canhão e castelo ──────────────────────────
@@ -546,6 +554,9 @@ function frame(): void {
   }
 
   tDrA = tDrA + (performance.now() - td1);
+  // O ouvinte é a câmera, empurrado na mesma linha do pump para que ganho e som
+  // saiam do mesmo instante.
+  setListener(S.camX, S.camY, S.camZ, S.camYaw, S.camPitch);
   pumpAudio();
   const te0 = performance.now();
 
