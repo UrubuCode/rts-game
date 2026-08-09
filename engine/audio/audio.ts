@@ -138,22 +138,40 @@ export function pumpAudio(): number {
   if (need > MAX_PUMP) need = MAX_PUMP;
   // ATALHO DE SILÊNCIO: sem voz ativa, manda o buffer pré-zerado — uma chamada
   // em vez de ~1600 write_f32 por frame (medido: 4-6 ms de frame recuperados)
-  if (activeVoices() === 0) return audio.write(dev, silBuf, need * devCh);
-  mixInto(mixBuf, need, devCh, devRate);
+  const ativas = activeVoices();
+  if (ativas === 0) return audio.write(dev, silBuf, need * devCh);
+  // Os arrays de voz vão por PARÂMETRO, e isso não é estilo: um array de MÓDULO
+  // lido dentro de uma função custa ~260 ns por acesso contra ~20 ns quando
+  // chega como parâmetro (medido em release, 100 mil iterações). O laço abaixo
+  // faz até MAX_PUMP × MAX_VOICES acessos por frame — 57 600 — então a
+  // diferença é de ~15 ms para ~1,2 ms de frame, que é a queda de 75 para 35
+  // fps que aparecia sempre que um tiro tocava um som.
+  //
+  // `const arr = vActive` DENTRO da função não recupera nada: foi medido e
+  // continua em 260 ns. Só o parâmetro resolve.
+  mixInto(mixBuf, need, devCh, devRate,
+          vActive, vKind, vFreq, vPhase, vGain, vLeft, vTotal, vSeed, ativas);
   return audio.write(dev, mixBuf, need * devCh);
 }
 
 /// Mixa `frames` de todas as vozes ativas em `buf`. FUNÇÃO LIVRE de parâmetros
 /// tipados: é o laço mais quente do áudio (48 mil iterações por segundo) e
 /// dentro de um método cada acesso a campo cairia no caminho dinâmico.
-function mixInto(buf: i64, frames: number, ch: number, rate: f64): void {
+function mixInto(buf: i64, frames: number, ch: number, rate: f64,
+                 vActive: number[], vKind: number[], vFreq: f64[], vPhase: f64[],
+                 vGain: f64[], vLeft: f64[], vTotal: f64[], vSeed: number[],
+                 ativas: number): void {
   const dt: f64 = 1.0 / rate;
   let f = 0;
   while (f < frames) {
     let s: f64 = 0.0;
     let v = 0;
-    while (v < MAX_VOICES) {
+    // Para na última voz ATIVA em vez de varrer as 24 sempre: com um único som
+    // tocando, 23 das 24 iterações só liam `vActive[v]` para descartá-lo.
+    let restam = ativas;
+    while (v < MAX_VOICES && restam > 0) {
       if (vActive[v] !== 0) {
+        restam = restam - 1;
         // ENVELOPE: ataque curto e queda até o fim. Sem ele, começar e cortar
         // uma onda no meio do ciclo estala — o clique é o que mais denuncia
         // áudio mal feito.
