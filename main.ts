@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import io from "./compat/io.ts";
 import math from "./compat/math.ts";
-import buffer from "rts:buffer";
+import buffer from "./compat/buffer.ts";
 import render from "rts:render";
 import input from "rts:input";
 import fs from "./compat/fs.ts";

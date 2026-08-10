@@ -16,7 +16,7 @@
 import audio from "rts:audio";
 import math from "../../compat/math.ts";
 import { panGains } from "./spatial";
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 
 /// Handle do stream de saída (0 = fechado/indisponível).
 let dev: i64 = 0;

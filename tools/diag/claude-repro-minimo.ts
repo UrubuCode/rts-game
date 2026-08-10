@@ -10,7 +10,7 @@
 import io from "../../compat/io.ts";
 import math from "../../compat/math.ts";
 import gpu from "rts:gpu";
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 import { initMeshes, setCam, setLgt, drawGPU } from "./engine/render/gpu3d";
 
 const N = 352;                 // mesmos 352 vec4 do buffer do rígido

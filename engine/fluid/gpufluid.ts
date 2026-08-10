@@ -27,7 +27,7 @@
 // fallback (fluido CPU ou nada). Nenhuma função quebra: viram no-op.
 // ═══════════════════════════════════════════════════════════════════════════
 import gpu from "rts:gpu";
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 
 import { Scene } from "../core/scene";
 import { GameObject, COL_BOX } from "../core/gameobject";

@@ -9,7 +9,7 @@
 // blitado com render.image — igual ao framebuffer 3D do editor. O resultado fica
 // em cache por path (gerar é caro; desenhar é só um blit).
 
-import buffer from "rts:buffer";
+import buffer from "../compat/buffer.ts";
 import math from "../compat/math.ts";
 import fs from "../compat/fs.ts";
 import imgdec from "rts:imgdec";

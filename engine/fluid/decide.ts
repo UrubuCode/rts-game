@@ -21,7 +21,7 @@
 //   fluidReport();                     // imprime a calibração (debug)
 // ═══════════════════════════════════════════════════════════════════════════
 import gpu from "rts:gpu";
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 import io from "../../compat/io.ts";
 
 

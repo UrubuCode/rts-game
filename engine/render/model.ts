@@ -10,7 +10,7 @@
 // Cache POR PATH: carregar o mesmo modelo em 50 unidades = 1 parse + 1 upload.
 // (o loadTexture do gpu3d.ts já fazia isso pras imagens; aqui é o análogo.)
 
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 import math from "../../compat/math.ts";
 import fs from "../../compat/fs.ts";
 

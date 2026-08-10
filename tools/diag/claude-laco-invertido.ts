@@ -8,7 +8,7 @@
 // Se NÃO cair, o desenho inteiro precisa mudar — então isto vem antes.
 import io from "../../compat/io.ts";
 import math from "../../compat/math.ts";
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 
 const N_VOZES = 24;
 const N_AMOSTRAS = 800;

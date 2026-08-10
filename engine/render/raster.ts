@@ -7,7 +7,7 @@
 //
 // Cor em memória: R no byte baixo (0xAABBGGRR little-endian = RGBA).
 
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 import math from "../../compat/math.ts";
 
 // Limpa o framebuffer + z-buffer via buffer.fill (memset em Rust — 2 chamadas,
