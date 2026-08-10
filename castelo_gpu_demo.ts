@@ -35,7 +35,7 @@
 import io from "./compat/io.ts";
 import math from "./compat/math.ts";
 import input from "rts:input";
-import time from "rts:time";
+import time from "./compat/time.ts";
 
 import { scene, S } from "./editor/control/session";
 import { GameObject } from "./engine/core/gameobject";

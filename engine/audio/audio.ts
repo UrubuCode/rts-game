@@ -13,7 +13,7 @@
 //   playTone(440.0, 0.25, 0.3);        // beep de 440 Hz, 0,25 s
 //   ... por frame: pumpAudio();
 
-import audio from "rts:audio";
+import audio from "../../compat/audio.ts";
 import math from "../../compat/math.ts";
 import { panGains } from "./spatial";
 import buffer from "../../compat/buffer.ts";
