@@ -9,7 +9,7 @@
 // e não por memória (estável em ~185 MB).
 import io from "../../compat/io.ts";
 import math from "../../compat/math.ts";
-import gpu from "rts:gpu";
+import gpu from "../../compat/gpu.ts";
 import buffer from "../../compat/buffer.ts";
 import { initMeshes, setCam, setLgt, drawGPU } from "./engine/render/gpu3d";
 

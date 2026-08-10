@@ -25,7 +25,7 @@
 //   ext: vec4 (xyz meia-extensão, w = invMass; 0 = infinita/kinemático)
 //   world: [0] params (dt, nStaticos, -, -); depois AABBs estáticos (2 vec4)
 // ═══════════════════════════════════════════════════════════════════════════
-import gpu from "rts:gpu";
+import gpu from "../../compat/gpu.ts";
 import buffer from "../../compat/buffer.ts";
 
 import { Scene } from "../core/scene";

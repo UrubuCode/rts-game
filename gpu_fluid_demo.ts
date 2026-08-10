@@ -15,7 +15,7 @@
 import io from "./compat/io.ts";
 import math from "./compat/math.ts";
 import input from "rts:input";
-import gpu from "rts:gpu";
+import gpu from "./compat/gpu.ts";
 
 import { scene, S } from "./editor/control/session";
 import { GameObject } from "./engine/core/gameobject";

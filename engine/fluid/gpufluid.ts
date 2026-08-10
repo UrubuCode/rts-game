@@ -26,7 +26,7 @@
 // Sem GPU (`gfAvailable() === 0`) nada aqui pode ser usado — o jogo decide o
 // fallback (fluido CPU ou nada). Nenhuma função quebra: viram no-op.
 // ═══════════════════════════════════════════════════════════════════════════
-import gpu from "rts:gpu";
+import gpu from "../../compat/gpu.ts";
 import buffer from "../../compat/buffer.ts";
 
 import { Scene } from "../core/scene";
