@@ -9,7 +9,7 @@
 // (em torno de X). Um ponto só desenha se cair na frente (z_cam > perto).
 
 import math from "../../compat/math.ts";
-import render from "rts:render";
+import render from "../../compat/render.ts";
 
 
 // Projeta um ponto de MUNDO pra TELA. Escreve o resultado em 3 slots de um

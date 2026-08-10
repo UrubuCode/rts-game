@@ -4,7 +4,7 @@
 // presets, models. Clique seleciona; duplo-clique entra na pasta ou "abre" o
 // asset. Estado em vars de MÓDULO (ok desde o fix de gcell); desenha via render.*.
 
-import render from "rts:render";
+import render from "../compat/render.ts";
 import fs from "../compat/fs.ts";
 
 import { PANEL, PANEL_DK, HEADER, BORDER, TEXT, TEXT_DIM, SEL, HOVER, button, subStr } from "./widgets";

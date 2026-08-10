@@ -7,7 +7,7 @@
 // UI-scene (main.ts) chama drawUI() de cada UI GameObject dentro do frame egui.
 
 import { Behavior, KIND_UI } from "../core/behavior";
-import render from "rts:render";
+import render from "../../compat/render.ts";
 
 // Âncora estilo RectTransform da Unity: a qual canto da janela o offset é relativo.
 export const ANCHOR_TL: number = 0;   // top-left (default)

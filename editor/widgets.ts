@@ -4,7 +4,7 @@
 // pelas funções (ok desde o fix de gcell). Cada função recebe o handle da janela
 // + o estado do mouse como PRIMITIVOS — nada de passar objetos/classes.
 
-import render from "rts:render";
+import render from "../compat/render.ts";
 import math from "../compat/math.ts";
 import input from "rts:input";
 

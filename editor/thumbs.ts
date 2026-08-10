@@ -14,7 +14,7 @@ import math from "../compat/math.ts";
 import fs from "../compat/fs.ts";
 import imgdec from "rts:imgdec";
 import ptr from "rts:ptr";
-import render from "rts:render";
+import render from "../compat/render.ts";
 
 import { parseObj, parseGltf, primitivePart, Part } from "../engine/render/model";
 
