@@ -10,6 +10,11 @@ import render from "./compat/render.ts";
 import input from "rts:input";
 import fs from "./compat/fs.ts";
 import process from "./compat/process.ts";
+// `createAppAt` era um GLOBAL do motor antigo. No motor novo nada é global sem
+// alguém instalar, então ele vira um import como qualquer outra coisa — e o que
+// está do outro lado costura a janela (`rts:egui`), o input (`rts:input`), o
+// relógio e os widgets posicionados, que lá eram uma coisa só.
+import { createAppAt } from "./compat/app.ts";
 
 import { GameObject } from "./engine/core/gameobject";
 import { Transform } from "./engine/core/transform";
@@ -40,13 +45,20 @@ const INSP_W = 270;      // painel inspector (direita)
 const BAR_H = 46;        // toolbar (topo)
 const ASSET_H = 200;     // Project panel (base, sobre o viewport)
 
-// ── framebuffer 3D (rasterizado em software, blitado com render.image) ───────
-const RW = 320;          // resolucao de render (blitada p/ WxH)
+// ── resolução do rasterizador por software — o que SOBROU dele ──────────────
+//
+// `RH` ainda alimenta `focalR` logo abaixo. O resto do bloco era o framebuffer
+// daquele caminho — `fbuf` (RGBA), `zbuf` (profundidade) e `fptr` (o endereço
+// cru para o blit) — e saiu porque já não era alcançado: o `gpu3d` assumiu o
+// render, `fptr` não era lido por ninguém, e `fbuf`/`zbuf` só existiam para
+// serem alocados no começo e liberados no fim.
+//
+// Deletado aqui em vez de mantido "por via das dúvidas": um `buffer.alloc` de
+// 320×200 pixels que nada lê é memória e ruído, e `buffer.ptr` não existe mais
+// de propósito (o coletor move células — ver `compat/buffer.ts`), então a linha
+// nem podia sobreviver.
+const RW = 320;
 const RH = 200;
-const NPIX = RW * RH;
-const fbuf = buffer.alloc(NPIX * 4);   // RGBA
-const zbuf = buffer.alloc(NPIX * 8);   // profundidade f64/pixel
-const fptr = buffer.ptr(fbuf);
 
 // ── câmera (fly) — estado top-level ─────────────────────────────────────────
 const FOV: f64 = 1.05;
@@ -350,7 +362,7 @@ function frame(): void {
   // olhar com o BOTÃO DIREITO do mouse (mouse-look estilo Unity fly)
   const mvdx: f64 = input.mouseDeltaX(WIN);
   const mvdy: f64 = input.mouseDeltaY(WIN);
-  if (input.mouseDown(WIN, 1) !== 0) {
+  if (input.mouseDown(WIN, 1)) {
     S.camYaw = S.camYaw + mvdx * 0.005;
     S.camPitch = S.camPitch - mvdy * 0.005;
   }
@@ -391,10 +403,10 @@ function frame(): void {
   scene.computeWorld();
 
   // ── PICKING + DRAG: pressionar seleciona; segurando, ARRASTA o objeto ───────
-  const mPressed = input.mousePressed(WIN, 0);
+  const mPressed = input.mousePressed(WIN, 0) ? 1 : 0;
   // botão DIREITO: abre/fecha o menu de contexto da hierarquia
-  const mRight = input.mousePressed(WIN, 1);
-  const mDownNow = input.mouseDown(WIN, 0);
+  const mRight = input.mousePressed(WIN, 1) ? 1 : 0;
+  const mDownNow = input.mouseDown(WIN, 0) ? 1 : 0;
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
   const inViewport = mx > HIER_W && mx < W - INSP_W && my > BAR_H && my < H - 24 - ASSET_H;
@@ -1378,6 +1390,4 @@ while (app.running()) {
 
 
 io.print("[engine] encerrado apos " + frames + " frames");
-buffer.free(fbuf);
-buffer.free(zbuf);
 app.close();

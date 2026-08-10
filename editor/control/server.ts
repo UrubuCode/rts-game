@@ -40,6 +40,22 @@ export function ctrlServe(port: number): void {
   // handle não cabe mais neles (o `ws` agora é objeto, não número).
   S.wsServer = 1;
 
+  // OBRIGATÓRIO, e a falta disto DERRUBAVA O EDITOR: um `EventEmitter` que emite
+  // `'error'` sem ninguém escutando LANÇA — é o que o Node faz e o que este motor
+  // copia. Uma segunda instância do editor (ou qualquer processo na 7777) faz o
+  // bind falhar, o servidor emite `'error'`, e o editor inteiro morria com
+  // "uncaught 'error' event: an object" — uma porta ocupada matando um programa
+  // gráfico que não tem nada a ver com isso.
+  //
+  // A porta de controle é um EXTRA: sem ela o editor abre e funciona, só não
+  // aceita comandos. Então o erro é avisado e engolido, e essa é a diferença
+  // entre um recurso opcional e um requisito.
+  wss.on("error", (erro: any) => {
+    println("[controle] porta " + port + " indisponivel (" + erro.message +
+            ") — o editor segue sem controle remoto");
+    S.wsServer = 0;
+  });
+
   wss.on("connection", (ws: any) => {
     S.wsClient = S.wsClient + 1;
     ws.send("[engine] editor conectado. envie 'help' (lista) ou 'doc' (detalhes+exemplos p/ IA).");

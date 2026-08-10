@@ -147,7 +147,7 @@ function frame(): void {
   const kA = app.keyDown(100); const kD = app.keyDown(103);
   const kSp = app.keyDown(3);
   const kR = app.keyDown(114);
-  if (input.mouseDown(WIN, 1) !== 0) {
+  if (input.mouseDown(WIN, 1)) {
     S.camYaw = S.camYaw + input.mouseDeltaX(WIN) * 0.005;
     S.camPitch = S.camPitch - input.mouseDeltaY(WIN) * 0.005;
   }

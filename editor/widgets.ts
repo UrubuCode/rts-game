@@ -144,10 +144,10 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
     // modo digitação: acumula texto, backspace (tecla 4), Enter (tecla 1) confirma
     const typed = input.textInput(win);
     if (typed.length > 0) nfEditText = nfEditText + typed;
-    if (input.key(win, 4, 1) !== 0 && nfEditText.length > 0) nfEditText = subStr(nfEditText, 0, nfEditText.length - 1);
+    if (input.key(win, 4, 1) && nfEditText.length > 0) nfEditText = subStr(nfEditText, 0, nfEditText.length - 1);
     render.rect(win, x + 16, y, w - 16, 20, 0x1A1F28FF, 1, 0x3399FFFF, 3);
     render.text(win, x + 22, y + 3, nfEditText + "|", 0xFFFFFFFF, 12, 0);
-    if (input.key(win, 1, 1) !== 0) { v = parseFloat(nfEditText); nfEditId = 0 - 1; return v; }
+    if (input.key(win, 1, 1)) { v = parseFloat(nfEditText); nfEditId = 0 - 1; return v; }
     return value;   // enquanto digita, mantém o valor até confirmar
   }
   render.text(win, x + 22, y + 3, "" + r2(v), 0xD4D4D4FF, 12, 0);

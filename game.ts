@@ -91,7 +91,7 @@ function frame(): void {
   if (kRt !== 0) yaw = yaw + lookSpeed;
   if (kUp !== 0) pitch = pitch - lookSpeed;
   if (kDn !== 0) pitch = pitch + lookSpeed;
-  if (input.mouseDown(WIN, 1) !== 0) {
+  if (input.mouseDown(WIN, 1)) {
     yaw = yaw + input.mouseDeltaX(WIN) * 0.005;
     pitch = pitch - input.mouseDeltaY(WIN) * 0.005;
   }

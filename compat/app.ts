@@ -29,7 +29,7 @@
 //
 // `delta`/`fps` idem: são `Date.now()` e uma média, não uma capacidade.
 import { drawRect, drawText, drawLine, openWindow, setNextWindowPos, isOpen, pump, beginFrame, endFrame, close } from "rts:egui";
-import { mouseX, mouseY, mouseDown, mousePressed, mouseReleased, key, textInput } from "rts:input";
+import { mouseX, mouseY, mouseDown, mousePressed, mouseReleased, mouseClicked, key, textInput } from "rts:input";
 
 // Fases de `input.key(win, code, phase)`, do trait `InputSource`:
 // 0 = segurada agora, 1 = disparou neste frame (borda). Escritas como constante
@@ -46,6 +46,16 @@ let curMy = 0.0;
 let curDown = 0;      // botão esquerdo segurado
 let curPressed = 0;   // borda de descida neste frame
 let curReleased = 0;  // borda de subida neste frame
+// Clique COMPLETO neste frame, direto do egui.
+//
+// A primeira versão deduzia isto de `released` mais a posição onde a pressão
+// começou. A dedução não estava errada, mas era uma reimplementação de algo que
+// a fonte de input já responde — e medido com uma sonda, `mouseClicked` marca
+// exatamente o frame do clique, com a mesma borda de um frame que `pressed` e
+// `released` têm. Duas respostas para "houve clique?" é o tipo de coisa que
+// diverge quando o frame rate cai, que é justamente quando um clique é mais
+// difícil de acertar.
+let curClicked = 0;
 
 // De onde partiu a pressão atual. Um clique só CONTA para o retângulo em que
 // começou: sem isto, apertar num botão, arrastar para outro e soltar dispararia
@@ -113,6 +123,7 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       curDown = mouseDown(win, 0) ? 1 : 0;
       curPressed = mousePressed(win, 0) ? 1 : 0;
       curReleased = mouseReleased(win, 0) ? 1 : 0;
+      curClicked = mouseClicked(win, 0) ? 1 : 0;
       if (curPressed !== 0) { pressX = curMx; pressY = curMy; }
 
       return alive;
@@ -154,9 +165,10 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
     clickable(_id: number, cx: number, cy: number, cw: number, ch: number): number {
       const over = inRect(cx, cy, cw, ch);
       if (!over) return 0;
-      // "clicado" é SOLTAR dentro, tendo apertado dentro — a regra de toda UI, e
-      // a que faz um arrasto iniciado noutro botão não disparar este.
-      if (curReleased !== 0 && pressX >= cx && pressX < cx + cw && pressY >= cy && pressY < cy + ch) return 3;
+      // "clicado" é o egui dizer que houve clique E a pressão ter começado AQUI.
+      // A segunda metade é o que faz um arrasto iniciado noutro botão não
+      // disparar este; a primeira deixou de ser deduzida de `released`.
+      if (curClicked !== 0 && pressX >= cx && pressX < cx + cw && pressY >= cy && pressY < cy + ch) return 3;
       if (curDown !== 0) return 2;
       return 1;
     },
@@ -172,7 +184,7 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       else if (over) fill = 0x454545FF;
       drawRect(win, { x: bx, y: by, w: bw, h: bh, fill: fill, strokeW: 1, stroke: 0x232323FF, radius: 3 });
       drawText(win, { x: bx + 8, y: by + (bh - 13) * 0.5, text: label, color: 0xC8C8C8FF, size: 12, flags: 0 });
-      return over && curReleased !== 0 &&
+      return over && curClicked !== 0 &&
         pressX >= bx && pressX < bx + bw && pressY >= by && pressY < by + bh;
     },
 
@@ -180,7 +192,7 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
     checkbox(kx: number, ky: number, value: number, label: string): number {
       const box = 14;
       const over = inRect(kx, ky, box, box);
-      const hit = over && curReleased !== 0 && pressX >= kx && pressX < kx + box && pressY >= ky && pressY < ky + box;
+      const hit = over && curClicked !== 0 && pressX >= kx && pressX < kx + box && pressY >= ky && pressY < ky + box;
       const next = hit ? (value !== 0 ? 0 : 1) : value;
       drawRect(win, { x: kx, y: ky, w: box, h: box, fill: next !== 0 ? 0x5A7FB0FF : 0x2A2A2AFF, strokeW: 1, stroke: 0x232323FF, radius: 2 });
       drawText(win, { x: kx + box + 6, y: ky, text: label, color: 0xC8C8C8FF, size: 12, flags: 0 });

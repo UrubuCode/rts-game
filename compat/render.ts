@@ -1,10 +1,21 @@
 // `rts:render` sobre `rts:egui`.
 //
 // O rasterizador 2D por software foi aposentado: quem desenha agora é o egui.
-// Para três dos quatro membros usados a tradução é EXATA e mecânica — os mesmos
+// Para os quatro membros usados a tradução é EXATA e mecânica — os mesmos
 // argumentos, na mesma ordem, na mesma codificação de cor — só que embrulhados
-// num objeto em vez de listados soltos. O quarto (`image`) não tem equivalente
-// e está tratado no fim do arquivo.
+// num objeto em vez de listados soltos.
+//
+// `image` ERA a exceção e deixou de ser. Este arquivo dizia que o egui não tinha
+// blit de framebuffer; estava errado por meia verdade. O `rts-egui` pinta imagem
+// desde sempre (`RenderBackend::image`), mas como MÉTODO DE TRAIT, e a casca
+// `rts-ui` não expunha o membro — então a superfície visível de fora realmente
+// não tinha, e a conclusão "o motor não sabe" veio de olhar só para a casca.
+// Hoje existem `rts_egui::draw_image` (função livre) e `egui.drawImage`, e o
+// `image` daqui é a mesma tradução mecânica que `rect`/`text`/`line` são.
+//
+// A ÚNICA diferença de assinatura é a que o `compat/buffer.ts` já impõe a todo
+// mundo: onde entrava um ENDEREÇO entra a view. Não é uma concessão ao shim, é a
+// correção — um endereço guardado envelhece porque o coletor move células.
 //
 // ---------------------------------------------------------------------------
 // SOBRE O `win`: ele JÁ ESTAVA LÁ. Não há `setWindow` aqui, e é de propósito.
@@ -37,7 +48,7 @@
 // precisaria de um giro de bits aqui — não precisa. `fill: 0` continua
 // significando "não preenche", que é como `assets.ts:204` desenha a moldura.
 
-import { drawRect, drawText, drawLine } from "rts:egui";
+import { drawRect, drawText, drawLine, drawImage } from "rts:egui";
 
 export default {
   // `rect(win, x, y, w, h, fill, strokeW, stroke, radius)`.
@@ -76,35 +87,24 @@ export default {
     drawLine(win, { x1, y1, x2, y2, w, color });
   },
 
-  // ------------------------------------------------------------------------
-  // `image` — SEM EQUIVALENTE. Lança, e lança na chamada.
-  // ------------------------------------------------------------------------
+  // `image(win, x, y, w, h, pixels, iw, ih)` — blit de um framebuffer RGBA8.
   //
-  // `render.image(win, x, y, w, h, ptr, iw, ih)` blitava um framebuffer RGBA
-  // cru, apontado por um ENDEREÇO, na tela. O egui não tem essa operação: não
-  // há upload de textura 2D na superfície de `rts-ui/src/draw.rs` (`drawRect`,
-  // `drawText`, `drawLine`, `measureText`, widgets e `html` — e nada mais), e o
-  // argumento `ptr` é a mesma coisa que `compat/buffer.ts` recusou a
-  // implementar, pelo mesmo motivo: o coletor move células.
+  // O sexto argumento chamava-se `ptr` e era um endereço; agora é a view
+  // (`Uint8Array`) que o `compat/buffer.ts` devolve. Todo chamador que passava
+  // `buffer.ptr(b)` passa `b`, que é a MESMA substituição que aquele arquivo já
+  // documenta para os outros doze sítios — nenhuma regra nova.
   //
-  // Então há duas ausências empilhadas aqui, e nenhuma se resolve com tradução.
-  // Um no-op silencioso faria o editor abrir com o viewport 3D em preto e
-  // ninguém saberia por quê — o modo de falhar que este `compat/` evita duas
-  // vezes já. Lançar coloca o erro no frame em que ele acontece, com o nome do
-  // que falta.
+  // A textura é EFÊMERA do lado do egui: carregada por frame e descartada no
+  // fim. Quem blita todo frame paga um upload por frame, o que é aceitável para
+  // um framebuffer que muda todo frame (o viewport do editor) e é desperdício
+  // para um que não muda (uma miniatura em cache). Trocar isso exige um id de
+  // textura persistente, que é uma decisão do `rts-ui` e não deste shim.
   image(
-    _win: number,
-    _x: number, _y: number, _w: number, _h: number,
-    _ptr: number, _iw: number, _ih: number,
+    win: number,
+    x: number, y: number, w: number, h: number,
+    pixels: Uint8Array, iw: number, ih: number,
   ): void {
-    throw new Error(
-      "render.image não existe no motor novo: o egui não tem blit de " +
-      "framebuffer RGBA (rts-ui/src/draw.rs só expõe drawRect/drawText/" +
-      "drawLine/measureText). O caminho novo para pixels é 3D — " +
-      "egui.meshUpload + egui.drawMesh com textura — e o rasterizador por " +
-      "software que produzia estes pixels foi aposentado junto com rts:render. " +
-      "Chamadores: editor/thumbs.ts:45, netharness.ts:348, main.ts (framebuffer 3D).",
-    );
+    drawImage(win, { x, y, w, h, pixels, imgWidth: iw, imgHeight: ih });
   },
 };
 
@@ -136,15 +136,16 @@ export default {
 //    `engine/render/draw.ts:12`, `engine/ui/uipanel.ts:10`, `main.ts:9`,
 //    `netharness.ts:19`.
 //
-// 2. Os três sítios de `render.image`, que agora LANÇAM em vez de desenhar:
-//    - `editor/thumbs.ts:45` — miniaturas rasterizadas por software. Todo o
-//      caminho de `thumbs.ts` (alloc + raster + blit) é o que o egui substitui
-//      por malha, não por tradução.
+// 2. Os três sítios de `render.image` precisam passar a VIEW no lugar de
+//    `buffer.ptr(b)` — e só isso, agora que o membro existe:
+//    - `editor/thumbs.ts:45` — FEITO no porte das miniaturas.
 //    - `netharness.ts:348` — blit do framebuffer 960×600 do harness.
-//    - `main.ts:43` — o viewport 3D do editor, mesma história.
-//    Os três também dependem de `buffer.ptr()`, que já não existe, então já
-//    estavam quebrados na compilação antes deste arquivo.
+//    - `main.ts:43` — o viewport 3D do editor.
+//    Os dois últimos continuam sem passar, porque quem PRODUZ os pixels deles
+//    (`engine/render/raster.ts`) ainda não foi portado — o blit deixou de ser o
+//    bloqueio, o rasterizador virou.
 //
 // 3. `engine/render/raster.ts` — o rasterizador por software em si. Ele não
-//    importa `rts:render`, mas existe SÓ para alimentar `render.image`. Sem
-//    consumidor, é código morto à espera de decisão: portar para malha ou sair.
+//    importa `rts:render`, mas existe SÓ para alimentar `render.image`. A
+//    decisão que restou é dele: portar os handles para views (o `thumbs.ts` já
+//    mostra que dá) ou aposentá-lo em favor de malha.
