@@ -24,10 +24,10 @@
 //   save  <path>                       salva PPM P3 (160x96) do frame atual
 //   quit | exit                        encerra
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
-import math from "rts:math";
-import buffer from "rts:buffer";
-import fs from "rts:fs";
+import io from "./compat/io.ts";
+import math from "./compat/math.ts";
+import buffer from "./compat/buffer.ts";
+import fs from "./compat/fs.ts";
 
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";

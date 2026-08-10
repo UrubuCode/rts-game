@@ -7,10 +7,10 @@
 // Medido antes disto: a corrupção chega sempre por volta de 166 300 DRAWS
 // ACUMULADOS — não por tempo (21,8 s com 128/frame contra 8,0 s com 348/frame)
 // e não por memória (estável em ~185 MB).
-import io from "rts:io";
-import math from "rts:math";
+import io from "../../compat/io.ts";
+import math from "../../compat/math.ts";
 import gpu from "rts:gpu";
-import buffer from "rts:buffer";
+import buffer from "../../compat/buffer.ts";
 import { initMeshes, setCam, setLgt, drawGPU } from "./engine/render/gpu3d";
 
 const N = 352;                 // mesmos 352 vec4 do buffer do rígido

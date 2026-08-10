@@ -8,7 +8,7 @@
 //
 // Funções top-level lendo/escrevendo arrays de módulo — ok desde o fix de gcell.
 
-import math from "rts:math";
+import math from "../../compat/math.ts";
 import { fillTri } from "./raster";
 
 // ── geometria fixa (espaço-objeto, meia-extensão ~0.5) ───────────────────────

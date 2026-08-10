@@ -22,7 +22,7 @@
 // GPU virar outro (Vulkan nativo, compute do render instanciado), os
 // consumidores não mudam uma linha.
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
+import io from "../../compat/io.ts";
 
 import { Scene } from "../core/scene";
 import { cfInit, cfSpawnBlock, cfSyncColliders, cfStep, cfX, cfY, cfZ,

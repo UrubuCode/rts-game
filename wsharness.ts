@@ -10,10 +10,10 @@
 //   ./rts.exe run wsharness.ts        # servidor + janela viva
 //   (browser) abra tools/ws_control.html  → conecta e manda comandos
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
-import math from "rts:math";
+import io from "./compat/io.ts";
+import math from "./compat/math.ts";
 import ws from "rts:ws";
-import fs from "rts:fs";
+import fs from "./compat/fs.ts";
 
 import { Scene } from "./engine/core/scene";
 import { GameObject } from "./engine/core/gameobject";

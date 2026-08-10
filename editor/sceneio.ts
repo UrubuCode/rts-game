@@ -2,7 +2,7 @@
 // inicial), asset browser (duplo-clique) e controle WS (loadscene). Opera no
 // `scene` singleton. Campos opcionais: parent, stationary, emissive, tex,
 // scale3 [x,y,z], scripts [].
-import fs from "rts:fs";
+import fs from "../compat/fs.ts";
 
 import { scene, S } from "./control/session";
 import { GameObject } from "../engine/core/gameobject";

@@ -5,8 +5,8 @@
 // Os MESMOS invariantes que provamos no solver CPU (a lição da campanha do
 // castelo): pilha assenta e DORME, coluna não tem ciclo-limite, nada atravessa
 // o chão, nada nasce energia do nada. Sem GPU: [PULOU] limpo.
-import io from "rts:io";
-import math from "rts:math";
+import io from "../compat/io.ts";
+import math from "../compat/math.ts";
 
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";

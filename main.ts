@@ -3,13 +3,13 @@
 // Estilo Unity: tudo é GameObject, ciclo mount → update(dt) → render pass.
 //   rts.exe run main.ts
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
-import math from "rts:math";
-import buffer from "rts:buffer";
+import io from "./compat/io.ts";
+import math from "./compat/math.ts";
+import buffer from "./compat/buffer.ts";
 import render from "rts:render";
 import input from "rts:input";
-import fs from "rts:fs";
-import process from "rts:process";
+import fs from "./compat/fs.ts";
+import process from "./compat/process.ts";
 
 import { GameObject } from "./engine/core/gameobject";
 import { Transform } from "./engine/core/transform";

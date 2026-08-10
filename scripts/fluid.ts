@@ -15,7 +15,7 @@
 //   const sim = new Fluid(); sim.addFrom(scene, primeiroIdx, ultimoIdx);
 //   ... por frame: sim.step(dt, scene);
 
-import math from "rts:math";
+import math from "../compat/math.ts";
 
 import { GameObject } from "../engine/core/gameobject";
 import { Transform } from "../engine/core/transform";

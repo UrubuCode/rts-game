@@ -8,7 +8,7 @@
 // Convenção de câmera: forward = +Z após aplicar -yaw (em torno de Y) e -pitch
 // (em torno de X). Um ponto só desenha se cair na frente (z_cam > perto).
 
-import math from "rts:math";
+import math from "../../compat/math.ts";
 import render from "rts:render";
 
 

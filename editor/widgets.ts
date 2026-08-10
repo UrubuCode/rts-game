@@ -5,7 +5,7 @@
 // + o estado do mouse como PRIMITIVOS — nada de passar objetos/classes.
 
 import render from "rts:render";
-import math from "rts:math";
+import math from "../compat/math.ts";
 import input from "rts:input";
 
 // ── cores do tema (Unity dark) ───────────────────────────────────────────────

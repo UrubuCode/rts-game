@@ -6,7 +6,7 @@
 //   1. backend CPU funciona sozinho (máquina sem GPU tem física de fluido);
 //   2. a TROCA EM PLENO VOO não teleporta nem perde velocidade (handoff);
 //   3. depois da troca a física continua sã (nada atravessa o chão, assenta).
-import io from "rts:io";
+import io from "../compat/io.ts";
 
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";

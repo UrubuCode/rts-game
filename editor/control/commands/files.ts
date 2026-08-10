@@ -1,7 +1,7 @@
 // Comandos de SISTEMA DE ARQUIVOS (via WebSocket) — a IA lista/cria/deleta/lê/
 // escreve/renomeia arquivos e pastas do projeto direto pelo socket (fs namespace).
 // Conteúdo em uma linha só (o protocolo quebra por \n).
-import fs from "rts:fs";
+import fs from "../../../compat/fs.ts";
 
 import { scene, S } from "../session";
 import { GameObject } from "../../../engine/core/gameobject";

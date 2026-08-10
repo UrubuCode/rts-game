@@ -2,7 +2,7 @@
 // interno acumulando dt.
 
 import { Behavior } from "../engine/core/behavior";
-import math from "rts:math";
+import math from "../compat/math.ts";
 
 export class Bobber extends Behavior {
   amp: f64;

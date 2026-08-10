@@ -8,8 +8,8 @@
 // unitários de cada peça não veem.
 //
 //   ./rts.exe run tools/test_physics.ts   -> espera "[PASSOU]"
-import io from "rts:io";
-import math from "rts:math";
+import io from "../compat/io.ts";
+import math from "../compat/math.ts";
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";
 import { Transform } from "../engine/core/transform";

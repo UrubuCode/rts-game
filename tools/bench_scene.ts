@@ -7,7 +7,7 @@
 // Como não há relógio no subset numérico, a medida é o TEMPO DE PAREDE do
 // processo: rode com `time` e compare antes/depois de uma otimização.
 // FRAMES e as escalas são fixos pra comparação ser justa entre execuções.
-import io from "rts:io";
+import io from "../compat/io.ts";
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";
 

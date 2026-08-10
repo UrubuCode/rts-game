@@ -16,7 +16,7 @@
 // n=4096 ≈ 6 SEGUNDOS/frame). Jogo em fallback deve reduzir o n; um grid
 // espacial aqui só vale se o fallback virar caminho de primeira classe.
 // ═══════════════════════════════════════════════════════════════════════════
-import math from "rts:math";
+import math from "../../compat/math.ts";
 
 import { Scene } from "../core/scene";
 import { GameObject, COL_BOX } from "../core/gameobject";
