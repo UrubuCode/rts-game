@@ -13,6 +13,7 @@ import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { history } from "../undo";
 import { inFrustum } from "../../engine/render/gpu3d";
+import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport } from "../../engine/core/physics_backend";
 
 /// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo).
 function isMutating(c: string): boolean {
@@ -60,6 +61,21 @@ function execCommandInner(w: number, h: number, line: string): string {
       return "[redo] nada pra refazer";
     }
     case "state": return cmdState();
+    // Trocar o backend da física EM TEMPO DE EXECUÇÃO, sem reiniciar o editor.
+    //
+    // Existe porque medir os dois exige alternar na MESMA cena: reiniciar entre
+    // as medições troca a cena, o aquecimento e o estado de sono junto, e aí a
+    // diferença deixa de ser do backend. `dbg` logo abaixo reporta qual está
+    // ativo, então a dupla responde "o que mudou e quanto custou".
+    case "fisica": {
+      const alvo = parts[1];
+      if (alvo === "gpu") { rigidSetMode(1); return "[fisica] modo=gpu ativo=" + rigidBackendName(); }
+      if (alvo === "cpu") { rigidSetMode(0); return "[fisica] modo=cpu ativo=" + rigidBackendName(); }
+      if (alvo === "auto") { rigidSetMode(2); return "[fisica] modo=auto ativo=" + rigidBackendName(); }
+      if (alvo === "report") { rigidReport(); return "[fisica] relatorio impresso no stdout do editor"; }
+      return "[fisica] modo=" + rigidMode() + " ativo=" + rigidBackendName() +
+             " | use: fisica cpu | fisica gpu | fisica auto | fisica report";
+    }
     case "dbg": {
       // replica a decisão do loop de render pra TODOS os objetos e conta
       let wouldDraw = 0;
@@ -79,7 +95,13 @@ function execCommandInner(w: number, h: number, line: string): string {
         oi = oi + 1;
       }
       const last = scene.objects[scene.objects.length - 1];
-      return "[dbg] fps=" + S.fpsLast + " ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast +
+      // BACKEND DE FÍSICA: sem isto, quem lê um fps daqui não sabe o que está
+      // medindo — CPU e GPU só fazem sentido comparados separadamente. É o nome
+      // do que está ATIVO, não do que foi pedido: pedir GPU e cair para a CPU
+      // (sem placa, kernel que não compilou) é exatamente o estado que um
+      // número inexplicável costuma esconder.
+      return "[dbg] fisica=" + rigidBackendName() + " corpos=" + rigidBodyCount() +
+        " fps=" + S.fpsLast + " ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast +
         " | ultimo " + last.name + " world(" + last.transform.wx + "," + last.transform.wy + "," + last.transform.wz + ")";
     }
     case "hier": return cmdHier(parts);

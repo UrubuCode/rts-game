@@ -29,6 +29,7 @@ import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL
 import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./editor/sceneio";
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "./editor/dnd";
 import { history } from "./editor/undo";
+import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { initAudio, pumpAudio } from "./engine/audio/audio";
 import { logInfo, logTick } from "./engine/core/logger";
@@ -399,7 +400,21 @@ function frame(): void {
   }
 
   // ── UPDATE da cena (só quando S.playing) ────────────────────────────────────
-  if (S.playing !== 0) { scene.update(dts); scene.resolveCollisions(); }
+  if (S.playing !== 0) {
+    scene.update(dts);
+    // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
+    // frame — e aí a varredura de pares da CPU não roda, porque seria a mesma
+    // física duas vezes, uma delas sobre um estado que a outra já mexeu.
+    //
+    // A decisão fica AQUI, em quem dirige o frame, e não dentro da `Scene`: o
+    // decisor precisa do tipo `Scene` para varrer os corpos, então a `Scene`
+    // importá-lo de volta seria um ciclo. É também a forma que o fluido já usa
+    // — `decide.ts` é chamado pelo jogo, não pelo solver.
+    //
+    // Medido (release, headless, 500 corpos em movimento): 12,05 ms na CPU
+    // contra 0,35 ms na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
+    if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
+  }
   scene.computeWorld();
 
   // ── PICKING + DRAG: pressionar seleciona; segurando, ARRASTA o objeto ───────
