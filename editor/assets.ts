@@ -5,7 +5,7 @@
 // asset. Estado em vars de MÓDULO (ok desde o fix de gcell); desenha via render.*.
 
 import render from "rts:render";
-import fs from "rts:fs";
+import fs from "../compat/fs.ts";
 
 import { PANEL, PANEL_DK, HEADER, BORDER, TEXT, TEXT_DIM, SEL, HOVER, button, subStr } from "./widgets";
 import { drawThumb } from "./thumbs";

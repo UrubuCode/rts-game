@@ -4,7 +4,7 @@
 import { GameObject, COL_BOX } from "./gameobject";
 import { Transform } from "./transform";
 import { Behavior, KIND_CAMERA } from "./behavior";
-import math from "rts:math";
+import math from "../../compat/math.ts";
 
 export class Scene {
   name: string;

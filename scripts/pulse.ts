@@ -1,7 +1,7 @@
 // Script Pulse: faz a escala do objeto pulsar (senoide) em torno de uma base.
 
 import { Behavior } from "../engine/core/behavior";
-import math from "rts:math";
+import math from "../compat/math.ts";
 
 export class Pulse extends Behavior {
   amp: f64; freq: f64; base: f64; t: f64;

@@ -13,12 +13,12 @@
 // mas mostra o último frame. Controle ao vivo TOTAL (janela responsiva enquanto
 // espera) exigiria um thread leitor — próximo passo.
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
-import math from "rts:math";
+import io from "./compat/io.ts";
+import math from "./compat/math.ts";
 import buffer from "rts:buffer";
 import render from "rts:render";
 import net from "rts:net";
-import fs from "rts:fs";
+import fs from "./compat/fs.ts";
 import egui from "rts:egui";
 
 import { Scene } from "./engine/core/scene";

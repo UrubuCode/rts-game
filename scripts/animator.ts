@@ -13,7 +13,7 @@
 // resto do motor não tinha.
 
 import { Behavior } from "../engine/core/behavior";
-import math from "rts:math";
+import math from "../compat/math.ts";
 
 /// Canais animáveis (índice do campo no transform).
 export const CH_PX = 0;

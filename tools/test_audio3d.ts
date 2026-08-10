@@ -7,8 +7,8 @@
 /// são os certos, que é a parte que quebra em silêncio.
 ///
 ///     ./rts.exe run tools/test_audio3d.ts     -> espera [PASSOU]
-import io from "rts:io";
-import math from "rts:math";
+import io from "../compat/io.ts";
+import math from "../compat/math.ts";
 import { setListener, setRolloff, attenuation, panOf, panGains, distanceTo,
          rolloffRef, rolloffMax } from "../engine/audio/spatial";
 

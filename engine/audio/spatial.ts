@@ -18,7 +18,7 @@
 /// câmera e objetos só se movem uma vez por frame. Por bloco custa ~0,2 µs por
 /// voz. O artefato dessa escolha (o salto de ganho na fronteira do bloco) está
 /// anotado no fim.
-import math from "rts:math";
+import math from "../../compat/math.ts";
 
 // ── OUVINTE ─────────────────────────────────────────────────────────────────
 // Estado de módulo, empurrado uma vez por frame por quem tem a câmera. O

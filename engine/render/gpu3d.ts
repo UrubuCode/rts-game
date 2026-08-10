@@ -11,8 +11,8 @@
 
 import egui from "rts:egui";
 import buffer from "rts:buffer";
-import math from "rts:math";
-import fs from "rts:fs";
+import math from "../../compat/math.ts";
+import fs from "../../compat/fs.ts";
 import imgdec from "rts:imgdec";
 
 const PI: f64 = 3.14159265358979;

@@ -18,8 +18,8 @@
 // Controles: WASD voa, botão DIREITO gira, ESPAÇO sobe, R reconstrói já.
 // Porta de controle: ws://127.0.0.1:7777 (`state` lista todos os corpos).
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
-import math from "rts:math";
+import io from "./compat/io.ts";
+import math from "./compat/math.ts";
 import input from "rts:input";
 
 import { scene, S } from "./editor/control/session";

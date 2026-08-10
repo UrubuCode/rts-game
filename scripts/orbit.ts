@@ -4,7 +4,7 @@
 // editor/components.ts — ele aparece na lista "Add Component" com config completa.
 
 import { Behavior } from "../engine/core/behavior";
-import math from "rts:math";
+import math from "../compat/math.ts";
 
 export class Orbit extends Behavior {
   radius: f64;

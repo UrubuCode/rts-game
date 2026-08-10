@@ -22,7 +22,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import gpu from "rts:gpu";
 import buffer from "rts:buffer";
-import io from "rts:io";
+import io from "../../compat/io.ts";
 
 
 let dcCpuPerInter: f64 = 0.0;   // ms por interação de par na CPU

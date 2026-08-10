@@ -14,7 +14,7 @@
 //   ... por frame: pumpAudio();
 
 import audio from "rts:audio";
-import math from "rts:math";
+import math from "../../compat/math.ts";
 import { panGains } from "./spatial";
 import buffer from "rts:buffer";
 

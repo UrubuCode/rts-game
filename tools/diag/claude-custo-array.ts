@@ -1,5 +1,5 @@
-import io from "rts:io";
-import math from "rts:math";
+import io from "../../compat/io.ts";
+import math from "../../compat/math.ts";
 
 const N = 200000;
 const arr: f64[] = [];

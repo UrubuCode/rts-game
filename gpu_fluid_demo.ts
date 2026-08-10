@@ -12,8 +12,8 @@
 //
 // Controles: WASD voa, botão DIREITO gira, ESPAÇO sobe, R solta a água de novo.
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
-import math from "rts:math";
+import io from "./compat/io.ts";
+import math from "./compat/math.ts";
 import input from "rts:input";
 import gpu from "rts:gpu";
 

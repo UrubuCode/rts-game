@@ -4,7 +4,7 @@
 //
 // Numa máquina SEM GPU imprime [PULOU] e sai com sucesso (o módulo é opcional
 // por design; o jogo cai para o fluido CPU).
-import io from "rts:io";
+import io from "../compat/io.ts";
 
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";

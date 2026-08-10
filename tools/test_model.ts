@@ -4,8 +4,8 @@
 // quads, n-gons, índices negativos, normais ausentes, CRLF e .mtl.
 //
 //   ./rts.exe run tools/test_model.ts
-import io from "rts:io";
-import math from "rts:math";
+import io from "../compat/io.ts";
+import math from "../compat/math.ts";
 import { parseObj, parseGltf } from "../engine/render/model";
 
 const DIR = "assets/models/_fixtures";

@@ -8,10 +8,10 @@
 //
 // Todas as funções são top-level sobre primitivos (dispatch de namespace provado).
 
-import io from "rts:io";
-import math from "rts:math";
+import io from "../../compat/io.ts";
+import math from "../../compat/math.ts";
 import buffer from "rts:buffer";
-import fs from "rts:fs";
+import fs from "../../compat/fs.ts";
 
 // Rampa de luminância (escuro → claro), 10 níveis.
 const RAMP: string[] = [" ", ".", ":", "-", "=", "+", "*", "#", "%", "@"];

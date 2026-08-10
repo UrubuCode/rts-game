@@ -10,8 +10,8 @@
 // em cache por path (gerar é caro; desenhar é só um blit).
 
 import buffer from "rts:buffer";
-import math from "rts:math";
-import fs from "rts:fs";
+import math from "../compat/math.ts";
+import fs from "../compat/fs.ts";
 import imgdec from "rts:imgdec";
 import ptr from "rts:ptr";
 import render from "rts:render";

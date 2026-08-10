@@ -11,8 +11,8 @@
 // (o loadTexture do gpu3d.ts já fazia isso pras imagens; aqui é o análogo.)
 
 import buffer from "rts:buffer";
-import math from "rts:math";
-import fs from "rts:fs";
+import math from "../../compat/math.ts";
+import fs from "../../compat/fs.ts";
 
 import { upload } from "./gpu3d";
 

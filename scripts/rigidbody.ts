@@ -9,7 +9,7 @@
 // puxava de volta para y=0.
 
 import { Behavior } from "../engine/core/behavior";
-import math from "rts:math";
+import math from "../compat/math.ts";
 
 /// Velocidade máxima de queda (ver o teto anti-tunneling em `update`).
 const MAX_FALL: f64 = 60.0;

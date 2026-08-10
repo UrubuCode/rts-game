@@ -17,7 +17,7 @@
 //   logError("cena invalida");
 //   ... e no WebSocket: `log`, `log 50`, `log erro`, `log warn`
 
-import io from "rts:io";
+import io from "../../compat/io.ts";
 
 /// Níveis. `LOG_DEBUG` sai por padrão (ver `minLevel`) — é para rastreio pesado
 /// que não deve poluir o histórico de quem só quer ver o que deu errado.

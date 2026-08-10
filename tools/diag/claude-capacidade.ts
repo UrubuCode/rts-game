@@ -1,6 +1,6 @@
 // Quantas alocações o motor aguenta antes de reciclar um handle VIVO?
 // Sem GPU, sem janela: só a tabela de handles.
-import io from "rts:io";
+import io from "../../compat/io.ts";
 import buffer from "rts:buffer";
 
 const vitima = buffer.alloc(1024);

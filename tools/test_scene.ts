@@ -3,8 +3,8 @@
 // comportamento. Rodar sempre que mexer em engine/core/scene.ts.
 //
 //   ./rts.exe run tools/test_scene.ts     -> espera "[PASSOU]"
-import io from "rts:io";
-import math from "rts:math";
+import io from "../compat/io.ts";
+import math from "../compat/math.ts";
 import { scene } from "../editor/control/session";
 import { GameObject } from "../engine/core/gameobject";
 import { Animator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "../scripts/animator";

@@ -12,9 +12,9 @@
 //   rts.exe run game.ts        → testa o runtime sem compilar
 //   rts.exe compile game.ts    → gera o .exe distribuível
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "rts:io";
-import math from "rts:math";
-import fs from "rts:fs";
+import io from "./compat/io.ts";
+import math from "./compat/math.ts";
+import fs from "./compat/fs.ts";
 import input from "rts:input";
 
 import { scene, S } from "./editor/control/session";

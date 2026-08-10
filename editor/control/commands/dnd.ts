@@ -5,8 +5,8 @@
 // A coordenada de tela é opcional: com <sx> <sy> o asset cai no ponto do CHÃO sob
 // aquele pixel (como o mouse); sem ela, usa a posição padrão ou a que for passada
 // em coordenadas de mundo.
-import math from "rts:math";
-import fs from "rts:fs";
+import math from "../../../compat/math.ts";
+import fs from "../../../compat/fs.ts";
 
 import { scene, S } from "../session";
 import { kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "../../dnd";

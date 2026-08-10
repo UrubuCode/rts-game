@@ -1,4 +1,4 @@
-import io from "rts:io";
+import io from "./compat/io.ts";
 import { scene } from "./editor/control/session";
 import { GameObject } from "./engine/core/gameobject";
 import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep, rbPoke,
