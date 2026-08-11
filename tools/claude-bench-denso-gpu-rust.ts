@@ -28,7 +28,11 @@ import { rbAvailable, rbInit, rbSetBody, rbUpload, rbSyncStatics, rbService,
          rbStep, rbY } from "../engine/rigid/gpurigid";
 import { crInit, crSetBody, crSyncStatics, crStep, crThreads, crY } from "../engine/rigid/cpurigid";
 
+// 120 nos n pequenos; nos grandes o custo por passo já domina o ruído e 40
+// passos bastam — 120 passos a 32000 corpos com a GPU síncrona seriam minutos
+// de espera por uma casa decimal que não muda a conclusão.
 const FRAMES = 120;
+function framesDe(n: number): number { return n > 8000 ? 40 : 120; }
 // 0,6 sobre corpos de meia-extensão 0,5: todo vizinho é contato de verdade. É o
 // mesmo espaçamento de `claude-bench-onde-custa.ts`, para que "denso" signifique
 // a mesma coisa nas duas bancadas deste repositório.
@@ -69,7 +73,7 @@ function gpu(n: number): f64 {
   const t0 = Date.now();
   let passos = 0;
   f = 0;
-  while (f < FRAMES) { if (rbService(1) !== 0) passos = passos + 1; f = f + 1; }
+  while (f < framesDe(n)) { if (rbService(1) !== 0) passos = passos + 1; f = f + 1; }
   const total = (Date.now() - t0) * 1.0;
   gpuPassos = passos;
   // O denominador é o número de PASSOS, não de frames. Se a GPU entregou 40
@@ -94,8 +98,8 @@ function gpuSync(n: number): f64 {
   while (f < 5) { rbStep(1); f = f + 1; }
   const t0 = Date.now();
   f = 0;
-  while (f < FRAMES) { rbStep(1); f = f + 1; }
-  return (Date.now() - t0) * 1.0 / (FRAMES * 1.0);
+  while (f < framesDe(n)) { rbStep(1); f = f + 1; }
+  return (Date.now() - t0) * 1.0 / (framesDe(n) * 1.0);
 }
 
 /// ms por passo no backend Rust. Síncrono: passos = frames, sempre.
@@ -112,8 +116,8 @@ function rust(n: number): f64 {
   while (f < 5) { crStep(1); f = f + 1; }
   const t0 = Date.now();
   f = 0;
-  while (f < FRAMES) { crStep(1); f = f + 1; }
-  return (Date.now() - t0) * 1.0 / (FRAMES * 1.0);
+  while (f < framesDe(n)) { crStep(1); f = f + 1; }
+  return (Date.now() - t0) * 1.0 / (framesDe(n) * 1.0);
 }
 
 scene.clear(); montaChao(); scene.computeWorld();
@@ -125,7 +129,12 @@ io.print("");
 io.print("   n   | GPU pipe/passo | GPU sync/passo | RUST /passo | passos gpu | y_gpu  y_rust");
 io.print("-------+----------------+----------------+-------------+------------+--------------");
 
-const NS: number[] = [250, 500, 1000, 2000, 4000];
+// Até 32000 e NÃO além, e o teto é medido e não escolhido:
+// `crates/rts-physics/examples/audit_denso.rs` mostra que em n=64000 o bucket
+// estoura as 32 vagas e o grid DESCARTA 65 corpos (1545 em 128000). A partir
+// dali os dois backends perdem pares diferentes e a linha não mede a mesma
+// física da linha acima. 32000 é o último n honesto desta cena.
+const NS: number[] = [250, 1000, 2000, 4000, 8000, 16000, 32000];
 let k = 0;
 while (k < NS.length) {
   const n = NS[k];
@@ -136,7 +145,7 @@ while (k < NS.length) {
   const yr = crY(0);
   io.print("  " + (n + "").padEnd(5) + "|" + g.toFixed(3).padStart(15) +
            " |" + gs.toFixed(3).padStart(15) + " |" + r.toFixed(3).padStart(12) +
-           " |" + (gpuPassos + "/" + FRAMES).padStart(11) +
+           " |" + (gpuPassos + "/" + framesDe(n)).padStart(11) +
            " | " + yg.toFixed(2) + "  " + yr.toFixed(2));
   k = k + 1;
 }
