@@ -3,7 +3,7 @@
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
 import { Transform } from "./transform";
-import { Behavior, KIND_MATERIAL, KIND_RENDERER } from "./behavior";
+import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER } from "./behavior";
 import { Material } from "./material";
 
 /// Formas de colisor (ver `GameObject.colShape`).
@@ -46,6 +46,13 @@ export class GameObject {
   colShape: number;
   matIdx: number;      // índice do component Material em behaviors (-1 = nenhum). Cache O(1) pro render.
   rendIdx: number;     // índice do component MeshRenderer (-1 = nenhum). Cache O(1) pro render.
+  /// Índice do component Collider (-1 = nenhum, e aí valem `colShape` + escala).
+  ///
+  /// Cacheado pelo mesmo motivo dos outros dois: a física pergunta por objeto
+  /// por frame, e varrer a lista de behaviors atrás do kind seria O(behaviors)
+  /// no laço mais quente. -1 é o caminho LEGADO, não um erro: cenas antigas não
+  /// têm Collider e continuam colidindo pela escala.
+  colIdx: number;
 
   constructor(name: string) {
     this.name = name;
@@ -67,6 +74,7 @@ export class GameObject {
     this.colShape = COL_SPHERE;
     this.matIdx = 0 - 1;
     this.rendIdx = 0 - 1;
+    this.colIdx = 0 - 1;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`
@@ -87,6 +95,7 @@ export class GameObject {
   refreshComponentCache(): void {
     this.matIdx = this.componentIdx(KIND_MATERIAL);
     this.rendIdx = this.componentIdx(KIND_RENDERER);
+    this.colIdx = this.componentIdx(KIND_COLLIDER);
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.

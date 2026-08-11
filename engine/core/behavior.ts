@@ -18,6 +18,7 @@ export const KIND_RENDERER: number = 2;   // geometria a desenhar (mesh/primitiv
 export const KIND_UI: number = 3;         // elemento de UI (desenha em tela 2D)
 export const KIND_SCENE_REF: number = 4;  // instância de outra cena (cena dentro de cena)
 export const KIND_CAMERA: number = 5;     // ponto de vista (o jogo renderiza pela main)
+export const KIND_COLLIDER: number = 6;   // a FORMA que colide (pode nao ser a que desenha)
 // reservados p/ as próximas camadas: 6=COLLIDER, 7=LIGHT…
 
 export class Behavior {

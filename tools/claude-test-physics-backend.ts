@@ -4,7 +4,7 @@
 //
 // O que ele pina — e são invariantes de INTEGRAÇÃO, não de física (a física em
 // si é `tools/test_gpurigid.ts`):
-//   1. o padrão é CPU, mesmo com GPU presente (a decisão do cabeçalho);
+//   1. o padrão é GPU e cai para a CPU sem placa (a decisão do cabeçalho);
 //   2. pedir GPU sem GPU cai para a CPU sem lançar — o editor tem de abrir;
 //   3. com GPU, o passo assume o frame e os corpos DESCEM (a física chegou aos
 //      transforms da cena, que é o único ponto onde a integração pode falhar
@@ -50,10 +50,25 @@ while (b < 24) {
 }
 sc.computeWorld();
 
-// ── 1) o padrão é CPU ──────────────────────────────────────────────────────
-check("modo padrao = CPU", rigidMode() === 0 ? 1 : 0);
-check("nome padrao = 'cpu'", rigidBackendName() === "cpu" ? 1 : 0);
-check("passo nao assume o frame no padrao", rigidStep(sc, 0) === 0 ? 1 : 0);
+// ── 1) o padrão é GPU, com queda para a CPU ────────────────────────────────
+//
+// Era CPU, e as três asserções aqui diziam isso. A decisão mudou em 2026-08-11
+// — "default gpu e fallback cpu" — e este teste FALHOU, que é exatamente o que
+// ele existe para fazer. O que ele pina agora é a queda: numa máquina sem placa
+// o padrão GPU não pode lançar nem travar o editor, e a prova disso é o nome do
+// backend explicar por que caiu.
+check("modo padrao = GPU", rigidMode() === 1 ? 1 : 0);
+
+const temPlaca = rigidBackendFor(24) >= 0 ? 1 : 0;
+// O passo vem ANTES de olhar o nome: o backend só se resolve ao ser usado, e
+// perguntar o nome antes disso mede a inicialização e não a decisão.
+const assumiuNoPadrao = rigidStep(sc, 0) !== 0 ? 1 : 0;
+io.print("  padrao: placa=" + temPlaca + " assumiu=" + assumiuNoPadrao +
+         " nome=" + rigidBackendName());
+check("no padrao, quem assume o frame e a GPU — e so ela",
+      assumiuNoPadrao === temPlaca ? 1 : 0);
+check("sem placa, o nome do backend EXPLICA a queda",
+      temPlaca === 1 || rigidBackendName() !== "gpu" ? 1 : 0);
 
 // ── 2) opt-in explícito ────────────────────────────────────────────────────
 rigidSetMode(1);

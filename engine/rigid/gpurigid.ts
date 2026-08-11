@@ -21,9 +21,31 @@
 //
 // Estado (tudo na GPU; readback pipelined 1x/frame como o fluido):
 //   pos: vec4 (xyz centro, w = contador de sono; w >= 10 dorme)
-//   vel: vec4 (xyz, w livre)
+//   vel: vec4 (xyz, w = FORMA do colisor — 0 esfera, 1 caixa)
 //   ext: vec4 (xyz meia-extensão, w = invMass; 0 = infinita/kinemático)
-//   world: [0] params (dt, nStaticos, -, -); depois AABBs estáticos (2 vec4)
+//   world: [0] params (dt, nStaticos, tamCélula, -); estáticos; grid na cauda
+//
+// ── A FORMA MORA NO `vel.w`, e por quê ──────────────────────────────────────
+//
+// Este cabeçalho declarava aquele campo "livre", e ele era o único que estava.
+// Os outros candidatos foram descartados por motivo, não por gosto:
+//
+//   pos.w — já é o contador de sono, que é ESTADO evoluindo a cada passo.
+//   ext.w — é o invMass. Daria para embutir a forma no SINAL dele, que hoje é
+//           sempre positivo, e funcionaria; mas faria um campo significar duas
+//           coisas por um truque que só o autor enxerga, e no dia em que alguém
+//           escrever invMass 0 para um cinemático a forma fica indefinida.
+//   buffer novo — esbarra no teto de 4 storage buffers por estágio que o device
+//           ganha com uma JANELA aberta (a mesma razão que pôs o grid na cauda
+//           do `world`). O kernel já liga os quatro.
+//
+// Um campo livre resolvia, então nenhum buffer foi inventado. O kernel preserva
+// `vel.w` na escrita final — era ali que ele escrevia um 0 constante.
+//
+// O RAIO de uma esfera é `min(ext.xyz)`, a mesma regra do `radiusOf` da CPU
+// (metade da MENOR escala): a esfera cabe dentro da caixa, então nunca há
+// empurrão fantasma. Está calculado no kernel a partir de `ext` para que não
+// exista um segundo lugar onde o raio possa divergir.
 // ═══════════════════════════════════════════════════════════════════════════
 import gpu from "../../compat/gpu.ts";
 import buffer from "../../compat/buffer.ts";
@@ -161,6 +183,61 @@ fn pen(a: vec3<f32>, ha: vec3<f32>, b: vec3<f32>, hb: vec3<f32>) -> vec3<f32> {
   return (ha + hb) - abs(a - b);
 }
 
+// raio da esfera de colisão: METADE DA MENOR extensão, igual ao radiusOf da CPU.
+fn raio(h: vec3<f32>) -> f32 { return min(h.x, min(h.y, h.z)); }
+
+// CONTATO entre duas formas — a porta única da narrow-phase deste kernel.
+//
+// Responde xyz = normal apontando de B PARA A (o gather aplica só a própria
+// metade, então quem chama é sempre A) e w = profundidade; w <= 0 = sem
+// contato. Os três casos e as constantes são os do solvePair da CPU
+// (engine/core/scene.ts): é dele que esta função é a tradução, e qualquer
+// divergência aqui aparece como os dois backends terminando em lugares
+// diferentes — que é o que o teste de paridade mede.
+fn contato(pa: vec3<f32>, ha: vec3<f32>, sa: f32,
+           pb: vec3<f32>, hb: vec3<f32>, sb: f32) -> vec4<f32> {
+  let d = pa - pb;
+  let vazio = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+
+  if (sa > 0.5 && sb > 0.5) {
+    // CAIXA x CAIXA — eixo de MENOR penetração. É o que faz um cubo caindo num
+    // chão largo ser empurrado para CIMA e não para o lado.
+    let o = (ha + hb) - abs(d);
+    if (o.x <= 0.0 || o.y <= 0.0 || o.z <= 0.0) { return vazio; }
+    if (o.y <= o.x && o.y <= o.z) { return vec4<f32>(0.0, select(-1.0, 1.0, d.y >= 0.0), 0.0, o.y); }
+    if (o.x <= o.z) { return vec4<f32>(select(-1.0, 1.0, d.x >= 0.0), 0.0, 0.0, o.x); }
+    return vec4<f32>(0.0, 0.0, select(-1.0, 1.0, d.z >= 0.0), o.z);
+  }
+
+  if (sa < 0.5 && sb < 0.5) {
+    // ESFERA x ESFERA — distância de centros contra a soma dos raios.
+    let rs = raio(ha) + raio(hb);
+    let d2 = dot(d, d);
+    if (d2 >= rs * rs || d2 <= 0.0001) { return vazio; }
+    let dist = sqrt(d2);
+    return vec4<f32>(d / dist, rs - dist);
+  }
+
+  // ESFERA x CAIXA — ponto da caixa mais próximo do centro da esfera.
+  // sinal converte a normal (que sai da caixa para a esfera) na convenção
+  // B->A: +1 quando A é a esfera, -1 quando A é a caixa.
+  var bc = pa; var bh = ha; var sc = pb; var r = raio(hb); var sinal = -1.0;
+  if (sb > 0.5) { bc = pb; bh = hb; sc = pa; r = raio(ha); sinal = 1.0; }
+  let q = clamp(sc - bc, -bh, bh);
+  let w = sc - (bc + q);
+  let d2 = dot(w, w);
+  if (d2 >= r * r) { return vazio; }
+  if (d2 > 0.000001) {
+    let dist = sqrt(d2);
+    return vec4<f32>(w / dist * sinal, r - dist);
+  }
+  // centro DENTRO da caixa: empurra pela face de menor folga.
+  let g = bh - abs(q);
+  if (g.y <= g.x && g.y <= g.z) { return vec4<f32>(0.0, select(-1.0, 1.0, q.y >= 0.0) * sinal, 0.0, g.y + r); }
+  if (g.x <= g.z) { return vec4<f32>(select(-1.0, 1.0, q.x >= 0.0) * sinal, 0.0, 0.0, g.x + r); }
+  return vec4<f32>(0.0, 0.0, select(-1.0, 1.0, q.z >= 0.0) * sinal, g.z + r);
+}
+
 // O grid vive na cauda do world, gravado como i32 por outro pipeline — daí o
 // bitcast e a indexação de componente: world aqui é um array de vec4<f32>.
 fn gridAt(k: u32) -> i32 {
@@ -177,6 +254,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   var p = pos[id.x].xyz;
   var slp = pos[id.x].w;
   var v = vel[id.x].xyz;
+  let forma = vel[id.x].w;      // 0 = esfera, 1 = caixa (COL_SPHERE/COL_BOX)
   let h = ext[id.x].xyz;
   let im = ext[id.x].w;
 
@@ -199,8 +277,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         if (j == id.x) { continue; }
         let vj = vel[j].xyz;
         if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
-          let d = pen(p, h, pos[j].xyz, ext[j].xyz);
-          if (d.x > 0.0 && d.y > 0.0 && d.z > 0.0) { acordar = true; }
+          let c = contato(p, h, forma, pos[j].xyz, ext[j].xyz, vel[j].w);
+          if (c.w > 0.0) { acordar = true; }
         }
       }
     }}}
@@ -218,23 +296,20 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   for (var k: u32 = 0u; k < m; k = k + 1u) {
     let sc = world[1u + k * 2u].xyz;
     let sh = world[2u + k * 2u].xyz;
-    let d = pen(p, h, sc, sh);
-    if (d.x > 0.0 && d.y > 0.0 && d.z > 0.0) {
-      if (d.y <= d.x && d.y <= d.z) {
-        let s = select(-1.0, 1.0, p.y >= sc.y);
-        p.y = p.y + s * max(d.y - 0.04, 0.0) * 0.85;
-        if (v.y * s < 0.0) { v.y = 0.0; }
-        // atrito de chão: contato vertical freia o deslize
-        v.x = v.x * 0.92; v.z = v.z * 0.92;
-      } else if (d.x <= d.z) {
-        let s = select(-1.0, 1.0, p.x >= sc.x);
-        p.x = p.x + s * max(d.x - 0.04, 0.0) * 0.85;
-        if (v.x * s < 0.0) { v.x = 0.0; }
-      } else {
-        let s = select(-1.0, 1.0, p.z >= sc.z);
-        p.z = p.z + s * max(d.z - 0.04, 0.0) * 0.85;
-        if (v.z * s < 0.0) { v.z = 0.0; }
-      }
+    // Estáticos são sempre CAIXA — rbSyncStatics só aceita COL_BOX. Uma
+    // esfera dinâmica sobre o chão passa pelo caso esfera-caixa, que é o
+    // contato mais visível de todos e o que antes era resolvido como AABB.
+    let c = contato(p, h, forma, sc, sh, 1.0);
+    if (c.w > 0.0) {
+      let nr = c.xyz;
+      // Estático não cede: a correção inteira é minha (85%, slop 0.04).
+      p = p + nr * max(c.w - 0.04, 0.0) * 0.85;
+      let vn = dot(v, nr);
+      // Só a componente que ENTRA no estático é zerada — para um eixo puro isto
+      // é exatamente o if (v.y * s < 0) { v.y = 0 } de antes.
+      if (vn < 0.0) { v = v - nr * vn; }
+      // atrito de chão: contato vertical freia o deslize
+      if (nr.y > 0.5) { v.x = v.x * 0.92; v.z = v.z * 0.92; }
     }
   }
 
@@ -260,20 +335,23 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (j == id.x) { continue; }
     let pj = pos[j].xyz;
     let hj = ext[j].xyz;
-    let d = pen(p, h, pj, hj);
-    if (d.x <= 0.0 || d.y <= 0.0 || d.z <= 0.0) { continue; }
+    let c = contato(p, h, forma, pj, hj, vel[j].w);
+    if (c.w <= 0.0) { continue; }
+    let nr = c.xyz;
     let imj = ext[j].w;
     let share = im / max(im + imj, 0.0001);
     let vj = vel[j].xyz;
-    // eixo de MENOR penetração (a lição: o eixo errado explode a pilha)
-    if (d.y <= d.x && d.y <= d.z) {
-      let s = select(-1.0, 1.0, p.y >= pj.y);
-      let vn = (v.y - vj.y) * s;
+    // Velocidade relativa projetada na normal. Negativa = nos aproximando.
+    let vn = dot(v - vj, nr);
+    // As regras da coluna valiam para o EIXO Y; agora valem para a normal
+    // vertical, que é o mesmo teste que a CPU faz (resting, |ny| > 0.5). Para
+    // um contato caixa-caixa alinhado a normal É um eixo, então nada muda ali.
+    if (nr.y > 0.5 || nr.y < -0.5) {
       if (vn < -1.0) {
         // impacto de verdade: impulso normal (e=0 — pedra não quica)
-        v.y = v.y - s * vn * share;
+        v = v - nr * vn * share;
         slp = 0.0;
-      } else if (vn < 0.5 && s > 0.5) {
+      } else if (vn < 0.5 && nr.y > 0.5) {
         // HERANÇA DE APOIO: estou EM CIMA, descendo devagar — herdo o vy do
         // suporte (sem impulso: impulso aqui é o ciclo-limite de coluna)
         v.y = vj.y;
@@ -281,18 +359,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         v.x = v.x + (vj.x - v.x) * 0.10;
         v.z = v.z + (vj.z - v.z) * 0.10;
       }
-      p.y = p.y + s * max(d.y - 0.04, 0.0) * 0.30 * share;
-    } else if (d.x <= d.z) {
-      let s = select(-1.0, 1.0, p.x >= pj.x);
-      let vn = (v.x - vj.x) * s;
-      if (vn < 0.0) { v.x = v.x - s * vn * share; if (vn < -1.0) { slp = 0.0; } }
-      p.x = p.x + s * max(d.x - 0.04, 0.0) * 0.30 * share;
-    } else {
-      let s = select(-1.0, 1.0, p.z >= pj.z);
-      let vn = (v.z - vj.z) * s;
-      if (vn < 0.0) { v.z = v.z - s * vn * share; if (vn < -1.0) { slp = 0.0; } }
-      p.z = p.z + s * max(d.z - 0.04, 0.0) * 0.30 * share;
+    } else if (vn < 0.0) {
+      v = v - nr * vn * share;
+      if (vn < -1.0) { slp = 0.0; }
     }
+    p = p + nr * max(c.w - 0.04, 0.0) * 0.30 * share;
   }}}}
   // teto de correção posicional POR PASSO (anti-explosão de monte profundo)
   let dcorr = p - pAntes;
@@ -317,7 +388,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   if (dot(v, v) < ${RB_SLEEP_SPEED2}) { slp = slp + 1.0; } else { slp = 0.0; }
 
   pos[id.x] = vec4<f32>(p, slp);
-  vel[id.x] = vec4<f32>(v, 0.0);
+  vel[id.x] = vec4<f32>(v, forma);   // a forma sobrevive ao passo
 }
 `;
   rbPipe = gpu.shader(src);
@@ -357,7 +428,12 @@ export function rbSetBody(i: number, x: f64, y: f64, z: f64,
   buffer.write_f32(rbVelBuf, (i * 4) * 4, 0.0);
   buffer.write_f32(rbVelBuf, (i * 4 + 1) * 4, 0.0);
   buffer.write_f32(rbVelBuf, (i * 4 + 2) * 4, 0.0);
-  buffer.write_f32(rbVelBuf, (i * 4 + 3) * 4, 0.0);
+  // CAIXA por default. Não é preferência: era o que TODO corpo era antes desta
+  // mudança, então quem já chamava `rbSetBody` continua vendo exatamente a
+  // física de ontem — inclusive `tools/test_gpurigid.ts`, que é a rede da
+  // campanha do castelo e não pode mudar de significado junto com o kernel.
+  // Quem tem uma esfera chama `rbSetShape` depois.
+  buffer.write_f32(rbVelBuf, (i * 4 + 3) * 4, 1.0);
   buffer.write_f32(rbExtBuf, (i * 4) * 4, hx);
   buffer.write_f32(rbExtBuf, (i * 4 + 1) * 4, hy);
   buffer.write_f32(rbExtBuf, (i * 4 + 2) * 4, hz);
@@ -383,6 +459,20 @@ function rbWriteWorld(): void {
   buffer.write_f32(rbWorldBuf, 4, rbStatics * 1.0);
   buffer.write_f32(rbWorldBuf, 8, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
   gpu.write(rbGWorld, rbWorldBuf, (1 + rbStatics * 2) * 16);
+}
+
+/// A FORMA do colisor: `COL_SPHERE` (0) ou `COL_BOX` (1) de `gameobject.ts`.
+///
+/// Separada de `rbSetBody` em vez de ser um nono parâmetro dele porque este
+/// projeto não usa parâmetro com default em lugar nenhum — a varredura não achou
+/// um só — e um argumento novo no fim de uma função com oito calaria em todos os
+/// chamadores existentes como `undefined`, que aqui vira `NaN` e depois uma
+/// forma que não é nem esfera nem caixa. `rbSetVel` já é um escritor pequeno
+/// pelo mesmo motivo.
+///
+/// Chame DEPOIS de `rbSetBody`, que reescreve o campo com o default.
+export function rbSetShape(i: number, shape: number): void {
+  buffer.write_f32(rbVelBuf, (i * 4 + 3) * 4, shape === 0 ? 0.0 : 1.0);
 }
 
 /// Escreve velocidade (disparos/handoff) e ACORDA o corpo.

@@ -44,7 +44,7 @@ import io from "../../compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { rbInit, rbSetBody, rbUpload, rbSyncStatics, rbService, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
+import { rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics, rbService, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
 
 // ── calibração ─────────────────────────────────────────────────────────────
 
@@ -213,8 +213,28 @@ export function rigidBand(): number[] {
 
 // ── o portão: modo escolhido, e o que de fato está rodando ─────────────────
 
-/// 0 = CPU (padrão), 1 = GPU pedida.
-let pbModo = 0;
+/// 0 = CPU, 1 = GPU (PADRÃO), 2 = automático por custo.
+///
+/// # Por que a GPU é o padrão, e o que isso custa
+///
+/// Medido em release, corpos EM MOVIMENTO (o caso em que a física custa):
+///
+///     n      CPU        GPU      ganho
+///     500    3,50 ms    0,45 ms   7,8x
+///     2000  21,40 ms    0,75 ms  28,5x
+///     4000  57,40 ms    1,90 ms  30,2x
+///
+/// A GPU vence mesmo com o algoritmo PIOR — o kernel é gather força-bruta,
+/// O(n²), e a CPU tem grid espacial, O(n). Ela compensa com milhares de núcleos.
+///
+/// O QUE MUDA DE COMPORTAMENTO, e é o preço declarado: `pbSync` manda todo corpo
+/// dinâmico como AABB, ignorando `colShape`. Uma ESFERA colide como CAIXA na
+/// GPU. Para a maioria das cenas isso é imperceptível; para uma pilha de esferas
+/// não é, e aí `fisica cpu` na porta de controle devolve o comportamento antigo.
+///
+/// O que NÃO muda: sem GPU disponível, `rigidStep` cai para a CPU sozinho — o
+/// fallback não é opcional e nunca foi.
+let pbModo = 1;
 /// 1 = a GPU foi pedida e FALHOU em ligar; não se tenta de novo neste processo.
 let pbGpuMorta = 0;
 /// Último motivo de queda, para o `dbg` dizer POR QUE está na CPU.
@@ -297,6 +317,9 @@ function pbSync(sc: Scene): number {
     // massas iguais. Dar massa por volume aqui faria a GPU simular uma física
     // diferente da CPU, e a troca de backend mudaria o resultado.
     rbSetBody(k, t.wx, t.wy, t.wz, t.sx * 0.5, t.sy * 0.5, t.sz * 0.5, 1.0);
+    // A FORMA REAL. Antes todo corpo ia como caixa e uma esfera colidia como
+    // cubo na GPU — divergência que só era teórica enquanto a CPU era o padrão.
+    rbSetShape(k, objs[pbMap[k]].colShape);
     k = k + 1;
   }
   rbUpload();
