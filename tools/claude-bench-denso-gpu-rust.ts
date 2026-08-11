@@ -20,6 +20,31 @@
 // 2. AUDITA A ENTRADA. Imprime candidatos e contatos por corpo, porque "densa"
 //    é um espaçamento e não uma contagem de pares — e uma cena rotulada densa
 //    que não é densa mediria o piso outra vez, com outro nome.
+// ── A TABELA DE REFERÊNCIA, medida em 2026-08-11 ──────────────────────────
+//
+// Registrada aqui e não só num relatório porque um número medido que não fica
+// escrito volta a ser adivinhado. Carga de fundo real 10,6% e 13,4% (soma por
+// processo, 16 núcleos), duas rodadas concordantes, release.
+//
+//   n      GPU sync/passo   RUST/passo   vantagem
+//   250       0,708           0,092        7,7x
+//   1000      1,192           0,192        6,2x
+//   2000      1,750           0,375        4,7x
+//   4000      3,000           0,717        4,2x
+//   8000      6,425           1,350        4,8x
+//   16000    12,450           4,925        2,5x
+//   32000    23,300          12,625        1,8x
+//
+// DO QUE ISTO É REFERÊNCIA, e é a parte que impede o número de mentir depois:
+// UMA máquina, UMA placa, esta cena densa cúbica, ms por PASSO SIMULADO. Não é
+// a razão CPU x GPU do projeto nem uma propriedade dos backends — é o que estes
+// dois backends fizeram nesta caixa neste dia. Outra placa move a coluna da GPU;
+// outro número de núcleos move a do Rust.
+//
+// E não há cruzamento até 32000, que é onde a cena para de ser a mesma cena
+// (ver `crates/rts-physics/examples/audit_denso.rs`). A vantagem DESABA de 7,7x
+// para 1,8x, e para onde ela vai depois disto esta tabela não diz.
+
 import io from "../compat/io.ts";
 import math from "../compat/math.ts";
 import { scene } from "../editor/control/session";
