@@ -161,8 +161,8 @@ fn pen(a: vec3<f32>, ha: vec3<f32>, b: vec3<f32>, hb: vec3<f32>) -> vec3<f32> {
   return (ha + hb) - abs(a - b);
 }
 
-// O grid vive na cauda do `world`, gravado como i32 por outro pipeline — daí o
-// bitcast e a indexação de componente: `world` aqui é um array de vec4<f32>.
+// O grid vive na cauda do world, gravado como i32 por outro pipeline — daí o
+// bitcast e a indexação de componente: world aqui é um array de vec4<f32>.
 fn gridAt(k: u32) -> i32 {
   return bitcast<i32>(world[k / 4u][k % 4u]);
 }
@@ -181,16 +181,29 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let im = ext[id.x].w;
 
   // ── DORMINDO: só escaneia por um vizinho RÁPIDO encostando (senão sai) ───
+  // A varredura de acordar também passou pelo grid. Ela era O(n) POR CORPO
+  // DORMINDO, ou seja, a cena em repouso — o caso que o sleeping existe para
+  // baratear — era justamente a que pagava n² inteiro todo passo.
+  let bx0 = i32(floor(p.x / cs));
+  let by0 = i32(floor(p.y / cs));
+  let bz0 = i32(floor(p.z / cs));
   if (slp >= ${RB_SLEEP_FRAMES}) {
     var acordar = false;
-    for (var j: u32 = 0u; j < n; j = j + 1u) {
-      if (j == id.x) { continue; }
-      let vj = vel[j].xyz;
-      if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
-        let d = pen(p, h, pos[j].xyz, ext[j].xyz);
-        if (d.x > 0.0 && d.y > 0.0 && d.z > 0.0) { acordar = true; break; }
+    for (var cz: i32 = -1; cz <= 1; cz = cz + 1) {
+    for (var cy: i32 = -1; cy <= 1; cy = cy + 1) {
+    for (var cx: i32 = -1; cx <= 1; cx = cx + 1) {
+      let cell = cellHash(bx0 + cx, by0 + cy, bz0 + cz);
+      let cnt = u32(clamp(gridAt(${RB_GRID_I32_N}u + cell), 0, ${RB_SLOT_N}));
+      for (var s: u32 = 0u; s < cnt; s = s + 1u) {
+        let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + s));
+        if (j == id.x) { continue; }
+        let vj = vel[j].xyz;
+        if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
+          let d = pen(p, h, pos[j].xyz, ext[j].xyz);
+          if (d.x > 0.0 && d.y > 0.0 && d.z > 0.0) { acordar = true; }
+        }
       }
-    }
+    }}}
     if (!acordar) { return; }
     slp = 0.0;
   }
@@ -231,7 +244,19 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   // profunda explodia (o castelo "sumiu" no colapso total). 0.30 por par +
   // teto de deslocamento total por passo mantêm o monte coeso.
   let pAntes = p;
-  for (var j: u32 = 0u; j < n; j = j + 1u) {
+  // Célula RECALCULADA: p já andou (integração + estáticos) desde a varredura
+  // de acordar, e indexar pela posição velha deixaria escapar o par que o
+  // próprio passo criou.
+  let gx0 = i32(floor(p.x / cs));
+  let gy0 = i32(floor(p.y / cs));
+  let gz0 = i32(floor(p.z / cs));
+  for (var cz: i32 = -1; cz <= 1; cz = cz + 1) {
+  for (var cy: i32 = -1; cy <= 1; cy = cy + 1) {
+  for (var cx: i32 = -1; cx <= 1; cx = cx + 1) {
+    let cell = cellHash(gx0 + cx, gy0 + cy, gz0 + cz);
+    let cnt = u32(clamp(gridAt(${RB_GRID_I32_N}u + cell), 0, ${RB_SLOT_N}));
+    for (var sl: u32 = 0u; sl < cnt; sl = sl + 1u) {
+    let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + sl));
     if (j == id.x) { continue; }
     let pj = pos[j].xyz;
     let hj = ext[j].xyz;
@@ -268,7 +293,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
       if (vn < 0.0) { v.z = v.z - s * vn * share; if (vn < -1.0) { slp = 0.0; } }
       p.z = p.z + s * max(d.z - 0.04, 0.0) * 0.30 * share;
     }
-  }
+  }}}}
   // teto de correção posicional POR PASSO (anti-explosão de monte profundo)
   let dcorr = p - pAntes;
   let dlen = length(dcorr);
@@ -297,10 +322,17 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 `;
   rbPipe = gpu.shader(src);
   if (rbPipe === 0) return 0;
+  rbPipeGrid = gpu.shader(gridSrc);
+  if (rbPipeGrid === 0) return 0;
+  rbPipeClear = gpu.shader(clearSrc);
+  if (rbPipeClear === 0) return 0;
+  rbMaxHalf = 0.0;
   rbGPos = gpu.buffer(n * 16);
   rbGVel = gpu.buffer(n * 16);
   rbGExt = gpu.buffer(n * 16);
-  rbGWorld = gpu.buffer((1 + RB_MAX_STATICS * 2) * 16);
+  // O `world` cresceu para caber o grid na cauda; o espelho do host NÃO — a CPU
+  // só escreve params + estáticos, e o grid é escrito e lido só pela GPU.
+  rbGWorld = gpu.buffer(RB_WORLD_BYTES);
   rbPosBuf = buffer.alloc(n * 16);
   rbVelBuf = buffer.alloc(n * 16);
   rbExtBuf = buffer.alloc(n * 16);
@@ -309,6 +341,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   gpu.bind_buffer(rbPipe, 1, rbGVel);
   gpu.bind_buffer(rbPipe, 2, rbGExt);
   gpu.bind_buffer(rbPipe, 3, rbGWorld);
+  gpu.bind_buffer(rbPipeGrid, 0, rbGPos);
+  gpu.bind_buffer(rbPipeGrid, 1, rbGWorld);
+  gpu.bind_buffer(rbPipeClear, 0, rbGWorld);
   return 1;
 }
 
@@ -327,6 +362,27 @@ export function rbSetBody(i: number, x: f64, y: f64, z: f64,
   buffer.write_f32(rbExtBuf, (i * 4 + 1) * 4, hy);
   buffer.write_f32(rbExtBuf, (i * 4 + 2) * 4, hz);
   buffer.write_f32(rbExtBuf, (i * 4 + 3) * 4, mass > 0.0 ? 1.0 / mass : 1.0);
+  // A célula é dimensionada pelo MAIOR corpo (ver rbWriteWorld); acompanhar
+  // aqui é o único lugar que vê todas as extensões sem varrer nada de novo.
+  if (hx > rbMaxHalf) rbMaxHalf = hx;
+  if (hy > rbMaxHalf) rbMaxHalf = hy;
+  if (hz > rbMaxHalf) rbMaxHalf = hz;
+}
+
+/// Escreve params + estáticos do espelho para a GPU.
+///
+/// O TAMANHO DA CÉLULA sai daqui, e é a única decisão de verdade do grid: dois
+/// corpos só se tocam se os centros distarem menos que `hi + hj` em cada eixo,
+/// então uma célula de lado >= 2*maiorMeiaExtensão garante que todo par que
+/// colide cai em células vizinhas — e a varredura de 27 é exata, não uma
+/// aproximação. Menor que isso perderia contato e mudaria a física; maior só
+/// desperdiça candidatos.
+function rbWriteWorld(): void {
+  if (rbPipe === 0) return;
+  buffer.write_f32(rbWorldBuf, 0, RB_DT);
+  buffer.write_f32(rbWorldBuf, 4, rbStatics * 1.0);
+  buffer.write_f32(rbWorldBuf, 8, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
+  gpu.write(rbGWorld, rbWorldBuf, (1 + rbStatics * 2) * 16);
 }
 
 /// Escreve velocidade (disparos/handoff) e ACORDA o corpo.
@@ -352,6 +408,11 @@ export function rbUpload(): void {
   gpu.write(rbGPos, rbPosBuf, rbN * 16);
   gpu.write(rbGVel, rbVelBuf, rbN * 16);
   gpu.write(rbGExt, rbExtBuf, rbN * 16);
+  // Também os params: o tamanho da célula só é conhecido depois dos rbSetBody,
+  // e há duas ordens de chamada em uso (o teste sincroniza estáticos ANTES de
+  // criar os corpos, o bench DEPOIS). Escrever nos dois pontos é o que faz o
+  // grid nascer dimensionado em qualquer uma das duas.
+  rbWriteWorld();
 }
 
 /// Envia os ESTÁTICOS da cena (colShape BOX + stationary) para o kernel.
@@ -380,9 +441,7 @@ export function rbSyncStatics(sc: Scene): void {
     i = i + 1;
   }
   rbStatics = m;
-  buffer.write_f32(rbWorldBuf, 0, RB_DT);
-  buffer.write_f32(rbWorldBuf, 4, m * 1.0);
-  gpu.write(rbGWorld, rbWorldBuf, (1 + m * 2) * 16);
+  rbWriteWorld();
 }
 
 let rbTicket: i64 = 0;
@@ -425,6 +484,12 @@ export function rbKick(substeps: number): void {
   if (rbPipe === 0) return;
   let s = 0;
   while (s < substeps) {
+    // Três dispatches por sub-passo, e a ordem é obrigatória: o grid descreve as
+    // posições DESTE sub-passo, então reconstruí-lo depois de colidir daria uma
+    // vizinhança de um passo atrás. É a mesma sequência do fluido
+    // (`gpufluid.ts:524`), com o zero feito por kernel em vez de upload.
+    gpu.dispatch(rbPipeClear, RB_CLEAR_GROUPS, 1, 1);
+    gpu.dispatch(rbPipeGrid, rbGroups, 1, 1);
     gpu.dispatch(rbPipe, rbGroups, 1, 1);
     s = s + 1;
   }

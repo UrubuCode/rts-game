@@ -413,6 +413,10 @@ function frame(): void {
     // era 100 ms, e um corpo em queda percorre meio metro nisso) e capaz de
     // criar energia do nada num frame travado. Ver engine/core/fixedstep.ts.
     const passos = stepsFor(dts);
+    // O instantâneo é do estado NO INÍCIO do frame — e ele não custa um
+    // `computeWorld`, porque o mundo já foi derivado no fim do frame anterior.
+    // O render interpola entre esta foto e o estado final.
+    if (passos > 0) snapshotWorld(scene);
     for (let p = 0; p < passos; p++) {
       scene.update(FIXED_DT);
       // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
@@ -427,13 +431,15 @@ function frame(): void {
       // Medido (release, headless, 500 corpos): 12,05 ms na CPU contra 0,35 ms
       // na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
       if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
-      // O instantâneo é tirado a cada PASSO, depois de a física andar e o mundo
-      // ser derivado: é o estado "anterior" do próximo desenho. Dentro do laço
-      // porque com 2 passos num frame o anterior certo é o penúltimo, não o de
-      // dois passos atrás.
-      scene.computeWorld();
-      snapshotWorld(scene);
     }
+    // O mundo final, UMA vez, depois de todos os passos.
+    //
+    // A primeira versão derivava o mundo e fotografava DENTRO do laço, uma vez
+    // por passo. `computeWorld` custa 1,55 ms com 500 objetos, então com 2-3
+    // passos num frame eram 3-5 ms de trabalho repetido — o editor caiu de 60
+    // para 40-50 fps, e a causa fui eu. Um `computeWorld` por frame é o que
+    // havia antes do passo fixo, e é o que há de novo.
+    if (passos > 0) scene.computeWorld();
   }
   scene.computeWorld();
 

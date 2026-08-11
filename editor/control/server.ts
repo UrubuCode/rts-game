@@ -38,7 +38,15 @@ export function ctrlServe(port: number): void {
   const wss = new WebSocketServer({ port: port });
   // Os campos da Session viram CONTADORES: nada mais no editor os lê, e um
   // handle não cabe mais neles (o `ws` agora é objeto, não número).
-  S.wsServer = 1;
+  //
+  // ZERO até o `'listening'` CHEGAR, e isto não é preciosismo. O `bind` acontece
+  // numa thread de accept, então `new WebSocketServer` retorna antes de saber se
+  // a porta abriu. Marcar 1 aqui fazia o editor se dizer servindo por cerca de
+  // dez segundos numa porta que nunca abriu — medido: com a 7777 ocupada, o
+  // `S.wsServer` só caiu para 0 depois de 600 polls, e nesse meio-tempo toda
+  // tentativa de diagnóstico apontava para o lugar errado.
+  //   0 = ainda não sei (o bind está em voo)   1 = escutando   -1 = falhou
+  S.wsServer = 0;
 
   // OBRIGATÓRIO, e a falta disto DERRUBAVA O EDITOR: um `EventEmitter` que emite
   // `'error'` sem ninguém escutando LANÇA — é o que o Node faz e o que este motor
@@ -50,10 +58,16 @@ export function ctrlServe(port: number): void {
   // A porta de controle é um EXTRA: sem ela o editor abre e funciona, só não
   // aceita comandos. Então o erro é avisado e engolido, e essa é a diferença
   // entre um recurso opcional e um requisito.
+  // A confirmação de que a porta É NOSSA. Só a partir daqui o `ctrlPoll` bombeia.
+  wss.on("listening", () => {
+    S.wsServer = 1;
+    println("[controle] ws://127.0.0.1:" + port + " pronto");
+  });
+
   wss.on("error", (erro: any) => {
     println("[controle] porta " + port + " indisponivel (" + erro.message +
             ") — o editor segue sem controle remoto");
-    S.wsServer = 0;
+    S.wsServer = 0 - 1;
   });
 
   wss.on("connection", (ws: any) => {
@@ -87,7 +101,12 @@ export function ctrlServe(port: number): void {
 export function ctrlPoll(w: number, h: number): void {
   curW = w;
   curH = h;
-  if (S.wsServer === 0) return;
+  // -1 é a ÚNICA saída cedo. Com 0 (bind em voo) é obrigatório bombear: quem
+  // entrega o `'listening'` é justamente o `pumpEvents` abaixo, e sair aqui
+  // faria o estado nunca sair de 0 — o servidor abriria a porta e o editor
+  // nunca ficaria sabendo. Foi o impasse que a correção do estado otimista
+  // criou, e é o motivo de haver TRÊS estados em vez de dois.
+  if (S.wsServer < 0) return;
   // O booleano devolvido ("alguém ainda tem trabalho") é para um laço que
   // decide dormir; aqui quem dita o ritmo é o frame, então é ignorado.
   pumpEvents();
