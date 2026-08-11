@@ -1,21 +1,43 @@
-// O TETO DA CENA que não é desempenho: quantos GameObjects cabem.
+// O TETO DA CENA que não é desempenho: 65536 CÉLULAS.
 //
-//   rts.exe run tools/claude-probe-teto-cena.ts
+//   RTS_TETO_N=13000 rts.exe run tools/claude-probe-teto-cena.ts
 //
-// Achado ao medir orçamento: em n = 16000 o programa não fica lento, ele MORRE —
+// Achado ao medir orçamento: em n grande o programa não fica lento, ele MORRE —
 // "heap exhausted: the region holds 65536 cells". Isso é um limite do motor e
 // não da física, e vale mais que qualquer número de ms: uma discussão sobre qual
-// backend ganha em 32000 corpos é vazia se a cena não pode ser CONSTRUÍDA com
-// 32000 objetos.
+// backend ganha em 32000 corpos é vazia se a cena não pode ser CONSTRUÍDA.
 //
-// A sonda não cronometra nada. Ela cresce a cena até morrer, imprimindo antes de
-// cada tentativa — o último n impresso é o último que coube, e a morte é o
-// resultado e não uma falha do teste.
+// ── O NÚMERO É EM CÉLULAS, E DIZÊ-LO EM OBJETOS É UM ERRO ───────────────────
 //
-// Note a diferença que isto expõe entre as duas bancadas: a de GPU x Rust chega
-// a 32000 porque só aloca `Float32Array` — nenhum `GameObject`, nenhum
-// `Transform`, nenhum `Rigidbody`. É a MESMA física sobre os mesmos corpos, com
-// e sem a representação de cena em volta. O teto é da representação.
+// Esta sonda mediu "morre em 13000" e a primeira redação disse "o teto é ~12500
+// objetos". ERRADO como constante: um `GameObject` mínimo (`new` + `setMesh` +
+// `add` + `computeWorld`) passa de 13000 folgado. Os objetos DESTA sonda
+// carregam transform, rigidbody, malha e nome — cerca de 5 células cada — e é
+// isso que os põe no teto tão cedo.
+//
+// Então o teto é **65536 células**, e quantos objetos cabem depende de quantas
+// células cada um gasta: um objeto gordo cabe menos, um magro cabe mais. Dito em
+// objetos, o número viaja para uma cena de outra composição e mente lá — que é o
+// mesmo erro de denominador que esta campanha cometeu quatro vezes, agora pelo
+// divisor "células por objeto".
+//
+// O que esta sonda responde, então, não é "o teto do motor" — é "quantos objetos
+// DESTA composição cabem no teto do motor". As duas coisas são diferentes e só a
+// primeira é constante.
+//
+// ── UM PROCESSO POR n ──────────────────────────────────────────────────────
+//
+// A primeira versão varreu a lista dentro de um processo só e mediu 13000 — e
+// aquilo era o teto de 50 000 objetos ACUMULADOS, porque as cenas anteriores
+// continuavam alcançáveis. O motor já dizia: "all of them are in use even after
+// a collection". `RTS_TETO_N` diz qual n testar e quem varre é o shell, que é a
+// disciplina do `suite_run` deste projeto, pela mesma razão: um processo que
+// morre leva o resto da medida com ele.
+//
+// Note o que isto separa: a bancada GPU x Rust chega a 32000 porque só aloca
+// `Float32Array` — nenhum GameObject, nenhum Transform, nenhum Rigidbody. É a
+// MESMA física sobre os mesmos corpos, com e sem a representação de cena em
+// volta. O teto é da representação.
 import io from "../compat/io.ts";
 import proc from "node:process";
 import { Scene } from "../engine/core/scene";
