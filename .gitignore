@@ -12,3 +12,8 @@ build/
 /*.obj
 
 assets/scene.json
+
+# Binário release construído de uma árvore de trabalho do motor, 72 MB. Artefato
+# local: o `rts.exe` versionado não tem as superfícies que uma árvore em
+# desenvolvimento acrescenta, e trocar um pelo outro esconde qual binário mediu.
+rts-new.exe

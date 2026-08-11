@@ -52,6 +52,7 @@ import buffer from "../../compat/buffer.ts";
 
 import { Scene } from "../core/scene";
 import { GameObject, COL_BOX } from "../core/gameobject";
+import { shapeOf, halfXOf, halfYOf, halfZOf } from "../core/collider";
 import { Transform } from "../core/transform";
 
 export const RB_MAX_STATICS = 256;
@@ -505,7 +506,17 @@ export function rbUpload(): void {
   rbWriteWorld();
 }
 
-/// Envia os ESTÁTICOS da cena (colShape BOX + stationary) para o kernel.
+/// Envia os ESTÁTICOS da cena (forma de CAIXA + stationary) para o kernel.
+///
+/// A forma vem de `collider.ts`, como nos dinâmicos. Ela NÃO vinha: esta função
+/// lia `o.colShape` e `t.sx * 0.5` direto enquanto o `pbSync` já perguntava ao
+/// component, e a fiação que consertou os dinâmicos passou por aqui sem ver.
+///
+/// Não aparecia em teste nenhum e a razão é exata: para um estático SEM
+/// `Collider` os dois caminhos dão o mesmo número, porque o default `hx = 0,5`
+/// foi escolhido para reproduzir o `t.sx * 0.5` legado. O primeiro chão com um
+/// component é que teria colidido com o tamanho errado — um bug que espera por
+/// um dado, que é a espécie que chega em produção.
 export function rbSyncStatics(sc: Scene): void {
   if (rbPipe === 0) return;
   const objs: GameObject[] = sc.objects;
@@ -515,16 +526,16 @@ export function rbSyncStatics(sc: Scene): void {
   let i = 0;
   while (i < n && m < RB_MAX_STATICS) {
     const o: GameObject = objs[i];
-    if (o.colShape === COL_BOX && o.active !== 0 && o.stationary !== 0) {
+    if (shapeOf(o) === COL_BOX && o.active !== 0 && o.stationary !== 0) {
       const t: Transform = trs[i];
       const base = 4 + m * 8;
       buffer.write_f32(rbWorldBuf, (base) * 4, t.wx);
       buffer.write_f32(rbWorldBuf, (base + 1) * 4, t.wy);
       buffer.write_f32(rbWorldBuf, (base + 2) * 4, t.wz);
       buffer.write_f32(rbWorldBuf, (base + 3) * 4, 0.0);
-      buffer.write_f32(rbWorldBuf, (base + 4) * 4, t.sx * 0.5);
-      buffer.write_f32(rbWorldBuf, (base + 5) * 4, t.sy * 0.5);
-      buffer.write_f32(rbWorldBuf, (base + 6) * 4, t.sz * 0.5);
+      buffer.write_f32(rbWorldBuf, (base + 4) * 4, halfXOf(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 5) * 4, halfYOf(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 6) * 4, halfZOf(o, t));
       buffer.write_f32(rbWorldBuf, (base + 7) * 4, 0.0);
       m = m + 1;
     }
