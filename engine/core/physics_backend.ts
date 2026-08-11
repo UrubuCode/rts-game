@@ -44,6 +44,7 @@ import io from "../../compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
+import { shapeOf, halfXOf, halfYOf, halfZOf } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics, rbService, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
 
 // ── calibração ─────────────────────────────────────────────────────────────
@@ -227,10 +228,11 @@ export function rigidBand(): number[] {
 /// A GPU vence mesmo com o algoritmo PIOR — o kernel é gather força-bruta,
 /// O(n²), e a CPU tem grid espacial, O(n). Ela compensa com milhares de núcleos.
 ///
-/// O QUE MUDA DE COMPORTAMENTO, e é o preço declarado: `pbSync` manda todo corpo
-/// dinâmico como AABB, ignorando `colShape`. Uma ESFERA colide como CAIXA na
-/// GPU. Para a maioria das cenas isso é imperceptível; para uma pilha de esferas
-/// não é, e aí `fisica cpu` na porta de controle devolve o comportamento antigo.
+/// O QUE MUDAVA DE COMPORTAMENTO — e não muda mais. `pbSync` mandava todo corpo
+/// dinâmico como AABB e uma ESFERA colidia como CAIXA na GPU; a ressalva dizia
+/// "use `fisica cpu` para uma pilha de esferas". Desde 2026-08-11 os dois lados
+/// leem a forma de `collider.ts`, e `claude-test-paridade-formas` mede o que
+/// sobra: pior altura de repouso 0,074 sobre 13 contatos apoiados.
 ///
 /// O que NÃO muda: sem GPU disponível, `rigidStep` cai para a CPU sozinho — o
 /// fallback não é opcional e nunca foi.
@@ -316,10 +318,16 @@ function pbSync(sc: Scene): number {
     // solver da CPU divide a correção de cada par ao meio, o que é exatamente
     // massas iguais. Dar massa por volume aqui faria a GPU simular uma física
     // diferente da CPU, e a troca de backend mudaria o resultado.
-    rbSetBody(k, t.wx, t.wy, t.wz, t.sx * 0.5, t.sy * 0.5, t.sz * 0.5, 1.0);
+    // A meia-extensão vem de `collider.ts`, que é a MESMA fonte que o solver da
+    // CPU lê. Era `t.sx * 0.5` aqui e no `scene.ts`, oito cópias de uma regra —
+    // e duas cópias de uma regra é como dois backends divergem sem que ninguém
+    // toque na física.
+    const ob: GameObject = objs[pbMap[k]];
+    rbSetBody(k, t.wx, t.wy, t.wz,
+              halfXOf(ob, t), halfYOf(ob, t), halfZOf(ob, t), 1.0);
     // A FORMA REAL. Antes todo corpo ia como caixa e uma esfera colidia como
     // cubo na GPU — divergência que só era teórica enquanto a CPU era o padrão.
-    rbSetShape(k, objs[pbMap[k]].colShape);
+    rbSetShape(k, shapeOf(ob));
     k = k + 1;
   }
   rbUpload();

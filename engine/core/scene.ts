@@ -4,6 +4,7 @@
 import { GameObject, COL_BOX } from "./gameobject";
 import { Transform } from "./transform";
 import { Behavior, KIND_CAMERA } from "./behavior";
+import { shapeOf, halfLocalX, halfLocalY, halfLocalZ } from "./collider";
 import math from "../../compat/math.ts";
 
 export class Scene {
@@ -569,6 +570,19 @@ function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], 
 /// o que o resto do motor espera do passe posicional.
 /// Livre e tipada (ver `resolveInto`): é chamada uma vez por par candidato,
 /// então o caminho dinâmico de propriedade aqui custaria mais que todo o resto.
+/// O raio da esfera que cabe DENTRO da forma — a menor das três meias-extensões.
+///
+/// A mesma regra do `radiusOfCol` de `collider.ts` e do `raio()` do kernel, aqui
+/// sobre três `f64` já escalados em vez de sobre o objeto. Um terceiro
+/// significado de "raio" é o que faria os dois backends discordarem, então o que
+/// muda é de ONDE vêm os números, nunca a conta.
+function minOf3(x: f64, y: f64, z: f64): f64 {
+  let m: f64 = x;
+  if (y < m) m = y;
+  if (z < m) m = z;
+  return m;
+}
+
 function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number): void {
   const a: GameObject = objs[ia];
   const b: GameObject = objs[ib];
@@ -582,23 +596,29 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   let nx: f64 = 0.0; let ny: f64 = 0.0; let nz: f64 = 0.0;
   let overlap: f64 = 0.0;
 
-  const boxA = a.colShape === COL_BOX ? 1 : 0;
-  const boxB = b.colShape === COL_BOX ? 1 : 0;
+  // A forma vem do component `Collider` quando há um, e dos campos legados
+  // quando não há. As oito leituras deste arquivo e de `physics_backend`
+  // passam por `collider.ts` para que a forma tenha UM significado nos dois
+  // backends — ver o cabeçalho de leitura lá.
+  // Da TABELA, não do component: `collectColliders` resolveu isto uma vez por
+  // varredura. Ler o component aqui é O(pares) e custou +43% a 2000 corpos.
+  const boxA = csShape[ia] === COL_BOX ? 1 : 0;
+  const boxB = csShape[ib] === COL_BOX ? 1 : 0;
 
   if (boxA !== 0 && boxB !== 0) {
     // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
     // Sobreposição por eixo; se algum for <= 0 não há contato. A normal é o
     // eixo de MENOR penetração — é o que faz um cubo caindo num chão largo ser
     // empurrado para CIMA (menor penetração em Y) e não para o lado.
-    const ex = (ta.sx + tb.sx) * 0.5;
+    const ex = csHX[ia] * ta.sx + csHX[ib] * tb.sx;
     const dx = tb.px - ta.px;
     const ox = ex - (dx < 0.0 ? 0.0 - dx : dx);
     if (ox <= 0.0) return;
-    const ey = (ta.sy + tb.sy) * 0.5;
+    const ey = csHY[ia] * ta.sy + csHY[ib] * tb.sy;
     const dy = tb.py - ta.py;
     const oy = ey - (dy < 0.0 ? 0.0 - dy : dy);
     if (oy <= 0.0) return;
-    const ez = (ta.sz + tb.sz) * 0.5;
+    const ez = csHZ[ia] * ta.sz + csHZ[ib] * tb.sz;
     const dz = tb.pz - ta.pz;
     const oz = ez - (dz < 0.0 ? 0.0 - dz : dz);
     if (oz <= 0.0) return;
@@ -617,9 +637,17 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     // "de A para B" no fim.
     const bt: Transform = boxA !== 0 ? ta : tb;
     const st: Transform = boxA !== 0 ? tb : ta;
+    // O OBJETO tem de andar junto com o transform: a meia-extensão agora vem do
+    // component, e ler a do objeto errado é uma troca que nenhum teste de
+    // esfera-contra-esfera pegaria.
+    // Os ÍNDICES têm de trocar junto com os transforms: a meia-extensão vem da
+    // tabela por índice, e ler a do corpo errado é a troca que nenhum teste de
+    // esfera-contra-esfera pegaria.
+    const bi = boxA !== 0 ? ia : ib;
+    const si = boxA !== 0 ? ib : ia;
     const sgn: f64 = boxA !== 0 ? 1.0 : 0.0 - 1.0;
-    const r: f64 = radiusOf(st);
-    const hx = bt.sx * 0.5; const hy = bt.sy * 0.5; const hz = bt.sz * 0.5;
+    const r: f64 = minOf3(csHX[si] * st.sx, csHY[si] * st.sy, csHZ[si] * st.sz);
+    const hx = csHX[bi] * bt.sx; const hy = csHY[bi] * bt.sy; const hz = csHZ[bi] * bt.sz;
     let qx = st.px - bt.px; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
     let qy = st.py - bt.py; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
     let qz = st.pz - bt.pz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
@@ -643,8 +671,8 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     }
   } else {
     // ── ESFERA × ESFERA ───────────────────────────────────────────────────
-    const ra: f64 = radiusOf(ta);
-    const rb: f64 = radiusOf(tb);
+    const ra: f64 = minOf3(csHX[ia] * ta.sx, csHY[ia] * ta.sy, csHZ[ia] * ta.sz);
+    const rb: f64 = minOf3(csHX[ib] * tb.sx, csHY[ib] * tb.sy, csHZ[ib] * tb.sz);
     const rs: f64 = ra + rb;
     const dx: f64 = tb.px - ta.px;
     // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
@@ -772,23 +800,6 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   }
 }
 
-/// Raio da esfera de colisão de um transform: METADE DA MENOR escala.
-///
-/// A colisão é esfera-esfera, mas os objetos são caixas. Usar só `sx` fazia um
-/// chão de 60×0.4×60 virar uma esfera de RAIO 30 — ele engolia a cena inteira,
-/// empurrava tudo para cima e, de quebra, dimensionava a célula do grid em 60
-/// unidades (todos os objetos numa célula só, matando o broad-phase).
-///
-/// A menor escala é a aproximação conservadora: a esfera cabe DENTRO da caixa,
-/// então nunca há empurrão fantasma. Um objeto achatado colide como um disco
-/// fino — imperfeito para um chão, mas correto no sentido de não inventar
-/// contato onde não há. (Colisor de CAIXA é a evolução natural daqui.)
-function radiusOf(t: Transform): f64 {
-  let m: f64 = t.sx;
-  if (t.sy < m) m = t.sy;
-  if (t.sz < m) m = t.sz;
-  return m * 0.5;
-}
 
 // floor pra inteiro que funciona com negativos (o `|0` trunca em direção a zero,
 // o que faria as células -0.5 e +0.5 caírem na mesma faixa).
@@ -932,9 +943,34 @@ function updateAll(objs: GameObject[], dt: f64): void {
 // Saídas de `collectColliders` (evita alocar um array de retorno por frame).
 let ccMaxR: f64 = 0.0001;
 
+// ── a forma, resolvida UMA vez por varredura ───────────────────────────────
+//
+// Indexadas pelo índice do objeto, preenchidas por `collectColliders`. Existem
+// porque resolver a forma DENTRO de `solvePair` custou +43% a 2000 corpos
+// caindo (30,5 ms contra 21,3, três medições cada, máquina ociosa): o par é
+// pago O(pares) e a resolução é O(n), então ela não pertence ao par.
+//
+// LOCAIS e não de mundo, e essa é a parte que importa: a varredura só re-roda
+// quando a COMPOSIÇÃO da cena muda, então um valor já multiplicado pela escala
+// ficaria obsoleto ao redimensionar um objeto sem adicionar nada. A
+// meia-extensão local é campo do component e só muda quando alguém edita o
+// colisor; a escala entra no par, onde é lida do transform vivo.
+const csShape: number[] = [];
+const csHX: f64[] = [];
+const csHY: f64[] = [];
+const csHZ: f64[] = [];
+
 function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
                           outStatic: number[], outBig: number[]): void {
   const n = objs.length;
+  // As tabelas crescem DENSAS, com um `push` por índice, e nunca por atribuição
+  // num índice de array vazio: um array com buracos sai do caminho de elementos
+  // e cada leitura passa a custar uma consulta de propriedade. É um detalhe de
+  // representação, e é o tipo de coisa que só aparece medindo — a versão
+  // esparsa disto não recuperou nada dos +43% que existia para corrigir.
+  while (csShape.length < n) {
+    csShape.push(0); csHX.push(0.5); csHY.push(0.5); csHZ.push(0.5);
+  }
   let maxR: f64 = 0.0001;
   let i = 0;
   while (i < n) {
@@ -943,6 +979,10 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
     // campo: cada acesso a campo custa ~2 µs, e ler três por objeto sobre a
     // cena inteira, todo frame, era metade do custo da física.
     if (o.collideFlag !== 0) {
+      // Antes do desvio do estático: um estático COLIDE (só não se move), e
+      // pular a resolução dele aqui deixaria `solvePair` sem a forma do chão.
+      csShape[i] = shapeOf(o);
+      csHX[i] = halfLocalX(o); csHY[i] = halfLocalY(o); csHZ[i] = halfLocalZ(o);
       // ESTÁTICO sai do grid, para a lista direta (ver `sIdx`): um chão de 90
       // de largura dimensionava a célula em 180 e punha a cena inteira num
       // único bucket — colisão O(n²), fortaleza de 392 blocos a ~6 fps.
@@ -958,11 +998,14 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
       // maior meia-extensão em X/Z (o grid é 2D em XZ), não `radiusOf` — que
       // devolve a metade da MENOR escala e faria uma laje achatada reportar um
       // raio minúsculo, com célula pequena demais para achá-la na vizinhança.
-      let r: f64 = radiusOf(t);
-      if (o.colShape === COL_BOX) {
-        r = t.sx * 0.5;
-        const hz = t.sz * 0.5;
+      const hx = csHX[i] * t.sx; const hy = csHY[i] * t.sy; const hz = csHZ[i] * t.sz;
+      let r: f64 = hx;
+      if (csShape[i] === COL_BOX) {
         if (hz > r) r = hz;
+      } else {
+        // a esfera que cabe DENTRO: a menor das três
+        if (hy < r) r = hy;
+        if (hz < r) r = hz;
       }
       // GRANDE sai do grid (ver `bIdx`): ele dimensionaria a célula para todos
       if (r > BIG_R) {

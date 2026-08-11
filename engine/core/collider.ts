@@ -53,6 +53,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { Behavior, KIND_COLLIDER } from "./behavior";
+import { GameObject } from "./gameobject";
+import { Transform } from "./transform";
 
 /// As formas. Os dois primeiros valores são os mesmos de `GameObject.colShape`
 /// DE PROPÓSITO — `COL_SPHERE = 0` e `COL_BOX = 1` lá também — para que o
@@ -160,6 +162,98 @@ export class Collider extends Behavior {
     return { t: "Collider", shape: this.shape, cx: this.cx, cy: this.cy, cz: this.cz,
              hx: this.hx, hy: this.hy, hz: this.hz, hullId: this.hullId, trigger: this.trigger };
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A LEITURA — as cinco funções que os DOIS solvers chamam.
+//
+// Elas existem para que a forma tenha UM significado. Antes da fiação a CPU lia
+// `o.colShape` e `t.sx * 0.5` em seis lugares e a GPU lia os mesmos dois em
+// outros dois; oito cópias de uma regra é como os backends divergem sem que
+// ninguém mexa na física. Agora os oito chamam daqui.
+//
+// FUNÇÕES LIVRES TIPADAS, e não métodos: medido neste projeto, a mesma leitura
+// custa ~3× dentro de um corpo não-tipado, porque num caso o acesso a campo vira
+// offset constante e no outro cai no caminho dinâmico de propriedade. Estas
+// rodam por PAR de colisão no laço mais quente do motor.
+//
+// A CONVENÇÃO DE ESCALA, que é onde um erro passaria despercebido: a
+// meia-extensão do component é LOCAL e o solver multiplica pela escala do
+// transform. É o que a Unity faz, e a razão é que redimensionar um objeto na
+// cena tem de mexer no colisor junto. O default `hx = 0,5` foi escolhido para
+// que `0,5 × escala` reproduza EXATAMENTE o `t.sx * 0.5` legado — um objeto sem
+// component colide hoje como colidia ontem, e a fiação não pode mover a suíte.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// O `Collider` do objeto, ou `null`. `colIdx` é cacheado em `addComponent`.
+function colDe(o: GameObject): Collider | null {
+  const i = o.colIdx;
+  if (i < 0) return null;
+  return o.behaviors[i] as Collider;
+}
+
+/// Qual forma este objeto usa para colidir.
+export function shapeOf(o: GameObject): number {
+  const c = colDe(o);
+  return c !== null ? c.cShape() : o.colShape;
+}
+
+/// Meia-extensão em X, já na escala do mundo.
+export function halfXOf(o: GameObject, t: Transform): f64 {
+  const c = colDe(o);
+  return c !== null ? c.cHalfX() * t.sx : t.sx * 0.5;
+}
+export function halfYOf(o: GameObject, t: Transform): f64 {
+  const c = colDe(o);
+  return c !== null ? c.cHalfY() * t.sy : t.sy * 0.5;
+}
+export function halfZOf(o: GameObject, t: Transform): f64 {
+  const c = colDe(o);
+  return c !== null ? c.cHalfZ() * t.sz : t.sz * 0.5;
+}
+
+/// O raio da esfera que cabe DENTRO da forma.
+///
+/// A menor das três meias-extensões, que é a regra conservadora que o
+/// `radiusOf` da CPU e o `raio()` do kernel já usavam — a esfera cabe dentro da
+/// caixa, então nunca há empurrão fantasma. É reusada em vez de reescrita
+/// porque um segundo significado de "raio" neste projeto é como os dois
+/// backends passariam a discordar.
+///
+/// É também o que um corpo DINÂMICO de casca usa: `docs/colisores.md` mede que
+/// casca-contra-casca não escala, e esta é a queda declarada.
+// ── as meias-extensões LOCAIS, sem a escala ────────────────────────────────
+//
+// `scene.ts` resolve a forma uma vez por varredura e multiplica pela escala no
+// par; estas são o que ele guarda. `halfXOf` e companhia continuam existindo
+// para quem lê a forma fora do laço quente — `physics_backend.pbSync` é o caso,
+// e lá o custo é por corpo e por sincronização, não por par.
+export function halfLocalX(o: GameObject): f64 {
+  const c = colDe(o); return c !== null ? c.cHalfX() : 0.5;
+}
+export function halfLocalY(o: GameObject): f64 {
+  const c = colDe(o); return c !== null ? c.cHalfY() : 0.5;
+}
+export function halfLocalZ(o: GameObject): f64 {
+  const c = colDe(o); return c !== null ? c.cHalfZ() : 0.5;
+}
+
+/// A busca do component é feita UMA vez aqui, e não três vezes chamando
+/// `halfXOf`/`halfYOf`/`halfZOf`. A versão de três chamadas custou +10% na
+/// física a 500 corpos e +13% a 1000, medido contra o commit anterior — este é
+/// o laço mais quente do motor, e um acesso a `behaviors[i]` por eixo aparece.
+export function radiusOfCol(o: GameObject, t: Transform): f64 {
+  const c = colDe(o);
+  if (c === null) {
+    let m: f64 = t.sx;
+    if (t.sy < m) m = t.sy;
+    if (t.sz < m) m = t.sz;
+    return m * 0.5;
+  }
+  let m: f64 = c.cHalfX() * t.sx;
+  const y = c.cHalfY() * t.sy; if (y < m) m = y;
+  const z = c.cHalfZ() * t.sz; if (z < m) m = z;
+  return m;
 }
 
 /// Um colisor de caixa com meia-extensão dada.
