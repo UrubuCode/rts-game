@@ -30,6 +30,12 @@ import { Transform } from "../engine/core/transform";
 import { Rigidbody } from "../scripts/rigidbody";
 import { rbAvailable, rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics,
          rbStep, rbX, rbY, rbZ } from "../engine/rigid/gpurigid";
+// O TERCEIRO backend: o solver paralelo em Rust, por `rts:rigid`. Entra neste
+// teste e não num próprio porque a pergunta é a MESMA — a mesma cena termina no
+// mesmo lugar? — e um segundo teste com a mesma cena seria um segundo lugar
+// onde a cena pode divergir da deste.
+import { crInit, crSetBody, crSetShape, crSyncStatics, crStep,
+         crX, crY, crZ, crThreads } from "../engine/rigid/cpurigid";
 
 let ok = 0;
 let fail = 0;
@@ -181,11 +187,82 @@ if (rbAvailable() !== 0) {
   while (i < N) { bx.push(rbX(i)); by.push(rbY(i)); bz.push(rbZ(i)); i = i + 1; }
 }
 
+// ── RUST (rts:rigid) ───────────────────────────────────────────────────────
+// Sem `if`: este backend não depende de placa, que é o ponto dele. Por isso os
+// `push` são incondicionais e este bloco não precisa da duplicação que os dois
+// passes da GPU acima precisam.
+const rx: f64[] = []; const ry: f64[] = []; const rz: f64[] = [];
+{
+  scene.clear(); montaChao(); scene.computeWorld();
+  crInit(N); crSyncStatics(scene);
+  let i = 0;
+  while (i < N) {
+    // Os MESMOS argumentos do braço da GPU, na mesma ordem: meia-extensão
+    // `SS[i]*0.5` e massa 1. Se este braço lesse a forma de outro lugar, a
+    // divergência medida seria dele e não do solver.
+    crSetBody(i, SX[i], SY[i], SZ[i], SS[i] * 0.5, SS[i] * 0.5, SS[i] * 0.5, 1.0);
+    crSetShape(i, SF[i]);
+    i = i + 1;
+  }
+  let f = 0;
+  while (f < PASSOS) { crStep(1); f = f + 1; }
+  i = 0;
+  while (i < N) { rx.push(crX(i)); ry.push(crY(i)); rz.push(crZ(i)); i = i + 1; }
+}
+
+// ── comparação RUST × CPU ──────────────────────────────────────────────────
+// Fora do `if (temGpu)` de propósito: esta metade do critério de aceite não
+// depende de haver placa, e uma máquina sem GPU é exatamente onde este backend
+// vai rodar. Medir só quando há GPU seria não medir onde importa.
+{
+  const ESTAVEL = N - 2;
+  io.print("");
+  io.print("[RUST x CPU] o solver paralelo contra o sequencial da Scene");
+  io.print("  threads: " + crThreads());
+  let piorR: f64 = 0.0;
+  let piorRI = 0;
+  let piorRY: f64 = 0.0;
+  let somaRY: f64 = 0.0;
+  let i = 0;
+  while (i < ESTAVEL) {
+    const dx = rx[i] - cx[i]; const dy = ry[i] - cy[i]; const dz = rz[i] - cz[i];
+    const d = math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (d > piorR) { piorR = d; piorRI = i; }
+    const ady = dy < 0.0 ? 0.0 - dy : dy;
+    somaRY = somaRY + ady;
+    if (ady > piorRY) piorRY = ady;
+    i = i + 1;
+  }
+  io.print("    pior distancia : " + piorR.toFixed(3) + " no corpo " + piorRI);
+  io.print("    pior altura    : " + piorRY.toFixed(3) +
+           "   media " + (somaRY / ESTAVEL).toFixed(3));
+  const sepC = cx[10] - cx[9];
+  const sepR = rx[10] - rx[9];
+  io.print("    separacao do par sobreposto: CPU " + sepC.toFixed(3) +
+           "  RUST " + sepR.toFixed(3));
+  // A MESMA tolerância de altura que o braço da GPU usa (0.15), e pelo mesmo
+  // motivo: a altura é o que a FORMA decide, e as duas relaxações diferentes
+  // (0.85 sequencial contra 0.30 Jacobi) mais o slop cabem nela. Usar uma
+  // tolerância mais frouxa aqui seria medir um critério mais fraco e chamar de
+  // paridade.
+  check("RUST: altura de repouso bate com a CPU (< 0.15)", piorRY < 0.15 ? 1 : 0);
+  check("RUST: nenhum corpo atravessou o chao", (function (): number {
+    let j = 0;
+    while (j < N) { if (ry[j] < 0.0 - 1.0) return 0; j = j + 1; }
+    return 1;
+  })());
+  check("RUST: o par sobreposto se afasta igual ao da CPU (< 0.05)",
+        (sepR - sepC < 0.05 && sepC - sepR < 0.05) ? 1 : 0);
+}
+
 // ── comparação ─────────────────────────────────────────────────────────────
 if (temGpu === 0) {
-  io.print("[paridade] sem GPU — [PULOU]");
-  io.print("[resultado] 0 ok, 0 falhas");
-  io.print("[PASSOU]");
+  // "0 ok, 0 falhas" estava escrito à mão aqui, e passou a MENTIR quando o
+  // braço RUST × CPU entrou: ele roda sem GPU e deixa checagens no contador.
+  // Um resultado escrito à mão é um resultado que para de acompanhar o teste.
+  io.print("[paridade] sem GPU — a metade GPU foi PULADA; a RUST x CPU rodou");
+  io.print("[resultado] " + ok + " ok, " + fail + " falhas");
+  io.print(fail === 0 ? "[PASSOU]" : "[FALHOU]");
 } else {
   const nomes: string[] = ["esfera solta", "esfera solta 2",
     "caixa pilha 1", "caixa pilha 2", "caixa pilha 3",
@@ -272,6 +349,115 @@ if (temGpu === 0) {
   // diagnosticado. Fica no relatório para ser o próximo a investigar.
   io.print("    deriva ABSOLUTA maxima (medida, nao asserida): " + pior.toFixed(3) +
            " em '" + nomes[piorI] + "'");
+
+  // ── RUST × GPU: a comparação que mais deveria fechar ─────────────────────
+  //
+  // E é ela que carrega a expectativa mais forte dos três pares, por uma razão
+  // estrutural: o solver Rust é uma tradução do kernel WGSL — mesmo modelo
+  // gather, mesma relaxação 0,30, mesmas constantes. O par CPU × GPU compara
+  // sequencial contra Jacobi e por isso tem uma diferença de MODELO embutida;
+  // este par não tem. Se ele divergir MAIS que o outro, a causa está na
+  // tradução ou no snapshot e não no modelo — que é o que torna este número
+  // diagnóstico em vez de decorativo.
+  let piorRG: f64 = 0.0;
+  let piorRGI = 0;
+  let piorRGY: f64 = 0.0;
+  let i2 = 0;
+  while (i2 < ESTAVEL) {
+    const ddx = rx[i2] - gx[i2]; const ddy = ry[i2] - gy[i2]; const ddz = rz[i2] - gz[i2];
+    const dd = math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+    if (dd > piorRG) { piorRG = dd; piorRGI = i2; }
+    const ady2 = ddy < 0.0 ? 0.0 - ddy : ddy;
+    if (ady2 > piorRGY) piorRGY = ady2;
+    i2 = i2 + 1;
+  }
+  io.print("");
+  io.print("[RUST x GPU] mesma formulacao dos dois lados (gather, relaxacao 0.30)");
+  // SEIS casas, e não três como os outros dois pares. Não é capricho: a
+  // primeira rodada imprimiu 0.000 nos treze corpos, e "0.000" é indistinguível
+  // de "o braço não rodou" ou "os dois arrays são o mesmo". Um número que só
+  // pode ser lido como zero não prova concordância — mostra que a régua é curta.
+  io.print("    pior distancia : " + piorRG.toFixed(6) + " em '" + nomes[piorRGI] + "'");
+  io.print("    pior altura    : " + piorRGY.toFixed(6));
+  io.print("    testemunha (corpo 9): RUST x = " + rx[9].toFixed(6) +
+           "  GPU x = " + gx[9].toFixed(6) + "  CPU x = " + cx[9].toFixed(6));
+  check("RUST x GPU: altura de repouso bate (< 0.15)", piorRGY < 0.15 ? 1 : 0);
+
+  // ── SEGUNDA CENA: contato DENSO ──────────────────────────────────────────
+  //
+  // Existe porque a primeira não responde a pergunta que o solver Rust levanta.
+  //
+  // Ele difere do kernel WGSL num ponto declarado: os vizinhos vêm de um
+  // SNAPSHOT tirado no topo do sub-passo, enquanto na GPU uma thread lê
+  // `pos[j]` enquanto outra o escreve. Jacobi verdadeiro contra Jacobi com
+  // corrida. A cena acima tem 15 corpos com um ou dois contatos cada, então a
+  // leitura-durante-escrita quase nunca acontece nela — e um teste que não pode
+  // ver a diferença não é evidência de que ela não existe.
+  //
+  // Uma PILHA é onde ela apareceria: dezenas de corpos, cada um lendo vizinhos
+  // que estão sendo escritos no mesmo passo.
+  const DN = 180;
+  const DPASSOS = 300;
+  const dgx: f64[] = []; const dgy: f64[] = [];
+  const drx: f64[] = []; const dry: f64[] = [];
+  scene.clear(); montaChao(); scene.computeWorld();
+  rbInit(DN); rbSyncStatics(scene);
+  let q = 0;
+  while (q < DN) {
+    // Grade 6×6 com 5 andares, passo 0,9 sobre corpos de meia-extensão 0,5:
+    // todo vizinho é contato de verdade, nos três eixos.
+    rbSetBody(q, (q % 6) * 0.9, 0.9 + ((q / 36) | 0) * 0.9,
+              (((q / 6) | 0) % 6) * 0.9, 0.5, 0.5, 0.5, 1.0);
+    q = q + 1;
+  }
+  rbUpload();
+  let df = 0;
+  while (df < DPASSOS) { rbStep(1); df = df + 1; }
+  rbStep(0);
+  q = 0;
+  while (q < DN) { dgx.push(rbX(q)); dgy.push(rbY(q)); q = q + 1; }
+
+  scene.clear(); montaChao(); scene.computeWorld();
+  crInit(DN); crSyncStatics(scene);
+  q = 0;
+  while (q < DN) {
+    crSetBody(q, (q % 6) * 0.9, 0.9 + ((q / 36) | 0) * 0.9,
+              (((q / 6) | 0) % 6) * 0.9, 0.5, 0.5, 0.5, 1.0);
+    q = q + 1;
+  }
+  df = 0;
+  while (df < DPASSOS) { crStep(1); df = df + 1; }
+  q = 0;
+  while (q < DN) { drx.push(crX(q)); dry.push(crY(q)); q = q + 1; }
+
+  let piorD: f64 = 0.0;
+  let piorDI = 0;
+  let somaD: f64 = 0.0;
+  q = 0;
+  while (q < DN) {
+    const ex = drx[q] - dgx[q]; const ey = dry[q] - dgy[q];
+    const e = math.sqrt(ex * ex + ey * ey);
+    if (e > piorD) { piorD = e; piorDI = q; }
+    somaD = somaD + e;
+    q = q + 1;
+  }
+  io.print("");
+  io.print("[RUST x GPU, PILHA DENSA] " + DN + " corpos, " + DPASSOS + " passos");
+  io.print("    pior desvio : " + piorD.toFixed(4) + " no corpo " + piorDI);
+  io.print("    desvio medio: " + (somaD / DN).toFixed(4));
+  // MEDIDO e NÃO asserido, pela mesma razão que o teste já aplica ao par
+  // instável: prender um limiar num número que ainda não foi diagnosticado fixa
+  // a tolerância no artefato. O que se sabe é que a diferença de modelo entre os
+  // dois é o snapshot, e este é o número dela.
+  io.print("    (medido, nao asserido — e a diferenca do snapshot, ver cpurigid.ts)");
+  // O que É asserível: a pilha continua uma pilha. Um solver que explodisse ou
+  // afundasse daria desvio grande E altura absurda, e só o desvio não separa os
+  // dois casos.
+  check("PILHA: nenhum corpo afundou no chao (RUST)", (function (): number {
+    let j = 0;
+    while (j < DN) { if (dry[j] < 0.0) return 0; j = j + 1; }
+    return 1;
+  })());
 
   io.print("[resultado] " + ok + " ok, " + fail + " falhas");
   io.print(fail === 0 ? "[PASSOU]" : "[FALHOU]");
