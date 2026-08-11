@@ -33,7 +33,7 @@ import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./edit
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "./editor/dnd";
 import { history } from "./editor/undo";
 import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
-import { stepsFor, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
+import { stepsFor, stepMore, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
 import { snapshotWorld, renderX, renderY, renderZ, interpolateReset } from "./engine/core/interpolate";
 import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "./engine/core/profiler";
 import { dcReport } from "./compat/drawcount.ts";
@@ -461,7 +461,13 @@ function frame(): void {
     // `computeWorld`, porque o mundo já foi derivado no fim do frame anterior.
     // O render interpola entre esta foto e o estado final.
     if (passos > 0) snapshotWorld(scene);
-    for (let p = 0; p < passos; p++) {
+    // `stepMore` e não `p < passos`: o teto de PASSOS não sabe quanto um passo
+    // CUSTA, e a 4000 corpos na CPU um passo é 76 ms — cinco deles passam de 380
+    // ms de frame com a defesa contra travamento ligada. O teto de
+    // milissegundos corta os seguintes; o primeiro é intocável, senão o mundo
+    // para e um mundo parado é indistinguível de um programa travado.
+    let p = 0;
+    while (stepMore(p, passos) !== 0) {
       scene.update(FIXED_DT);
       // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
       // passo — e aí a varredura de pares da CPU não roda, porque seriam duas
@@ -475,6 +481,7 @@ function frame(): void {
       // Medido (release, headless, 500 corpos): 12,05 ms na CPU contra 0,35 ms
       // na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
       if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
+      p = p + 1;
     }
     // O mundo final, UMA vez, depois de todos os passos.
     //

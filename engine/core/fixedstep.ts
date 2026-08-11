@@ -59,11 +59,29 @@ export const FIXED_DT: f64 = 1.0 / 60.0;
 /// física fica em câmera lenta em vez de o programa parar de responder.
 const MAX_STEPS = 5;
 
+/// Teto de MILISSEGUNDOS por frame — a segunda defesa, e a que o `MAX_STEPS`
+/// não dá.
+///
+/// As duas medem coisas diferentes e as duas são necessárias. `MAX_STEPS` conta
+/// quantos passos de simulação cabem no tempo REAL decorrido; ele não sabe
+/// quanto cada passo CUSTA. A 4000 corpos na CPU um único passo custa 76 ms, e o
+/// teto de 5 passos deixa o frame passar de 380 ms sem reclamar — o jogo trava
+/// com a defesa contra travamento ligada.
+///
+/// 8 ms é metade de um frame de 60 Hz. A escolha é essa e não "o frame inteiro"
+/// porque o que sobra tem de desenhar: um frame gasto todo em física entrega uma
+/// imagem congelada, que para o jogador é a mesma coisa que travar.
+const ORCAMENTO_MS_PADRAO: f64 = 8.0;
+
 let acumulador: f64 = 0.0;
 let ultimoAlpha: f64 = 0.0;
 let passosNoFrame = 0;
 let passosTotais = 0;
 let descartes = 0;
+let orcMs: f64 = ORCAMENTO_MS_PADRAO;
+let orcT0: f64 = 0.0;
+let cortes = 0;
+let passosCortados = 0;
 
 /// Quantos passos de física este frame deve rodar, dado o tempo REAL decorrido.
 ///
@@ -85,6 +103,11 @@ export function stepsFor(dtReal: f64): number {
     return 0;
   }
 
+  // O relógio do orçamento começa aqui e não no primeiro passo: o que interessa
+  // é quanto do FRAME a física já consumiu, e quem chama pode ter trabalho entre
+  // este ponto e o laço.
+  orcT0 = performance.now();
+
   acumulador = acumulador + dtReal;
   let n = 0;
   while (acumulador >= FIXED_DT && n < MAX_STEPS) {
@@ -103,6 +126,52 @@ export function stepsFor(dtReal: f64): number {
   passosTotais = passosTotais + n;
   return n;
 }
+
+/// Rodo mais um passo? Chame no topo do laço, com quantos já rodaram.
+///
+/// ```ts
+/// const passos = stepsFor(dtReal);
+/// let i = 0;
+/// while (stepMore(i, passos) !== 0) { simule(FIXED_DT); i = i + 1; }
+/// ```
+///
+/// O PRIMEIRO PASSO SEMPRE RODA, e essa é a regra que faz isto ser degradação em
+/// vez de falha: numa máquina onde um único passo já estoura o orçamento, cortar
+/// o primeiro faria o mundo PARAR — e um mundo parado é indistinguível de um
+/// programa travado, que é justamente o que este teto existe para evitar. Com
+/// ele, a física anda devagar e o jogo continua respondendo.
+///
+/// O tempo cortado é DESCARTADO, não acumulado: guardar a dívida é exatamente a
+/// espiral da morte que o `MAX_STEPS` já recusa, e cortar por orçamento para
+/// depois pagar no frame seguinte seria reintroduzi-la por outra porta.
+export function stepMore(jaRodados: number, planejados: number): number {
+  if (jaRodados >= planejados) return 0;
+  if (jaRodados === 0) return 1;
+  if (performance.now() - orcT0 < orcMs) return 1;
+  cortes = cortes + 1;
+  passosCortados = passosCortados + (planejados - jaRodados);
+  acumulador = 0.0;
+  passosNoFrame = jaRodados;
+  ultimoAlpha = 0.0;
+  return 0;
+}
+
+/// Muda o teto de milissegundos. 0 ou menos DESLIGA o corte.
+///
+/// Desligável porque uma medição de física quer o custo real e não o custo
+/// truncado — um benchmark com o teto ligado mede o teto.
+export function stepSetBudgetMs(ms: f64): void { orcMs = ms > 0.0 ? ms : 1000000.0; }
+export function stepBudgetMs(): f64 { return orcMs; }
+
+/// Quantos frames tiveram passos cortados por ORÇAMENTO, e quantos passos.
+///
+/// Separado de [`stepDiscards`] de propósito: aquele conta tempo que não coube
+/// no teto de PASSOS (a máquina está atrás do relógio), este conta tempo que não
+/// coube no teto de MILISSEGUNDOS (um passo é caro demais). O primeiro pede uma
+/// cena menor; o segundo pede um backend mais rápido, e confundir os dois manda
+/// a investigação para o lado errado.
+export function stepBudgetCuts(): number { return cortes; }
+export function stepStepsDropped(): number { return passosCortados; }
 
 /// A fração de passo que sobrou, entre 0 e 1 — para interpolar o render.
 ///
