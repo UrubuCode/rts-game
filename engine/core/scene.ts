@@ -855,10 +855,39 @@ function mfloor(v: f64): number {
 /// parâmetros anotados o compilador conhece o shape e lê cada campo por offset
 /// constante. Mesma lógica, 3,3x mais rápido (500 objetos × 300 frames:
 /// 3,8 s → 1,1 s).
+/// O selo do frame corrente de `computeWorldInto`. Cresce a cada chamada, e um
+/// `done[i]` com selo antigo significa "não resolvido neste frame" sem que
+/// ninguém precise escrever n zeros.
+///
+/// `f64` e não inteiro de propósito: um jogo a 240 fps leva 700 mil anos para
+/// esgotar a precisão exata de um double em inteiros, então o envolvimento que
+/// faria dois frames distintos compartilharem selo não é um caso — e um
+/// contador que envolve daria um filho com a pose de um frame antigo, que é o
+/// mesmo defeito que a versão sem carimbo teve.
+let cwSelo: f64 = 0.0;
+
 function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]): void {
   const n = objs.length;
-  let k = 0;
-  while (k < n) { done[k] = 0; k = k + 1; }
+  // O `done` guarda um CARIMBO DE FRAME e não um 0/1, e é isso que dispensa a
+  // passada que o zerava. "Resolvido" passa a ser `done[i] === selo`, com um
+  // selo novo a cada chamada: o valor do frame anterior nunca coincide, então
+  // ele se invalida sozinho sem ninguém escrever n zeros.
+  //
+  // A primeira tentativa disto NÃO usou carimbo — apenas passou a escrever
+  // `done[i] = 0` no ramo pendente, com o argumento de que os três ramos cobrem
+  // todo i. O argumento estava certo sobre a ESCRITA e errado sobre a LEITURA:
+  // `done[par]` é lido para um par que ainda não foi visitado neste frame, e via
+  // o 1 do frame anterior — o filho então compunha com a pose do pai de um frame
+  // atrás. `tools/test_scene.ts` pegou na hora ("filho resolvido na passada
+  // extra: esperado ~12, veio 2"), que é exatamente o caso que a passada de
+  // zerar existia para tornar distinguível.
+  //
+  // Medido: `computeWorld` custa 14,20 ms a 8000 objetos numa cena onde NADA se
+  // move, e metade disso é a VISITA. Uma passada O(n) cujo único trabalho é
+  // preparar outra passada O(n) é a parte da visita que sai sem nenhuma decisão
+  // de política — 14,20 para 12,98 ms, medido.
+  cwSelo = cwSelo + 1;
+  const selo = cwSelo;
 
   // FAST PATH: a esmagadora maioria dos objetos é RAIZ (parent < 0) e a cena
   // costuma estar em ordem pai→filho, então uma passada resolve tudo. Só o que
@@ -876,11 +905,17 @@ function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]):
         t.wx = t.px; t.wy = t.py; t.wz = t.pz;
         t.wrx = t.rx; t.wry = t.ry;
       }
-      done[i] = 1;
-    } else if (done[par] === 1) {
+      done[i] = selo;
+    } else if (done[par] === selo) {
       applyParentTo(o, objs[par]);
-      done[i] = 1;
+      done[i] = selo;
     } else {
+      // Explícito, e é o que dispensa a passada de zerar: um pendente tem de
+      // dizer que é pendente NESTE frame, senão herdaria o 1 do frame anterior
+      // e as passadas extras o pulariam — um filho ficaria com a pose do pai de
+      // um frame atrás, que é um erro visual e não uma otimização.
+      // Nada a escrever: um carimbo velho JÁ significa "não resolvido neste
+      // frame". Era aqui que a versão sem carimbo escrevia 0 e não bastava.
       left = 1;
     }
     i = i + 1;
@@ -893,9 +928,9 @@ function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]):
     left = 0;
     i = 0;
     while (i < n) {
-      if (done[i] === 0) {
+      if (done[i] !== selo) {
         const o = objs[i];
-        if (done[o.parent] === 1) { applyParentTo(o, objs[o.parent]); done[i] = 1; }
+        if (done[o.parent] === selo) { applyParentTo(o, objs[o.parent]); done[i] = selo; }
         else left = 1;
       }
       i = i + 1;
