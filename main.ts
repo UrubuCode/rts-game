@@ -18,13 +18,15 @@ import process from "./compat/process.ts";
 import { createAppAt } from "./compat/app.ts";
 
 import { GameObject } from "./engine/core/gameobject";
+import { Scene } from "./engine/core/scene";
+import { drawSceneObjects, fParams } from "./engine/render/scenedraw";
 import { Transform } from "./engine/core/transform";
 import { UIScene } from "./engine/ui/uiscene";
 import { UIPanel, ANCHOR_TL, ANCHOR_BL, ANCHOR_BR } from "./engine/ui/uipanel";
 import { numField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./editor/widgets";
 import { COMPONENT_NAMES, createComponent } from "./editor/components";
 import { assetsInit, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "./editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, inFrustum, frustumBegin, inFrustumFast, winWidth, winHeight, loadTexture, loadObj } from "./engine/render/gpu3d";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture, loadObj } from "./engine/render/gpu3d";
 import { scene, S } from "./editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
 import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./editor/sceneio";
@@ -688,84 +690,21 @@ function frame(): void {
   // em vez de o render varrer a lista inteira por objeto visível (O(n × |sel|)).
   // Feito aqui, num ponto só, porque a seleção é mexida em vários lugares.
   syncSelFlags();
-  let oi = 0;
-  let drawnN = 0;
-  // HOISTA o array (não só o length): cada `scene.objects[i]` refaz o acesso à
-  // propriedade do singleton importado, e num laço sobre centenas de objetos
-  // isso domina o custo do frame.
-  // Anotação DELIBERADA: com `GameObject[]` o compilador sabe o tipo do
-  // elemento, então `const o = objs[oi]` vira um local de shape conhecido e cada
-  // `o.campo` usa offset constante em vez do caminho dinâmico de propriedade
-  // (medido: 3,9x mais rápido por leitura). Sem a anotação o tipo se perde.
+  // Sem `oi`/`drawnN` aqui: o laço inteiro virou UMA função livre tipada
+  // (`drawSceneObjects`, no topo do módulo) e o contador volta pelo retorno.
+  // A nota longa que estava aqui — hoistar o array, anotar `GameObject[]` para
+  // o campo virar offset constante — continua valendo e mora lá, aplicada aos
+  // PARÂMETROS, que é onde ela finalmente rende os 3× medidos.
   const objs: GameObject[] = scene.objects;
   const trs: Transform[] = scene.trs;   // espelho paralelo (ver Scene.trs)
-  const objsN = objs.length;
-  while (oi < objsN) {
-    const o = objs[oi];
-    // ORDEM IMPORTA: descarte barato primeiro. Inativo sai já; a visibilidade é
-    // testada ANTES do dispatch virtual do MeshRenderer/Material, que era pago
-    // por objeto mesmo pros que nem seriam desenhados.
-    if (o.active === 0) { oi = oi + 1; continue; }
-    const tr: Transform = trs[oi];   // espelho: evita o hop `o.transform`
-    let rmax: f64 = tr.sx;
-    if (tr.sy > rmax) rmax = tr.sy;
-    if (tr.sz > rmax) rmax = tr.sz;
-    if (inFrustumFast(tr.wx, tr.wy, tr.wz, rmax * 0.87) === 0) { oi = oi + 1; continue; }
-
-    // GEOMETRIA: do component MeshRenderer (rendIdx cacheado, O(1)) quando existe;
-    // senão fallback pros campos legado do GameObject (cenas sem MeshRenderer).
-    let meshKind = o.meshKind;
-    let customMesh = o.customMesh;
-    if (o.rendIdx >= 0) {
-      const r = o.behaviors[o.rendIdx];
-      meshKind = r.rMeshKind() | 0;
-      customMesh = r.rCustomMesh() | 0;
-    }
-    if (meshKind !== 0 || customMesh > 0) {
-      {
-        // visibilidade e escala já resolvidas antes do dispatch (ver acima)
-        let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
-        // Selecionado (ou na multi-seleção) = dourado. O teste é O(1) via flag
-        // no próprio objeto: antes varria S.selection INTEIRA por objeto
-        // visível — O(n × |seleção|), 40k comparações/frame ao selecionar 200.
-        if (o.selFlag !== 0 || oi === S.selected) { rr = 255; gg = 230; bbv = 120; }
-        const col = (rr << 16) | (gg << 8) | bbv;
-        // APARÊNCIA: se o objeto tem um component Material (matIdx cacheado, O(1)),
-        // ele manda; senão fallback pros campos do GameObject (cenas sem Material).
-        // tex: imagem real (id>=2) tem prioridade sobre o procedural (0/1).
-        let texArg = o.tex;
-        if (o.textureId > 0) texArg = o.textureId;
-        let emisArg = o.emissive;
-        if (o.matIdx >= 0) {
-          const m = o.behaviors[o.matIdx];
-          const tid = m.matTexId() | 0;
-          if (tid > 0) texArg = tid; else texArg = m.matTexMode();
-          emisArg = m.matEmissive();
-        }
-        // Usa o `tr` já hoisted: `o.transform.wx` repetido 9x por objeto era
-        // NOVE acessos aninhados de propriedade por desenho.
-        // POSIÇÃO DE RENDER, não a da simulação. Com passo fixo o frame quase
-        // nunca cai em cima de um passo, e desenhar sempre o último estado faz
-        // o movimento tremer — o objeto anda 2 passos num frame e 1 no
-        // seguinte. `alphaR` é a fração que sobrou no acumulador.
-        //
-        // `tr.wx/wy/wz` seguem intactos: a simulação é a verdade, e é ela que a
-        // colisão, o gizmo e o `state` do WebSocket leem. Ver interpolate.ts.
-        const rx = renderX(scene, oi, alphaR);
-        const ry = renderY(scene, oi, alphaR);
-        const rz = renderZ(scene, oi, alphaR);
-        if (customMesh > 0) {
-          drawGPUMesh(WIN, customMesh, rx, ry, rz,
-            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
-        } else {
-          drawGPU(WIN, meshKind, rx, ry, rz,
-            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
-        }
-        drawnN = drawnN + 1;
-      }
-    }
-    oi = oi + 1;
-  }
+  // Os 9 números do frustum que `frustumBegin` acabou de preparar, lidos UMA vez
+  // por frame para um array reaproveitado (ver `frustumParams` em gpu3d.ts).
+  frustumParams(fParams);
+  const drawnN = drawSceneObjects(
+    objs, trs, objs.length, scene, WIN, S.selected, alphaR,
+    fParams[0], fParams[1], fParams[2],
+    fParams[3], fParams[4], fParams[5], fParams[6],
+    fParams[7], fParams[8]);
   secEnd(P_MUNDO3D);
   secBegin(P_UI);
   S.drawnLast = drawnN;   // nº de objetos desenhados neste frame (diagnóstico via ws 'dbg')

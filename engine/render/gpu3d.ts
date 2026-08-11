@@ -398,6 +398,22 @@ export function frustumBegin(camx: number, camy: number, camz: number, yaw: numb
   fTanH = fTanV * aspect;
 }
 
+/// Copia os 9 valores do frustum preparado para `out` (índices 0..8: camX, camY,
+/// camZ, cosYaw, sinYaw, cosPitch, sinPitch, tanH, tanV).
+///
+/// Existe porque o laço de render precisa da MESMA aritmética de `inFrustumFast`
+/// mas com os valores em PARÂMETROS, não em variáveis de módulo — medido, é 3×
+/// (ver a nota em `main.ts`). Recalcular os cos/sin no chamador daria o mesmo
+/// número e uma segunda fonte da verdade; isto entrega a única que existe.
+///
+/// `out` é preenchido em vez de devolvido: uma vez por frame, sem alocar.
+export function frustumParams(out: f64[]): void {
+  out[0] = fCamX; out[1] = fCamY; out[2] = fCamZ;
+  out[3] = fCyw;  out[4] = fSyw;
+  out[5] = fCpt;  out[6] = fSpt;
+  out[7] = fTanH; out[8] = fTanV;
+}
+
 /// Teste de visibilidade usando o frustum preparado por frustumBegin.
 export function inFrustumFast(wx: number, wy: number, wz: number, radius: number): number {
   const dx = wx - fCamX; const dy = wy - fCamY; const dz = wz - fCamZ;
