@@ -125,6 +125,22 @@ io.print("");
 // maquina, e uma tabela que comeca em 250 nao pode dizer se esse joelho esta no
 // lugar certo. Medir so onde a resposta ja e obvia e como um modelo errado
 // sobrevive a uma bancada.
+// A LEGENDA vem ANTES da tabela e não depois, porque quem lê um número decide
+// no número e não na nota de rodapé. A coluna `GPU pipe` já existia neste
+// arquivo publicando ms/frame de um backend que simula em ~25 de 60 frames, e
+// foi lida — por nós — como "a GPU faz o mesmo trabalho em 1,13 ms". Não fazia:
+// fazia 40% do trabalho.
+io.print("  COMO LER, e a coluna que engana:");
+io.print("   CPU frame   = update + colisao + computeWorld. O custo da fisica.");
+io.print("   CPU colisao = so resolveCollisions. E o que trocar de backend substitui.");
+io.print("   GPU pipe    = rbService, pipelined. ms/FRAME, e ele NAO avanca todo");
+io.print("                 frame — ver a testemunha 'n/60'. NAO divida por 60.");
+io.print("   GPU sync    = rbStep, um passo por frame garantido. E a coluna");
+io.print("                 comparavel com CPU colisao e RUST, passo a passo.");
+io.print("   RUST        = rts:rigid, um passo por frame, sincrono.");
+io.print("   testemunhas = frames com estado novo da GPU, e onde o corpo 0 parou.");
+io.print("                 y_rust=3.0 contra y_gpu=7.2 = o Rust deu os 60 passos e a GPU nao.");
+io.print("");
 io.print("   n   | CPU frame  | CPU colisao| GPU pipe   | GPU sync   | RUST       | testemunhas");
 io.print("-------+------------+------------+------------+------------+------------+------------");
 for (const n of [32, 64, 128, 192, 250, 500, 1000, 2000, 4000]) {

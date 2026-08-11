@@ -212,9 +212,46 @@ export function rigidCpuCostMs(n: number): f64 {
   return n * PB_VIZINHOS * PB_PASSES * pbCpuPerPair;
 }
 
-/// Custo de FRAME estimado no backend GPU: gather O(n²) × sub-passos + um
-/// round-trip. O round-trip entra UMA vez porque `rbService` é pipelined —
-/// submete e lê o resultado do frame anterior, sem esperar.
+/// Custo de FRAME estimado no backend GPU: um round-trip mais um termo n².
+///
+/// # O TERMO n² É PISTA FALSA. Não comece por ele.
+///
+/// Está escrito aqui porque é aqui que a próxima pessoa vem procurar, e nós
+/// gastamos uma campanha inteira para descobrir que não é isto.
+///
+/// O termo é errado por descrição: o kernel de `gpurigid.ts` NÃO é O(n²) desde a
+/// campanha do grid — ele tem 8192 células de 32 vagas e varre 27 vizinhas
+/// (`gpurigid.ts:70-71`), a mesma vizinhança que a CPU e o backend Rust. Quem é
+/// n² de verdade é a SONDA de `rigidCalibrate`, cujo WGSL varre todos os j.
+///
+/// E o coeficiente não é pequeno: ele é RUÍDO. Quatro rodadas seguidas da mesma
+/// sonda, na mesma máquina, mediram `0.0104`, `0`, `0.0498`, `0` — 2048 corpos
+/// custam menos que a variação do próprio round-trip, então o que sobra da
+/// subtração é o erro dela. O custo modelado da GPU é, na prática, a constante
+/// `pbGpuOverhead` com um termo aleatório em cima.
+///
+/// Isso aparece na decisão: nas mesmas quatro rodadas o joelho ficou em 128,
+/// 176, 128 e 208. A fronteira que decide o backend oscila ±40% entre execuções
+/// do mesmo binário na mesma máquina — e um modelo cuja resposta muda sem que
+/// nada mude não está medindo a máquina.
+///
+/// Consertá-lo isoladamente TROCARIA UMA INCOERÊNCIA INOFENSIVA POR UMA
+/// COERÊNCIA FALSA: enquanto a sonda continuar sendo n² contra um kernel que não
+/// é, um coeficiente diferente de zero seria um número com forma de medida e
+/// conteúdo de invenção.
+///
+/// # Onde o erro REALMENTE está
+///
+/// Em `rigidCpuCostMs`, que superestima a passada de colisão em ~3,3x (1,73 ms
+/// modelados contra 0,52 medidos a n=500), e superestimar a CPU é exatamente o
+/// que puxa o joelho para baixo. O modelo liga a GPU em n≈192; o cruzamento
+/// MEDIDO está entre 1000 e 3000 (`tools/claude-bench-gpu-vs-cpu.ts`, colunas
+/// `CPU colisao` e `GPU sync`). `PB_VIZINHOS = 12` é o suspeito nomeado.
+///
+/// Não foi consertado de propósito, e a razão não é falta de tempo: existe um
+/// terceiro backend agora (`rts:rigid`, em `cpurigid.ts`) que ganha dos dois em
+/// todo n medido, e mover esta constante antes de decidir se ele vira padrão
+/// seria movê-la duas vezes.
 export function rigidGpuCostMs(n: number): f64 {
   rigidCalibrate();
   if (pbTemGpu === 0) return 999999.0;
@@ -566,10 +603,24 @@ export function rigidReport(): void {
   if (pbTemGpu !== 0 && pbGpuPerN2 <= 0.0) {
     io.print("[rigid] AVISO: coeficiente n2 da GPU mediu 0 — o topo da faixa NAO e confiavel");
   }
-  // O número real ao lado do modelado: 500 corpos custaram 9,55 ms medidos em
-  // release headless. Divergência grande aqui é o modelo pedindo correção
-  // (PB_VIZINHOS é o primeiro suspeito), não um detalhe cosmético.
-  io.print("[rigid] n=500: cpu " + rigidCpuCostMs(500) + " ms (modelo) vs 9.55 ms (medido) | gpu " +
-           rigidGpuCostMs(500) + " ms");
+  // O número real ao lado do modelado — e ele comparava COISAS DIFERENTES.
+  //
+  // A linha media o modelo contra 9,55 ms, que é um FRAME INTEIRO (update +
+  // colisão + computeWorld), enquanto `rigidCpuCostMs` modela só a PASSADA DE
+  // COLISÃO. O resultado é que a checagem que existe para pegar o modelo errado
+  // apontava o SINAL CONTRÁRIO do erro: dizia que o modelo subestimava (1,73
+  // contra 9,55) quando ele SUPERESTIMA a colisão em 3,3x (1,73 contra 0,52).
+  //
+  // Vale escrever que isto é PADRÃO e não coincidência: comparar dois números
+  // medidos sobre recortes diferentes de trabalho é o mesmo erro de denominador
+  // que custou o "195x" desta campanha, e um autocheck é o último lugar onde
+  // alguém procura por ele. Uma checagem que mente é pior que checagem nenhuma.
+  //
+  // 0,52 ms é `scene.resolveCollisions()` sozinho, 500 corpos, cena caindo,
+  // release — a coluna `CPU colisao` de `tools/claude-bench-gpu-vs-cpu.ts`.
+  io.print("[rigid] n=500 COLISAO: cpu " + rigidCpuCostMs(500).toFixed(2) +
+           " ms (modelo) vs 0.52 ms (medido) | gpu " + rigidGpuCostMs(500).toFixed(2) + " ms");
+  io.print("[rigid] o modelo da CPU SUPERESTIMA a colisao ~3.3x, e e isso que liga" +
+           " a GPU cedo demais: joelho em ~192, cruzamento medido entre 1000 e 3000");
   io.print("[rigid] modo=" + (pbModo === 0 ? "cpu" : "gpu") + " ativo=" + rigidBackendName());
 }
