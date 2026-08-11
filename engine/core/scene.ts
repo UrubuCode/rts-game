@@ -361,6 +361,33 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
                      gHead: number[], gNext: number[],
                      lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64,
                      sIdx: number[], bIdx: number[], reactive: number): void {
+  // O `const` de MÓDULO lido para um LOCAL, uma vez. É a mesma regra que este
+  // arquivo já aplica aos arrays de voz e ao `trs`, e ela vale para constantes
+  // também: `CGRID_MASK` era lido do escopo de módulo NOVE vezes por objeto por
+  // passada (o 3×3), duas passadas por frame.
+  //
+  // MEDIDO (release, `tools/claude-bench-fisica-partes.ts`, A/B alternado de 4
+  // rodadas em worktree isolado, 2026-08-10), `resolveCollisions`:
+  //
+  //     500 corpos:  7,48 / 7,85 / 7,35 / 7,57  →  4,52 / 4,62 / 4,72 / 4,77
+  //     1000 corpos: 15,75 / 15,82 / 15,12 / 15,47 → 9,05 / 10,03 / 9,58 / 9,68
+  //
+  // ~39% nas duas escalas, por duas linhas. Alternado porque a máquina deriva
+  // 20% entre execuções distantes: um "antes" medido meia hora antes mede o
+  // vizinho compilando, não o código.
+  //
+  // COMO ESTE CUSTO FOI ENCONTRADO, porque a primeira leitura estava errada. A
+  // ablação (`tools/claude-probe-colisao.ts`) apontou o `& CGRID_MASK` como o
+  // degrau: 0,43 ms sem ele, 1,87 com. A conclusão óbvia — "o `&` é caro" — é
+  // FALSA, e três medições a mataram: nove ANDs sobre operandos pequenos custam
+  // o mesmo (não é estouro de i32), nove comandos separados custam o mesmo (não
+  // é a forma da expressão) e UM único AND custa 0,017 ms (não escala com a
+  // conta). O que o `&` tinha de especial era o OPERANDO: `CGRID_MASK` mora no
+  // módulo. Trocá-lo por um local mantém o AND e o custo some.
+  //
+  // O corolário vale para o arquivo inteiro: uma constante de módulo num laço
+  // quente é uma LEITURA, não um imediato. Se aparecer outra, este é o padrão.
+  const mask = CGRID_MASK;
   const ns = sIdx.length;
   const nb = bIdx.length;
   let k = 0;
@@ -399,7 +426,7 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
     while (dz <= 1) {
       let dx = 0 - 1;
       while (dx <= 1) {
-        const b = (((gx + dx) * 73856093 + (gz + dz) * 19349663) & CGRID_MASK);
+        const b = (((gx + dx) * 73856093 + (gz + dz) * 19349663) & mask);
         let q = gHead[b];
         while (q >= 0) {
           const other = cIdx[q];
@@ -785,6 +812,8 @@ const CGRID_MASK = 8191;
 function buildSceneGrid(trs: Transform[], cIdx: number[], m: number,
                         gHead: number[], gNext: number[], gCell: number[],
                         gUsedPrev: number, inv: f64): void {
+  // local, não o `const` de módulo — ver a nota longa em `resolveInto`
+  const mask = CGRID_MASK;
   // limpa APENAS os buckets que a passada anterior sujou (no máximo m)
   let k = 0;
   while (k < gUsedPrev) { gHead[gCell[k]] = 0 - 1; k = k + 1; }
@@ -794,7 +823,7 @@ function buildSceneGrid(trs: Transform[], cIdx: number[], m: number,
     const t: Transform = trs[oi];
     const gx = mfloor(t.px * inv);
     const gz = mfloor(t.pz * inv);
-    const b = ((gx * 73856093 + gz * 19349663) & CGRID_MASK);
+    const b = ((gx * 73856093 + gz * 19349663) & mask);
     gCell[k] = b;
     gNext[k] = gHead[b];   // encadeia na frente do bucket
     gHead[b] = k;

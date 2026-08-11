@@ -30,6 +30,7 @@ import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./edit
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "./editor/dnd";
 import { history } from "./editor/undo";
 import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
+import { stepsFor, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { initAudio, pumpAudio } from "./engine/audio/audio";
 import { logInfo, logTick } from "./engine/core/logger";
@@ -401,19 +402,27 @@ function frame(): void {
 
   // ── UPDATE da cena (só quando S.playing) ────────────────────────────────────
   if (S.playing !== 0) {
-    scene.update(dts);
-    // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
-    // frame — e aí a varredura de pares da CPU não roda, porque seria a mesma
-    // física duas vezes, uma delas sobre um estado que a outra já mexeu.
-    //
-    // A decisão fica AQUI, em quem dirige o frame, e não dentro da `Scene`: o
-    // decisor precisa do tipo `Scene` para varrer os corpos, então a `Scene`
-    // importá-lo de volta seria um ciclo. É também a forma que o fluido já usa
-    // — `decide.ts` é chamado pelo jogo, não pelo solver.
-    //
-    // Medido (release, headless, 500 corpos em movimento): 12,05 ms na CPU
-    // contra 0,35 ms na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
-    if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
+    // PASSO FIXO: a física anda em 1/60 s, quantas vezes o tempo real pedir.
+    // Antes ela andava com o `dts` do FRAME, o que a tornava não determinística
+    // (máquina rápida e lenta divergem), sujeita a tunneling (a 7 fps o passo
+    // era 100 ms, e um corpo em queda percorre meio metro nisso) e capaz de
+    // criar energia do nada num frame travado. Ver engine/core/fixedstep.ts.
+    const passos = stepsFor(dts);
+    for (let p = 0; p < passos; p++) {
+      scene.update(FIXED_DT);
+      // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
+      // passo — e aí a varredura de pares da CPU não roda, porque seriam duas
+      // físicas sobre o mesmo estado, a segunda vendo o que a primeira mexeu.
+      //
+      // A decisão fica AQUI, em quem dirige o frame, e não dentro da `Scene`: o
+      // decisor precisa do tipo `Scene` para varrer os corpos, então a `Scene`
+      // importá-lo de volta seria um ciclo. É a forma que o fluido já usa —
+      // `decide.ts` é chamado pelo jogo, não pelo solver.
+      //
+      // Medido (release, headless, 500 corpos): 12,05 ms na CPU contra 0,35 ms
+      // na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
+      if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
+    }
   }
   scene.computeWorld();
 
