@@ -4,7 +4,9 @@
 import { GameObject, COL_BOX } from "./gameobject";
 import { Transform } from "./transform";
 import { Behavior, KIND_CAMERA } from "./behavior";
-import { shapeOf, halfLocalX, halfLocalY, halfLocalZ } from "./collider";
+import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL } from "./collider";
+import { Hull, Contact, hullContactLocal } from "./hullpack";
+import { hullAt } from "./hullreg";
 import math from "../../compat/math.ts";
 
 export class Scene {
@@ -576,6 +578,105 @@ function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], 
 /// sobre três `f64` já escalados em vez de sobre o objeto. Um terceiro
 /// significado de "raio" é o que faria os dois backends discordarem, então o que
 /// muda é de ONDE vêm os números, nunca a conta.
+/// Onde `hullContact` deixa o resultado. UMA instância reusada, e não um objeto
+/// por par: um literal de 4 campos custa ~486 ns por campo neste motor, e isto
+/// nasceria por par e por sub-passo — o doc de `Contact` mede a diferença em
+/// ~4,97 contra ~0,91 µs.
+const hcOut: Contact = new Contact();
+
+/// ESFERA (ou o menor lado de um par de cascas) contra CASCA, em MUNDO.
+///
+/// O teste roda em espaço LOCAL da casca, que é onde `hullContactLocal` o
+/// define, e esta função é só o transporte de ida e volta. A razão de ser assim
+/// está no doc dela e vale repetir porque decide o custo: uma esfera é
+/// INVARIANTE A ROTAÇÃO, então levar o centro para o espaço da casca custa duas
+/// rotações, enquanto trazer os M planos para o mundo custaria M — seis vezes
+/// mais em M = 12, e a razão cresce linear com M.
+///
+/// Devolve 1 e preenche `hcOut` quando há contato, na convenção "de A para B"
+/// que o resto do `solvePair` usa.
+function hullContact(
+  trs: Transform[], ia: number, ib: number,
+  hullA: Hull | null, hullB: Hull | null,
+): number {
+  // Quem é a casca e quem entra como esfera. Com casca dos DOIS lados, a casca
+  // fica com quem tem maior raio envolvente e o outro vira esfera: casca contra
+  // casca não escala (docs/colisores.md §3), e degradar o MENOR erra menos.
+  //
+  // O SINAL: `hullContactLocal` devolve a normal do plano, que aponta para FORA
+  // da casca — ou seja, da casca para a esfera. O `solvePair` quer "de A para
+  // B". Então o sinal é +1 quando A é a casca e -1 quando B é. Estava ao
+  // contrário na primeira versão, e o efeito foi a bola AFUNDAR na rampa em vez
+  // de parar sobre ela: o empurrão saía para dentro. O teste pegou pelo lado
+  // CHEIO da rampa, onde casca e caixa deveriam concordar e discordavam por 0,98.
+  let ih = ia; let ie = ib; let h = hullA; let sinal: f64 = 1.0;
+  if (hullA === null) {
+    ih = ib; ie = ia; h = hullB; sinal = 0.0 - 1.0;
+  } else if (hullB !== null && hullB.radius > hullA.radius) {
+    ih = ib; ie = ia; h = hullB; sinal = 0.0 - 1.0;
+  }
+  if (h === null) return 0;
+
+  const th: Transform = trs[ih];
+  const te: Transform = trs[ie];
+  const r: f64 = minOf3(csHX[ie] * te.sx, csHY[ie] * te.sy, csHZ[ie] * te.sz);
+
+  // ── ida: o centro da esfera para o espaço local da casca ────────────────
+  let dx = te.px - th.px;
+  let dy = te.py - th.py;
+  let dz = te.pz - th.pz;
+
+  // A CAMADA BARATA, antes de qualquer plano: raio envolvente da casca mais o
+  // da esfera. Um `dot` e uma comparação descartam o par sem ler os M planos, e
+  // é o que faz M ser pago só por quem sobrou (docs/colisores.md §3).
+  const esc = maxOf3(th.sx, th.sy, th.sz);
+  const alcance = h.radius * esc + r;
+  const d2 = dx * dx + dy * dy + dz * dz;
+  if (d2 > alcance * alcance) return 0;
+
+  // Desfaz o YAW do dono da casca. Só yaw porque é o que o motor compõe na pose
+  // de mundo (`wrx`/`wry` de `applyParentTo`); um dia com rotação completa isto
+  // vira uma matriz, e o teste de que a casca ACOMPANHA a geometria é o mesmo.
+  const yaw = th.ry;
+  let lx = dx; let lz = dz;
+  if (yaw !== 0.0) {
+    const c = math.cos(0.0 - yaw); const s = math.sin(0.0 - yaw);
+    lx = dx * c - dz * s;
+    lz = dx * s + dz * c;
+  }
+  // E a escala: os planos são da malha sem escalar. Dividir o ponto é
+  // equivalente a escalar a casca e custa 3 divisões em vez de M multiplicações.
+  const ex = th.sx !== 0.0 ? th.sx : 1.0;
+  const ey = th.sy !== 0.0 ? th.sy : 1.0;
+  const ez = th.sz !== 0.0 ? th.sz : 1.0;
+  // O raio dividido pela MENOR escala: uma esfera num espaço escalado de forma
+  // não uniforme vira elipsoide, e a menor escala é a leitura conservadora —
+  // nunca inventa contato onde não há, que é a mesma regra do `radiusOfCol`.
+  const menor = minOf3(ex, ey, ez);
+  if (hullContactLocal(h, lx / ex, dy / ey, lz / ez, r / menor, hcOut) === 0) return 0;
+
+  // ── volta: a normal para o mundo ────────────────────────────────────────
+  let wnx = hcOut.nx; const wny = hcOut.ny; let wnz = hcOut.nz;
+  if (yaw !== 0.0) {
+    const c = math.cos(yaw); const s = math.sin(yaw);
+    const rx = wnx * c - wnz * s;
+    wnz = wnx * s + wnz * c;
+    wnx = rx;
+  }
+  // A profundidade sai em espaço local e volta pela MESMA escala que encolheu o
+  // raio — senão uma casca escalada empurraria com a força errada.
+  hcOut.depth = hcOut.depth * menor;
+  hcOut.nx = wnx * sinal; hcOut.ny = wny * sinal; hcOut.nz = wnz * sinal;
+  return 1;
+}
+
+function maxOf3(x: f64, y: f64, z: f64): f64 {
+  let m: f64 = x;
+  if (y > m) m = y;
+  if (z > m) m = z;
+  return m;
+}
+
 function minOf3(x: f64, y: f64, z: f64): f64 {
   let m: f64 = x;
   if (y < m) m = y;
@@ -605,7 +706,32 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   const boxA = csShape[ia] === COL_BOX ? 1 : 0;
   const boxB = csShape[ib] === COL_BOX ? 1 : 0;
 
-  if (boxA !== 0 && boxB !== 0) {
+  // ── CASCA CONVEXA: a forma que ACOMPANHA A GEOMETRIA ────────────────────
+  //
+  // Um lado com casca e o outro primitivo é o caso que ESCALA, e é o único
+  // aceito aqui. `docs/colisores.md` §3 mediu os dois:
+  //
+  //   esfera contra casca   1,9 milhão de testes de plano/frame   ruído
+  //   casca contra casca    2,2 BILHÕES de produtos escalares     não escala
+  //
+  // O segundo é o termo aresta×aresta do SAT — duas cascas de 12 planos dão 348
+  // eixos, cada um projetando 40 vértices. Então quando OS DOIS lados têm
+  // casca, o de menor `min(ext)` entra como ESFERA, que é a mesma regra que o
+  // `raio()` do kernel e o `radiusOfCol` já usam. A regra em uma frase: cascas
+  // no que não se mexe, primitivas no que se mexe — que é o que a exigência
+  // realmente pede, porque o que precisa acompanhar a geometria é o MUNDO.
+  const hullA = csShape[ia] === COL_HULL ? hullAt(csHull[ia]) : null;
+  const hullB = csShape[ib] === COL_HULL ? hullAt(csHull[ib]) : null;
+  const temCasca = (hullA !== null || hullB !== null) ? 1 : 0;
+
+  if (temCasca !== 0) {
+    // O resultado entra em `nx/ny/nz/overlap` e CAI no mesmo trecho de resposta
+    // que os outros ramos usam — impulso, restituição, herança de apoio. Um
+    // caminho de resposta próprio para a casca seria a terceira cópia de uma
+    // regra que já tem duas (aqui e no WGSL), e é como os backends divergem.
+    if (hullContact(trs, ia, ib, hullA, hullB) === 0) return;
+    nx = hcOut.nx; ny = hcOut.ny; nz = hcOut.nz; overlap = hcOut.depth;
+  } else if (boxA !== 0 && boxB !== 0) {
     // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
     // Sobreposição por eixo; se algum for <= 0 não há contato. A normal é o
     // eixo de MENOR penetração — é o que faz um cubo caindo num chão largo ser
@@ -991,6 +1117,10 @@ let ccMaxR: f64 = 0.0001;
 // meia-extensão local é campo do component e só muda quando alguém edita o
 // colisor; a escala entra no par, onde é lida do transform vivo.
 const csShape: number[] = [];
+/// O `hullId` de cada objeto, resolvido na mesma varredura que a forma. Existe
+/// pelo mesmo motivo das outras: perguntar ao component dentro do par é
+/// O(pares) contra O(n) e custou +43% a 2000 corpos quando foi medido.
+const csHull: number[] = [];
 const csHX: f64[] = [];
 const csHY: f64[] = [];
 const csHZ: f64[] = [];
@@ -1004,7 +1134,8 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
   // representação, e é o tipo de coisa que só aparece medindo — a versão
   // esparsa disto não recuperou nada dos +43% que existia para corrigir.
   while (csShape.length < n) {
-    csShape.push(0); csHX.push(0.5); csHY.push(0.5); csHZ.push(0.5);
+    csShape.push(0); csHull.push(0);
+    csHX.push(0.5); csHY.push(0.5); csHZ.push(0.5);
   }
   let maxR: f64 = 0.0001;
   let i = 0;
@@ -1017,6 +1148,7 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
       // Antes do desvio do estático: um estático COLIDE (só não se move), e
       // pular a resolução dele aqui deixaria `solvePair` sem a forma do chão.
       csShape[i] = shapeOf(o);
+      csHull[i] = hullIdOf(o);
       csHX[i] = halfLocalX(o); csHY[i] = halfLocalY(o); csHZ[i] = halfLocalZ(o);
       // ESTÁTICO sai do grid, para a lista direta (ver `sIdx`): um chão de 90
       // de largura dimensionava a célula em 180 e punha a cena inteira num

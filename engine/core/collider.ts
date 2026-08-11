@@ -192,6 +192,19 @@ function colDe(o: GameObject): Collider | null {
   return o.behaviors[i] as Collider;
 }
 
+/// Alias de `SHAPE_HULL` com o prefixo que `scene.ts` usa para as formas
+/// (`COL_BOX`, `COL_SPHERE` vêm de `gameobject.ts`). Existe para o solver não
+/// misturar dois prefixos numa linha só — o valor é o mesmo número.
+export const COL_HULL = SHAPE_HULL;
+
+/// Qual casca este objeto usa, ou 0 para "nenhuma". Só significa algo quando
+/// `shapeOf` responde `COL_HULL`; um id sem a forma seria ignorado, e é assim
+/// de propósito — a forma é a pergunta, o id é o detalhe dela.
+export function hullIdOf(o: GameObject): number {
+  const c = colDe(o);
+  return c !== null ? c.cHullId() : 0;
+}
+
 /// Qual forma este objeto usa para colidir.
 export function shapeOf(o: GameObject): number {
   const c = colDe(o);
