@@ -78,7 +78,7 @@ import io from "../../compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { shapeOf, halfXOf, halfYOf, halfZOf } from "./collider";
+import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics, rbService, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
@@ -387,6 +387,20 @@ export function rigidInvalidate(): void { pbDirty = 1; }
 /// não pode divergir. Duas cópias do critério é como dois backends passam a
 /// simular cenas diferentes — que é o modo de a troca de backend parecer um bug
 /// de física, e é o que o comentário abaixo já dizia sobre a `collectColliders`.
+/// Conta colisores de casca. Uma varredura O(n), feita só quando a composição
+/// muda — a mesma condição que já governa `pbCollect`.
+function pbContaCascas(sc: Scene): number {
+  const objs: GameObject[] = sc.objects;
+  const n = objs.length;
+  let c = 0;
+  let i = 0;
+  while (i < n) {
+    if (shapeOf(objs[i]) === COL_HULL) c = c + 1;
+    i = i + 1;
+  }
+  return c;
+}
+
 function pbCollect(sc: Scene): number {
   const objs: GameObject[] = sc.objects;
   const n = objs.length;
@@ -511,8 +525,43 @@ function pbSync(sc: Scene): number {
 /// verdade continua sendo o caminho CPU, que também o LIMPA; aqui ele nunca é
 /// zerado, porque uma queda para a CPU depois de um frame de GPU precisa
 /// encontrar o flag ainda de pé.
+/// Quantos objetos da cena usam colisor de CASCA. Recontado quando a composição
+/// muda, junto com o resto — é a mesma varredura.
+let pbCascas = 0;
+
+/// A cena precisa de casca, e o backend escolhido não sabe fazer casca?
+///
+/// Só o caminho da CPU resolve casca hoje: `solvePair` chama `hullContact`, e
+/// nem o kernel WGSL nem o solver em Rust foram ensinados. Sem esta pergunta a
+/// GPU rodaria e o colisor de casca seria IGNORADO em silêncio — a pedra
+/// chanfrada colidiria como caixa e nada diria por quê, que é exatamente o modo
+/// de falha que `rts-physics` ganhou `supports()` para recusar.
+///
+/// A resposta é CAIR PARA A CPU, e não recusar o frame: aqui existe um backend
+/// que sabe fazer, então usá-lo é a escolha certa. O motivo fica em `pbMotivo`
+/// para o `dbg` poder dizer por que o jogo está mais lento numa cena com cascas.
+export function rigidNeedsFallback(): number { return pbCascas > 0 ? 1 : 0; }
+
+/// Quantas cascas a última varredura viu. Diagnóstico.
+export function rigidHullCount(): number { return pbCascas; }
+
 export function rigidStep(sc: Scene, dirtyHint: number): number {
   if (dirtyHint !== 0) pbDirty = 1;
+
+  // A CAPACIDADE É PERGUNTADA ANTES, e é o que faz a casca aparecer na tela em
+  // vez de ser engolida. Nenhum dos dois backends rápidos resolve casca; quando
+  // a cena tem uma, o passo devolve 0 e `main.ts` chama `resolveCollisions`, que
+  // resolve. Mais lento e CORRETO, contra rápido e errado.
+  if (pbDirty !== 0) pbCascas = pbContaCascas(sc);
+  if (pbCascas > 0) {
+    if (pbMotivo !== "cascas na cena") {
+      pbMotivo = "cascas na cena";
+      io.print("[rigid] " + pbCascas + " colisor(es) de CASCA na cena — nem a GPU " +
+               "nem o solver em Rust resolvem casca, entao a fisica cai para a CPU. " +
+               "Sem isto a forma seria ignorada em silencio.");
+    }
+    return 0;
+  }
   // RUST: síncrono e sem calibração. Não há round-trip para esconder nem placa
   // que possa faltar, então este ramo não tem nem o pipelining do `rbService`
   // nem o portão de `pbGpuMorta` — os dois existem por causa da GPU.

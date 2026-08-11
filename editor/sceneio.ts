@@ -18,6 +18,8 @@ import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { Patrol } from "../scripts/patrol";
+import { Collider, SHAPE_BOX } from "../engine/core/collider";
+import { hullForMesh } from "../engine/core/hullmesh";
 import { setLight, setAmbient } from "../engine/render/mesh";
 import { loadModel } from "../engine/render/model";
 
@@ -35,6 +37,29 @@ export function recreateBehavior(sd: any): Behavior {
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
   if (t === "patrol") return new Patrol(sd.range, sd.speed);
   if (t === "sceneRef") return new SceneRef(sd.scenePath);
+  // COLLIDER. A forma que colide, incluindo a que ACOMPANHA a geometria.
+  //
+  // A casca NÃO é serializada: `hullId` é um índice num registro de processo, e
+  // gravá-lo num arquivo faria uma cena carregada noutra ordem apontar para
+  // outra malha. O que a cena grava é `hullMesh` — qual malha gerar a casca de —
+  // e o registro devolve o id de hoje. Um id num arquivo é um ponteiro salvo em
+  // disco, que é a classe de bug que só aparece na segunda cena.
+  if (t === "collider") {
+    const c = new Collider(sd.shape);
+    c.cx = sd.cx; c.cy = sd.cy; c.cz = sd.cz;
+    c.hx = sd.hx; c.hy = sd.hy; c.hz = sd.hz;
+    c.trigger = sd.trigger !== undefined ? sd.trigger : 0;
+    if (sd.hullMesh !== undefined && sd.hullMesh > 0) {
+      c.hullId = hullForMesh(sd.hullMesh);
+      // A casca pode degenerar (malha vazia, ou toda coplanar) e aí `hullForMesh`
+      // devolve 0. Cair para CAIXA é o comportamento certo e é VISÍVEL — a
+      // alternativa, manter `SHAPE_HULL` com id 0, faria o solver percorrer zero
+      // planos e concluir "sem contato" para todo par: um objeto que atravessa
+      // tudo em silêncio.
+      if (c.hullId === 0) c.shape = SHAPE_BOX;
+    }
+    return c;
+  }
   if (t === "camera") {
     const c = new Camera(sd.fov);
     if (sd.isMain !== undefined) c.isMain = sd.isMain;
