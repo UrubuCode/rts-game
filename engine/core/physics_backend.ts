@@ -31,12 +31,46 @@
 //
 // ── O QUE ESTE ARQUIVO NÃO FAZ ─────────────────────────────────────────────
 //
-// Não liga a GPU por padrão. `rigidMode()` nasce em CPU e só sai daí por
-// `rigidSetMode(1)` explícito, porque o sleeping do kernel está quebrado neste
-// momento (`tools/test_gpurigid.ts`: "TUDO dormiu" e "os escombros re-DORMEM"
-// falham; corpos assentam nas alturas certas com velocidade zero e mesmo assim
-// nenhum dorme). Física com sleeping quebrado troca um gargalo por um pior: o
-// caminho CPU fica 4-5× mais barato justamente por pular quem dorme.
+// Não escolhe o backend por medida. `rigidMode()` nasce em GPU e a queda para a
+// CPU é automática só quando a GPU não LIGA — nunca por custo. `rigidBackendFor`
+// e a faixa calibrada existem e são diagnóstico, não decisão, pela razão do
+// débito registrado abaixo.
+//
+// ── UM PARÁGRAFO QUE ESTAVA AQUI E ERA FALSO ───────────────────────────────
+//
+// Ele dizia: "Não liga a GPU por padrão... porque o sleeping do kernel está
+// quebrado neste momento (`test_gpurigid.ts`: 'TUDO dormiu' e 'os escombros
+// re-DORMEM' falham)". As duas metades morreram por caminhos diferentes, e
+// nenhuma delas morreu por alguém editar este texto:
+//
+//   o padrão   `pbModo = 1` desde 2026-08-10 — decisão tomada, "default gpu e
+//              fallback cpu", e o `rigidSetMode` logo abaixo já documentava isso
+//              enquanto este parágrafo dizia o contrário;
+//   o sleeping `test_gpurigid.ts` passa 7 de 7, incluindo os dois casos nomeados.
+//
+// Fica escrito em vez de apagado porque o dano de uma justificativa obsoleta é
+// específico: ela não parece obsoleta. Alguém que lesse "a GPU não é padrão
+// porque o sleeping está quebrado" concluiria que há um bug aberto no kernel e
+// planejaria em cima disso — o texto continua coerente consigo mesmo muito
+// depois de deixar de descrever o programa. Foi o autor do terceiro backend que
+// o encontrou, lendo o arquivo para escrever nele.
+//
+// ── DÉBITO ABERTO: o modelo de custo mede a sonda, não o kernel ─────────────
+//
+// `rigidGpuCostMs` modela n², e o kernel NÃO é n² — ele tem grid de 8192 células
+// com 32 vagas (`gpurigid.ts:70-71`), a mesma vizinhança de 27 células que a CPU
+// e o backend Rust varrem. O que é n² de verdade é a SONDA de `rigidCalibrate`,
+// cujo WGSL varre todos os j; o modelo então compara uma sonda n² com um kernel
+// que tem grid.
+//
+// O próprio `rigidReport` já denuncia isso sem saber, e a linha está impressa
+// hoje: "AVISO: coeficiente n2 da GPU mediu 0 — o topo da faixa NAO e
+// confiavel". O coeficiente mede zero porque o termo não existe no que está
+// sendo medido.
+//
+// NÃO corrigido aqui de propósito: mexer nisso muda QUAL BACKEND RODA numa cena
+// grande, então é rodada própria com medida antes e depois — não conserto de
+// passagem dentro de uma mudança sobre outra coisa.
 // ═══════════════════════════════════════════════════════════════════════════
 import gpu from "../../compat/gpu.ts";
 import io from "../../compat/io.ts";
