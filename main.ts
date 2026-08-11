@@ -36,6 +36,7 @@ import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
 import { stepsFor, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
 import { snapshotWorld, renderX, renderY, renderZ, interpolateReset } from "./engine/core/interpolate";
 import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "./engine/core/profiler";
+import { dcReport } from "./compat/drawcount.ts";
 
 // Seções do profiler — registradas uma vez, referidas por id no laço quente.
 const P_FISICA = profSection("fisica");
@@ -43,6 +44,19 @@ const P_INPUT = profSection("input+camera");
 const P_MUNDO3D = profSection("render 3D");
 const P_UI = profSection("UI 2D");
 const P_CTRL = profSection("controle ws");
+// SUB-SEÇÕES da UI 2D. Estão aqui porque "UI 2D = 2,9 ms" não diz onde mexer, e
+// a hipótese barata — "a hierarquia desenha uma linha por objeto da cena" —
+// precisa ser CONFIRMADA antes de custar trabalho: ela já faz culling de scroll
+// (`visRows`/`hRowLast`), então a suspeita óbvia pode perfeitamente ser a
+// errada. Somam DENTRO da `UI 2D`, que continua sendo o total.
+const P_UI_GIZ = profSection("  ui:gizmo");
+const P_UI_BAR = profSection("  ui:toolbar");
+const P_UI_HIER = profSection("  ui:hierarquia");
+const P_UI_INSP = profSection("  ui:inspector");
+const P_UI_PROJ = profSection("  ui:project");
+// O "resto" era 2,11 ms NAO INSTRUMENTADOS — 29% do frame. E sempre no pedaço
+// não medido que mora a surpresa: hoje isso já aconteceu três vezes.
+const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { initAudio, pumpAudio } from "./engine/audio/audio";
 import { logInfo, logTick } from "./engine/core/logger";
@@ -707,6 +721,7 @@ function frame(): void {
     fParams[7], fParams[8]);
   secEnd(P_MUNDO3D);
   secBegin(P_UI);
+  secBegin(P_UI_GIZ);
   S.drawnLast = drawnN;   // nº de objetos desenhados neste frame (diagnóstico via ws 'dbg')
 
   // ── GIZMO 2D: eixos X/Y/Z coloridos sobre a viewport (over o 3D, sob a UI). O
@@ -763,6 +778,8 @@ function frame(): void {
     app.box(gzOx - 3, gzOy - 3, 6, 6, 0xCCCCCCFF, 0, 0, 1); // centro
   }
 
+  secEnd(P_UI_GIZ);
+  secBegin(P_UI_BAR);
   // ═══ EDITOR UI (estilo Unity) ══════════════════════════════════════════════
   // toolbar
   app.box(0, 0, W, BAR_H, 0x393939FF, 0, 0, 0);
@@ -896,6 +913,8 @@ function frame(): void {
   S.fpsLast = math.floor(app.fps());   // publica pro ws `dbg` (medir perf sem screenshot)
   app.text(W - 92, 15, "fps " + S.fpsLast, 0x909090FF, 13);
 
+  secEnd(P_UI_BAR);
+  secBegin(P_UI_HIER);
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
   app.box(0, BAR_H, HIER_W, H - BAR_H, 0x383838FF, 0, 0, 0);
   app.line(HIER_W, BAR_H, HIER_W, H, 1, 0x232323FF);
@@ -1048,6 +1067,8 @@ function frame(): void {
     app.text(mx + 18, my - 5, ">> " + scene.objects[hierDrag].name, 0xFFFFFFFF, 13);
   }
 
+  secEnd(P_UI_HIER);
+  secBegin(P_UI_INSP);
   // ── inspector (direita) ─────────────────────────────────────────────────────
   const ix = W - INSP_W;
   app.box(ix, BAR_H, INSP_W, H - BAR_H, 0x383838FF, 0, 0, 0);
@@ -1202,6 +1223,7 @@ function frame(): void {
     if (shown === 0) app.text(ix + 24, cyc + 6, "(nenhum)", 0x707070FF, 12);
   }
 
+  secEnd(P_UI_INSP);
   // ── barra inferior (status bar estilo Unity) sobre a área do viewport ───────
   const vpx = HIER_W;
   const vpw = W - HIER_W - INSP_W;
@@ -1225,7 +1247,9 @@ function frame(): void {
   const apX = HIER_W;
   const apY = H - 24 - ASSET_H;
   const apW = W - HIER_W - INSP_W;
+  secBegin(P_UI_PROJ);
   const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, mPressed, mDownNow, frames);
+  secEnd(P_UI_PROJ);
   if (assetAct.length > 0) {
     const path = assetAct.substring(assetAct.indexOf(":") + 1);
     const c0 = assetAct.charCodeAt(0);
@@ -1403,16 +1427,21 @@ function frame(): void {
   pumpAudio();
 
   secEnd(P_UI);
+  secBegin(P_PRESENT);
   // O `endFrame` inclui o PRESENT, e é ali que o vsync espera. Fica fora das
   // seções de propósito: contá-lo como "UI" faria a tabela dizer que a UI custa
   // 16 ms quando o que ela faz é esperar o monitor. Ele aparece no "resto".
   app.endFrame();
+  secEnd(P_PRESENT);
   profFrameEnd();
   // A tabela vai para um ARQUIVO a cada ~5 s, porque o stdout do editor não
   // descarrega enquanto ele vive e a porta de controle não está entregando o
   // 'connection' (ver docs/bug-ws-editor.md). Um profiler que só se lê pela via
   // que está quebrada não serve para consertar nada.
-  if (frames % 300 === 0) fs.write("prof.txt", profReport());
+  // A CONTAGEM de travessias vai junto da tabela: o tempo diz quanto custou, a
+  // contagem diz por quê. Ler as duas lado a lado é o que evita otimizar a
+  // seção certa pelo motivo errado.
+  if (frames % 300 === 0) fs.write("prof.txt", profReport() + String.fromCharCode(10) + dcReport());
 }
 
 while (app.running()) {

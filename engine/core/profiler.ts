@@ -20,9 +20,15 @@
 //
 // ── O CUSTO DE MEDIR ───────────────────────────────────────────────────────
 //
-// `Date.now()` tem resolução de 1 ms, então uma seção mais curta que isso
-// aparece como 0. Para trechos assim, o que vale é a SOMA ao longo do frame, e é
-// por isso que `secBegin`/`secEnd` acumulam em vez de guardar o último valor.
+// O relógio é `performance.now()`, e não `Date.now()`. Era `Date.now()`, com a
+// ressalva de que uma seção mais curta que 1 ms aparecia como 0; o que revelou
+// que a ressalva não bastava foi tentar SUBDIVIDIR a UI 2D, que custa ~2,9 ms
+// inteira: cada pedaço caía abaixo do passo do relógio e a tabela respondia
+// zeros com um total não-zero. `performance.now()` é fração de milissegundo e a
+// subdivisão passa a significar alguma coisa.
+//
+// A SOMA continua sendo o que vale para trechos curtos, e é por isso que
+// `secBegin`/`secEnd` acumulam em vez de guardar o último valor.
 // Desligado (`profEnable(0)`), o par vira um `if` e um retorno — barato o
 // bastante para ficar no código em produção, que é como a Unity faz.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -60,24 +66,24 @@ export function profSection(nome: string): number {
 
 export function profFrameBegin(): void {
   if (ligado === 0) return;
-  frameT0 = Date.now();
+  frameT0 = performance.now();
   let i = 0;
   while (i < nSec) { acum[i] = 0.0; i = i + 1; }
 }
 
 export function secBegin(id: number): void {
   if (ligado === 0) return;
-  inicio[id] = Date.now();
+  inicio[id] = performance.now();
 }
 
 export function secEnd(id: number): void {
   if (ligado === 0) return;
-  acum[id] = acum[id] + (Date.now() - inicio[id]);
+  acum[id] = acum[id] + (performance.now() - inicio[id]);
 }
 
 export function profFrameEnd(): void {
   if (ligado === 0) return;
-  const total = Date.now() - frameT0;
+  const total = performance.now() - frameT0;
   // Peso 0,05 ≈ um segundo de história a 60 fps. Menos que isso treme, mais
   // demora a reagir quando você troca algo.
   frameMedia = frames === 0 ? total : frameMedia * 0.95 + total * 0.05;
@@ -97,12 +103,17 @@ export function profFrameEnd(): void {
 export function profReport(): string {
   if (ligado === 0) return "[prof] desligado — use `prof on`";
   if (frames === 0) return "[prof] nenhum frame medido ainda";
+  // SÓ as seções de topo somam para o "resto". As sub-seções (nome começando
+  // com espaço) já estão CONTIDAS na seção que as envolve — contá-las de novo
+  // fazia a soma passar do total e o resto ficar NEGATIVO, que foi como este
+  // defeito apareceu. Uma tabela que mente é pior que nenhuma.
   let soma: f64 = 0.0;
   let out = "[prof] frame " + frameMedia.toFixed(2) + " ms (" +
             (frameMedia > 0.0 ? (1000.0 / frameMedia).toFixed(0) : "-") + " fps) media de " + frames + " frames\n";
   let i = 0;
   while (i < nSec) {
-    soma = soma + media[i];
+    const aninhada = nomes[i].charCodeAt(0) === 32;
+    if (!aninhada) soma = soma + media[i];
     const pct = frameMedia > 0.0 ? (media[i] / frameMedia * 100.0) : 0.0;
     out = out + "  " + nomes[i].padEnd(18) + media[i].toFixed(2).padStart(7) + " ms  " + pct.toFixed(1).padStart(5) + "%\n";
     i = i + 1;

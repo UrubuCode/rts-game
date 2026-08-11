@@ -30,6 +30,7 @@
 // `delta`/`fps` idem: são `Date.now()` e uma média, não uma capacidade.
 import { drawRect, drawText, drawLine, openWindow, setNextWindowPos, isOpen, pump, beginFrame, endFrame, close } from "rts:egui";
 import { mouseX, mouseY, mouseDown, mousePressed, mouseReleased, mouseClicked, key, textInput } from "rts:input";
+import { dcRect, dcText, dcLine, dcReset } from "./drawcount.ts";
 
 // Fases de `input.key(win, code, phase)`, do trait `InputSource`:
 // 0 = segurada agora, 1 = disparou neste frame (borda). Escritas como constante
@@ -76,6 +77,40 @@ let deltaMs = 16.0;
 // menos estado que uma janela de amostras.
 let avgMs = 16.0;
 
+// ── OS OBJETOS DE OPÇÕES, REUSADOS ─────────────────────────────────────────
+//
+// A superfície nova recebe um objeto (`drawRect(win, { x, y, … })`) porque a
+// convenção de chamada carrega quatro argumentos e um retângulo tem oito campos
+// — está explicado em `rts-ui/src/value.rs`. O que ela NÃO pede é um objeto
+// NOVO por chamada, e era isso que este shim fazia.
+//
+// MEDIDO (release, `tools/claude-bench-2d2.ts`, 2000 chamadas por frame):
+//
+//     drawRect(win, { …8 campos })   4,505 us   ← literal por chamada
+//     drawRect(win, fixo)            0,667 us   ← o MESMO objeto, mutado
+//     winWidth(win)                  0,085 us   ← nativo sem objeto nenhum
+//
+// Ou seja: dos 4,5 us de um retângulo, 3,8 são o objeto e 0,58 é a travessia.
+// O custo que parecia ser "atravessar a fronteira" é ALOCAR — o literal escapa
+// para dentro da chamada, então o coletor tem de criá-lo de verdade, ao
+// contrário de um literal que fica no quadro e a análise de escape achata.
+//
+// Reusar é seguro porque o nativo COPIA: `options()` lê os oito campos para
+// `f64` e devolve antes que a próxima chamada possa mexer no objeto. Não há
+// chamada aninhada que interleave — cada `drawRect` termina antes do próximo
+// começar, numa thread só.
+//
+// Rejeitado: um `drawRectBatch(win, Float32Array)`. Ele resolveria a mesma
+// coisa e custaria um membro novo no motor, uma segunda convenção na superfície
+// e, o pior, a ORDEM: retângulo e texto se intercalam no editor (uma caixa,
+// depois o rótulo dentro dela), então um lote de retângulos separado do de
+// textos pinta os rótulos por baixo. Um lote que preservasse a ordem teria de
+// ser uma display list com opcodes — que é outro projeto, e este aqui já pega
+// 85% do custo sem tocar no motor.
+const oRect = { x: 0.0, y: 0.0, w: 0.0, h: 0.0, fill: 0, strokeW: 0, stroke: 0, radius: 0 };
+const oText = { x: 0.0, y: 0.0, text: "", color: 0, size: 12, flags: 0 };
+const oLine = { x1: 0.0, y1: 0.0, x2: 0.0, y2: 0.0, w: 1, color: 0 };
+
 function inRect(x: number, y: number, w: number, h: number): boolean {
   return curMx >= x && curMx < x + w && curMy >= y && curMy < y + h;
 }
@@ -118,6 +153,8 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       lastMs = now;
       avgMs = avgMs * 0.9 + deltaMs * 0.1;
 
+      dcReset();   // as travessias contam por FRAME (ver compat/drawcount.ts)
+
       curMx = mouseX(win);
       curMy = mouseY(win);
       curDown = mouseDown(win, 0) ? 1 : 0;
@@ -142,17 +179,24 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
     // no outro faria uma dívida depender da outra para ser paga.
     box(bx: number, by: number, bw: number, bh: number, fill: number,
         strokeW: number, stroke: number, radius: number): void {
-      drawRect(win, { x: bx, y: by, w: bw, h: bh, fill: fill, strokeW: strokeW, stroke: stroke, radius: radius });
+      dcRect();
+      oRect.x = bx; oRect.y = by; oRect.w = bw; oRect.h = bh;
+      oRect.fill = fill; oRect.strokeW = strokeW; oRect.stroke = stroke; oRect.radius = radius;
+      drawRect(win, oRect);
     },
 
     // O `app.text` antigo não tinha `flags` (o editor chama sempre com 5
     // argumentos); do lado novo `flags` é bitmask 1=negrito 2=itálico 4=mono.
     text(tx: number, ty: number, s: string, color: number, size: number): void {
-      drawText(win, { x: tx, y: ty, text: s, color: color, size: size, flags: 0 });
+      dcText();
+      oText.x = tx; oText.y = ty; oText.text = s; oText.color = color; oText.size = size;
+      drawText(win, oText);
     },
 
     line(x1: number, y1: number, x2: number, y2: number, lw: number, color: number): void {
-      drawLine(win, { x1: x1, y1: y1, x2: x2, y2: y2, w: lw, color: color });
+      dcLine();
+      oLine.x1 = x1; oLine.y1 = y1; oLine.x2 = x2; oLine.y2 = y2; oLine.w = lw; oLine.color = color;
+      drawLine(win, oLine);
     },
 
     // ── widgets posicionados (hit-test em TS, ver o cabeçalho) ────────────
@@ -182,8 +226,12 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       let fill = 0x2D2D2DFF;
       if (over && curDown !== 0) fill = 0x252525FF;
       else if (over) fill = 0x454545FF;
-      drawRect(win, { x: bx, y: by, w: bw, h: bh, fill: fill, strokeW: 1, stroke: 0x232323FF, radius: 3 });
-      drawText(win, { x: bx + 8, y: by + (bh - 13) * 0.5, text: label, color: 0xC8C8C8FF, size: 12, flags: 0 });
+      oRect.x = bx; oRect.y = by; oRect.w = bw; oRect.h = bh;
+      oRect.fill = fill; oRect.strokeW = 1; oRect.stroke = 0x232323FF; oRect.radius = 3;
+      drawRect(win, oRect);
+      oText.x = bx + 8; oText.y = by + (bh - 13) * 0.5; oText.text = label;
+      oText.color = 0xC8C8C8FF; oText.size = 12;
+      drawText(win, oText);
       return over && curClicked !== 0 &&
         pressX >= bx && pressX < bx + bw && pressY >= by && pressY < by + bh;
     },
@@ -194,8 +242,11 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       const over = inRect(kx, ky, box, box);
       const hit = over && curClicked !== 0 && pressX >= kx && pressX < kx + box && pressY >= ky && pressY < ky + box;
       const next = hit ? (value !== 0 ? 0 : 1) : value;
-      drawRect(win, { x: kx, y: ky, w: box, h: box, fill: next !== 0 ? 0x5A7FB0FF : 0x2A2A2AFF, strokeW: 1, stroke: 0x232323FF, radius: 2 });
-      drawText(win, { x: kx + box + 6, y: ky, text: label, color: 0xC8C8C8FF, size: 12, flags: 0 });
+      oRect.x = kx; oRect.y = ky; oRect.w = box; oRect.h = box;
+      oRect.fill = next !== 0 ? 0x5A7FB0FF : 0x2A2A2AFF; oRect.strokeW = 1; oRect.stroke = 0x232323FF; oRect.radius = 2;
+      drawRect(win, oRect);
+      oText.x = kx + box + 6; oText.y = ky; oText.text = label; oText.color = 0xC8C8C8FF; oText.size = 12;
+      drawText(win, oText);
       return next;
     },
 
@@ -220,8 +271,12 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
         const typed = textInput(win);
         if (typed.length > 0) out = out + typed;
       }
-      drawRect(win, { x: tx, y: ty, w: tw, h: h2, fill: 0x2A2A2AFF, strokeW: 1, stroke: focused ? 0x5A7FB0FF : 0x232323FF, radius: 3 });
-      drawText(win, { x: tx + 5, y: ty + 3, text: focused ? out + "|" : out, color: 0xD0D0D0FF, size: 12, flags: 0 });
+      oRect.x = tx; oRect.y = ty; oRect.w = tw; oRect.h = h2;
+      oRect.fill = 0x2A2A2AFF; oRect.strokeW = 1; oRect.stroke = focused ? 0x5A7FB0FF : 0x232323FF; oRect.radius = 3;
+      drawRect(win, oRect);
+      oText.x = tx + 5; oText.y = ty + 3; oText.text = focused ? out + "|" : out;
+      oText.color = 0xD0D0D0FF; oText.size = 12;
+      drawText(win, oText);
       return out;
     },
 

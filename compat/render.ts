@@ -49,6 +49,16 @@
 // significando "não preenche", que é como `assets.ts:204` desenha a moldura.
 
 import { drawRect, drawText, drawLine, drawImage } from "rts:egui";
+import { dcRect, dcText, dcLine } from "./drawcount.ts";
+
+// Objetos de opções REUSADOS — a mesma decisão (e a mesma medição) que
+// `compat/app.ts` documenta: o literal por chamada custa 4,5 us e o objeto
+// mutado custa 0,67. Duas cópias do estado, e não uma importada de lá, porque os
+// dois shims são independentes de propósito: `render.*` é `rts:render` e
+// `app.*` é `createAppAt`, e nenhum deve morrer preso ao outro.
+const oRect = { x: 0.0, y: 0.0, w: 0.0, h: 0.0, fill: 0, strokeW: 0, stroke: 0, radius: 0 };
+const oText = { x: 0.0, y: 0.0, text: "", color: 0, size: 12, flags: 0 };
+const oLine = { x1: 0.0, y1: 0.0, x2: 0.0, y2: 0.0, w: 1, color: 0 };
 
 export default {
   // `rect(win, x, y, w, h, fill, strokeW, stroke, radius)`.
@@ -60,7 +70,10 @@ export default {
     x: number, y: number, w: number, h: number,
     fill: number, strokeW: number, stroke: number, radius: number,
   ): void {
-    drawRect(win, { x, y, w, h, fill, strokeW, stroke, radius });
+    dcRect();
+    oRect.x = x; oRect.y = y; oRect.w = w; oRect.h = h;
+    oRect.fill = fill; oRect.strokeW = strokeW; oRect.stroke = stroke; oRect.radius = radius;
+    drawRect(win, oRect);
   },
 
   // `text(win, x, y, s, color, size, flags)`.
@@ -75,7 +88,9 @@ export default {
     x: number, y: number, s: string,
     color: number, size: number, flags: number,
   ): void {
-    drawText(win, { x, y, text: s, color, size, flags });
+    dcText();
+    oText.x = x; oText.y = y; oText.text = s; oText.color = color; oText.size = size; oText.flags = flags;
+    drawText(win, oText);
   },
 
   // `line(win, x1, y1, x2, y2, w, color)` — tradução direta.
@@ -84,7 +99,9 @@ export default {
     x1: number, y1: number, x2: number, y2: number,
     w: number, color: number,
   ): void {
-    drawLine(win, { x1, y1, x2, y2, w, color });
+    dcLine();
+    oLine.x1 = x1; oLine.y1 = y1; oLine.x2 = x2; oLine.y2 = y2; oLine.w = w; oLine.color = color;
+    drawLine(win, oLine);
   },
 
   // `image(win, x, y, w, h, pixels, iw, ih)` — blit de um framebuffer RGBA8.

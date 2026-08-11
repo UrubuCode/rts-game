@@ -11,7 +11,31 @@ import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { Scene } from "../core/scene";
 import { renderX, renderY, renderZ } from "../core/interpolate";
-import { drawGPU, drawGPUMesh } from "./gpu3d";
+import { drawGPU, drawGPUMesh, drawBatch, meshIdFor } from "./gpu3d";
+
+// ── LOTE: os buffers de instância, REAPROVEITADOS entre frames ──────────────
+//
+// 8 floats (x,y,z,rx,ry,sx,sy,sz) + 4 inteiros (mesh,color,emissive,tex) por
+// objeto. Dois arrays e não um: uma cor `0xAARRGGBB` com alpha passa de 2^24 e
+// não é exata em f32 — voltaria com o canal errado. Alocar por frame poria
+// pressão de GC no caminho do render, que é o mesmo motivo pelo qual `fParams`
+// já é reaproveitado; crescem por dobra e nunca encolhem.
+let bufT: Float32Array = new Float32Array(0);
+let bufC: Uint32Array = new Uint32Array(0);
+
+function garanteCapacidade(n: number): void {
+  if (bufC.length >= n * 4) return;
+  let cap = 64;
+  while (cap < n) cap = cap * 2;
+  bufT = new Float32Array(cap * 8);
+  bufC = new Uint32Array(cap * 4);
+}
+
+// Qual caminho de emissão o laço usa. Existe para o bench medir os DOIS no MESMO
+// binário — entre dois builds o ruído é maior que o efeito — e não é uma opção
+// de jogo: o editor usa o lote, que é o default.
+let emitirEmLote = 1;
+export function setDrawBatch(on: number): void { emitirEmLote = on; }
 
 /// Os 9 números do frustum, buffer REAPROVEITADO entre frames: alocar um array
 /// por frame para transportar nove doubles poria pressão de GC no caminho do
@@ -53,6 +77,7 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
                           tanH: f64, tanV: f64): number {
   let drawnN = 0;
   let oi = 0;
+  if (emitirEmLote !== 0) garanteCapacidade(n);
   while (oi < n) {
     const o: GameObject = objs[oi];
     // ORDEM IMPORTA: descarte barato primeiro. Inativo sai já; a visibilidade é
@@ -114,7 +139,23 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
       const rx = renderX(sc, oi, alpha);
       const ry = renderY(sc, oi, alpha);
       const rz = renderZ(sc, oi, alpha);
-      if (customMesh > 0) {
+      if (emitirEmLote !== 0) {
+        // ACUMULA. A escrita num array tipado é local; o que ela substitui é uma
+        // ida ao nativo por objeto, e é essa a diferença que a medição procura.
+        const ft = drawnN * 8;
+        bufT[ft] = rx; bufT[ft + 1] = ry; bufT[ft + 2] = rz;
+        bufT[ft + 3] = tr.wrx; bufT[ft + 4] = tr.wry;
+        bufT[ft + 5] = tr.sx; bufT[ft + 6] = tr.sy; bufT[ft + 7] = tr.sz;
+        const ct = drawnN * 4;
+        bufC[ct] = customMesh > 0 ? customMesh : meshIdFor(meshKind);
+        bufC[ct + 1] = col;
+        bufC[ct + 2] = emisArg;
+        // `tex` negativo vira um u32 gigante no array tipado, onde o caminho por
+        // objeto fazia `tex.max(0)` do lado Rust. O resultado VISÍVEL seria o
+        // mesmo (id inexistente = sem textura), mas igual por acidente não é
+        // igual: o pedido é que o editor desenhe idêntico.
+        bufC[ct + 3] = texArg < 0 ? 0 : texArg;
+      } else if (customMesh > 0) {
         drawGPUMesh(win, customMesh, rx, ry, rz,
           tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
       } else {
@@ -124,6 +165,12 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
       drawnN = drawnN + 1;
     }
     oi = oi + 1;
+  }
+  // UMA travessia com o que sobreviveu ao frustum. O `subarray` é uma view sobre
+  // o mesmo buffer — não copia — e é o que impede o nativo de ler as sobras do
+  // frame anterior, que continuam no fim do array reaproveitado.
+  if (emitirEmLote !== 0 && drawnN > 0) {
+    drawBatch(win, bufT.subarray(0, drawnN * 8), bufC.subarray(0, drawnN * 4));
   }
   return drawnN;
 }

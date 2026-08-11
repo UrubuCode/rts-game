@@ -40,7 +40,7 @@
 
 import {
   meshUpload, textureUpload, setCamera, setLight, setShadow as eguiSetShadow,
-  drawMesh, setVsync as eguiSetVsync,
+  drawMesh, drawMeshBatch, setVsync as eguiSetVsync,
   winWidth as eguiWinWidth, winHeight as eguiWinHeight,
 } from "rts:egui";
 import math from "../../compat/math.ts";
@@ -453,14 +453,40 @@ export function drawWaterGPU(win: number, gbuf: number, count: number, scale: nu
   );
 }
 
+/// O mesh id de um meshKind — a MESMA tabela que `drawGPU` aplica.
+///
+/// Exportada porque o caminho em LOTE precisa do id para escrever no registro da
+/// instância, e ele não passa por `drawGPU`. Continua sendo uma tabela só: se
+/// `drawGPU` resolvesse por conta própria, um kind novo passaria a desenhar
+/// diferente conforme o caminho — que é o tipo de divergência que ninguém vê até
+/// a cena estar errada. Por isso `drawGPU` chama esta função.
+export function meshIdFor(kind: number): number {
+  if (kind === 2) return idPyra;
+  if (kind === 3) return idOcta;
+  if (kind === 4) return idSphere;
+  return idCube;
+}
+
+/// Desenha N objetos numa ÚNICA travessia TS→nativo.
+///
+/// `transforms` = 8 f32 por objeto (x,y,z,rx,ry,sx,sy,sz);
+/// `codes` = 4 u32 por objeto (mesh, color, emissive, tex). Responde quantos
+/// entraram. Os inteiros vão num `Uint32Array` separado de propósito: uma cor
+/// `0xAARRGGBB` com alpha passa de 2^24 e voltaria arredondada de um f32.
+///
+/// O pass 3D já instanciava — ele ordena por (mesh, tex) e monta um instance
+/// buffer desde antes disto. O que isto remove é a FRONTEIRA: eram N idas ao
+/// nativo por frame, cada uma materializando um objeto de 12 campos, para no fim
+/// empurrar N tuplas na mesma fila.
+export function drawBatch(win: number, transforms: Float32Array, codes: Uint32Array): number {
+  return drawMeshBatch(win, { transforms: transforms, codes: codes });
+}
+
 /// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).
 export function drawGPU(win: number, kind: number, px: number, py: number, pz: number,
                         rx: number, ry: number, sx: number, sy: number, sz: number, color: number,
                         emissive: number, tex: number): void {
-  let id = idCube;
-  if (kind === 2) id = idPyra;
-  if (kind === 3) id = idOcta;
-  if (kind === 4) id = idSphere;
+  const id = meshIdFor(kind);
   drawMesh(win, {
     mesh: id, x: px, y: py, z: pz, rx: rx, ry: ry,
     sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex,
