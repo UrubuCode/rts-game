@@ -99,3 +99,34 @@ io.print("");
 io.print("  A coluna 'a CONTA' e o que um solver em Rust com threads pode dividir.");
 io.print("  A coluna 'espalhada' e o piso: travessia e grid, que ficam onde estao");
 io.print("  ate os DADOS mudarem de lado — nao o codigo.");
+
+// ── CORREÇÃO, 2026-08-11 ───────────────────────────────────────────────────
+//
+// A leitura que este arquivo publicou — "98-99% do custo é ARITMÉTICA de par" —
+// está ERRADA, e o erro é de interpretação, não de medida. Os números acima
+// continuam válidos.
+//
+// `densa − espalhada` isola o trabalho que só existe QUANDO HÁ PAR. Isso não é a
+// mesma coisa que a aritmética do par: ler a posição do vizinho `j` atravessa
+// `GameObject` e `Transform`, e essa travessia também só acontece quando há par,
+// então ela caiu inteira na coluna rotulada "a CONTA".
+//
+// O que matou a leitura foi o solver equivalente em Rust: os MESMOS 27,7
+// candidatos por corpo custam 0,82 ms a 2000 corpos numa thread, ou ~9 ns por
+// candidato. Para o lado TypeScript custar 157 ms, cada candidato teria de
+// custar ~2,8 µs — 300× algumas dezenas de operações de ponto flutuante. Não é
+// aritmética; é travessia por par.
+//
+// A decomposição real do ganho, medida com a máquina a 4% de carga:
+//
+//   layout achatado (Float32Array plano, sem objeto por corpo)   ~195x
+//   threads (16 lógicas), em cima disso                            3,9x
+//
+// Isso NÃO invalida o desenho gather/Jacobi — é ele que torna as threads
+// possíveis. Revisa a expectativa: o ganho veio de ONDE OS DADOS MORAM, não de
+// quantos núcleos rodam. Um solver em Rust sequencial sobre arrays planos já
+// entrega quase tudo.
+//
+// Fica escrito aqui em vez de o arquivo ser corrigido em silêncio porque o
+// commit `bafd316` publicou a leitura errada, e uma medida que muda de sentido
+// depois é exatamente o que a regra "um número medido continua real" protege.
