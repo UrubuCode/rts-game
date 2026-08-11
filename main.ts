@@ -7,6 +7,7 @@ import io from "./compat/io.ts";
 import math from "./compat/math.ts";
 import buffer from "./compat/buffer.ts";
 import render from "./compat/render.ts";
+import { setVsync } from "rts:egui";
 import input from "rts:input";
 import fs from "./compat/fs.ts";
 import process from "./compat/process.ts";
@@ -32,6 +33,14 @@ import { history } from "./editor/undo";
 import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
 import { stepsFor, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
 import { snapshotWorld, renderX, renderY, renderZ, interpolateReset } from "./engine/core/interpolate";
+import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "./engine/core/profiler";
+
+// Seções do profiler — registradas uma vez, referidas por id no laço quente.
+const P_FISICA = profSection("fisica");
+const P_INPUT = profSection("input+camera");
+const P_MUNDO3D = profSection("render 3D");
+const P_UI = profSection("UI 2D");
+const P_CTRL = profSection("controle ws");
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { initAudio, pumpAudio } from "./engine/audio/audio";
 import { logInfo, logTick } from "./engine/core/logger";
@@ -305,7 +314,22 @@ let previewPay = "";
 
 initMeshes(WIN);
 assetsInit();
-ctrlServe(7777);   // porta de controle da LLM (ws://127.0.0.1:7777)
+ctrlServe(7777);
+// Profiler LIGADO por padrão: o custo de medir é um `if` por seção, e a
+// alternativa — descobrir onde o frame foi gasto adivinhando — já custou duas
+// investigações erradas nesta engine. `prof off` desliga pela porta de controle.
+profEnable(1);
+// VSYNC DESLIGADO por padrão.
+//
+// O default do `rts-egui` é `PresentMode::Fifo`, que trava a apresentação na
+// taxa do monitor — 60 fps de teto, e um frame que passe de 16,7 ms cai para o
+// múltiplo seguinte. Num EDITOR isso é o contrário do que se quer: aqui o
+// número que importa é quanto o frame custa DE VERDADE, e um teto esconde tanto
+// a folga (quando sobra tempo) quanto a queda (quando o vsync arredonda).
+//
+// O preço é tearing e uma GPU que trabalha mais do que a tela aproveita. Para um
+// editor, ver o custo real vale mais; um jogo publicado deve ligar de volta.
+setVsync(WIN, 0);   // porta de controle da LLM (ws://127.0.0.1:7777)
 S.win = WIN;
 // áudio: se a máquina não tiver saída, `initAudio` devolve 0 e o editor segue mudo
 initAudio();
@@ -340,7 +364,10 @@ function frame(): void {
   if (nw > 400) W = nw;
   if (nh > 300) H = nh;
   focalW = (H * 0.5) / math.tan(FOV * 0.5);
+  profFrameBegin();
+  secBegin(P_CTRL);
   ctrlPoll(W, H);   // ← controle da LLM por WebSocket (não-bloqueante)
+  secEnd(P_CTRL);
   let dt: f64 = app.delta();
   if (dt > 100) dt = 100;
   const dts: f64 = dt / 1000.0;
@@ -406,6 +433,7 @@ function frame(): void {
   }
 
   // ── UPDATE da cena (só quando S.playing) ────────────────────────────────────
+  secBegin(P_FISICA);
   if (S.playing !== 0) {
     // PASSO FIXO: a física anda em 1/60 s, quantas vezes o tempo real pedir.
     // Antes ela andava com o `dts` do FRAME, o que a tornava não determinística
@@ -441,6 +469,7 @@ function frame(): void {
     // havia antes do passo fixo, e é o que há de novo.
     if (passos > 0) scene.computeWorld();
   }
+  secEnd(P_FISICA);
   scene.computeWorld();
 
   // ── PICKING + DRAG: pressionar seleciona; segurando, ARRASTA o objeto ───────
@@ -653,6 +682,7 @@ function frame(): void {
   // luz mudava o sombreamento mas NÃO as sombras — elas caíam pro lado errado.
   setShadow(WIN, 0.0 - S.lightX, 0.0 - S.lightY, 0.0 - S.lightZ, 0.0, 1.0, 0.0, 24.0);
   // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
+  secBegin(P_MUNDO3D);
   frustumBegin(S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
   // Sincroniza a flag de seleção UMA vez por frame (custo O(n + |seleção|)),
   // em vez de o render varrer a lista inteira por objeto visível (O(n × |sel|)).
@@ -736,6 +766,8 @@ function frame(): void {
     }
     oi = oi + 1;
   }
+  secEnd(P_MUNDO3D);
+  secBegin(P_UI);
   S.drawnLast = drawnN;   // nº de objetos desenhados neste frame (diagnóstico via ws 'dbg')
 
   // ── GIZMO 2D: eixos X/Y/Z coloridos sobre a viewport (over o 3D, sob a UI). O
@@ -1431,7 +1463,17 @@ function frame(): void {
   // mantém o ring de áudio cheio (ver engine/audio/audio.ts)
   pumpAudio();
 
+  secEnd(P_UI);
+  // O `endFrame` inclui o PRESENT, e é ali que o vsync espera. Fica fora das
+  // seções de propósito: contá-lo como "UI" faria a tabela dizer que a UI custa
+  // 16 ms quando o que ela faz é esperar o monitor. Ele aparece no "resto".
   app.endFrame();
+  profFrameEnd();
+  // A tabela vai para um ARQUIVO a cada ~5 s, porque o stdout do editor não
+  // descarrega enquanto ele vive e a porta de controle não está entregando o
+  // 'connection' (ver docs/bug-ws-editor.md). Um profiler que só se lê pela via
+  // que está quebrada não serve para consertar nada.
+  if (frames % 300 === 0) fs.write("prof.txt", profReport());
 }
 
 while (app.running()) {

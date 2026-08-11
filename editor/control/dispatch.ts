@@ -14,6 +14,8 @@ import { scene, S } from "./session";
 import { history } from "../undo";
 import { inFrustum } from "../../engine/render/gpu3d";
 import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport } from "../../engine/core/physics_backend";
+import { profReport, profEnable, profReset, profEnabled } from "../../engine/core/profiler";
+import { stepsLastFrame, stepDiscards, stepAlpha } from "../../engine/core/fixedstep";
 
 /// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo).
 function isMutating(c: string): boolean {
@@ -61,6 +63,25 @@ function execCommandInner(w: number, h: number, line: string): string {
       return "[redo] nada pra refazer";
     }
     case "state": return cmdState();
+    // A TABELA DE DESEMPENHO — onde o frame foi gasto, por seção.
+    //
+    // Existe porque adivinhar errou duas vezes nesta engine: primeiro culpando o
+    // `drawMesh` (era a física), depois culpando a física (o render está preso
+    // no vsync e o custo era um round-trip de GPU síncrono). A linha
+    // "(resto/vsync)" é a mais importante: é o que ninguém instrumentou, mais a
+    // espera do monitor.
+    case "prof": {
+      const alvo = parts[1];
+      if (alvo === "off") { profEnable(0); return "[prof] desligado"; }
+      if (alvo === "on") { profEnable(1); profReset(); return "[prof] ligado (zerado)"; }
+      if (alvo === "reset") { profReset(); return "[prof] zerado"; }
+      if (profEnabled() === 0) return "[prof] desligado — use `prof on`";
+      const nl = String.fromCharCode(10);
+      return profReport() + nl +
+             "  passo fixo: " + stepsLastFrame() + " passos no ultimo frame, alpha=" +
+             stepAlpha().toFixed(2) + ", descartes=" + stepDiscards() + nl +
+             "  fisica: " + rigidBackendName() + " com " + rigidBodyCount() + " corpos";
+    }
     // Trocar o backend da física EM TEMPO DE EXECUÇÃO, sem reiniciar o editor.
     //
     // Existe porque medir os dois exige alternar na MESMA cena: reiniciar entre

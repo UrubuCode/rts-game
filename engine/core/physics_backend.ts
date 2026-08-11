@@ -44,7 +44,7 @@ import io from "../../compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { rbInit, rbSetBody, rbUpload, rbSyncStatics, rbStep, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
+import { rbInit, rbSetBody, rbUpload, rbSyncStatics, rbService, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
 
 // ── calibração ─────────────────────────────────────────────────────────────
 
@@ -309,25 +309,25 @@ function pbSync(sc: Scene): number {
 /// deve PULAR o caminho CPU), 0 se não — sem GPU, GPU morta, modo CPU, ou cena
 /// sem corpos dinâmicos.
 ///
-/// ── POR QUE `rbStep` (síncrono) E NÃO `rbService` (pipelined) ──────────────
+/// ── `rbService` (pipelined), e por que ele NÃO era usado antes ─────────────
 ///
-/// `rbService` é o caminho certo — agenda a leitura e não espera a GPU — e ele
-/// NÃO FUNCIONA hoje, por um defeito no shim e não no kernel. `compat/gpu.ts`
-/// declara `read_begin(buf)` com UM parâmetro, enquanto todo chamador escreve
-/// `read_begin(buf, bytes)`: o tamanho é descartado, o nativo recebe `size=0` e
-/// devolve o ticket `0`. Sondado nesta máquina:
+/// Este arquivo usou `rbStep` (síncrono) por um tempo, com uma justificativa que
+/// era correta quando foi escrita e ENVELHECEU: `compat/gpu.ts` declarava
+/// `read_begin(buf)` com um parâmetro só, o tamanho era descartado, o nativo
+/// recebia `size=0` e devolvia ticket `0` — e com ticket 0 o `rbService` reentra
+/// para sempre no ramo "primeiro frame" e nunca entrega estado novo.
 ///
-///     gpu.read_begin(g, 4096)  ->  0
-///     gpu.read_poll(0, out)    ->  false
+/// O shim foi corrigido (`read_begin(buf, size)`), então o caminho certo está
+/// livre. A diferença decide o frame:
 ///
-/// Com ticket 0, `rbService` reentra para sempre no ramo "primeiro frame" e
-/// nunca devolve estado novo — a cena ficaria parada com a GPU rodando, que é o
-/// modo de falhar mais caro possível (parece física quebrada, é um argumento
-/// perdido). Enquanto o shim não for corrigido, aqui se usa `rbStep`, que lê
-/// com `gpu.read` e é o mesmo caminho que `tools/test_gpurigid.ts` exercita.
+///     rbStep    -> rbPull -> gpu.read      ESPERA a GPU terminar
+///     rbService -> readBegin/readPoll      pergunta e segue
 ///
-/// O preço é um round-trip por frame — 0,61 ms medidos na calibração desta
-/// máquina, contra 9,55 ms do caminho CPU com 500 corpos. Pago e dito.
+/// O editor desenha com a MESMA GPU, então esperar a compute serializa compute
+/// e render — o frame passa a custar um round-trip inteiro, e o ganho medido no
+/// benchmark (que sempre usou `rbService`) não chega à tela.
+///
+/// O preço é 1 frame de latência: sem estado novo, o desenho repete o anterior.
 /// `dirtyHint` é o `colDirty` da própria `Scene`: 1 = a composição mudou. Ele
 /// entra por PARÂMETRO para que a costura na `Scene` seja UMA linha em vez de
 /// uma chamada de `rigidInvalidate()` em cada um dos quatro pontos que mexem na
@@ -353,9 +353,27 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
   if (pbBodies === 0) return 0;
 
   pbFrames = pbFrames + 1;
-  rbStep(PB_SUBSTEPS);
-  pbFresh = pbFresh + 1;
-  pbApply(sc);
+  // `rbService`, NÃO `rbStep`. A diferença decide o frame:
+  //
+  //   rbStep    -> rbPull -> gpu.read      ESPERA a GPU terminar
+  //   rbService -> readBegin/readPoll      pergunta e segue
+  //
+  // O editor desenha com a MESMA GPU, então esperar a compute serializa
+  // compute e render: o frame passa a custar um round-trip inteiro, e o ganho
+  // de 34× medido no benchmark (que usa `rbService`) não chega à tela. É o
+  // padrão que o fluido já usava, e que o próprio `gpurigid` chama de "física
+  // como serviço".
+  //
+  // O preço é 1 frame de latência: quando o resultado ainda não chegou, o
+  // desenho usa o estado do frame anterior.
+  const novo = rbService(PB_SUBSTEPS);
+  if (novo !== 0) {
+    pbFresh = pbFresh + 1;
+    pbApply(sc);
+  }
+  // 1 SEMPRE que a GPU está no comando, mesmo sem estado novo. Devolver 0 faria
+  // a CPU rodar a varredura de pares por cima — duas físicas sobre o mesmo
+  // estado, que é pior que um frame repetido.
   return 1;
 }
 
