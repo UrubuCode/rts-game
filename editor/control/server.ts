@@ -24,6 +24,15 @@ import { execCommand } from "./dispatch";
 ///
 /// Não há janela em que fique defasado: o único ponto em que um callback roda é
 /// o `pumpEvents()` no fim de `ctrlPoll`, e a atribuição acontece antes dele.
+// O servidor vive numa variável de MÓDULO, não local de `ctrlServe`.
+//
+// O lado nativo guarda o endereço da célula da instância JS, e o coletor move
+// células: um `wss` local sai de escopo quando `ctrlServe` retorna, e o que o
+// Rust guardou envelhece — o `'connection'` deixa de ser entregue, com a porta
+// escutando e o handshake completando (a thread de accept é nativa e não
+// depende disto). Medido: `conexoes=0` depois de 2040 polls com um cliente
+// conectado.
+let wssRef: any = null;
 let curW = 0;
 let curH = 0;
 
@@ -36,6 +45,7 @@ let curH = 0;
 /// só custaria uma linha de rejeição em vez de economizar código.
 export function ctrlServe(port: number): void {
   const wss = new WebSocketServer({ port: port });
+  wssRef = wss;
   // Os campos da Session viram CONTADORES: nada mais no editor os lê, e um
   // handle não cabe mais neles (o `ws` agora é objeto, não número).
   //
