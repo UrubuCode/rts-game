@@ -17,3 +17,8 @@ assets/scene.json
 # local: o `rts.exe` versionado não tem as superfícies que uma árvore em
 # desenvolvimento acrescenta, e trocar um pelo outro esconde qual binário mediu.
 rts-new.exe
+
+# Relatorio do profiler, reescrito pelo editor a cada 300 frames. Artefato de
+# execucao: o numero util e o da rodada que voce acabou de fazer, e um do mes
+# passado versionado seria uma medida sem data se passando por referencia.
+prof.txt
