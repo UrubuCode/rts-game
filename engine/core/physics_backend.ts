@@ -46,6 +46,10 @@ import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics, rbService, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
+// O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
+// formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
+import { crInit, crSetBody, crSetShape, crSyncStatics, crStep, crX, crY, crZ,
+         crCount, crThreads } from "../rigid/cpurigid";
 
 // ── calibração ─────────────────────────────────────────────────────────────
 
@@ -214,7 +218,14 @@ export function rigidBand(): number[] {
 
 // ── o portão: modo escolhido, e o que de fato está rodando ─────────────────
 
-/// 0 = CPU, 1 = GPU (PADRÃO), 2 = automático por custo.
+/// 0 = CPU (o solver da `Scene`), 1 = GPU (PADRÃO), 2 = RUST (`rts:rigid`).
+///
+/// Esta linha dizia "2 = automático por custo", e era ficção: `rigidSetMode`
+/// sempre mapeou tudo que não é 1 para 0, então pedir 2 caía na CPU em
+/// silêncio. O modo automático nunca foi escrito — `rigidBackendFor` responde a
+/// pergunta, mas nada o consulta no caminho quente. O número 2 passa a ser o
+/// backend Rust porque um número documentado e não implementado é pior que um
+/// número livre: ele parece uma opção.
 ///
 /// # Por que a GPU é o padrão, e o que isso custa
 ///
@@ -245,7 +256,7 @@ let pbMotivo = "";
 /// Pede o backend. `1` = GPU, e é o único jeito de sair da CPU: o padrão é CPU
 /// por decisão, não por falta de GPU (ver o cabeçalho).
 export function rigidSetMode(modo: number): void {
-  pbModo = modo === 1 ? 1 : 0;
+  pbModo = modo === 1 ? 1 : (modo === 2 ? 2 : 0);
   if (pbModo === 0) pbMotivo = "";
 }
 
@@ -256,6 +267,13 @@ export function rigidMode(): number { return pbModo; }
 /// alguém medindo precisa enxergar.
 export function rigidBackendName(): string {
   if (pbModo === 0) return "cpu";
+  // O backend Rust não tem um estado "caiu": ele não depende de placa, e é
+  // justamente por isso que ele existe. Um nome que sugerisse queda seria uma
+  // condição que não pode acontecer.
+  if (pbModo === 2) {
+    if (pbBodies === 0) return "rust (aguardando corpos)";
+    return "rust (" + crThreads() + " threads)";
+  }
   if (pbGpuMorta !== 0) return "cpu (gpu caiu: " + pbMotivo + ")";
   if (pbBodies === 0) return "gpu (aguardando corpos)";
   return "gpu";
@@ -291,9 +309,15 @@ export function rigidInvalidate(): void { pbDirty = 1; }
 /// presente e objeto RAIZ) — usar outro faria os dois backends simularem
 /// conjuntos diferentes, que é a maneira de a troca de backend parecer um bug
 /// de física.
-function pbSync(sc: Scene): number {
+/// Quem é corpo dinâmico, em `pbMap`. Responde quantos.
+///
+/// Separado de `pbSync` quando o backend Rust entrou: os dois backends
+/// escolhem EXATAMENTE o mesmo conjunto de corpos, e essa escolha é a parte que
+/// não pode divergir. Duas cópias do critério é como dois backends passam a
+/// simular cenas diferentes — que é o modo de a troca de backend parecer um bug
+/// de física, e é o que o comentário abaixo já dizia sobre a `collectColliders`.
+function pbCollect(sc: Scene): number {
   const objs: GameObject[] = sc.objects;
-  const trs: Transform[] = sc.trs;
   const n = objs.length;
   pbMap.length = 0;
   let i = 0;
@@ -302,7 +326,56 @@ function pbSync(sc: Scene): number {
     if (o.collideFlag !== 0 && o.active !== 0 && o.stationary === 0) pbMap.push(i);
     i = i + 1;
   }
+  return pbMap.length;
+}
+
+/// Entrega os corpos dinâmicos ao solver em Rust.
+///
+/// Os MESMOS argumentos que o `pbSync` passa ao kernel — `collider.ts` para a
+/// forma e a meia-extensão, massa 1 para todo mundo — porque a paridade entre
+/// os dois é o critério de aceite e ela começa aqui, não no solver.
+function pbSyncRust(sc: Scene): number {
+  const objs: GameObject[] = sc.objects;
+  const trs: Transform[] = sc.trs;
+  const m = pbCollect(sc);
+  if (m === 0) { pbBodies = 0; return 0; }
+  if (m !== crCount()) crInit(m);
+  let k = 0;
+  while (k < m) {
+    const t: Transform = trs[pbMap[k]];
+    const ob: GameObject = objs[pbMap[k]];
+    crSetBody(k, t.wx, t.wy, t.wz,
+              halfXOf(ob, t), halfYOf(ob, t), halfZOf(ob, t), 1.0);
+    crSetShape(k, shapeOf(ob));
+    k = k + 1;
+  }
+  crSyncStatics(sc);
+  pbBodies = m;
+  return m;
+}
+
+/// Escreve as posições do solver Rust de volta nos transforms.
+///
+/// Apart de `pbApply` só porque a fonte difere (`crX` contra `rbX`); a regra —
+/// escrever em `px/py/pz` LOCAL e não em `wx/wy/wz` — é a mesma e está
+/// explicada lá.
+function pbApplyRust(sc: Scene): void {
+  const objs: GameObject[] = sc.objects;
   const m = pbMap.length;
+  let k = 0;
+  while (k < m) {
+    const t: Transform = objs[pbMap[k]].transform;
+    t.px = crX(k);
+    t.py = crY(k);
+    t.pz = crZ(k);
+    k = k + 1;
+  }
+}
+
+function pbSync(sc: Scene): number {
+  const objs: GameObject[] = sc.objects;
+  const trs: Transform[] = sc.trs;
+  const m = pbCollect(sc);
   if (m === 0) { pbBodies = 0; return 0; }
 
   // `rbInit` aloca buffers novos e NÃO libera os antigos, então só é chamado
@@ -369,6 +442,21 @@ function pbSync(sc: Scene): number {
 /// encontrar o flag ainda de pé.
 export function rigidStep(sc: Scene, dirtyHint: number): number {
   if (dirtyHint !== 0) pbDirty = 1;
+  // RUST: síncrono e sem calibração. Não há round-trip para esconder nem placa
+  // que possa faltar, então este ramo não tem nem o pipelining do `rbService`
+  // nem o portão de `pbGpuMorta` — os dois existem por causa da GPU.
+  if (pbModo === 2) {
+    if (pbDirty !== 0) {
+      if (pbSyncRust(sc) === 0) return 0;
+      pbDirty = 0;
+    }
+    if (pbBodies === 0) return 0;
+    pbFrames = pbFrames + 1;
+    if (crStep(PB_SUBSTEPS) === 0) return 0;
+    pbFresh = pbFresh + 1;
+    pbApplyRust(sc);
+    return 1;
+  }
   if (pbModo !== 1) return 0;
   rigidCalibrate();
   if (pbTemGpu === 0) {
