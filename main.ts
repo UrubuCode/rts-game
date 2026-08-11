@@ -31,6 +31,7 @@ import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } 
 import { history } from "./editor/undo";
 import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
 import { stepsFor, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
+import { snapshotWorld, renderX, renderY, renderZ, interpolateReset } from "./engine/core/interpolate";
 import { ctrlServe, ctrlPoll } from "./editor/control/server";
 import { initAudio, pumpAudio } from "./engine/audio/audio";
 import { logInfo, logTick } from "./engine/core/logger";
@@ -344,6 +345,10 @@ function frame(): void {
   if (dt > 100) dt = 100;
   const dts: f64 = dt / 1000.0;
   frames = frames + 1;
+  // A fração de passo que sobrou, lida UMA vez por frame: usá-la por objeto
+  // daria alphas diferentes dentro do mesmo desenho se algo a mexesse no meio,
+  // e um frame tem um instante só.
+  const alphaR: f64 = stepAlpha();
 
   // ── input de câmera (fly): WASD move, setas olham, espaço sobe ────────────
   const kW = app.keyDown(122);
@@ -422,6 +427,12 @@ function frame(): void {
       // Medido (release, headless, 500 corpos): 12,05 ms na CPU contra 0,35 ms
       // na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
       if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
+      // O instantâneo é tirado a cada PASSO, depois de a física andar e o mundo
+      // ser derivado: é o estado "anterior" do próximo desenho. Dentro do laço
+      // porque com 2 passos num frame o anterior certo é o penúltimo, não o de
+      // dois passos atrás.
+      scene.computeWorld();
+      snapshotWorld(scene);
     }
   }
   scene.computeWorld();
@@ -697,11 +708,21 @@ function frame(): void {
         }
         // Usa o `tr` já hoisted: `o.transform.wx` repetido 9x por objeto era
         // NOVE acessos aninhados de propriedade por desenho.
+        // POSIÇÃO DE RENDER, não a da simulação. Com passo fixo o frame quase
+        // nunca cai em cima de um passo, e desenhar sempre o último estado faz
+        // o movimento tremer — o objeto anda 2 passos num frame e 1 no
+        // seguinte. `alphaR` é a fração que sobrou no acumulador.
+        //
+        // `tr.wx/wy/wz` seguem intactos: a simulação é a verdade, e é ela que a
+        // colisão, o gizmo e o `state` do WebSocket leem. Ver interpolate.ts.
+        const rx = renderX(scene, oi, alphaR);
+        const ry = renderY(scene, oi, alphaR);
+        const rz = renderZ(scene, oi, alphaR);
         if (customMesh > 0) {
-          drawGPUMesh(WIN, customMesh, tr.wx, tr.wy, tr.wz,
+          drawGPUMesh(WIN, customMesh, rx, ry, rz,
             tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
         } else {
-          drawGPU(WIN, meshKind, tr.wx, tr.wy, tr.wz,
+          drawGPU(WIN, meshKind, rx, ry, rz,
             tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
         }
         drawnN = drawnN + 1;

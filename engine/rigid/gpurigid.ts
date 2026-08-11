@@ -37,8 +37,44 @@ export const RB_DT: f64 = 1.0 / 60.0;
 const RB_SLEEP_FRAMES = "10.0";
 const RB_SLEEP_SPEED2 = "0.2025";   // 0.45 u/s ao quadrado
 
+// ── GRID ESPACIAL (a mesma estrutura do gfPipeGrid do fluido) ───────────────
+//
+// 8192 buckets por hash 3D, 32 vagas por bucket, contagens antes das vagas, e
+// os atomics ISOLADOS num kernel minúsculo — a lição medida que o fluido deixa
+// escrita em `gpufluid.ts:109`: atomic dentro do kernel quente pessimiza o pass
+// inteiro no DX12 (+33 ms/frame lá). Mesmo `cellHash` e mesmos números de
+// propósito: duas respostas diferentes para "vizinhança na GPU" neste projeto
+// seriam piores que o O(n²) que isto remove.
+const RB_NCELLS_N = 8192;
+const RB_SLOT_N = 32;
+
+// ONDE o grid mora: na CAUDA do buffer `world`, e não num buffer próprio.
+//
+// Não é economia de memória — é o limite de 4 storage buffers por estágio que o
+// device ganha quando há uma JANELA aberta, documentado em `gpufluid.ts:53`. O
+// kernel de colisão já liga quatro (pos, vel, ext, world); um quinto compilaria
+// headless e falharia no jogo, que é o pior lugar para descobrir isso. O fluido
+// resolveu o mesmo aperto enfiando a densidade no `w` da posição e os impulsos
+// na cauda do `world`; aqui a cauda do `world` recebe o grid.
+//
+// O `world` é `vec4<f32>` para quem colide e `atomic<i32>` para quem constrói —
+// o tipo é por PIPELINE, o buffer é o mesmo. Por isso o lado que lê faz
+// `bitcast`: os bits guardados ali são de i32.
+//
+//   [0]           params: dt, nEstaticos, tamanhoDaCélula, -
+//   [1 .. 513)    estáticos (centro, meia-extensão)
+//   513*4 = 2052  ← daqui, em i32: 8192 contagens, depois 8192*32 vagas
+const RB_GRID_I32_N = 2052;
+const RB_WORLD_BYTES = (RB_GRID_I32_N + RB_NCELLS_N + RB_NCELLS_N * RB_SLOT_N) * 4;
+// Grupos do kernel que zera as contagens (uma thread por bucket).
+const RB_CLEAR_GROUPS = RB_NCELLS_N / 64;
+
 let rbN = 0;
 let rbPipe: i64 = 0;
+let rbPipeGrid: i64 = 0;    // constrói o grid — os ÚNICOS atomics daqui
+let rbPipeClear: i64 = 0;   // zera as contagens entre sub-passos
+// Meia-extensão MÁXIMA vista: é ela que dimensiona a célula (ver rbWriteWorld).
+let rbMaxHalf: f64 = 0.0;
 let rbGPos: i64 = 0;
 let rbGVel: i64 = 0;
 let rbGExt: i64 = 0;
@@ -68,23 +104,76 @@ export function rbInit(n: number): number {
   rbN = n;
   rbGroups = ((n + 63) / 64) | 0;
 
+  // O MESMO hash 3D do fluido (gpufluid.ts:105) e do buildSceneGrid da CPU.
+  const hashFn = `
+fn cellHash(gx: i32, gy: i32, gz: i32) -> u32 {
+  return u32((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & 8191u;
+}
+`;
+
+  // CONSTRUÇÃO do grid: um corpo, um bucket. Note que quem indexa é o CENTRO —
+  // um corpo cabe em mais de uma célula, e o que garante que o par não escapa é
+  // a célula ser >= o maior DIÂMETRO (ver rbWriteWorld), não o corpo caber nela.
+  const gridSrc = `
+@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> world: array<atomic<i32>>;
+${hashFn}
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let n = arrayLength(&pos);
+  if (id.x >= n) { return; }
+  let cs = max(bitcast<f32>(atomicLoad(&world[2])), 0.001);
+  let p = pos[id.x].xyz;
+  let c = cellHash(i32(floor(p.x / cs)), i32(floor(p.y / cs)), i32(floor(p.z / cs)));
+  let s = atomicAdd(&world[${RB_GRID_I32_N}u + c], 1);
+  if (s < ${RB_SLOT_N}) {
+    atomicStore(&world[${RB_GRID_I32_N + RB_NCELLS_N}u + c * ${RB_SLOT_N}u + u32(s)], i32(id.x));
+  }
+}
+`;
+
+  // Zera SÓ as contagens (as vagas viram lixo inalcançável, como no fluido).
+  //
+  // Um kernel em vez do `gpu.write` de zeros que o fluido usa: lá o buffer de
+  // grid é próprio e o upload é de 32 KB; aqui o zero teria de cair no MEIO do
+  // `world`, o que exige `writeAt` — e `writeAt` mudou de forma na superfície
+  // nova (passou a receber objeto de opções) enquanto o shim ainda o chama
+  // posicional. Um dispatch não depende disso e não paga travessia por
+  // sub-passo, que é tráfego que o caminho quente não tem por que pagar.
+  const clearSrc = `
+@group(0) @binding(0) var<storage, read_write> world: array<atomic<i32>>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  if (id.x >= ${RB_NCELLS_N}u) { return; }
+  atomicStore(&world[${RB_GRID_I32_N}u + id.x], 0);
+}
+`;
+
   const src = `
 @group(0) @binding(0) var<storage, read_write> pos: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> vel: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> ext: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> world: array<vec4<f32>>;
+${hashFn}
 
 // penetração por eixo entre os AABBs (a, ha) e (b, hb); negativa = separados
 fn pen(a: vec3<f32>, ha: vec3<f32>, b: vec3<f32>, hb: vec3<f32>) -> vec3<f32> {
   return (ha + hb) - abs(a - b);
 }
 
+// O grid vive na cauda do `world`, gravado como i32 por outro pipeline — daí o
+// bitcast e a indexação de componente: `world` aqui é um array de vec4<f32>.
+fn gridAt(k: u32) -> i32 {
+  return bitcast<i32>(world[k / 4u][k % 4u]);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let n = arrayLength(&ext);
+  let n = arrayLength(&pos);
   if (id.x >= n) { return; }
   let dt = world[0].x;
   let m = u32(world[0].y);
+  let cs = max(world[0].z, 0.001);
   var p = pos[id.x].xyz;
   var slp = pos[id.x].w;
   var v = vel[id.x].xyz;
