@@ -7,8 +7,20 @@
 // outra, que é o modo de falhar mais caro que existe.
 
 import { spawn } from "node:child_process";
+import nodeProcess from "node:process";
 
 export default {
+  /// Uma variável de ambiente, ou "" quando ela não existe.
+  ///
+  /// `""` e não `undefined` para que o chamador possa comparar sem antes
+  /// perguntar se existe — a única coisa que o jogo faz com uma é testar se foi
+  /// dada, e um `undefined` que atravessa a fronteira do motor é uma checagem a
+  /// mais em todo lugar que a lê.
+  env(name: string): string {
+    const v = nodeProcess.env[name];
+    return v !== undefined && v !== null ? v : "";
+  },
+
   // O antigo recebia o programa e os argumentos como uma string só, sem shell.
   // `spawn` quer um array, então a string é dividida em espaços — que é
   // exatamente o que o único chamador do jogo espera, e por isso ele já evita

@@ -100,6 +100,13 @@ let focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);      // p/ picking; recalc po
 let sceneFile = "scenes/solar.json";
 if (fs.exists("scenes/shadowdemo.json")) sceneFile = "scenes/shadowdemo.json";
 if (fs.exists("assets/scene.json")) sceneFile = "assets/scene.json";   // cena do usuário tem prioridade
+// RTS_SCENE tem prioridade sobre todas, e existe para uma demonstração poder ser
+// aberta sem sobrescrever a cena de trabalho de ninguém. A alternativa era
+// gravar por cima de `assets/scene.json`, que apagaria o que o usuário salvou.
+{
+  const pedida = process.env("RTS_SCENE");
+  if (pedida !== "" && fs.exists(pedida)) sceneFile = pedida;
+}
 // Se NENHUMA cena existe (bundle sem a pasta scenes/), avisa alto: antes o
 // editor abria vazio sem dizer por quê — "cena 'Main' com 0 objetos".
 if (!fs.exists(sceneFile)) {
