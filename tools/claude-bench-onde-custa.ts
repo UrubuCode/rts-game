@@ -117,10 +117,26 @@ io.print("  ate os DADOS mudarem de lado — nao o codigo.");
 // custar ~2,8 µs — 300× algumas dezenas de operações de ponto flutuante. Não é
 // aritmética; é travessia por par.
 //
-// A decomposição real do ganho, medida com a máquina a 4% de carga:
+// E NÃO é diferença de algoritmo, que foi a segunda coisa que eu supus errado:
+// os três lados têm o MESMO grid. `gpurigid.ts:70-71` tem 8192 células de 32
+// vagas, `scene.ts:837` usa os mesmos primos de hash `73856093 / 19349663`, e o
+// solver em Rust copiou os números de lá. Medido no mesmo solver com o grid
+// desligado, a 2000 corpos numa thread: 1,04 ms com grid contra 55,18 sem — o
+// grid vale 53×, e é o PISO COMUM aos três, não a diferença entre eles.
 //
-//   layout achatado (Float32Array plano, sem objeto por corpo)   ~195x
-//   threads (16 lógicas), em cima disso                            3,9x
+// A decomposição real do ganho, medida com a máquina a 7-8% de carga:
+//
+//   layout achatado (Float32Array plano, sem objeto por corpo)    ~69x
+//   threads (16 lógicas), em cima disso                            5,5x
+//
+// ESSES DOIS NÚMEROS SUBSTITUEM os 195x e 3,9x que estiveram aqui, e o erro era
+// de DENOMINADOR e não de medição: `resolveCollisions` roda `resolveInto` DUAS
+// vezes (scene.ts:336-345, "SEGUNDA iteração, SEM a reatividade"), e eu comparei
+// um sub-passo do solver em Rust contra o trabalho de dois. 159,6 / 2,30 = 69x é
+// a razão trabalho-por-trabalho; 159,6 / 0,82 = 195x compara metades diferentes.
+//
+// Quem achou foi o autor do solver, contra o próprio resultado dele — a razão
+// menor é a que ele publicou.
 //
 // Isso NÃO invalida o desenho gather/Jacobi — é ele que torna as threads
 // possíveis. Revisa a expectativa: o ganho veio de ONDE OS DADOS MORAM, não de
