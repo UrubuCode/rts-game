@@ -5,6 +5,7 @@
 // asset. Estado em vars de MÓDULO (ok desde o fix de gcell); desenha via render.*.
 
 import render from "../compat/render.ts";
+import { clockNow, clockSince, DOUBLE_CLICK_MS } from "../engine/core/clock";
 import fs from "../compat/fs.ts";
 
 import { PANEL, PANEL_DK, HEADER, BORDER, TEXT, TEXT_DIM, SEL, HOVER, button, subStr } from "./widgets";
@@ -308,11 +309,11 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
       if (i === dragIdx && dragArmed !== 0) render.rect(win, tx, ty, tileW, tileH, 0x5A7FB055, 0, 0, 4);
 
       if (over !== false && mPressed !== 0) {
-        // 400 ms: o mesmo que os 24 frames valiam a 60 fps, agora dito na
-        // unidade em que a intenção foi pensada. É também a ordem do que os
-        // sistemas operacionais usam como padrão.
-        const agora: f64 = performance.now();
-        const dbl = (i === lastClickIdx && agora - lastClickMs < 400.0) ? 1 : 0;
+        // Do RELÓGIO, não do `performance.now()` direto: um valor por frame,
+        // igual para todos, e a janela dita em milissegundos onde ela não tem
+        // como voltar a ser contagem de frame.
+        const agora: f64 = clockNow();
+        const dbl = (i === lastClickIdx && clockSince(lastClickMs) < DOUBLE_CLICK_MS) ? 1 : 0;
         selIdx = i;
         // pressionar num tile ARMA um possível drag (pastas não são arrastáveis
         // pra cena, mas mantemos o payload "dir:" — o main decide o que aceitar)

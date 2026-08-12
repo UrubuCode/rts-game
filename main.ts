@@ -35,6 +35,7 @@ import { history } from "./editor/undo";
 import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
 import { stepsFor, stepMore, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
 import { snapshotWorld, renderX, renderY, renderZ, interpolateReset } from "./engine/core/interpolate";
+import { clockTick } from "./engine/core/clock";
 import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "./engine/core/profiler";
 import { dcReport } from "./compat/drawcount.ts";
 
@@ -387,6 +388,10 @@ function frame(): void {
   if (nw > 400) W = nw;
   if (nh > 300) H = nh;
   focalW = (H * 0.5) / math.tan(FOV * 0.5);
+  // O RELÓGIO PRIMEIRO, antes de qualquer coisa do frame ler as horas. Uma
+  // leitura do relógio do SO por frame, e todo mundo lê o mesmo instante — ver
+  // engine/core/clock.ts para por que isso é correção e não só economia.
+  clockTick();
   profFrameBegin();
   secBegin(P_CTRL);
   ctrlPoll(W, H);   // ← controle da LLM por WebSocket (não-bloqueante)
