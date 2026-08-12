@@ -27,7 +27,20 @@ let curDir = "assets";
 let selIdx = 0 - 1;
 let scanned = 0;
 let lastClickIdx = 0 - 1;
-let lastClickFrame = 0 - 999;
+/// Quando o último clique aconteceu, em MILISSEGUNDOS de relógio.
+///
+/// Era um número de FRAME, e a janela era `frame - lastClickFrame < 24`. Isso
+/// vale 400 ms a 60 fps e é razoável — mas o editor passou a rodar a 442 fps
+/// nesta máquina, e ali 24 frames são 54 ms: rápido demais para uma mão humana.
+/// O duplo-clique parou de funcionar em pasta nenhuma, e a causa foi o motor
+/// ficar sete vezes mais rápido.
+///
+/// Uma janela de INTERAÇÃO é tempo de parede, nunca contagem de frame. Qualquer
+/// limiar que descreva o que uma PESSOA faz — segurar, arrastar, clicar duas
+/// vezes, esperar um tooltip — tem a mesma armadilha: um número de frame carrega
+/// uma suposição escondida sobre o frame rate, e ela morre em silêncio quando o
+/// desempenho muda. O sintoma nem parece desempenho.
+let lastClickMs: f64 = 0.0 - 999999.0;
 
 // ── DRAG & DROP (estilo Unity): arrastar um tile do Project pra fora do painel ─
 // dragIdx  = índice do tile sendo arrastado (-1 = nenhum)
@@ -295,7 +308,11 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
       if (i === dragIdx && dragArmed !== 0) render.rect(win, tx, ty, tileW, tileH, 0x5A7FB055, 0, 0, 4);
 
       if (over !== false && mPressed !== 0) {
-        const dbl = (i === lastClickIdx && frame - lastClickFrame < 24) ? 1 : 0;
+        // 400 ms: o mesmo que os 24 frames valiam a 60 fps, agora dito na
+        // unidade em que a intenção foi pensada. É também a ordem do que os
+        // sistemas operacionais usam como padrão.
+        const agora: f64 = performance.now();
+        const dbl = (i === lastClickIdx && agora - lastClickMs < 400.0) ? 1 : 0;
         selIdx = i;
         // pressionar num tile ARMA um possível drag (pastas não são arrastáveis
         // pra cena, mas mantemos o payload "dir:" — o main decide o que aceitar)
@@ -309,7 +326,7 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
           else if (t === T_IMAGE) action = "tex:" + full;   // aplica no obj selecionado
         }
         lastClickIdx = i;
-        lastClickFrame = frame;
+        lastClickMs = agora;
       }
     }
     i = i + 1;
