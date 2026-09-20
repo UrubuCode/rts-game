@@ -2,7 +2,6 @@
 import math from "../../../compat/math.ts";
 import { playTone, activeVoices, audioReady, audioRate } from "../../../engine/audio/audio";
 import { logTail, logClear, logCount, logCountAtLeast, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_DEBUG } from "../../../engine/core/logger";
-import math from "../../../compat/math.ts";
 import { Fluid } from "../../../scripts/fluid";
 import { scene, S } from "../session";
 import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "../../sceneio";
