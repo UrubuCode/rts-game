@@ -3,9 +3,16 @@ name: Build rts-game executable
 # Gera o executável NATIVO do rts-game via AOT (`rts compile`).
 #
 # NÃO buildamos o motor do source (~15min): baixamos o `rts.exe` do LATEST RELEASE
-# do motor (UrubuCode/rts). Esse binário já é AOT-capaz — o build do release passa
-# um "AOT smoke" BLOCKING, então a staticlib do runtime está embutida nele. Só
-# precisamos de um LINKER no runner (rust-lld + libs MSVC) pro passo de link do AOT.
+# do motor (UrubuCode/rts). Só precisamos de um LINKER no runner (rust-lld + libs
+# MSVC) pro passo de link do AOT.
+#
+# CUIDADO, e esta linha já esteve errada: o `rts.exe` baixado carrega UMA
+# staticlib embutida, a do caminho SEM compilador. A do caminho COM compilador
+# (`rts_runtime_jit.lib`, hoje o padrão) NÃO está embutida e NÃO é publicada como
+# asset — por isso o passo de AOT abaixo passa `--no-compiler`. O texto anterior
+# dizia "a staticlib do runtime está embutida nele", sem dizer QUAL, e foi essa
+# meia-verdade que deixou o build vermelho sem que ninguém desconfiasse do
+# comentário.
 #
 # Dispara em push no master + manualmente (workflow_dispatch).
 
@@ -48,12 +55,40 @@ jobs:
       # linkado dentro — os exes rodam sozinhos, sem o rts.exe.
       #   rts-game.exe  = o EDITOR   (main.ts)
       #   RTSGame.exe   = o JOGO     (game.ts — sem painéis, abre direto na cena)
+      #
+      # ── POR QUE `--no-compiler`, e por que SEM ele isto não compila ────
+      #
+      # Desde a mudança #2681 do motor, `--embed-compiler` é o PADRÃO: o exe
+      # gerado carrega um compilador dentro, para `eval`, `new Function` e
+      # `<script>` de página funcionarem em tempo de execução.
+      #
+      # Esse caminho precisa linkar contra `rts_runtime_jit.lib`, e
+      # `runtime_archive()` em `rts-cli/src/cli/mod.rs` o procura ao lado do
+      # binário ou em `target/{debug,release,fast}`. Aqui não há nenhum dos
+      # dois: baixamos um `rts.exe` solto de um release, e o comentário do
+      # próprio motor diz que "um binário vivendo em qualquer outro lugar —
+      # instalado, baixado — simplesmente não tem archive ao lado". O caminho
+      # com compilador NÃO tem fallback embutido, de propósito: fingir que o
+      # archive padrão serviria descartaria em silêncio a única coisa que o
+      # `--embed-compiler` pediu. O erro era:
+      #
+      #   error: no `rts_runtime_jit.lib` under target/{debug,release,fast}
+      #          nor beside this binary
+      #
+      # `--no-compiler` linka o archive pequeno, que TEM fallback embutido
+      # no próprio `rts.exe` — então funciona com um binário baixado, sem
+      # asset novo no release e sem mudança no motor.
+      #
+      # O QUE SE PERDE, dito em vez de escondido: `eval`, `new Function` e
+      # `vm.runInNewContext` passam a levantar nos exes gerados. Este jogo
+      # nunca lê código em tempo de execução — ele carrega CENAS, que são
+      # JSON — então é exatamente o caso para o qual essa opção existe.
       - name: AOT compile (editor + jogo)
         shell: bash
         run: |
           mkdir -p release
-          ./rts.exe compile main.ts release/rts-game
-          ./rts.exe compile game.ts release/RTSGame
+          ./rts.exe compile --no-compiler main.ts release/rts-game
+          ./rts.exe compile --no-compiler game.ts release/RTSGame
           ls -la release/
 
       # Empacota os exes + os assets lidos em RUNTIME.
