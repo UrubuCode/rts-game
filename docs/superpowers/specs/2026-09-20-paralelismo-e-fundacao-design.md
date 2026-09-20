@@ -1,7 +1,8 @@
 # Paralelismo e fundação: o plano
 
-**Data:** 2026-09-20 · **Revisão 2** (após quatro revisões adversariais e a medição
-de escala por threads) · **Estado:** desenho para revisão. Nada implementado.
+**Data:** 2026-09-20 · **Revisão 3** (revisão 2 + a discussão da issue #1: a
+Fase 2 foi reordenada em lotes e ganhou a fronteira agente × corpo rígido, §7)
+· **Estado:** desenho para revisão. Nada implementado.
 
 ---
 
@@ -222,19 +223,125 @@ e compara todos os transforms **bit a bit**; depois com 1, 2 e 16 threads.
 
 ## 7. Fase 2 — o vocabulário da física (issue #1)
 
-Rotação, OBB e manifold, na ordem que a dependência impõe: ponto de contato →
-OBB → dinâmica angular → manifold com warm starting.
 Ver [UrubuCode/rts-game#1](https://github.com/UrubuCode/rts-game/issues/1).
+Reescrita na **revisão 3**, depois da discussão na issue (quatro comentários de
+revisão externa, conferidos contra o código em `3d29515`).
 
-**Mudança em relação à issue:** o que ela chama de "pergunta de layout de buffer"
-é uma **decisão de layout**, e a lista do que precisa caber é maior do que ela
-diz: orientação, velocidade angular, manifold, `hullId`, **máscara de camada** e
-**índice de contato**. A §4 de `docs/colisores.md` já demonstrou que essa conta
-não fecha nos 4 storage buffers — remover esse limite é parte da fase, não um
-pré-requisito não financiado.
+### 7.1 A decisão que ordena a fase: unidade não é corpo rígido
 
-**Nota de aceite:** esta fase muda o solver e **invalida a paridade medida na
-Fase 0**. A tolerância de 0,15 será re-medida e republicada.
+O dilema "qual física para o RTS" tinha uma premissa escondida: que a física
+rígida carrega as unidades. **Não carrega.** Mil soldados em contato formam uma
+única ilha de restrições — o pior caso de qualquer solver, em qualquer backend —
+e o que um soldado precisa (não atravessar o vizinho, contornar, parar no
+destino) é *avoidance*, não impulso e atrito.
+
+| classe | quem é | onde vive | o que paga |
+|---|---|---|---|
+| **agente** | infantaria, veículo comum | sistema de unidades (fora deste plano) | footprint circular, vizinhança espacial, steering |
+| **corpo de gameplay** | porta, ponte, destroço que bloqueia, projétil físico | solver rígido | tudo desta fase |
+| **cosmético** | estilhaço, poeira | solver rígido ou GPU, fora do grupo determinístico | nada de contrato |
+
+O agente entra no solver rígido **só como cinemático**: empurra corpos, não é
+empurrado por eles. É por isso que cinemático, máscara e consulta sobem para o
+topo da fase e a dinâmica angular desce para o fim — a ordem anterior (rotação
+primeiro) servia a uma demo de física, não a um RTS.
+
+Consequência de escala: o `n` de corpos rígidos de uma partida é **centenas a
+poucos milhares**, não dezenas de milhares. Na tabela de §2.2 isso é a faixa onde
+o backend Rust vence com 2+ threads. O maior custo de hoje continua sendo o de
+§3.1 — o solver TS legado, 36,92 ms contra 0,62 — e ele é resolvido pela Fase 0,
+não por esta.
+
+### 7.2 Os lotes, na ordem
+
+Cada lote tem aceite próprio e deixa a suíte verde; a fase pode parar entre dois
+lotes sem dívida.
+
+**Lote A — layout e tipos (um PR, sem matemática nova).**
+
+1. *Teste primeiro:* paridade com **estático de centro deslocado**. Confirmado em
+   `3d29515`: `rbSyncStatics` (`gpurigid.ts:684-686`) e `crSyncStatics`
+   (`cpurigid.ts:213-215`) gravam `t.wx/wy/wz` cru, enquanto o solver da cena
+   soma `centerLocalX/Y/Z` (`collider.ts:246-252`). As meias-extensões já passam
+   por `collider.ts` — o comentário de `cpurigid.ts:190-194` que diz o contrário
+   está **obsoleto** e sai na mesma passada.
+2. **Layout versionado, uma definição e três leitores** (TS, WGSL, Rust), com um
+   teste que confere offsets nos três. Proposta a validar por bench antes de
+   congelar — ela **cabe nos 4 bindings** sem remover o limite da janela:
+
+   | binding | acesso | conteúdo por corpo |
+   |---|---|---|
+   | `pose` | read_write | `pos.xyz` + sono · `quat` |
+   | `motion` | read_write | `vel.xyz` + invMass · `angVel.xyz` + livre |
+   | `world` (cauda) | read | `ext.xyz` · `invInércia.xyz` · bits: tipo, forma, `hullId`, flags · `layer`, `mask` — ao lado de materiais, estáticos e grid, que já moram ali |
+   | `contacts` | read_write | manifold e impulsos acumulados (Lote D); vazio até lá |
+
+   `ext` é somente leitura hoje e ocupa um binding inteiro; movê-lo para a cauda
+   do `world` é o que libera o quarto. `vel.w` deixa de codificar forma e
+   `hullId`. O bench compara o kernel atual contra o novo layout **sem mudar a
+   física**, 2 000 e 8 000 corpos densos, `vsync 0`: regressão acima de 10%
+   reabre a decisão.
+3. **Tipo de corpo com três valores:** `static`, `kinematic`, `dynamic`. Um só
+   cinemático, dirigido por velocidade; quem dirige por posição entrega
+   `(poseNext − poseAtual) / dt` na borda. `pbEmpurraTeleportes`
+   (`physics_backend.ts:597-610`) passa a zerar velocidade **só** para `dynamic`
+   teleportado; `stationary` continua como campo de cena e é mapeado para o tipo.
+4. **Layer/mask**, filtrado antes da narrow phase e idêntico nos três backends:
+   `(A.mask & B.layer) != 0 && (B.mask & A.layer) != 0`.
+
+*Aceite:* os 27 arquivos de `tests/` e os 36 do crate verdes; paridade nova
+(centro deslocado, cinemático empurrando pilha sem perder velocidade, par
+filtrado por máscara) dentro da tolerância; bench do item 2 publicado no commit.
+
+**Lote B — consultas e eventos.** `raycast` e `overlap` primeiro; `shapeCast`
+quando houver projétil. Cada resposta carrega o `stepId` a que se refere (§6
+item 8). Eventos `begin/persist/end/trigger` saem **depois** do solver, em fila
+ordenada por `stepId` e par canônico `(min, max)`; nenhum callback altera o mundo
+durante a narrow phase. Fecha os itens 7–9 da Fase 1 — se a Fase 1 já os tiver
+entregue, este lote é só a implementação por backend.
+
+**Lote C — OBB sem torque.** Quaternion como estado canônico (Euler continua na
+API do editor). SAT de 15 eixos para OBB-OBB, clamp em espaço local para
+OBB-esfera — o mesmo "transformar o outro corpo" de `docs/colisores.md` §4. A
+narrow phase devolve `normal`, `penetração` e ids de feature; eixos quase
+paralelos têm tolerância escrita e desempate determinístico. CPU e Rust primeiro,
+WGSL depois. *Aceite:* paridade comparando **normal e profundidade**, não só a
+posição final; rampa e parede orientadas; save/load conserva a pose.
+
+**Lote D — manifold e warm starting.** Recorte de face incidente, até 4 pontos,
+casamento entre passos por feature id. *Aceite:* pilha de caixas com jitter e
+energia em repouso medidos, com e sem warm starting.
+
+**Lote E — dinâmica angular.** Tensor de inércia, velocidade angular, torque.
+Vem **depois** do manifold: com um único ponto de contato, uma caixa em repouso
+com torque oscila para sempre. *Aceite:* apoio fora do centro inclina; impacto
+lateral gira; esfera invariante; momento conservado dentro de tolerância escrita.
+
+**D e E têm gatilho, não data:** só entram quando um corpo de gameplay real
+precisar tombar ou empilhar com rotação. Para portas, pontes e projéteis, A–C
+bastam. `docs/colisores.md` §3 continua valendo: casca dinâmica entra como
+esfera.
+
+### 7.3 O que a revisão externa propôs e fica adiado, com gatilho
+
+| proposta | por que não agora | gatilho |
+|---|---|---|
+| `PhysicsWorld` SoA com `BodyId + generation` | o backend Rust já é SoA (`&[f32]`) e o contrato de posse já separa cena de solver; reescrever a fronteira antes do Lote A é mexer em dois eixos de uma vez | resync por spawn (`crInit`, §9) acima de 1 ms numa cena de spawn contínuo |
+| broad-phase persistente, fat AABB, DBVT | o grid é medido e exato; nenhum perfil mostra a broad-phase dominando | broad-phase > 30% do passo em uma das três cenas (densa, esparsa, escalas mistas) |
+| ilhas e sono por ilha | o modelo gather da GPU não tem ordem de restrições a preservar; ilha só paga em Gauss-Seidel na CPU | corpo dormindo dentro de pilha acordada reproduzido em teste, ou paralelismo por ilha necessário no Rust |
+| CCD/TOI | o teto de 48 u/s é declarado, não escondido | primeiro projétil físico mais rápido que o teto — entra junto com `shapeCast` |
+| GPU-resident completa | já é a Fase 3 deste plano | §8 |
+
+Recusado de vez: quatro variantes de tipo de corpo (duas de cinemático) — uma
+basta, a outra é conversão na borda.
+
+O plano de RTS (unidades, HPA*, flow fields, formação, ORCA, combate) é outro
+épico: `docs/superpowers/plans/2026-09-20-super-plano-rts.md` (commit `57221ad`).
+Deste documento ele recebe a fronteira da §7.1 e os contratos do Lote B; o
+`RTS-2` dele (agente cinemático) **depende do Lote A** e de nada depois dele.
+
+**Nota de aceite:** os lotes C–E mudam o solver e **invalidam a paridade medida
+na Fase 0**. A tolerância de 0,15 será re-medida e republicada em cada um.
 
 ---
 
@@ -261,15 +368,17 @@ sistemas declarando ids de buffer, recusa em conflito de escrita (como
 - **Corpos cinemáticos não existem.** `invMass = 0` dá **imóvel**, não
   cinemático. E `pbEmpurraTeleportes` trata movimento externo como teleporte e
   **zera a velocidade** — exatamente o comportamento errado para uma unidade
-  andando por pathfinding. Bug latente já presente; resolvido na Fase 2.
+  andando por pathfinding. Bug latente já presente; resolvido no Lote A da
+  Fase 2 (§7.2), que é o primeiro — não espera por OBB.
 - **Eventos de colisão não chegam ao gameplay.** O solver gather descarta o par
   ao resolver. Sem dano, sem área de captura, sem "chegou ao destino".
 - **Determinismo é entre contagens de thread no mesmo binário.** Entre máquinas
   exige fixar contração de FMA e codegen, e ninguém verificou. **Não prometer
   lockstep antes disso.**
-- **Estáticos divergem entre backends quando têm component `Collider`.**
-  `rbSyncStatics` não passa por `collider.ts`; o teste de paridade não enxerga
-  por construção (`cpurigid.ts:190-194`).
+- **Estáticos divergem entre backends quando o `Collider` tem centro deslocado.**
+  GPU e Rust gravam `t.wx/wy/wz` cru; a cena soma `centerLocal*`. As
+  meias-extensões já estão certas (o comentário de `cpurigid.ts:190-194` ficou
+  obsoleto). Primeiro item do Lote A, §7.2.
 - **`crInit(m)` realoca o mundo inteiro** quando a contagem muda, e
   `compVersion` invalida tudo: num mapa com spawn contínuo, cada unidade criada
   paga um resync completo.
@@ -286,6 +395,10 @@ sistemas declarando ids de buffer, recusa em conflito de escrita (como
   trabalho que nasce e morre nela.
 - **SoA no grafo de cena agora.** O número que a justificava não existe mais.
   Revisitar se `computeWorld` passar de 3 ms numa cena real.
+- **Soldado como corpo rígido.** Uma batalha vira uma ilha só e nenhum backend
+  escala nisso. Unidade é agente; entra no solver como cinemático (§7.1).
+- **SAT isolado no layout atual.** `vel.w` já codifica forma e `hullId`; OBB em
+  cima disso congela o layout errado. Layout primeiro (Lote A).
 - **Apagar a decisão de backend.** Tentado na revisão 1 e derrubado pela medição:
   a decisão é real e tem duas variáveis.
 
@@ -300,7 +413,10 @@ sistemas declarando ids de buffer, recusa em conflito de escrita (como
 | Editor abre no padrão novo sem opt-in; cenas salvas não gravam backend | `rigidSetMode(1)` como rollback em runtime; medir `scenes/stress500.json` visualmente antes e depois |
 | **Deriva entre repositórios** — esquecer `cargo build` e testar binário velho | §12, regra de trabalho. É o modo de falha mais provável deste plano |
 | Outros números do código obsoletos como o do `computeWorld` | Fase 0 item 6 lista os conhecidos e os suspeitos; medir antes de citar, sempre |
-| Fase 2 é grande e pode parar no meio | Lotes da issue #1 são independentes, cada um com aceite próprio |
+| Fase 2 é grande e pode parar no meio | Lotes A–E de §7.2, cada um com aceite próprio; D e E só com gatilho |
+| Layout novo (4 bindings, `ext` na cauda do `world`) regride o kernel | Bench do Lote A item 2 antes de congelar; > 10% reabre a decisão |
+| Quatro planos sobrepostos no repositório, com fases de mesmo nome e conteúdo diferente | §14: este documento é o normativo; os outros são referência e levam aviso no topo |
+| Contato descartado em silêncio quando um bucket do grid enche (32 vagas) | Lote A ganha contador de overflow por passo, exposto no `dbg`; aceite exige zero nas cenas de referência |
 | Paridade da Fase 0 invalidada pela Fase 2 | Re-medir e republicar a tolerância (§7) |
 
 ---
@@ -332,3 +448,47 @@ layout da Fase 2 — então o alvo não afeta só as fases adiadas.
 
 Perguntas abertas: editor, partida de RTS (com qual N), ou demo? Piso de 2, 4 ou
 16 núcleos?
+
+Decisões de jogo que a Fase 2 precisa antes do Lote B (vieram da issue #1):
+
+- unidades se empurram ou só se desviam? (decide se agente × agente passa pelo
+  solver; a §7.1 assume que **não**)
+- mapa 2,5D ou 3D navegável com pontes e andares? (decide se `raycast` basta
+  para seleção e ordem de movimento)
+- quais objetos são corpos de gameplay de verdade? (decide se os Lotes D e E
+  algum dia entram)
+- single-player com replay, ou lockstep? (decide se o grupo determinístico é só
+  o backend Rust — §9 — ou se a GPU fica restrita a cosmético)
+
+---
+
+## 14. Precedência entre os documentos (para quem for implementar)
+
+O commit `57221ad` pôs em `docs/superpowers/plans/` quatro textos da revisão
+externa. Eles se sobrepõem a este e entre si — "Fase 0" significa três coisas
+diferentes. A regra:
+
+| documento | papel |
+|---|---|
+| **este** | normativo: ordem, escopo, gatilhos e aceite |
+| `2026-09-20-fase0-decisor-medido.md` | plano executável da Fase 0 daqui (§5). Inalterado pela revisão 3 |
+| `2026-09-20-issue-1-implementation-plan.md` | referência de **matemática** para os Lotes C–E (SAT de 15 eixos, recorte do manifold, fórmulas angulares, lista de testes). A ordem e os tipos de corpo de lá **não valem** |
+| `2026-09-20-super-plano-fisica.md` | catálogo do que fica adiado em §7.3; nada dele entra sem o gatilho |
+| `2026-09-20-super-plano-rts.md` | épico separado; ainda sem plano executável |
+| `2026-09-20-review-issue-1.md`, `…research-notes-physics.md` | histórico e bibliografia |
+
+Onde eles discordam deste, e o que vale:
+
+| ponto | lá | aqui | por quê |
+|---|---|---|---|
+| unidades | `dynamic` (tabela de tipos do plano da issue) | agente, cinemático no solver (§7.1) | o próprio plano de RTS do mesmo autor diz o contrário do plano da issue |
+| tipos de corpo | quatro, dois cinemáticos | três | posição → velocidade é conversão na borda |
+| primeira entrega | `BodyId`, comando/snapshot, `PhysicsStats`, layout, máscara, tudo junto | Lote A, sem `BodyId` nem snapshot | um PR que troca a fronteira **e** o layout não tem bisect |
+| broad-phase persistente antes de OBB | Fase 1 de lá | adiado, §7.3 | nenhum perfil mostra a broad-phase dominando |
+| metas de tempo | "2 000 densos < 8 ms" | §2.1: já medido **0,62 ms** | meta mais frouxa que o presente não orienta nada; a meta é *não regredir mais de 10%* por lote |
+| limite de 4 bindings | remover, ou `bodyState` único, a decidir | cabe em 4 movendo `ext` (§7.2) | a validar por bench; se falhar, as opções de lá são o plano B |
+
+Cada lote de §7.2 ainda precisa do seu plano executável (tarefas, arquivos,
+comandos), no formato do da Fase 0, **escrito logo antes de ser implementado** —
+um plano de tarefas envelhece com o código, e o do Lote C escrito hoje citaria
+linhas que o Lote A vai mover.

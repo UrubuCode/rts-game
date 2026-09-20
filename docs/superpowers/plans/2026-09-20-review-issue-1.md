@@ -1,5 +1,8 @@
 # Revisão técnica — `UrubuCode/rts-game#1`
 
+> **Aviso (2026-09-20):** documento de referência. Ordem, escopo e aceite são os de
+> [`../specs/2026-09-20-paralelismo-e-fundacao-design.md`](../specs/2026-09-20-paralelismo-e-fundacao-design.md), §7 e §14.
+
 **Data da revisão:** 20/09/2026  
 **Repositório revisado:** `UrubuCode/rts-game`  
 **Commit local:** `3d29515` (`docs: design de paralelismo (revisao 2) e plano da Fase 0`)  
