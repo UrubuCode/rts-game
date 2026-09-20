@@ -7,20 +7,21 @@
 import render from "../compat/render.ts";
 import math from "../compat/math.ts";
 import input from "rts:input";
+import { UI_C } from "./ui_config";
 
 // ── cores do tema (Unity dark) ───────────────────────────────────────────────
-export const PANEL = 0x383838FF;
-export const PANEL_DK = 0x2D2D2DFF;
-export const HEADER = 0x3C3C3CFF;   // casa o dark theme da Unity (header/toolbar)
-export const BORDER = 0x232323FF;
-export const FIELD = 0x2A2A2AFF;
-export const TEXT = 0xC8C8C8FF;
-export const TEXT_DIM = 0x8A8A8AFF;
-export const SEL = 0x3A6C9FFF;      // azul de seleção da Unity (com foco)
-export const HOVER = 0x454545FF;
-export const AXIS_X = 0xC85A5AFF;   // eixos estilo Unity (X vermelho, Y verde, Z azul)
-export const AXIS_Y = 0x88C05AFF;
-export const AXIS_Z = 0x5A82C8FF;
+export const PANEL = UI_C.panel;
+export const PANEL_DK = UI_C.controlIdle;
+export const HEADER = UI_C.widgetHeader;
+export const BORDER = UI_C.border;
+export const FIELD = UI_C.scrollbarTrack;
+export const TEXT = UI_C.primaryText;
+export const TEXT_DIM = UI_C.hint;
+export const SEL = UI_C.fieldSelection;
+export const HOVER = UI_C.controlHover;
+export const AXIS_X = UI_C.widgetAxisX;
+export const AXIS_Y = UI_C.widgetAxisY;
+export const AXIS_Z = UI_C.widgetAxisZ;
 
 // ── estado de scrub do campo numérico ────────────────────────────────────────
 let sScrubId = 0 - 1;
@@ -29,12 +30,19 @@ let sScrubMx: f64 = 0.0;
 // ── estado de EDIÇÃO por texto (clicar no valor pra digitar) ─────────────────
 let nfEditId = 0 - 1;    // id do campo em modo digitação (-1 = nenhum)
 let nfEditText = "";     // buffer do texto sendo digitado
+let nfSelectAll = 0;
 
 /// 1 se algum numField está em modo DIGITAÇÃO — pra gatear atalhos globais de tecla
 /// (não trocar de ferramenta enquanto o usuário digita um valor).
 export function nfEditing(): number {
   if (nfEditId >= 0) return 1;
   return 0;
+}
+
+export function nfCancel(): void {
+  nfEditId = 0 - 1;
+  nfSelectAll = 0;
+  sScrubId = 0 - 1;
 }
 
 /// substring SEGURO: `.substring` direto num GCELL (module-let escrito por função)
@@ -90,8 +98,8 @@ export function assetField(win: i64, x: number, y: number, w: number, h: number,
   // realce verde quando um drag COMPATÍVEL paira sobre o slot (feedback Unity)
   let fill = FIELD;
   let brd = BORDER;
-  if (dragOK !== 0 && over !== 0) { fill = 0x2E5A3AFF; brd = 0x77DD99FF; }
-  else if (dragOK !== 0) brd = 0x5A7FB0FF;   // slots compatíveis "acendem" durante o drag
+  if (dragOK !== 0 && over !== 0) { fill = UI_C.rowDropTarget; brd = UI_C.dropMarker; }
+  else if (dragOK !== 0) brd = UI_C.componentEnabled;   // slots compatíveis "acendem" durante o drag
   render.rect(win, fx, y, fw, h, fill, 1, brd, 3);
   // mostra só o nome do arquivo (o path inteiro não cabe)
   let show = cur;
@@ -119,11 +127,13 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
   let v = value;
 
   // clicar no VALOR → entra em edição de texto (semente = valor atual)
-  if (mPressed !== 0 && overVal) { nfEditId = id; nfEditText = "" + r2(value); }
+  if (mPressed !== 0 && overVal) { nfEditId = id; nfEditText = "" + r2(value); nfSelectAll = 1; }
   // clicar em qualquer outro lugar → confirma a edição deste campo
   if (mPressed !== 0 && !overVal && nfEditId === id) {
-    v = parseFloat(nfEditText);
+    const parsed = parseFloat(nfEditText);
+    if (parsed === parsed && parsed > -1e30 && parsed < 1e30) v = parsed;
     nfEditId = 0 - 1;
+    nfSelectAll = 0;
   }
 
   // scrub pela ABA (só quando NÃO está editando este campo)
@@ -138,19 +148,30 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
   // ── desenho ──
   render.rect(win, x, y, w, 20, FIELD, 1, BORDER, 3);
   render.rect(win, x, y, 16, 20, tab, 0, 0, 3);       // aba colorida (scrub)
-  render.text(win, x + 4, y + 3, lbl, 0x101010FF, 12, 0);
+  render.text(win, x + 4, y + 3, lbl, UI_C.axisLabelText, 12, 0);
 
   if (nfEditId === id) {
     // modo digitação: acumula texto, backspace (tecla 4), Enter (tecla 1) confirma
-    const typed = input.textInput(win);
-    if (typed.length > 0) nfEditText = nfEditText + typed;
-    if (input.key(win, 4, 1) && nfEditText.length > 0) nfEditText = subStr(nfEditText, 0, nfEditText.length - 1);
-    render.rect(win, x + 16, y, w - 16, 20, 0x1A1F28FF, 1, 0x3399FFFF, 3);
-    render.text(win, x + 22, y + 3, nfEditText + "|", 0xFFFFFFFF, 12, 0);
-    if (input.key(win, 1, 1)) { v = parseFloat(nfEditText); nfEditId = 0 - 1; return v; }
+    if (input.modCtrl(win) && input.key(win, 100, 1)) nfSelectAll = 1;
+    const typed = input.modCtrl(win) ? "" : input.textInput(win);
+    if (typed.length > 0) { nfEditText = nfSelectAll !== 0 ? typed : nfEditText + typed; nfSelectAll = 0; }
+    if (input.key(win, 4, 1)) {
+      nfEditText = nfSelectAll !== 0 || nfEditText.length === 0 ? "" : subStr(nfEditText, 0, nfEditText.length - 1);
+      nfSelectAll = 0;
+    }
+    render.rect(win, x + 16, y, w - 16, 20, UI_C.numberEditor, 1, UI_C.numberEditorBorder, 3);
+    if (nfSelectAll !== 0) render.rect(win, x + 19, y + 2, w - 22, 16, UI_C.fieldSelection, 0, 0, 1);
+    render.text(win, x + 22, y + 3, nfEditText + "|", UI_C.white, 12, 0);
+    if (input.key(win, 2, 1)) { nfCancel(); return value; }
+    if (input.key(win, 1, 1)) {
+      const parsed = parseFloat(nfEditText);
+      nfCancel();
+      if (parsed === parsed && parsed > -1e30 && parsed < 1e30) return parsed;
+      return value;
+    }
     return value;   // enquanto digita, mantém o valor até confirmar
   }
-  render.text(win, x + 22, y + 3, "" + r2(v), 0xD4D4D4FF, 12, 0);
+  render.text(win, x + 22, y + 3, "" + r2(v), UI_C.popupText, 12, 0);
   return v;
 }
 
@@ -161,7 +182,7 @@ export function checkbox(win: i64, x: number, y: number, checked: number, lbl: s
   let r = checked;
   if (over && mPressed !== 0) { if (checked === 0) r = 1; else r = 0; }
   render.rect(win, x, y, 18, 18, FIELD, 1, BORDER, 3);
-  if (r !== 0) render.rect(win, x + 4, y + 4, 10, 10, 0x66BB66FF, 0, 0, 2);
+  if (r !== 0) render.rect(win, x + 4, y + 4, 10, 10, UI_C.checkboxMark, 0, 0, 2);
   render.text(win, x + 24, y + 1, lbl, TEXT, 13, 0);
   return r;
 }

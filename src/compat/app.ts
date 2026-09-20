@@ -29,7 +29,7 @@
 //
 // `delta`/`fps` idem: são `Date.now()` e uma média, não uma capacidade.
 import { drawRect, drawText, drawLine, openWindow, setNextWindowPos, isOpen, pump, beginFrame, endFrame, close } from "rts:egui";
-import { mouseX, mouseY, mouseDown, mousePressed, mouseReleased, mouseClicked, key, textInput } from "rts:input";
+import { mouseX, mouseY, mouseDown, mousePressed, mouseReleased, mouseClicked, key, textInput, modCtrl } from "rts:input";
 import { dcRect, dcText, dcLine, dcReset } from "./drawcount.ts";
 
 // Fases de `input.key(win, code, phase)`, do trait `InputSource`:
@@ -67,6 +67,7 @@ let pressY = 0.0 - 1.0;
 // Foco dos campos de texto. É um id só porque só um campo pode ter foco; o
 // editor usa `setFocus(950)` e `setFocus(-1)` exatamente assim.
 let focusId = 0 - 1;
+let focusSelectAll = 0;
 
 // Relógio. O motor antigo entregava `delta()` em MILISSEGUNDOS (main.ts corta em
 // 100 e divide por 1000), então é isso que sai daqui.
@@ -250,31 +251,47 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       return next;
     },
 
-    setFocus(id: number): void { focusId = id; },
+    setFocus(id: number): void { focusId = id; focusSelectAll = 0; },
+    focusAll(id: number): void { focusId = id; focusSelectAll = 1; },
     isFocused(id: number): boolean { return focusId === id; },
 
     /// `textField(id, x, y, w, texto)` → o texto, possivelmente digitado.
     ///
-    /// APROXIMAÇÃO, e a mais fraca deste arquivo. `input.textInput(win)` entrega
-    /// os caracteres digitados no frame, o que basta para digitar num campo
-    /// focado; o que NÃO existe é cursor, seleção, setas, Home/End e
-    /// clique-para-posicionar. O editor sobrevive porque só usa dois campos (o
-    /// nome do objeto e a busca do Add Component) e já trata o Backspace por
-    /// fora, via `keyPressed(4)`. Um campo de verdade é outra tarefa.
-    textField(id: number, tx: number, ty: number, tw: number, value: string): string {
+    /// Campo posicionado para nome e buscas. Aceita texto, Backspace, Delete,
+    /// Ctrl+A, Enter e Escape; ainda não tem cursor em posição arbitrária.
+    textField(id: number, tx: number, ty: number, tw: number, value: string, enabled: boolean): string {
       const h2 = 20;
       const over = inRect(tx, ty, tw, h2);
-      if (over && curPressed !== 0) focusId = id;
-      const focused = focusId === id;
+      if (enabled && over && curPressed !== 0) { focusId = id; focusSelectAll = 0; }
+      else if (curPressed !== 0 && focusId === id) { focusId = 0 - 1; focusSelectAll = 0; }
+      const focused = enabled && focusId === id;
       let out = value;
       if (focused) {
-        const typed = textInput(win);
-        if (typed.length > 0) out = out + typed;
+        const ctrl = modCtrl(win);
+        if (ctrl && key(win, 100, PHASE_PRESSED)) focusSelectAll = 1;
+        const typed = ctrl ? "" : textInput(win);
+        if (typed.length > 0) { out = focusSelectAll !== 0 ? typed : out + typed; focusSelectAll = 0; }
+        if (key(win, 4, PHASE_PRESSED) || key(win, 10, PHASE_PRESSED)) {
+          out = focusSelectAll !== 0 ? "" : out.substring(0, out.length - 1);
+          focusSelectAll = 0;
+        }
+        if (key(win, 1, PHASE_PRESSED) || key(win, 2, PHASE_PRESSED)) { focusId = 0 - 1; focusSelectAll = 0; }
       }
       oRect.x = tx; oRect.y = ty; oRect.w = tw; oRect.h = h2;
       oRect.fill = 0x2A2A2AFF; oRect.strokeW = 1; oRect.stroke = focused ? 0x5A7FB0FF : 0x232323FF; oRect.radius = 3;
       drawRect(win, oRect);
-      oText.x = tx + 5; oText.y = ty + 3; oText.text = focused ? out + "|" : out;
+      // O backend de desenho não recorta texto: mantenha nomes longos dentro do campo.
+      const maxChars = Math.max(1, ((tw - 12) / 7) | 0);
+      let shown = out;
+      if (shown.length > maxChars) {
+        shown = focused ? shown.substring(shown.length - maxChars) : shown.substring(0, maxChars - 1) + "…";
+      }
+      if (focused && focusSelectAll !== 0) {
+        oRect.x = tx + 4; oRect.y = ty + 2; oRect.w = Math.min(tw - 8, shown.length * 7 + 3);
+        oRect.h = 16; oRect.fill = 0x3A6C9FFF; oRect.strokeW = 0; oRect.stroke = 0; oRect.radius = 1;
+        drawRect(win, oRect);
+      }
+      oText.x = tx + 5; oText.y = ty + 3; oText.text = focused ? shown + "|" : shown;
       oText.color = 0xD0D0D0FF; oText.size = 12;
       drawText(win, oText);
       return out;

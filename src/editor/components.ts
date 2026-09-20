@@ -8,7 +8,7 @@
 // 1. Escreva um Behavior em scripts/<seu>.ts (veja scripts/orbit.ts de exemplo):
 //    override update(dt) com a lógica + typeName/fieldCount/fieldLabel/fieldGet/
 //    fieldSet pra config no inspector.
-// 2. Importe-o aqui, some o nome em COMPONENT_NAMES e trate-o em createComponent.
+// 2. Importe-o aqui, registre os metadados em component_catalog.ts e trate-o em createComponent.
 // Pronto: ele aparece na lista "Add Component" com config editável ao vivo.
 import { Behavior } from "../engine/core/behavior";
 import { Spinner } from "../scripts/spinner";
@@ -26,7 +26,7 @@ import { MeshRenderer } from "../engine/core/meshrenderer";
 import { Camera } from "../engine/core/camera";
 
 /// Nomes dos componentes disponíveis (aparecem na lista "Add Component").
-export const COMPONENT_NAMES: string[] = ["Camera", "MeshRenderer", "Material", "Spinner", "Bobber", "Rigidbody", "Mover", "Pulse", "Orbit", "Patrol", "AudioSource", "Animator", "PhysicsMaterial"];
+export { COMPONENT_NAMES } from "./component_catalog";
 
 /// Cria um componente pelo nome, com valores padrão sensatos.
 export function createComponent(name: string): Behavior {
