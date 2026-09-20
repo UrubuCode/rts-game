@@ -318,6 +318,14 @@ lotes sem dívida.
    | `world` (cauda) | read | `ext.xyz` · `invInércia.xyz` · bits: tipo, forma, `hullId`, flags · `layer`, `mask` — ao lado de materiais, estáticos e grid, que já moram ali |
    | `contacts` | read_write | manifold e impulsos acumulados (Lote D); vazio até lá |
 
+   **O teto de 4 é configuração, não hardware** (verificado, §15.1): a janela
+   abre com `config = 0` e o device nasce com `downlevel_defaults`. Pedir só
+   `max_storage_buffers_per_shader_stage = 8` sobre o downlevel é uma mudança
+   pequena no host e deixa o resto da economia de RAM intacta. A tabela acima
+   continua sendo a proposta — separar quente de frio vale pela banda de memória,
+   não mais pela contagem — mas o layout **deixa de ser refém** do quarto binding,
+   e o Lote D pode ter buffers próprios.
+
    `ext` é somente leitura hoje e ocupa um binding inteiro; movê-lo para a cauda
    do `world` é o que libera o quarto. `vel.w` deixa de codificar forma e
    `hullId`. O bench compara o kernel atual contra o novo layout **sem mudar a
@@ -350,9 +358,15 @@ paralelos têm tolerância escrita e desempate determinístico. CPU e Rust prime
 WGSL depois. *Aceite:* paridade comparando **normal e profundidade**, não só a
 posição final; rampa e parede orientadas; save/load conserva a pose.
 
-**Lote D — manifold e warm starting.** Nos três backends: o binding `contacts`
-reservado no Lote A é o armazenamento gravável que o modelo gather da GPU
-precisa para impulsos acumulados. Recorte de face incidente, até 4 pontos,
+**Lote D — manifold, em duas metades** (reordenado pela pesquisa, §15.2).
+*D1 — manifold sem memória:* até 4 pontos recalculados a cada sub-passo, contato
+suave (frequência em Hz + razão de amortecimento no lugar do slop 0,04 / 85%),
+passada de relaxamento, e **divisão de massa** no kernel gather da GPU (cada corpo
+divide sua massa efetiva pelo número de contatos que tem, em vez de aplicar
+"metade da correção" de cada par). Nada persiste entre passos, então nada disso
+precisa do buffer `contacts`. *D2 — warm starting:* casamento por feature id e
+impulsos acumulados, **só se D1 reprovar no aceite da pilha**. É a parte mais
+cara de portar para a GPU e a literatura mostra pilha estável sem ela. Recorte de face incidente, até 4 pontos,
 casamento entre passos por feature id. *Aceite:* pilha de caixas com jitter e
 energia em repouso medidos, com e sem warm starting.
 
@@ -430,8 +444,12 @@ sistemas declarando ids de buffer, recusa em conflito de escrita (como
 - **Eventos de colisão não chegam ao gameplay.** O solver gather descarta o par
   ao resolver. Sem dano, sem área de captura, sem "chegou ao destino".
 - **Determinismo é entre contagens de thread no mesmo binário.** Entre máquinas
-  exige fixar contração de FMA e codegen, e ninguém verificou. **Não prometer
-  lockstep antes disso.**
+  ninguém verificou — mas o caminho é mais curto do que parecia (§15.3): `rustc`
+  não contrai FMA por conta própria, então o que falta é (a) nenhuma
+  transcendental no caminho do solver — só `+ − × ÷ sqrt`; Euler→quaternion
+  acontece na borda —, (b) ordem de redução fixa no rayon, (c) o teste. **Não
+  prometer lockstep antes do teste**, que é o do Box2D: mesma cena em x64 e ARM,
+  comparar o número de passos até tudo dormir e o hash dos transforms.
 - **Estáticos divergem entre backends quando o `Collider` tem centro deslocado.**
   GPU e Rust gravam `t.wx/wy/wz` cru; a cena soma `centerLocal*`. As
   meias-extensões já estão certas (o comentário de `cpurigid.ts:190-194` ficou
@@ -551,3 +569,76 @@ Cada lote de §7.2 ainda precisa do seu plano executável (tarefas, arquivos,
 comandos), no formato do da Fase 0, **escrito logo antes de ser implementado** —
 um plano de tarefas envelhece com o código, e o do Lote C escrito hoje citaria
 linhas que o Lote A vai mover.
+
+---
+
+## 15. Pesquisa externa (2026-09-20): o plano está na direção certa?
+
+Cada item diz o que foi verificado, onde, e o que mudou neste documento.
+
+### 15.1 O "teto de 4 storage buffers" — verificado no código, era premissa falsa
+
+`src/compat/app.ts:131` chama `openWindow(titulo, w, h, 0)`. No host,
+`rts-egui/src/frame/gpu.rs:178-182` escolhe `Limits::downlevel_defaults()` quando
+o bit 2 (`high_limits`) está desligado. No `wgpu-types 29.0.3` que o projeto usa
+(`limits.rs:385,500`): **default = 8, downlevel = 4**. O compute sem janela já
+pede `high_limits` (`compute.rs:105`) — por isso o teto só aparece "com janela
+aberta". `docs/colisores.md` §4 e o cabeçalho de `gpurigid.ts:38-40` tratam isso
+como fato do dispositivo; é uma escolha de RAM feita para UI 2D.
+
+*Mudou:* §7.2 item 2. *Tarefa nova no Lote A:* limite pedido campo a campo no
+host (repositório `rts`), com a RAM do processo medida antes e depois.
+
+### 15.2 Solver — a direção está certa, e dois atalhos apareceram
+
+- **Sub-passos valem mais que iterações.** Conclusão do Solver2D de Erin Catto
+  (oito solvers comparados) e base do Box2D v3 e do Box3D (junho de 2026). O
+  kernel daqui já usa "sub-passos no papel das iterações" — decisão confirmada,
+  não mexer.
+- **Pilha estável não exige warm starting.** No mesmo estudo, o `TGS_Sticky`
+  empilha sem impulsos acumulados; o que segura é sub-passo + atrito forte +
+  relaxamento. *Mudou:* Lote D partido em D1/D2.
+- **Contato suave** (Hz + amortecimento) substitui Baumgarte/slop com parâmetros
+  que têm significado físico e não dependem do `dt`. Entra no D1, versionado.
+- **Jacobi na GPU tem solução publicada para o jitter:** divisão de massa (Tonge,
+  Benevolenski, Voroshilov, SIGGRAPH 2012 — 5 000 corpos empilhados a 60 FPS em
+  GPU da época). Encaixa no modelo gather sem mudar a estrutura do kernel. A
+  "herança de apoio" que mata o ciclo-limite de coluna é um remendo para o
+  sintoma que essa técnica trata na causa; **o D1 deve medir se ela ainda é
+  necessária depois**. *Atenção:* a busca devolveu patentes da NVIDIA de título
+  correlato ("Modified effective mass for parallel rigid body simulation").
+  Conferir o alcance antes de adotar a formulação do artigo ao pé da letra;
+  média de Jacobi simples é anterior e é o plano B.
+- **Gauss-Seidel paralelo se faz por coloração de grafo** (Box2D v3, Box3D). É a
+  forma que o §7.3 "paralelismo por ilha no Rust" deve tomar quando o gatilho
+  disparar — ilha grande não paraleliza, cor paraleliza.
+
+### 15.3 Determinismo entre máquinas — mais perto do que o §9 dizia
+
+Box2D v3 conseguiu, e a receita é curta: sem FMA contraído, sem fast-math,
+`sin/cos/atan2` próprios (o `atan2f` da libc diverge entre plataformas; `sqrt`
+não), e ordem determinística na junção do trabalho das threads. Rapier faz o
+mesmo com a feature `enhanced-determinism` sobre `libm`. `rustc` não contrai FMA
+sem `mul_add` explícito, então o crate já cumpre a parte do compilador. *Mudou:*
+§9. A GPU continua fora do grupo determinístico — nenhuma das referências
+promete isso.
+
+### 15.4 "O dev escolhe a física" — é como os motores maduros fazem
+
+Rapier liga determinismo, SIMD e paralelismo por *feature*; Unity separa Unity
+Physics (sem estado, barato) de Havok (com cache, caro). Os níveis de §7.1.1 são
+a mesma ideia com granularidade de cena. Nada a mudar.
+
+### 15.5 O que a pesquisa NÃO cobriu
+
+Broad-phase (grid × BVH dinâmica) em cena de escalas mistas; CCD especulativo ×
+sweep; custo real do SAT de 15 eixos em WGSL com divergência de ramo. Ficam para
+antes dos lotes C e G, junto com o plano executável de cada um.
+
+Fontes: [Solver2D](https://box2d.org/posts/2024/02/solver2d/) ·
+[Determinism (Box2D)](https://box2d.org/posts/2024/08/determinism/) ·
+[Announcing Box3D](https://box2d.org/posts/2026/06/announcing-box3d/) ·
+[Mass Splitting, TOG 2012](https://dl.acm.org/doi/10.1145/2185520.2185601) ·
+[Rapier: Determinism](https://rapier.rs/docs/user_guides/rust/determinism/) ·
+[RFC 3514, float semantics](https://rust-lang.github.io/rfcs/3514-float-semantics.html) ·
+[wgpu Limits](https://docs.rs/wgpu/latest/wgpu/struct.Limits.html)
