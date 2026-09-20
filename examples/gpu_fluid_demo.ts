@@ -25,6 +25,7 @@ import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep,
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 let W = 1280;
 let H = 720;

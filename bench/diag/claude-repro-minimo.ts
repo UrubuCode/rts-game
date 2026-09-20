@@ -12,6 +12,7 @@ import math from "@compat/math.ts";
 import gpu from "@compat/gpu.ts";
 import buffer from "@compat/buffer.ts";
 import { initMeshes, setCam, setLgt, drawGPU } from "@engine/render/gpu3d";
+import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 const N = 352;                 // mesmos 352 vec4 do buffer do rígido
 const BYTES = N * 16;

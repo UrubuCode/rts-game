@@ -52,6 +52,7 @@ import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep,
          rbPoke, rbX, rbY, rbZ, rbSleep } from "@engine/rigid/gpurigid";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
          flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "@engine/fluid/fluid";
+import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
 // runtime (o `let H` de uma demo já corrompeu o raio do kernel do fluido).

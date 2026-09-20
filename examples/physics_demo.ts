@@ -29,6 +29,7 @@ import { PhysicsMaterial, MAT_ICE, MAT_STONE, MAT_RUBBER, MAT_WOOD, MAT_METAL } 
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 // Dimensões da janela com prefixo PD_: `H` sem prefixo já colidiu com o raio do
 // kernel do fluido — nomes de topo colidem entre módulos neste runtime.

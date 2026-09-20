@@ -16,6 +16,10 @@ import io from "@compat/io.ts";
 import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
 import input from "rts:input";
+// `createAppAt` era um GLOBAL do motor antigo, e este arquivo era o ultimo a
+// ainda contar com isso — `main.ts` ja importava do shim. No motor novo nada e
+// global sem alguem instalar.
+import { createAppAt } from "@compat/app.ts";
 
 import { scene, S } from "@editor/control/session";
 import { Transform } from "@engine/core/transform";

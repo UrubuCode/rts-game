@@ -41,6 +41,7 @@ import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
          flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "@engine/fluid/fluid";
+import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
 // runtime (o `let H` de uma demo já corrompeu o raio do kernel do fluido).
@@ -468,7 +469,9 @@ function frame(): void {
   const trs: Transform[] = scene.trs;
   const n = objs.length;
   let drawn = 0;
-  i = 0;
+  // `let`, e nao `i = 0` solto: o motor antigo transformava um nome nao ligado
+  // num global, e este laco e de outra funcao que a do `let i` la de cima.
+  let i = 0;
   while (i < n) {
     const o = objs[i];
     const t: Transform = trs[i];

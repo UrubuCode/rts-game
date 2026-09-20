@@ -24,6 +24,7 @@ import { initMeshes, setCam, setLgt, setShadow, drawGPU,
 // rouba o foco do usuário e mostra a janela que estiver por cima.
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
 import { setInspectFluid, setInspectDt } from "@editor/control/commands/scene";
+import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 let W = 1280;
 let H = 720;
