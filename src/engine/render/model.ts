@@ -11,6 +11,7 @@
 // (o loadTexture do gpu3d.ts já fazia isso pras imagens; aqui é o análogo.)
 
 import buffer from "@compat/buffer.ts";
+import type { Buf } from "@compat/buffer.ts";
 import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
 
@@ -315,7 +316,7 @@ function pushCorner(vi: number, ti: number, ni: number, fnx: f64, fny: f64, fnz:
 // Extrai [off, off+len) de um buffer como string. `buffer.to_string(b)` converte
 // o buffer INTEIRO (não aceita range), então montamos por bytes — em BLOCOS, que
 // concatenar caractere a caractere num JSON de megabytes seria O(n²).
-function sliceUtf8(b: i64, off: number, len: number): string {
+function sliceUtf8(b: Buf, off: number, len: number): string {
   let out = "";
   let chunk = "";
   let i = 0;
@@ -371,15 +372,19 @@ export function parseGltf(path: string): Part[] {
   const baseDir = dirOf(path);
 
   let js = "";
-  let binBuf: i64 = 0;      // buffer com o chunk BIN (0 = nenhum)
+  let binBuf: Buf | null = null;      // buffer com o chunk BIN (null = nenhum)
   let binLen = 0;
-  let fileBuf: i64 = 0;     // buffer do arquivo inteiro (.glb) — liberado no fim
+  let fileBuf: Buf | null = null;     // bytes do arquivo inteiro (.glb)
 
   if (isGlb(path)) {
     const sz = fs.size(path) | 0;
     if (sz < 20) return empty;
-    fileBuf = buffer.alloc(sz);
-    const got = fs.read_all(path, buffer.ptr(fileBuf), sz) | 0;
+    // `fs.read_all(path)` DEVOLVE os bytes: nao ha buffer a alocar nem
+    // endereco a passar. A forma antiga — alocar, entregar o ponteiro, receber
+    // a contagem — era a superficie que `compat/buffer.ts` documenta ter
+    // acabado, e `compat/fs.ts` ja tinha migrado sozinho.
+    fileBuf = fs.read_all(path);
+    const got = fileBuf.length | 0;
     if (got < 20) { buffer.free(fileBuf); return empty; }
     if (buffer.read_i32(fileBuf, 0) !== GLB_MAGIC) { buffer.free(fileBuf); return empty; }
     // header: magic(4) version(4) length(4), depois chunks: len(4) type(4) data
@@ -398,31 +403,31 @@ export function parseGltf(path: string): Part[] {
     js = fs.read_text(path);
     binOff = 0;
   }
-  if (js.length === 0) { if (fileBuf !== 0) buffer.free(fileBuf); return empty; }
+  if (js.length === 0) { if (fileBuf !== null) buffer.free(fileBuf); return empty; }
 
   const g = JSON.parse(js);
   const out: Part[] = [];
   const meshes = g.meshes;
-  if (meshes === undefined) { if (fileBuf !== 0) buffer.free(fileBuf); return empty; }
+  if (meshes === undefined) { if (fileBuf !== null) buffer.free(fileBuf); return empty; }
 
   // .gltf externo: carrega os buffers referenciados (uri) sob demanda
-  let extBuf: i64 = 0;
+  let extBuf: Buf | null = null;
   let extLen = 0;
-  if (binBuf === 0) {
+  if (binBuf === null) {
     const bufs = g.buffers;
     if (bufs !== undefined && bufs.length > 0 && bufs[0].uri !== undefined) {
       const bp = resolveRel(baseDir, bufs[0].uri);
       if (fs.exists(bp)) {
         const bsz = fs.size(bp) | 0;
         if (bsz > 0) {
-          extBuf = buffer.alloc(bsz);
-          extLen = fs.read_all(bp, buffer.ptr(extBuf), bsz) | 0;
+          extBuf = fs.read_all(bp);
+          extLen = extBuf.length | 0;
           binBuf = extBuf; binLen = extLen; binOff = 0;
         }
       }
     }
   }
-  if (binBuf === 0) { if (fileBuf !== 0) buffer.free(fileBuf); return empty; }
+  if (binBuf === null) { if (fileBuf !== null) buffer.free(fileBuf); return empty; }
 
   let mi = 0;
   while (mi < meshes.length) {
@@ -440,8 +445,8 @@ export function parseGltf(path: string): Part[] {
     }
     mi = mi + 1;
   }
-  if (fileBuf !== 0) buffer.free(fileBuf);
-  if (extBuf !== 0 && extBuf !== fileBuf) buffer.free(extBuf);
+  if (fileBuf !== null) buffer.free(fileBuf);
+  if (extBuf !== null && extBuf !== fileBuf) buffer.free(extBuf);
   return out;
 }
 
@@ -455,7 +460,7 @@ function isGlb(path: string): boolean {
 }
 
 // Monta UMA primitive (= uma submesh) lendo os accessors POSITION/NORMAL/TEXCOORD_0.
-function buildPrimitive(g: any, prim: any, bin: i64, mname: string,
+function buildPrimitive(g: any, prim: any, bin: Buf, mname: string,
                         baseDir: string, primIdx: number): Part {
   const attrs = prim.attributes;
   if (attrs === undefined || attrs.POSITION === undefined) return null;
@@ -528,7 +533,7 @@ function applyGltfMaterial(g: any, prim: any, sm: Part, baseDir: string): void {
 }
 
 // Lê um accessor FLOAT (posição/normal/uv) como array plano de f64.
-function readAccessor(g: any, bin: i64, ai: number): f64[] {
+function readAccessor(g: any, bin: Buf, ai: number): f64[] {
   const out: f64[] = [];
   const accs = g.accessors;
   if (accs === undefined) return out;
@@ -560,7 +565,7 @@ function readAccessor(g: any, bin: i64, ai: number): f64[] {
 }
 
 // Lê um accessor de ÍNDICES (u16/u32/u8) como inteiros.
-function readAccessorInt(g: any, bin: i64, ai: number): number[] {
+function readAccessorInt(g: any, bin: Buf, ai: number): number[] {
   const out: number[] = [];
   const accs = g.accessors;
   if (accs === undefined) return out;
@@ -595,7 +600,7 @@ function compSize(ct: number): number {
 }
 // Lê 1 componente no offset (little-endian). u16/u8 são montados por bytes,
 // porque o buffer só expõe read_u8/i32/f32/f64.
-function readComp(bin: i64, off: number, ct: number): f64 {
+function readComp(bin: Buf, off: number, ct: number): f64 {
   if (ct === CT_F32) return buffer.read_f32(bin, off);
   if (ct === CT_U32) return buffer.read_i32(bin, off);
   if (ct === CT_U16) return buffer.read_u8(bin, off) + buffer.read_u8(bin, off + 1) * 256;

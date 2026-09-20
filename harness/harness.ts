@@ -58,9 +58,12 @@ let selected = 0;
 let frame = 0;
 let tsec: f64 = 0.0;
 
-// buffer de leitura de comando
-const cmdbuf = buffer.alloc_zeroed(512);
-const cptr = buffer.ptr(cmdbuf);
+// Nao ha buffer de leitura de comando. `io.stdin_read_line()` devolve a linha
+// pronta (ou `null` no fim da entrada), entao o buffer de 512 bytes e o
+// ponteiro para ele eram o formato da superficie ANTIGA, nao um requisito
+// deste harness. `compat/buffer.ts` documenta por que `ptr` deixou de existir:
+// o coletor MOVE celulas, e um endereco guardado numa `const` de topo aponta
+// para outro lugar depois da proxima coleta.
 
 io.print("[engine] porta de controle pronta — envie comandos (help no README). RW=" + RW + " RH=" + RH);
 
@@ -75,10 +78,8 @@ function spawnColor(i: number, ch: number): number {
 
 let running = 1;
 while (running !== 0) {
-  const n = io.stdin_read_line(cptr, 512);
-  if (n <= 0) break; // EOF (pipe fechado)
-  const full = buffer.to_string(cmdbuf);
-  const line = full.substring(0, n);
+  const line = io.stdin_read_line();
+  if (line === null) break; // EOF (pipe fechado) — uma linha VAZIA nao encerra
   const parts = line.split(" ");
   const cmd = parts[0];
   const np = parts.length;
@@ -377,4 +378,5 @@ while (running !== 0) {
 io.print("[engine] porta de controle encerrada (frame=" + frame + ")");
 buffer.free(fbuf);
 buffer.free(zbuf);
-buffer.free(cmdbuf);
+// Nao ha `buffer.free(cmdbuf)`: o buffer de comando deixou de existir junto
+// com o ponteiro para ele — `io.stdin_read_line()` devolve a linha pronta.

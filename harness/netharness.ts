@@ -17,6 +17,25 @@ import io from "@compat/io.ts";
 import math from "@compat/math.ts";
 import buffer from "@compat/buffer.ts";
 import render from "@compat/render.ts";
+// ─────────────────────────────────────────────────────────────────────────
+// ESTE ARQUIVO NAO RODA, E O MOTIVO NAO E O QUE PARECE.
+//
+// Ele tem dois `buffer.ptr()` (linhas ~41 e ~47), que sao a superficie que
+// `compat/buffer.ts` documenta ter acabado. Consertar os dois NAO o
+// ressuscitaria: o import abaixo pede `rts:net`, e esse modulo NAO EXISTE no
+// motor atual. Os modulos que o host declara sao `rts:test`, `rts:runtime`,
+// `rts:json5` e `rts:serde`, mais `rts:egui`/`rts:input`/`rts:gpu` atras da UI
+// — verificado em `crates/rts-std/src/lib.rs`. Nao ha `tcp_recv` em lugar
+// nenhum do workspace.
+//
+// Entao a ordem e: primeiro alguem decide se `rts:net` volta a existir, e so
+// depois estes dois `ptr` viram uma questao. Registrado aqui porque o sintoma
+// que aparece primeiro e o `buffer.ptr`, e consertar esse sintoma custaria o
+// tempo de descobrir isto de novo.
+//
+// O harness de stdin (`harness/harness.ts`) NAO depende de `rts:net` e esta
+// funcionando — e ele que o TESTING.md documenta.
+// ─────────────────────────────────────────────────────────────────────────
 import net from "rts:net";
 import fs from "@compat/fs.ts";
 import egui from "rts:egui";

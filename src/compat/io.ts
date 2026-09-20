@@ -26,10 +26,19 @@ export default {
     println(String(text));
   },
 
-  // O antigo devolvia a linha sem o `\n`; `prompt` devolve `null` no fim da
-  // entrada, e a string vazia é a tradução mais próxima de "não veio nada" para
-  // um chamador que espera texto. O único chamador no jogo é um harness.
-  stdin_read_line(): string {
-    return prompt() ?? "";
+  // A linha sem o `\n`, ou `null` no fim da entrada.
+  //
+  // O `null` do `prompt` é REPASSADO em vez de virar `""`. A versão anterior
+  // fazia `prompt() ?? ""` e explicava que a string vazia era "a tradução mais
+  // próxima de não veio nada" — mas ela colapsa dois eventos que o único
+  // chamador precisa distinguir: o pipe fechou, e o usuário mandou uma linha
+  // em branco. Um harness que trata os dois igual encerra no meio de um
+  // roteiro que contenha uma linha vazia, e o sintoma é uma sessão que
+  // termina cedo sem dizer por quê.
+  //
+  // O antigo `stdin_read_line(ptr, len)` distinguia pelo retorno `<= 0`, e
+  // esta é a forma que preserva essa distinção sem reintroduzir um ponteiro.
+  stdin_read_line(): string | null {
+    return prompt();
   },
 };

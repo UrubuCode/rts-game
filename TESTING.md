@@ -71,10 +71,21 @@ software rasterizer (`src/engine/render/raster.ts`), independent of the GUI:
 printf 'spawn a 0 1 0\nstep 5\nlit\nquit\n' | ./rts.exe run harness/harness.ts
 # expects: [lit] <N> pixels drawn ...  with N > 0
 
-# TCP harness (:7777) — a live window that re-presents on each command
+# TCP harness (:7777) — DOES NOT RUN TODAY, see the note below
 ./rts.exe run harness/netharness.ts
 echo -e 'spawn a 0 1 0\nspin 0 1\nstep 30\nframe\nquit' | python tools/control_client.py
 ```
+
+**The TCP harness is out of order, and not for the reason it first reports.**
+It imports `rts:net`, and that module does not exist in the current engine —
+the host declares `rts:test`, `rts:runtime`, `rts:json5` and `rts:serde`, plus
+`rts:egui`/`rts:input`/`rts:gpu` behind the UI feature, and there is no
+`tcp_recv` anywhere in the workspace. It also still holds two `buffer.ptr()`
+calls, and that is the symptom which surfaces first and costs an afternoon:
+fixing them changes nothing while the import has nowhere to resolve to. The
+file repeats this at its own head, where someone opening it will read it.
+
+The stdin harness above does not depend on `rts:net` and works.
 
 The harness protocol adds preview commands the WebSocket editor does not need:
 `step [n]` (advance N update ticks), `frame [cols] [rows]` (ASCII preview of the
