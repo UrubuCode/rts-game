@@ -46,18 +46,42 @@ present, with a fallback to the GameObject's own fields for older scenes.
 
 ## Layout
 
+Source lives under `src/`; everything at the root is an entry point.
+
 ```
-engine/core/     transform · behavior · gameobject · scene · camera
-                 material · meshrenderer · sceneref   (data components)
-engine/render/   gpu3d.ts (GPU scene pass via egui.* — meshes/camera/light/shadow/texture)
-                 raster.ts · mesh.ts · draw.ts        (software renderer, harness-only)
-engine/ui/       uipanel.ts · uiscene.ts              (UI as GameObjects — L3 foundation)
-editor/          widgets · assets (Project browser) · gizmo (Move/Rotate/Scale math)
-                 components (Add Component registry) · sceneio (save/load/clone) · undo (history)
-editor/control/  server (WebSocket) · dispatch (command switch) · session (shared state)
-editor/control/commands/   query · spawn · transform · scene · component · hierarchy · files · doc
-scripts/         spinner · bobber · rigidbody · mover · pulse · orbit   (gameplay components)
+main.ts          the editor (window)          ← rts ui_fixture main.ts
+game.ts          the standalone game build
+run.ps1          launcher: builds the engine and runs the editor with a scene
+
+src/engine/core/     transform · behavior · gameobject · scene · camera
+                     material · meshrenderer · sceneref   (data components)
+src/engine/render/   gpu3d.ts (GPU scene pass via egui.* — meshes/camera/light/shadow/texture)
+                     raster.ts · mesh.ts · draw.ts        (software renderer, harness-only)
+src/engine/ui/       uipanel.ts · uiscene.ts              (UI as GameObjects — L3 foundation)
+src/engine/fluid/    cpufluid · gpufluid · decide         (fluid sim, backend choice)
+src/engine/rigid/    cpurigid · gpurigid                  (rigid-body backends)
+src/engine/audio/    audio · spatial
+src/editor/          widgets · assets (Project browser) · gizmo (Move/Rotate/Scale math)
+                     components (Add Component registry) · sceneio (save/load/clone) · undo
+src/editor/control/  server (WebSocket) · dispatch (command switch) · session (shared state)
+src/editor/control/commands/   query · spawn · transform · scene · component · hierarchy · files · doc
+src/scripts/         spinner · bobber · rigidbody · mover · pulse · orbit  (gameplay components)
+src/compat/          io · math · gpu · render · rigid · audio · time  (engine-surface shims)
+
+examples/        castelo · castelo_agua · castelo_gpu · fluid · gpu_fluid · physics · ws_controlada
+harness/         harness (stdin) · netharness (TCP) · wsharness (WebSocket)  — headless drivers
+tests/           claude-test-* · test_*        run one file, asserts, exits non-zero on failure
+bench/           claude-bench-* · bench_scene  measurements, not assertions
+tools/           control_client.py · ws_client.py · ws_control.html · build.bat
+assets/          models · prefabs · presets · scenes · textures
+scenes/          arena · demo · meshcollider · shadowdemo · solar · stress500
+docs/            colisores · fisica-paralela · unity-ui-reference · bug-ws-editor
 ```
+
+Why `src/` and not a flat root: the four source trees import each other by
+relative path, so moving them **together** left every import between them
+untouched — only the entry points needed rewriting. A root that holds nothing
+but entry points is also the fastest way to answer "where do I start reading".
 
 ## Features
 
@@ -124,7 +148,7 @@ select 1
 selectadd 2
 tool rotate           # switch the viewport gizmo tool
 snap 1                # snap-to-grid on
-loadtex 0 images.jpg  # decode + apply a real texture as a Material
+loadtex 0 assets/textures/images.jpg  # decode + apply a real texture as a Material
 instscene assets/subscene.json 0   # scene-within-scene under object #0
 savescene assets/my.json
 ```
@@ -160,7 +184,7 @@ mix — most units idle at any instant). Budget for 60 fps is 16.7 ms/frame:
 
 A realistic scene — 1000 objects, of which 200 are units with a movement script
 and 800 are static scenery — costs **13.7 ms/frame**. The SPH fluid demo
-(`fluid_demo.ts`) runs 168 particles at ~53 fps.
+(`examples/fluid_demo.ts`) runs 168 particles at ~53 fps.
 
 **The single biggest lever, by far:** hot loops belong in **free functions with
 annotated parameters**, not methods. Inside a method the locals lose their type
@@ -181,7 +205,7 @@ rebuilt when the scene composition changes (`colDirty`). Both are cheap flags
 guarding expensive work.
 
 Two things that sound right and **measurably are not** (both tried, both
-reverted — see the comments in `engine/core/scene.ts`): guarding the spatial
+reverted — see the comments in `src/engine/core/scene.ts`): guarding the spatial
 grid rebuild behind a "did anything change?" check, and shrinking the neighbour
 cap in the fluid. In both cases the check cost more than the work it saved.
 
@@ -200,9 +224,9 @@ check it is a wish, not a guarantee.
 | Physics advances by the CLOCK, not by frame count | 90 steps / 300 frames @ 200 fps = 60 Hz exact | the `rigApl` counter in the demo log |
 | One draw call per (mesh, texture) GROUP, not per object | 81 → 176 fps at 350 objects | `castelo_gpu_demo` with vsync and the frame limiter off |
 | Audio costs the same whether it is silent or sounding | 11–18 ms → 0–1 ms per frame | phase timing in the demo |
-| Positional audio is correct, not just plausible | 18 assertions, incl. constant energy over 16 angles | `tools/test_audio3d.ts` |
-| A `rts:buffer` handle survives the collector | ~166 k calls used to kill it; now unbounded | `tools/diag/claude-repro-minimo.ts` + UrubuCode/rts#2104 |
-| A module-level array is read as fast as a parameter | 260 ns → 20 ns per access | `tools/diag/claude-custo-param.ts` + UrubuCode/rts#2105 |
+| Positional audio is correct, not just plausible | 18 assertions, incl. constant energy over 16 angles | `tests/test_audio3d.ts` |
+| A `rts:buffer` handle survives the collector | ~166 k calls used to kill it; now unbounded | `bench/diag/claude-repro-minimo.ts` + UrubuCode/rts#2104 |
+| A module-level array is read as fast as a parameter | 260 ns → 20 ns per access | `bench/diag/claude-custo-param.ts` + UrubuCode/rts#2105 |
 
 ### Not guaranteed yet, in order of how much ceiling they buy
 
@@ -231,7 +255,7 @@ and a step is broadband — at 60 blocks/s it reads as a 60 Hz buzz. The fix is
 no sample-to-sample jump above a threshold while a source crosses the listener.
 
 **4. Front and back sound identical.** Pure L/R panning cannot tell them apart —
-this is a limit of the model, documented in `engine/audio/spatial.ts`, not a bug.
+this is a limit of the model, documented in `src/engine/audio/spatial.ts`, not a bug.
 ITD (interaural delay, ~31 samples at the extreme, costs nothing but an index
 offset) plus a one-pole head-shadow filter buy most of the missing cue for ~5 %
 of the per-sample cost.
@@ -242,7 +266,7 @@ measurably from the same source in front.
 calls per sample per voice (~44 % of what remains after the loop inversion). One
 `audio.mix_f32(buf, offset, L, R)` would take the voice ceiling from ~24 to
 ~32–40.
-*Guaranteed when:* `tools/diag/claude-laco-invertido.ts` reports 24 voices under
+*Guaranteed when:* `bench/diag/claude-laco-invertido.ts` reports 24 voices under
 1.2 ms.
 
 **6. Occlusion culling and LOD.** Frustum culling exists; 350 objects are still

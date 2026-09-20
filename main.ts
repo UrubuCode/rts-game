@@ -3,41 +3,41 @@
 // Estilo Unity: tudo é GameObject, ciclo mount → update(dt) → render pass.
 //   rts.exe run main.ts
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "./compat/io.ts";
-import math from "./compat/math.ts";
-import buffer from "./compat/buffer.ts";
-import render from "./compat/render.ts";
+import io from "./src/compat/io.ts";
+import math from "./src/compat/math.ts";
+import buffer from "./src/compat/buffer.ts";
+import render from "./src/compat/render.ts";
 import { setVsync } from "rts:egui";
 import input from "rts:input";
-import fs from "./compat/fs.ts";
-import process from "./compat/process.ts";
+import fs from "./src/compat/fs.ts";
+import process from "./src/compat/process.ts";
 // `createAppAt` era um GLOBAL do motor antigo. No motor novo nada é global sem
 // alguém instalar, então ele vira um import como qualquer outra coisa — e o que
 // está do outro lado costura a janela (`rts:egui`), o input (`rts:input`), o
 // relógio e os widgets posicionados, que lá eram uma coisa só.
-import { createAppAt } from "./compat/app.ts";
+import { createAppAt } from "./src/compat/app.ts";
 
-import { GameObject } from "./engine/core/gameobject";
-import { Scene } from "./engine/core/scene";
-import { drawSceneObjects, fParams } from "./engine/render/scenedraw";
-import { Transform } from "./engine/core/transform";
-import { UIScene } from "./engine/ui/uiscene";
-import { UIPanel, ANCHOR_TL, ANCHOR_BL, ANCHOR_BR } from "./engine/ui/uipanel";
-import { numField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./editor/widgets";
-import { COMPONENT_NAMES, createComponent } from "./editor/components";
-import { assetsInit, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "./editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture, loadObj } from "./engine/render/gpu3d";
-import { scene, S } from "./editor/control/session";
-import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./editor/gizmo";
-import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./editor/sceneio";
-import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "./editor/dnd";
-import { history } from "./editor/undo";
-import { rigidStep, rigidBackendName } from "./engine/core/physics_backend";
-import { stepsFor, stepMore, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./engine/core/fixedstep";
-import { snapshotWorld, renderX, renderY, renderZ, interpolateReset } from "./engine/core/interpolate";
-import { clockTick } from "./engine/core/clock";
-import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "./engine/core/profiler";
-import { dcReport } from "./compat/drawcount.ts";
+import { GameObject } from "./src/engine/core/gameobject";
+import { Scene } from "./src/engine/core/scene";
+import { drawSceneObjects, fParams } from "./src/engine/render/scenedraw";
+import { Transform } from "./src/engine/core/transform";
+import { UIScene } from "./src/engine/ui/uiscene";
+import { UIPanel, ANCHOR_TL, ANCHOR_BL, ANCHOR_BR } from "./src/engine/ui/uipanel";
+import { numField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing } from "./src/editor/widgets";
+import { COMPONENT_NAMES, createComponent } from "./src/editor/components";
+import { assetsInit, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "./src/editor/assets";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture, loadObj } from "./src/engine/render/gpu3d";
+import { scene, S } from "./src/editor/control/session";
+import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "./src/editor/gizmo";
+import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "./src/editor/sceneio";
+import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "./src/editor/dnd";
+import { history } from "./src/editor/undo";
+import { rigidStep, rigidBackendName } from "./src/engine/core/physics_backend";
+import { stepsFor, stepMore, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "./src/engine/core/fixedstep";
+import { snapshotWorld, renderX, renderY, renderZ, interpolateReset } from "./src/engine/core/interpolate";
+import { clockTick } from "./src/engine/core/clock";
+import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "./src/engine/core/profiler";
+import { dcReport } from "./src/compat/drawcount.ts";
 
 // Seções do profiler — registradas uma vez, referidas por id no laço quente.
 const P_FISICA = profSection("fisica");
@@ -58,9 +58,9 @@ const P_UI_PROJ = profSection("  ui:project");
 // O "resto" era 2,11 ms NAO INSTRUMENTADOS — 29% do frame. E sempre no pedaço
 // não medido que mora a surpresa: hoje isso já aconteceu três vezes.
 const P_PRESENT = profSection("present/endFrame");
-import { ctrlServe, ctrlPoll } from "./editor/control/server";
-import { initAudio, pumpAudio } from "./engine/audio/audio";
-import { logInfo, logTick } from "./engine/core/logger";
+import { ctrlServe, ctrlPoll } from "./src/editor/control/server";
+import { initAudio, pumpAudio } from "./src/engine/audio/audio";
+import { logInfo, logTick } from "./src/engine/core/logger";
 
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)

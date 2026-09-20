@@ -41,9 +41,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# O motor mora fora deste repositório, e o caminho é fixo por enquanto. Se ele
-# mudar, muda aqui e em nenhum outro lugar — que é metade do motivo deste script.
-$Motor = "E:\rts"
+# O motor mora fora deste repositório, e o caminho é DESCOBERTO, nesta ordem:
+# a variável $env:RTS_MOTOR, depois o irmão deste repositório, depois E:\rts.
+#
+# Era uma linha fixa `$Motor = "E:\rts"`, e ela deixou de valer quando o motor
+# mudou de máquina. O erro que isso dava era o `cargo` reclamando de um
+# diretório inexistente, sem nada apontando para esta linha como a culpada.
+$Motor = if ($env:RTS_MOTOR) {
+    $env:RTS_MOTOR
+} elseif (Test-Path (Join-Path $PSScriptRoot "..\rts\Cargo.toml")) {
+    (Resolve-Path (Join-Path $PSScriptRoot "..\rts")).Path
+} else {
+    "E:\rts"
+}
+
+if (-not (Test-Path (Join-Path $Motor "Cargo.toml"))) {
+    throw "nao achei o motor RTS em '$Motor'. Aponte com: `$env:RTS_MOTOR = 'C:\caminho\para\rts'"
+}
 $Exe = Join-Path $Motor "target\release\examples\ui_fixture.exe"
 
 if (-not $SemBuild) {

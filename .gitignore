@@ -22,3 +22,11 @@ rts-new.exe
 # execucao: o numero util e o da rodada que voce acabou de fazer, e um do mes
 # passado versionado seria uma medida sem data se passando por referencia.
 prof.txt
+
+# Qualquer executável, em qualquer lugar da árvore. O motor é COMPILADO a partir
+# do repositório `rts` (veja run.ps1), então um .exe versionado aqui é sempre a
+# cópia de um commit que ninguém consegue identificar depois. Era o caso do
+# `rts_pre1999.exe`, 76 MB, que ocupava o repositório sem dizer de onde veio.
+# Esta linha engloba as regras `rts.exe` e `rts-new.exe` acima, mantidas pelo
+# que explicam.
+*.exe

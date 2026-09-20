@@ -10,7 +10,7 @@ O editor (`main.ts`) abre a porta 7777, um cliente WebSocket conecta, o handshak
 completa — e o editor nunca responde. Nenhum comando (`dbg`, `state`, `fisica`)
 chega ao `execCommand`.
 
-A mesma porta de controle **funciona** em `demo_ws_controlada.ts`, que usa a
+A mesma porta de controle **funciona** em `examples/demo_ws_controlada.ts`, que usa a
 mesma superfície `ws` do motor.
 
 ## O que foi VERIFICADO (não suposto)
@@ -57,14 +57,14 @@ ou em carregar dois argumentos, ou em `adopt` rodar na thread de accept.
 2. Se ele roda, comparar o `instancia` (u64) usado no `emit` com o que
    `bind_server_instance` guardou. Um handler que não é achado com o objeto certo
    é outro problema que não o de entrega.
-3. Comparar com `demo_ws_controlada.ts` INSTRUMENTADA do mesmo jeito: ela
+3. Comparar com `examples/demo_ws_controlada.ts` INSTRUMENTADA do mesmo jeito: ela
    funciona, e a diferença entre os dois caminhos é o que sobra.
 
 ## Por que não foi resolvido agora
 
 A sessão tinha um objetivo declarado — física — e esta porta é uma FERRAMENTA de
 medição, não o objetivo. A física foi medida por benchmarks headless
-(`tools/claude-bench-*.ts`), que não dependem dela. Registrado aqui em vez de
+(`bench/claude-bench-*.ts`), que não dependem dela. Registrado aqui em vez de
 esquecido, porque uma porta de controle que não responde no editor é justamente o
 que impede medir os dois backends na mesma cena sem depender de alguém olhando a
 tela.

@@ -6,7 +6,7 @@ a medição mostrou que a física come 84% do orçamento de 60 fps com 500 objet
 ## O número que motiva isto
 
 Medido em release, headless (sem janela, sem `drawMesh`), por
-`tools/claude-bench-fisica-partes.ts`:
+`bench/claude-bench-fisica-partes.ts`:
 
 | objetos em movimento | `update` | `resolveCollisions` | `computeWorld` | total |
 |---|---|---|---|---|
@@ -21,9 +21,9 @@ o sleeping pulando corpos dormindo.
 
 ### 1. GPU compute — existe, escrito, e é o mais próximo
 
-`engine/rigid/gpurigid.ts` já é esta física no modelo **gather/Jacobi**: cada
+`src/engine/rigid/gpurigid.ts` já é esta física no modelo **gather/Jacobi**: cada
 corpo lê todos os outros e escreve só o próprio, sem atomics e sem contenção. É
-o mesmo padrão que `engine/fluid/gpufluid.ts` usa para a água, e a água é a prova
+o mesmo padrão que `src/engine/fluid/gpufluid.ts` usa para a água, e a água é a prova
 de que funciona aqui: **quatro dispatches por sub-passo, independente de haver
 mil ou cinquenta mil partículas.**
 
@@ -67,11 +67,11 @@ antes.
 
 ## A ordem que faz sentido
 
-1. **Consertar o sleeping do `gpurigid`** — `tools/test_gpurigid.ts` dá 5 ok /
+1. **Consertar o sleeping do `gpurigid`** — `tests/test_gpurigid.ts` dá 5 ok /
    2 falhas, ambas de sono (`vmax=0` e `dormindo=0/33`: a física está certa, o
    contador não chega). Ligar um solver que não adormece troca um gargalo por
    outro, porque é o sono que faz repouso custar 4× menos.
-2. **Escolha de backend na `Scene`**, no mesmo formato que `engine/fluid/decide.ts`
+2. **Escolha de backend na `Scene`**, no mesmo formato que `src/engine/fluid/decide.ts`
    já usa para a água. Com fallback obrigatório: `gpu.available()` responde 0 em
    máquina sem GPU e o editor tem de abrir do mesmo jeito.
 3. **Baixar a constante do caminho CPU** — ele continua sendo o fallback e o

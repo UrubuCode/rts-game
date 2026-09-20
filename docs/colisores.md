@@ -4,10 +4,10 @@ Como uma forma arbitrária — a casca convexa de uma malha — atravessa a fron
 para a GPU e é testada, **de modo que os dois backends terminem no mesmo lugar**.
 
 Este documento decide. Onde ele diz um número, o número saiu de contar operações
-no kernel que existe (`engine/rigid/gpurigid.ts`) ou de um limite já medido e
+no kernel que existe (`src/engine/rigid/gpurigid.ts`) ou de um limite já medido e
 registrado neste repositório; onde não há número, está dito que é razão e qual é.
 
-O componente já existe: `engine/core/collider.ts` declara `SHAPE_HULL` e
+O componente já existe: `src/engine/core/collider.ts` declara `SHAPE_HULL` e
 `hullId`, e já decidiu que a casca é da **malha** e não do corpo. Este documento
 é o outro lado dessa decisão — como ela chega ao kernel.
 
@@ -21,8 +21,8 @@ Nada aqui se entende sem isto, e não é uma preferência de desenho:
 > 4 storage buffers por estágio**.
 
 Está medido e registrado em dois lugares independentes deste repositório:
-`engine/fluid/gpufluid.ts:53` (a densidade foi para o `w` da posição por causa
-dele) e `engine/rigid/gpurigid.ts:73` (o grid espacial foi para a cauda do
+`src/engine/fluid/gpufluid.ts:53` (a densidade foi para o `w` da posição por causa
+dele) e `src/engine/rigid/gpurigid.ts:73` (o grid espacial foi para a cauda do
 `world` por causa dele).
 
 O kernel de colisão **já liga os quatro**: `pos`, `vel`, `ext`, `world`.
@@ -259,11 +259,11 @@ vertical que faz o corpo ficar parado no ar em degraus.
 Então: **uma definição de contato, dois leitores.** Concretamente:
 
 1. A matemática do teste esfera-contra-casca fica escrita **uma vez em
-   TypeScript** (`engine/core/hullpack.ts::hullContact`), e é o que a CPU chama.
+   TypeScript** (`src/engine/core/hullpack.ts::hullContact`), e é o que a CPU chama.
 2. O WGSL é a tradução dela, com a mesma ordem de operações, e o comentário
    aponta para a função — o mesmo contrato que `contato()` já tem com
    `solvePair`.
-3. **O teste de paridade é o que faz o contrato valer.** `tools/test_gpurigid.ts`
+3. **O teste de paridade é o que faz o contrato valer.** `tests/test_gpurigid.ts`
    já é a rede da campanha do castelo; o caso da casca precisa da sua linha lá:
    mesma cena, mesma semente, N passos, os dois backends, posições finais
    comparadas com tolerância.

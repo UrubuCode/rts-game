@@ -53,7 +53,7 @@ select 1                # select object #1
 selectadd 2             # multi-select #1 + #2
 tool rotate             # switch the viewport gizmo tool
 snap 1                  # snap-to-grid on
-loadtex 0 images.jpg    # decode a real image and apply it as a Material texture
+loadtex 0 assets/textures/images.jpg    # decode a real image and apply it as a Material texture
 instscene assets/subscene.json 0   # instance a whole scene under object #0
 savescene assets/my.json           # persists across restarts
 ```
@@ -64,15 +64,15 @@ session.
 ## Legacy harnesses (headless / TCP)
 
 Two older headless control ports remain for scripted, deterministic tests of the
-software rasterizer (`engine/render/raster.ts`), independent of the GUI:
+software rasterizer (`src/engine/render/raster.ts`), independent of the GUI:
 
 ```bash
 # stdin harness — deterministic (fixed 16 ms dt), pipe commands in
-printf 'spawn a 0 1 0\nstep 5\nlit\nquit\n' | ./rts.exe run harness.ts
+printf 'spawn a 0 1 0\nstep 5\nlit\nquit\n' | ./rts.exe run harness/harness.ts
 # expects: [lit] <N> pixels drawn ...  with N > 0
 
 # TCP harness (:7777) — a live window that re-presents on each command
-./rts.exe run netharness.ts
+./rts.exe run harness/netharness.ts
 echo -e 'spawn a 0 1 0\nspin 0 1\nstep 30\nframe\nquit' | python tools/control_client.py
 ```
 

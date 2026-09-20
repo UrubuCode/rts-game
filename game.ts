@@ -12,17 +12,17 @@
 //   rts.exe run game.ts        → testa o runtime sem compilar
 //   rts.exe compile game.ts    → gera o .exe distribuível
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "./compat/io.ts";
-import math from "./compat/math.ts";
-import fs from "./compat/fs.ts";
+import io from "./src/compat/io.ts";
+import math from "./src/compat/math.ts";
+import fs from "./src/compat/fs.ts";
 import input from "rts:input";
 
-import { scene, S } from "./editor/control/session";
-import { Transform } from "./engine/core/transform";
-import { loadSceneFrom } from "./editor/sceneio";
-import { GameObject } from "./engine/core/gameobject";
+import { scene, S } from "./src/editor/control/session";
+import { Transform } from "./src/engine/core/transform";
+import { loadSceneFrom } from "./src/editor/sceneio";
+import { GameObject } from "./src/engine/core/gameobject";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh,
-         frustumBegin, inFrustumFast, winWidth, winHeight } from "./engine/render/gpu3d";
+         frustumBegin, inFrustumFast, winWidth, winHeight } from "./src/engine/render/gpu3d";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
