@@ -25,13 +25,13 @@
 //
 // Este arquivo mede esse ponto em vez de supô-lo, porque supô-lo é como se
 // otimiza a metade errada do problema com números corretos na mão.
-import io from "../src/compat/io.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Rigidbody } from "../src/scripts/rigidbody";
-import { PB_SUBSTEPS } from "../src/engine/core/physics_backend";
-import { rbAvailable, rbInit, rbSetBody, rbUpload, rbSyncStatics, rbStep } from "../src/engine/rigid/gpurigid";
-import { crInit, crSetBody, crSyncStatics, crStep, crThreads } from "../src/engine/rigid/cpurigid";
+import io from "@compat/io.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
+import { Rigidbody } from "@scripts/rigidbody";
+import { PB_SUBSTEPS } from "@engine/core/physics_backend";
+import { rbAvailable, rbInit, rbSetBody, rbUpload, rbSyncStatics, rbStep } from "@engine/rigid/gpurigid";
+import { crInit, crSetBody, crSyncStatics, crStep, crThreads } from "@engine/rigid/cpurigid";
 
 const DT = 1.0 / 60.0;
 const ORCAMENTO = 8.0;

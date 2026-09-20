@@ -8,10 +8,10 @@
 // MOVIMENTO contra objetos EM REPOUSO. A cena tem sleeping (`t.asleep`), e um
 // corpo dormindo é PULADO pela colisão — então a diferença entre os dois
 // números é o custo que o sleeping esconde quando tudo está parado.
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { scene } from "../src/editor/control/session";
-import { Rigidbody } from "../src/scripts/rigidbody";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { Rigidbody } from "@scripts/rigidbody";
 
 const DT = 1.0 / 60.0;
 

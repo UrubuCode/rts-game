@@ -22,20 +22,20 @@
 // O número que interessa quando diverge é QUANTO e ONDE — por isso o relatório
 // imprime o pior corpo, e não só um "passou".
 
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
-import { scene } from "../src/editor/control/session";
-import { GameObject, COL_SPHERE, COL_BOX } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { Rigidbody } from "../src/scripts/rigidbody";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import { scene } from "@editor/control/session";
+import { GameObject, COL_SPHERE, COL_BOX } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { Rigidbody } from "@scripts/rigidbody";
 import { rbAvailable, rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics,
-         rbStep, rbX, rbY, rbZ } from "../src/engine/rigid/gpurigid";
+         rbStep, rbX, rbY, rbZ } from "@engine/rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust, por `rts:rigid`. Entra neste
 // teste e não num próprio porque a pergunta é a MESMA — a mesma cena termina no
 // mesmo lugar? — e um segundo teste com a mesma cena seria um segundo lugar
 // onde a cena pode divergir da deste.
 import { crInit, crSetBody, crSetShape, crSyncStatics, crStep,
-         crX, crY, crZ, crThreads } from "../src/engine/rigid/cpurigid";
+         crX, crY, crZ, crThreads } from "@engine/rigid/cpurigid";
 
 let ok = 0;
 let fail = 0;

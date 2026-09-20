@@ -9,21 +9,21 @@
 //
 // Controles: WASD voa, botão DIREITO gira, ESPAÇO sobe, R reinicia a coluna.
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 import input from "rts:input";
 
-import { scene, S } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { Fluid } from "../src/scripts/fluid";
+import { scene, S } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { Fluid } from "@scripts/fluid";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
-         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "../src/engine/render/gpu3d";
+         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
 // Porta de controle: permite INSPECIONAR a simulação rodando, por comando, em
 // vez de olhar a tela. Verificar líquido por screenshot não funciona — a foto
 // rouba o foco do usuário e mostra a janela que estiver por cima.
-import { ctrlServe, ctrlPoll } from "../src/editor/control/server";
-import { setInspectFluid, setInspectDt } from "../src/editor/control/commands/scene";
+import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { setInspectFluid, setInspectDt } from "@editor/control/commands/scene";
 
 let W = 1280;
 let H = 720;

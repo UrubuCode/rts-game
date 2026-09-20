@@ -8,12 +8,12 @@
 // unitários de cada peça não veem.
 //
 //   ./rts.exe run tools/test_physics.ts   -> espera "[PASSOU]"
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
-import { scene } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { PhysicsMaterial, MAT_ICE, MAT_STONE, MAT_RUBBER, MAT_WOOD, MAT_METAL } from "../src/scripts/physicsmaterial";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import { scene } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { PhysicsMaterial, MAT_ICE, MAT_STONE, MAT_RUBBER, MAT_WOOD, MAT_METAL } from "@scripts/physicsmaterial";
 
 let pass = 0;
 let fail = 0;

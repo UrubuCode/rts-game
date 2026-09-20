@@ -18,18 +18,18 @@
 // Controles: WASD voa, botão DIREITO gira, ESPAÇO sobe, R reconstrói já.
 // Porta de controle: ws://127.0.0.1:7777 (`state` lista todos os corpos).
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 import input from "rts:input";
 
-import { scene, S } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { PhysicsMaterial, MAT_STONE, MAT_WOOD, MAT_METAL } from "../src/scripts/physicsmaterial";
-import { initAudio, pumpAudio, playNoise, playSquare } from "../src/engine/audio/audio";
+import { scene, S } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { PhysicsMaterial, MAT_STONE, MAT_WOOD, MAT_METAL } from "@scripts/physicsmaterial";
+import { initAudio, pumpAudio, playNoise, playSquare } from "@engine/audio/audio";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
-         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "../src/engine/render/gpu3d";
-import { ctrlServe, ctrlPoll } from "../src/editor/control/server";
+         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
+import { ctrlServe, ctrlPoll } from "@editor/control/server";
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
 // runtime (o `let H` de uma demo já corrompeu o raio do kernel do fluido).

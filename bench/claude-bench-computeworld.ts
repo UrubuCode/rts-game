@@ -34,9 +34,9 @@
 //
 // A terceira coluna isola o laço que zera `done`, que é O(n) puro e não depende
 // de nada ter mudado — é o piso que nenhum bit remove sem mudar a estrutura.
-import io from "../src/compat/io.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
+import io from "@compat/io.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
 
 /// `n` objetos raiz, sem hierarquia — o caminho rápido, que é o caso dominante
 /// (o comentário do próprio `computeWorldInto` diz que a esmagadora maioria é

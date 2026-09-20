@@ -9,9 +9,9 @@
 // repetido por face), a esfera de `gpu3d` (LAT 16 × LON 24) e o `torus.obj` de
 // verdade, lido do disco.
 
-import io from "../src/compat/io.ts";
-import fs from "../src/compat/fs.ts";
-import { hullFromMesh } from "../src/engine/core/hull";
+import io from "@compat/io.ts";
+import fs from "@compat/fs.ts";
+import { hullFromMesh } from "@engine/core/hull";
 
 const REPS = 20;
 

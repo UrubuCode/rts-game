@@ -7,11 +7,11 @@
 // os corpos pelo mesmo critério dos outros dois backends, e escreve o resultado
 // de volta nos transforms. Cada uma dessas três é um lugar onde o backend novo
 // pode estar ligado errado sem que o solver tenha nada.
-import io from "../src/compat/io.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject, COL_SPHERE, COL_BOX } from "../src/engine/core/gameobject";
+import io from "@compat/io.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject, COL_SPHERE, COL_BOX } from "@engine/core/gameobject";
 import { rigidSetMode, rigidMode, rigidStep, rigidBackendName,
-         rigidBodyCount, rigidFreshFrames } from "../src/engine/core/physics_backend";
+         rigidBodyCount, rigidFreshFrames } from "@engine/core/physics_backend";
 
 let ok = 0;
 let fail = 0;

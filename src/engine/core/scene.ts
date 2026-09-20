@@ -7,7 +7,7 @@ import { Behavior, KIND_CAMERA } from "./behavior";
 import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL } from "./collider";
 import { Hull, Contact, hullContactLocal } from "./hullpack";
 import { hullAt } from "./hullreg";
-import math from "../../compat/math.ts";
+import math from "@compat/math.ts";
 
 export class Scene {
   name: string;

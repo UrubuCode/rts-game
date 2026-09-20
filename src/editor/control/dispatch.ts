@@ -4,7 +4,7 @@ import { cmdState, cmdRes, cmdHelp, cmdVsync } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
-import { logInfo, logError } from "../../engine/core/logger";
+import { logInfo, logError } from "@engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
@@ -12,10 +12,10 @@ import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from 
 import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { history } from "../undo";
-import { inFrustum } from "../../engine/render/gpu3d";
-import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport } from "../../engine/core/physics_backend";
-import { profReport, profEnable, profReset, profEnabled } from "../../engine/core/profiler";
-import { stepsLastFrame, stepDiscards, stepAlpha } from "../../engine/core/fixedstep";
+import { inFrustum } from "@engine/render/gpu3d";
+import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport } from "@engine/core/physics_backend";
+import { profReport, profEnable, profReset, profEnabled } from "@engine/core/profiler";
+import { stepsLastFrame, stepDiscards, stepAlpha } from "@engine/core/fixedstep";
 
 /// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo).
 function isMutating(c: string): boolean {

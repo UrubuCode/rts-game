@@ -1,6 +1,6 @@
 // Comandos de CONSULTA (só leem estado): state, res, help.
 import { scene, S } from "../session";
-import { setVsync } from "../../../engine/render/gpu3d";
+import { setVsync } from "@engine/render/gpu3d";
 
 /// Estado completo da cena + câmera (para a IA inspecionar).
 export function cmdState(): string {

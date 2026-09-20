@@ -3,12 +3,12 @@
 // COMPORTAMENTO — desabar, espalhar, conservar volume e não explodir.
 //
 //   ./rts.exe run tools/test_fluid.ts     -> espera "[PASSOU]"
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
-import { scene } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { Fluid } from "../src/scripts/fluid";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import { scene } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { Fluid } from "@scripts/fluid";
 
 let pass = 0;
 let fail = 0;

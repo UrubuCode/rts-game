@@ -1,6 +1,6 @@
 // Comandos de TRANSFORM/aparência de 1 objeto: move, scl, mesh, color, spin, tool.
 import { scene, S } from "../session";
-import { Spinner } from "../../../scripts/spinner";
+import { Spinner } from "@scripts/spinner";
 
 /// align [i] [step] — arredonda a POSIÇÃO do objeto pro grid na hora (default step 0.5).
 export function cmdAlign(parts: string[]): string {

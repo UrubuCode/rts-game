@@ -12,19 +12,19 @@
 //
 // Controles: WASD voa, botão DIREITO gira, ESPAÇO sobe, R solta a água de novo.
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 import input from "rts:input";
-import gpu from "../src/compat/gpu.ts";
+import gpu from "@compat/gpu.ts";
 
-import { scene, S } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
+import { scene, S } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
 import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep,
-         gfX, gfY, gfZ, gfHidden } from "../src/engine/fluid/gpufluid";
+         gfX, gfY, gfZ, gfHidden } from "@engine/fluid/gpufluid";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
-         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "../src/engine/render/gpu3d";
-import { ctrlServe, ctrlPoll } from "../src/editor/control/server";
+         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
+import { ctrlServe, ctrlPoll } from "@editor/control/server";
 
 let W = 1280;
 let H = 720;

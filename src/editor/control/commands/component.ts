@@ -1,7 +1,7 @@
 // Comandos de CONTROLE de componentes (via WebSocket) — a LLM lista/adiciona/
 // remove componentes e edita os campos de config, igual ao inspector faz.
 import { scene } from "../session";
-import { COMPONENT_NAMES, createComponent } from "../../components";
+import { COMPONENT_NAMES, createComponent } from "@editor/components";
 
 /// comps <objIdx> — lista os componentes do objeto + campos e valores.
 export function cmdComps(parts: string[]): string {

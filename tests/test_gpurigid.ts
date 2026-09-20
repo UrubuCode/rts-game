@@ -5,13 +5,13 @@
 // Os MESMOS invariantes que provamos no solver CPU (a lição da campanha do
 // castelo): pilha assenta e DORME, coluna não tem ciclo-limite, nada atravessa
 // o chão, nada nasce energia do nada. Sem GPU: [PULOU] limpo.
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 
-import { scene } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
 import { rbAvailable, rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics,
-         rbStep, rbReadState, rbX, rbY, rbZ, rbSleep, rbVelX, rbVelY, rbVelZ } from "../src/engine/rigid/gpurigid";
+         rbStep, rbReadState, rbX, rbY, rbZ, rbSleep, rbVelX, rbVelY, rbVelZ } from "@engine/rigid/gpurigid";
 
 let ok = 0;
 let fail = 0;

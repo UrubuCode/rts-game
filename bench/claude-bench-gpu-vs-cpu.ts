@@ -7,15 +7,15 @@
 // O caminho GPU é medido pelo `rbService`, que é como o jogo o usa de verdade:
 // LÊ o resultado do frame anterior e SUBMETE este sem esperar (1 frame de
 // latência, como o fluido). Medir com espera daria um número que ninguém paga.
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { scene } from "../src/editor/control/session";
-import { Rigidbody } from "../src/scripts/rigidbody";
-import { rbAvailable, rbInit, rbSetBody, rbUpload, rbService, rbStep, rbSyncStatics, rbY } from "../src/engine/rigid/gpurigid";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { Rigidbody } from "@scripts/rigidbody";
+import { rbAvailable, rbInit, rbSetBody, rbUpload, rbService, rbStep, rbSyncStatics, rbY } from "@engine/rigid/gpurigid";
 // O terceiro backend. Entra nesta tabela e nao numa propria porque a pergunta e
 // a mesma — quanto custa um frame com N corpos — e duas tabelas com a mesma
 // cena sao duas cenas que podem divergir.
-import { crInit, crSetBody, crSyncStatics, crStep, crThreads, crY } from "../src/engine/rigid/cpurigid";
+import { crInit, crSetBody, crSyncStatics, crStep, crThreads, crY } from "@engine/rigid/cpurigid";
 
 const DT = 1.0 / 60.0;
 

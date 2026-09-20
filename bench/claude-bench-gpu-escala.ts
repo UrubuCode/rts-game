@@ -1,7 +1,7 @@
 // Só o lado GPU, em n alto: é onde o grid tem de aparecer.
-import io from "../src/compat/io.ts";
-import { scene } from "../src/editor/control/session";
-import { rbAvailable, rbInit, rbSetBody, rbUpload, rbService, rbSyncStatics } from "../src/engine/rigid/gpurigid";
+import io from "@compat/io.ts";
+import { scene } from "@editor/control/session";
+import { rbAvailable, rbInit, rbSetBody, rbUpload, rbService, rbSyncStatics } from "@engine/rigid/gpurigid";
 
 function gpu(n: number, frames: number): number {
   rbInit(n);

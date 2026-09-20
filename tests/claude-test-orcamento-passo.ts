@@ -13,12 +13,12 @@
 //      crescer exatamente como se não houvesse teto;
 //   4. desligar o teto devolve o comportamento antigo, sem resíduo — é o que um
 //      benchmark precisa, porque medir com o teto ligado mede o teto.
-import io from "../src/compat/io.ts";
+import io from "@compat/io.ts";
 
 import {
   FIXED_DT, stepsFor, stepMore, stepSetBudgetMs, stepBudgetMs,
   stepBudgetCuts, stepStepsDropped, stepsLastFrame, stepReset,
-} from "../src/engine/core/fixedstep";
+} from "@engine/core/fixedstep";
 
 let ok = 0;
 let fail = 0;

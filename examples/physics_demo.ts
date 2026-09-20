@@ -18,17 +18,17 @@
 // Controles: WASD voa, botão DIREITO gira, ESPAÇO sobe, R reinicia o ciclo.
 // Porta de controle em ws://127.0.0.1:7777 (`state` inspeciona os objetos).
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 import input from "rts:input";
 
-import { scene, S } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { PhysicsMaterial, MAT_ICE, MAT_STONE, MAT_RUBBER, MAT_WOOD, MAT_METAL } from "../src/scripts/physicsmaterial";
+import { scene, S } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { PhysicsMaterial, MAT_ICE, MAT_STONE, MAT_RUBBER, MAT_WOOD, MAT_METAL } from "@scripts/physicsmaterial";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
-         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "../src/engine/render/gpu3d";
-import { ctrlServe, ctrlPoll } from "../src/editor/control/server";
+         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
+import { ctrlServe, ctrlPoll } from "@editor/control/server";
 
 // Dimensões da janela com prefixo PD_: `H` sem prefixo já colidiu com o raio do
 // kernel do fluido — nomes de topo colidem entre módulos neste runtime.

@@ -19,16 +19,16 @@
 //
 // O que este arquivo pina é que a pergunta é feita e que a resposta MUDA O
 // RESULTADO — não só que uma flag existe.
-import io from "../src/compat/io.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { boxCollider, sphereCollider, hullCollider } from "../src/engine/core/collider";
-import { hullFromMesh } from "../src/engine/core/hull";
-import { hullRegisterGeo, hullResetRegistry } from "../src/engine/core/hullreg";
+import io from "@compat/io.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { boxCollider, sphereCollider, hullCollider } from "@engine/core/collider";
+import { hullFromMesh } from "@engine/core/hull";
+import { hullRegisterGeo, hullResetRegistry } from "@engine/core/hullreg";
 import {
   rigidSetMode, rigidStep, rigidNeedsFallback, rigidHullCount, rigidInvalidate,
-} from "../src/engine/core/physics_backend";
+} from "@engine/core/physics_backend";
 
 let ok = 0;
 let fail = 0;

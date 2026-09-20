@@ -4,8 +4,8 @@
 // planos" continua verdade se o algoritmo mudar de incremental para quickhull,
 // e é a afirmação que a Fase 2 vai depender.
 
-import io from "../src/compat/io.ts";
-import { Hull, hullFromMesh, hullContains, hullSupport, HULL_MAX_PLANES } from "../src/engine/core/hull";
+import io from "@compat/io.ts";
+import { Hull, hullFromMesh, hullContains, hullSupport, HULL_MAX_PLANES } from "@engine/core/hull";
 
 let ok = 0;
 let fail = 0;

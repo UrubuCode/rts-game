@@ -1,8 +1,8 @@
 // A interpolação de render: o que ela conserta e o que ela NÃO pode quebrar.
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { scene } from "../src/editor/control/session";
-import { snapshotWorld, renderY, interpolateReset, hasSnapshot } from "../src/engine/core/interpolate";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { snapshotWorld, renderY, interpolateReset, hasSnapshot } from "@engine/core/interpolate";
 
 let pass = 0; let fail = 0;
 function ok(n: string, c: number): void {

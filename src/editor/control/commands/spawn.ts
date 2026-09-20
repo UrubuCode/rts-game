@@ -1,7 +1,7 @@
 // Comando SPAWN: cria um GameObject na cena. Nasce `stationary` (a posição
 // pedida gruda — a colisão não empurra).
 import { scene, S } from "../session";
-import { GameObject } from "../../../engine/core/gameobject";
+import { GameObject } from "@engine/core/gameobject";
 
 export function cmdSpawn(parts: string[], np: number): string {
   const idx = scene.objects.length;

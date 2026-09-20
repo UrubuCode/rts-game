@@ -10,15 +10,15 @@
 //      transforms da cena, que é o único ponto onde a integração pode falhar
 //      silenciosamente);
 //   4. o nome do backend ativo distingue "cpu" de "gpu" de "gpu caiu".
-import io from "../src/compat/io.ts";
+import io from "@compat/io.ts";
 
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
 import {
   rigidCalibrate, rigidReport, rigidBackendFor, rigidBand,
   rigidSetMode, rigidMode, rigidBackendName, rigidStep,
   rigidInvalidate, rigidBodyCount, rigidFreshFrames, rigidFrames,
-} from "../src/engine/core/physics_backend";
+} from "@engine/core/physics_backend";
 
 let ok = 0;
 let fail = 0;

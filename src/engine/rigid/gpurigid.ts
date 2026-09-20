@@ -47,8 +47,8 @@
 // empurrão fantasma. Está calculado no kernel a partir de `ext` para que não
 // exista um segundo lugar onde o raio possa divergir.
 // ═══════════════════════════════════════════════════════════════════════════
-import gpu from "../../compat/gpu.ts";
-import buffer from "../../compat/buffer.ts";
+import gpu from "@compat/gpu.ts";
+import buffer from "@compat/buffer.ts";
 
 import { Scene } from "../core/scene";
 import { GameObject, COL_BOX } from "../core/gameobject";

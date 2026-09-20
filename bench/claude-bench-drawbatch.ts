@@ -15,13 +15,13 @@
 // que o editor paga. A diferença entre as duas variantes é só quantas travessias
 // TS→nativo o meio delas faz.
 
-import io from "../src/compat/io.ts";
+import io from "@compat/io.ts";
 import { openWindow, pump, isOpen, close, beginFrame, endFrame } from "rts:egui";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { scene } from "../src/editor/control/session";
-import { initMeshes, setCam, setLgt, setVsync, frustumBegin, frustumParams } from "../src/engine/render/gpu3d";
-import { drawSceneObjects, fParams, setDrawBatch } from "../src/engine/render/scenedraw";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { scene } from "@editor/control/session";
+import { initMeshes, setCam, setLgt, setVsync, frustumBegin, frustumParams } from "@engine/render/gpu3d";
+import { drawSceneObjects, fParams, setDrawBatch } from "@engine/render/scenedraw";
 
 const N = 500;
 const F = 300;

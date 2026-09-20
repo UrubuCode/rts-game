@@ -1,10 +1,10 @@
 // O laço de preparação do render custa 15 us POR OBJETO olhando para o céu —
 // onde ele só faz ~10 operações e descarta. Este benchmark separa as causas.
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { scene } from "../src/editor/control/session";
-import { frustumBegin, inFrustumFast } from "../src/engine/render/gpu3d";
-import { Transform } from "../src/engine/core/transform";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { frustumBegin, inFrustumFast } from "@engine/render/gpu3d";
+import { Transform } from "@engine/core/transform";
 
 const N = 500;
 const F = 200;

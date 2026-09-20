@@ -45,13 +45,13 @@
 // (ver `crates/rts-physics/examples/audit_denso.rs`). A vantagem DESABA de 7,7x
 // para 1,8x, e para onde ela vai depois disto esta tabela não diz.
 
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
-import { scene } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import { scene } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
 import { rbAvailable, rbInit, rbSetBody, rbUpload, rbSyncStatics, rbService,
-         rbStep, rbY } from "../src/engine/rigid/gpurigid";
-import { crInit, crSetBody, crSyncStatics, crStep, crThreads, crY } from "../src/engine/rigid/cpurigid";
+         rbStep, rbY } from "@engine/rigid/gpurigid";
+import { crInit, crSetBody, crSyncStatics, crStep, crThreads, crY } from "@engine/rigid/cpurigid";
 
 // 120 nos n pequenos; nos grandes o custo por passo já domina o ruído e 40
 // passos bastam — 120 passos a 32000 corpos com a GPU síncrona seriam minutos

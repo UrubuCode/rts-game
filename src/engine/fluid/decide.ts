@@ -20,9 +20,9 @@
 //   const backend = fluidBackend(n);   // 0 = CPU, 1 = GPU
 //   fluidReport();                     // imprime a calibração (debug)
 // ═══════════════════════════════════════════════════════════════════════════
-import gpu from "../../compat/gpu.ts";
-import buffer from "../../compat/buffer.ts";
-import io from "../../compat/io.ts";
+import gpu from "@compat/gpu.ts";
+import buffer from "@compat/buffer.ts";
+import io from "@compat/io.ts";
 
 
 let dcCpuPerInter: f64 = 0.0;   // ms por interação de par na CPU

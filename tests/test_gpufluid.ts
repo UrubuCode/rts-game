@@ -4,12 +4,12 @@
 //
 // Numa máquina SEM GPU imprime [PULOU] e sai com sucesso (o módulo é opcional
 // por design; o jogo cai para o fluido CPU).
-import io from "../src/compat/io.ts";
+import io from "@compat/io.ts";
 
-import { scene } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
 import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep,
-         gfX, gfY, gfZ, gfCount, gfHidden } from "../src/engine/fluid/gpufluid";
+         gfX, gfY, gfZ, gfCount, gfHidden } from "@engine/fluid/gpufluid";
 
 let ok = 0;
 let fail = 0;

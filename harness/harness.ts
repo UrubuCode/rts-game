@@ -24,21 +24,21 @@
 //   save  <path>                       salva PPM P3 (160x96) do frame atual
 //   quit | exit                        encerra
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
-import buffer from "../src/compat/buffer.ts";
-import fs from "../src/compat/fs.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import buffer from "@compat/buffer.ts";
+import fs from "@compat/fs.ts";
 
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Spinner } from "../src/scripts/spinner";
-import { Bobber } from "../src/scripts/bobber";
-import { Rigidbody } from "../src/scripts/rigidbody";
-import { Mover } from "../src/scripts/mover";
-import { Pulse } from "../src/scripts/pulse";
-import { clearFB, drawFloor } from "../src/engine/render/raster";
-import { drawMeshSolid, setLight, setAmbient } from "../src/engine/render/mesh";
-import { asciiFrame, dumpObject, dumpCamera, countLit, savePPM } from "../src/engine/testkit/dump";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
+import { Spinner } from "@scripts/spinner";
+import { Bobber } from "@scripts/bobber";
+import { Rigidbody } from "@scripts/rigidbody";
+import { Mover } from "@scripts/mover";
+import { Pulse } from "@scripts/pulse";
+import { clearFB, drawFloor } from "@engine/render/raster";
+import { drawMeshSolid, setLight, setAmbient } from "@engine/render/mesh";
+import { asciiFrame, dumpObject, dumpCamera, countLit, savePPM } from "@engine/testkit/dump";
 
 const RW = 240;
 const RH = 144;

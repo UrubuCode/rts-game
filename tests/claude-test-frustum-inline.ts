@@ -6,8 +6,8 @@
 // Varre 500 posições × 12 orientações de câmera e compara as duas respostas uma
 // a uma. Um desacordo é uma falha, não uma aproximação.
 
-import io from "../src/compat/io.ts";
-import { frustumBegin, frustumParams, inFrustumFast } from "../src/engine/render/gpu3d";
+import io from "@compat/io.ts";
+import { frustumBegin, frustumParams, inFrustumFast } from "@engine/render/gpu3d";
 
 const fp: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 

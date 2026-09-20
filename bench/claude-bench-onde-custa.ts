@@ -23,9 +23,9 @@
 // do total a 1000 objetos, e ele NÃO é o solver: roda igual com a física na GPU.
 // Uma tabela que só mede colisão faria alguém otimizar 48% do problema achando
 // que era o todo.
-import io from "../src/compat/io.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
+import io from "@compat/io.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
 
 /// Uma cena de `n` corpos. `passo` é a distância entre eles: grande espalha,
 /// pequeno amontoa. O tamanho do corpo é o mesmo nos dois — o que muda é só

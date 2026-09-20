@@ -3,10 +3,10 @@
 // Sem isto a otimização é um chute entre três candidatos plausíveis. Medido
 // separando as chamadas, não estimando: cada laço roda o MESMO número de frames
 // sobre a MESMA cena, e a diferença entre eles é o custo da parte.
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { scene } from "../src/editor/control/session";
-import { Rigidbody } from "../src/scripts/rigidbody";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { Rigidbody } from "@scripts/rigidbody";
 
 const DT = 1.0 / 60.0;
 

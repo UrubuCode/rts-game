@@ -21,13 +21,13 @@
 // NORMAL os separa qualitativamente: 1,0 em Y para a caixa contra ~0,707 para
 // a rampa. As duas são asseridas, porque a altura sozinha poderia coincidir por
 // acidente numa geometria e a normal diz POR QUE o corpo parou onde parou.
-import io from "../src/compat/io.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { boxCollider, sphereCollider, hullCollider } from "../src/engine/core/collider";
-import { hullFromMesh } from "../src/engine/core/hull";
-import { hullRegisterGeo, hullResetRegistry, hullAt } from "../src/engine/core/hullreg";
+import io from "@compat/io.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { boxCollider, sphereCollider, hullCollider } from "@engine/core/collider";
+import { hullFromMesh } from "@engine/core/hull";
+import { hullRegisterGeo, hullResetRegistry, hullAt } from "@engine/core/hullreg";
 
 let ok = 0;
 let fail = 0;

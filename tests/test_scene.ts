@@ -3,13 +3,13 @@
 // comportamento. Rodar sempre que mexer em engine/core/scene.ts.
 //
 //   ./rts.exe run tools/test_scene.ts     -> espera "[PASSOU]"
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
-import { scene } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Animator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "../src/scripts/animator";
-import { Rigidbody } from "../src/scripts/rigidbody";
-import { PhysicsMaterial, MAT_RUBBER, MAT_ICE, MAT_STONE, MAT_WOOD } from "../src/scripts/physicsmaterial";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import { scene } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Animator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "@scripts/animator";
+import { Rigidbody } from "@scripts/rigidbody";
+import { PhysicsMaterial, MAT_RUBBER, MAT_ICE, MAT_STONE, MAT_WOOD } from "@scripts/physicsmaterial";
 
 let pass = 0;
 let fail = 0;

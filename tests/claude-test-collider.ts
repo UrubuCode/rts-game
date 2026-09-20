@@ -1,9 +1,9 @@
 // O componente Collider: o que ele descreve e o que o objeto passa a saber.
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { KIND_COLLIDER } from "../src/engine/core/behavior";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { KIND_COLLIDER } from "@engine/core/behavior";
 import { Collider, boxCollider, sphereCollider, hullCollider,
-         SHAPE_SPHERE, SHAPE_BOX, SHAPE_HULL } from "../src/engine/core/collider";
+         SHAPE_SPHERE, SHAPE_BOX, SHAPE_HULL } from "@engine/core/collider";
 
 let pass = 0; let fail = 0;
 function ok(n: string, c: number): void {

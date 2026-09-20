@@ -32,5 +32,5 @@ export class Session {
 export const S = new Session();
 
 // cena compartilhada (singleton) — main + comandos operam nela
-import { Scene } from "../../engine/core/scene";
+import { Scene } from "@engine/core/scene";
 export const scene = new Scene("Main");

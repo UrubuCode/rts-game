@@ -72,8 +72,8 @@
 // grande, então é rodada própria com medida antes e depois — não conserto de
 // passagem dentro de uma mudança sobre outra coisa.
 // ═══════════════════════════════════════════════════════════════════════════
-import gpu from "../../compat/gpu.ts";
-import io from "../../compat/io.ts";
+import gpu from "@compat/gpu.ts";
+import io from "@compat/io.ts";
 
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";

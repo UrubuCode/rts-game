@@ -32,26 +32,26 @@
 // Controles: WASD voa, botão DIREITO gira, ESPAÇO sobe, R reconstrói já.
 // Porta de controle: ws://127.0.0.1:7777 (`state` lista todos os corpos).
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 import input from "rts:input";
-import time from "../src/compat/time.ts";
+import time from "@compat/time.ts";
 
-import { scene, S } from "../src/editor/control/session";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { PhysicsMaterial, MAT_STONE, MAT_WOOD, MAT_METAL } from "../src/scripts/physicsmaterial";
+import { scene, S } from "@editor/control/session";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { PhysicsMaterial, MAT_STONE, MAT_WOOD, MAT_METAL } from "@scripts/physicsmaterial";
 import { initAudio, pumpAudio, playNoise, playSquare,
-         playNoiseAt, playSquareAt } from "../src/engine/audio/audio";
-import { setListener, setRolloff } from "../src/engine/audio/spatial";
+         playNoiseAt, playSquareAt } from "@engine/audio/audio";
+import { setListener, setRolloff } from "@engine/audio/spatial";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawWaterGPU,
-         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "../src/engine/render/gpu3d";
-import { ctrlServe, ctrlPoll } from "../src/editor/control/server";
-import { RB_DT } from "../src/engine/rigid/gpurigid";
+         frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
+import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { RB_DT } from "@engine/rigid/gpurigid";
 import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep,
-         rbPoke, rbX, rbY, rbZ, rbSleep } from "../src/engine/rigid/gpurigid";
+         rbPoke, rbX, rbY, rbZ, rbSleep } from "@engine/rigid/gpurigid";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
-         flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "../src/engine/fluid/fluid";
+         flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "@engine/fluid/fluid";
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
 // runtime (o `let H` de uma demo já corrompeu o raio do kernel do fluido).

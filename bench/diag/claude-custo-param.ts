@@ -1,5 +1,5 @@
-import io from "../../src/compat/io.ts";
-import math from "../../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 
 const N = 100000;
 const gArr: f64[] = [];

@@ -12,11 +12,11 @@
 // (`crates/rts-physics/src/solver/tests.rs`), onde um teste pode nomear uma
 // constante. Aqui a pergunta é se os `Float32Array` atravessam, se os corpos
 // assentam nas alturas que a FORMA manda, e se o estático da cena chega.
-import io from "../src/compat/io.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject, COL_SPHERE, COL_BOX } from "../src/engine/core/gameobject";
+import io from "@compat/io.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject, COL_SPHERE, COL_BOX } from "@engine/core/gameobject";
 import { crInit, crSetBody, crSetShape, crSyncStatics, crStep,
-         crX, crY, crZ, crSleep, crThreads, crCount } from "../src/engine/rigid/cpurigid";
+         crX, crY, crZ, crSleep, crThreads, crCount } from "@engine/rigid/cpurigid";
 
 let ok = 0;
 let fail = 0;

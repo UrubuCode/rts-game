@@ -1,11 +1,11 @@
 // Comandos de CENA/sessão: select, delete, cam, focus, play, pause, clear, loadscene.
-import math from "../../../compat/math.ts";
-import { playTone, activeVoices, audioReady, audioRate } from "../../../engine/audio/audio";
-import { logTail, logClear, logCount, logCountAtLeast, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_DEBUG } from "../../../engine/core/logger";
-import { Fluid } from "../../../scripts/fluid";
+import math from "@compat/math.ts";
+import { playTone, activeVoices, audioReady, audioRate } from "@engine/audio/audio";
+import { logTail, logClear, logCount, logCountAtLeast, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_DEBUG } from "@engine/core/logger";
+import { Fluid } from "@scripts/fluid";
 import { scene, S } from "../session";
-import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "../../sceneio";
-import { GameObject } from "../../../engine/core/gameobject";
+import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "@editor/sceneio";
+import { GameObject } from "@engine/core/gameobject";
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;

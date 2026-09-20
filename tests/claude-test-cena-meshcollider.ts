@@ -18,21 +18,21 @@
 //          acima das faces, flutuando sobre os cantos vazios;
 //   CASCA  as bolas encontram as faces inclinadas, escorregam por elas e
 //          assentam MAIS BAIXO, muitas alcançando o chão.
-import io from "../src/compat/io.ts";
-import fs from "../src/compat/fs.ts";
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
+import io from "@compat/io.ts";
+import fs from "@compat/fs.ts";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
 // `loadSceneFrom` preenche a cena GLOBAL da sessão e devolve void — o editor é
 // quem tem uma cena, não quem recebe uma. Importar as duas coisas é o que faz
 // este teste exercitar o mesmo caminho que abrir a cena no editor exercita.
-import { loadSceneFrom } from "../src/editor/sceneio";
-import { scene as sc } from "../src/editor/control/session";
-import { shapeOf } from "../src/engine/core/collider";
+import { loadSceneFrom } from "@editor/sceneio";
+import { scene as sc } from "@editor/control/session";
+import { shapeOf } from "@engine/core/collider";
 import { rigidNeedsFallback, rigidHullCount, rigidInvalidate, rigidSetMode, rigidStep }
-  from "../src/engine/core/physics_backend";
-import { hullResetRegistry } from "../src/engine/core/hullreg";
-import { hullMeshReset } from "../src/engine/core/hullmesh";
+  from "@engine/core/physics_backend";
+import { hullResetRegistry } from "@engine/core/hullreg";
+import { hullMeshReset } from "@engine/core/hullmesh";
 
 let ok = 0;
 let fail = 0;

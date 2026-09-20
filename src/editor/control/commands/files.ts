@@ -1,14 +1,14 @@
 // Comandos de SISTEMA DE ARQUIVOS (via WebSocket) — a IA lista/cria/deleta/lê/
 // escreve/renomeia arquivos e pastas do projeto direto pelo socket (fs namespace).
 // Conteúdo em uma linha só (o protocolo quebra por \n).
-import fs from "../../../compat/fs.ts";
+import fs from "@compat/fs.ts";
 
 import { scene, S } from "../session";
-import { GameObject } from "../../../engine/core/gameobject";
-import { objectToData, instantiatePrefab } from "../../sceneio";
-import { loadTexture } from "../../../engine/render/gpu3d";
-import { isModelPath } from "../../../engine/render/model";
-import { instantiateAt } from "../../dnd";
+import { GameObject } from "@engine/core/gameobject";
+import { objectToData, instantiatePrefab } from "@editor/sceneio";
+import { loadTexture } from "@engine/render/gpu3d";
+import { isModelPath } from "@engine/render/model";
+import { instantiateAt } from "@editor/dnd";
 
 /// makeprefab <path> [i] — salva o objeto (default=selecionado) como PREFAB (JSON de
 /// 1 objeto), pra instanciar depois via o asset browser (duplo-clique) ou prefab.

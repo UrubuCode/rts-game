@@ -5,14 +5,14 @@
 // A coordenada de tela é opcional: com <sx> <sy> o asset cai no ponto do CHÃO sob
 // aquele pixel (como o mouse); sem ela, usa a posição padrão ou a que for passada
 // em coordenadas de mundo.
-import math from "../../../compat/math.ts";
-import fs from "../../../compat/fs.ts";
+import math from "@compat/math.ts";
+import fs from "@compat/fs.ts";
 
 import { scene, S } from "../session";
-import { kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "../../dnd";
-import { isModelPath } from "../../../engine/render/model";
-import { thumbReport, TH_IMAGE, TH_MODEL, TH_PREFAB, TH_SCENE } from "../../thumbs";
-import { subStr } from "../../widgets";
+import { kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "@editor/dnd";
+import { isModelPath } from "@engine/render/model";
+import { thumbReport, TH_IMAGE, TH_MODEL, TH_PREFAB, TH_SCENE } from "@editor/thumbs";
+import { subStr } from "@editor/widgets";
 
 const FOV: f64 = 1.0472;
 

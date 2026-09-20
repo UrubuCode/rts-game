@@ -9,7 +9,7 @@
 // Os dois caminhos desenham a MESMA coisa, com caixas e rótulos intercalados,
 // cores, raios e espessuras variando — o padrão do editor, que é onde um campo
 // vazado apareceria.
-import io from "../src/compat/io.ts";
+import io from "@compat/io.ts";
 
 let log = "";
 function verRect(o: any): void {

@@ -1,9 +1,9 @@
 // O que o passo fixo conserta, provado em vez de afirmado.
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { scene } from "../src/editor/control/session";
-import { Rigidbody } from "../src/scripts/rigidbody";
-import { stepsFor, FIXED_DT, stepAlpha, stepDiscards, stepReset } from "../src/engine/core/fixedstep";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { Rigidbody } from "@scripts/rigidbody";
+import { stepsFor, FIXED_DT, stepAlpha, stepDiscards, stepReset } from "@engine/core/fixedstep";
 
 let pass = 0; let fail = 0;
 function ok(n: string, c: number): void {

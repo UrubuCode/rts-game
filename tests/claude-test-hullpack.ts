@@ -12,11 +12,11 @@
 //   4. A codificação de forma no `vel.w` sobrevive à ida e volta, inclusive nos
 //      valores primitivos que existiam ANTES desta extensão — que é a condição
 //      para que nenhum corpo de hoje mude de significado.
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 
 import { Hull, Contact, hullContactLocal, hullShapeCode, hullIdOfShape,
-         HULL_DIR_VEC4, HULL_MAX, HULL_PLANES_VEC4 } from "../src/engine/core/hullpack";
+         HULL_DIR_VEC4, HULL_MAX, HULL_PLANES_VEC4 } from "@engine/core/hullpack";
 
 let ok = 0;
 let fail = 0;

@@ -16,12 +16,12 @@
 //     exige janela — e é dominado pela chamada nativa, que esta mudança não
 //     tocou. Ou seja: isto mede a PREPARAÇÃO, que é o que a mudança mexeu.
 
-import io from "../src/compat/io.ts";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Transform } from "../src/engine/core/transform";
-import { scene } from "../src/editor/control/session";
-import { frustumBegin, frustumParams, inFrustumFast } from "../src/engine/render/gpu3d";
-import { drawSceneObjects, fParams } from "../src/engine/render/scenedraw";
+import io from "@compat/io.ts";
+import { GameObject } from "@engine/core/gameobject";
+import { Transform } from "@engine/core/transform";
+import { scene } from "@editor/control/session";
+import { frustumBegin, frustumParams, inFrustumFast } from "@engine/render/gpu3d";
+import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
 
 const N = 500;
 const F = 200;

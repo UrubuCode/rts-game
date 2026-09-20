@@ -43,8 +43,8 @@ import {
   drawMesh, drawMeshBatch, setVsync as eguiSetVsync,
   winWidth as eguiWinWidth, winHeight as eguiWinHeight,
 } from "rts:egui";
-import math from "../../compat/math.ts";
-import fs from "../../compat/fs.ts";
+import math from "@compat/math.ts";
+import fs from "@compat/fs.ts";
 
 const PI: number = 3.14159265358979;
 

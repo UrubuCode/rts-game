@@ -30,9 +30,9 @@ import {
 } from "rts:egui";
 import { mouseX } from "rts:input";
 
-import { GameObject } from "../src/engine/core/gameobject";
-import { scene } from "../src/editor/control/session";
-import { Rigidbody } from "../src/scripts/rigidbody";
+import { GameObject } from "@engine/core/gameobject";
+import { scene } from "@editor/control/session";
+import { Rigidbody } from "@scripts/rigidbody";
 
 // ── geometria ─────────────────────────────────────────────────────────────
 

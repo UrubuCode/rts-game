@@ -6,9 +6,9 @@
 // os arrays a cada amostra) para a casa de 5-10 ns.
 //
 // Se NÃO cair, o desenho inteiro precisa mudar — então isto vem antes.
-import io from "../../src/compat/io.ts";
-import math from "../../src/compat/math.ts";
-import buffer from "../../src/compat/buffer.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import buffer from "@compat/buffer.ts";
 
 const N_VOZES = 24;
 const N_AMOSTRAS = 800;

@@ -13,24 +13,24 @@
 // mas mostra o último frame. Controle ao vivo TOTAL (janela responsiva enquanto
 // espera) exigiria um thread leitor — próximo passo.
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
-import buffer from "../src/compat/buffer.ts";
-import render from "../src/compat/render.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
+import buffer from "@compat/buffer.ts";
+import render from "@compat/render.ts";
 import net from "rts:net";
-import fs from "../src/compat/fs.ts";
+import fs from "@compat/fs.ts";
 import egui from "rts:egui";
 
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Spinner } from "../src/scripts/spinner";
-import { Bobber } from "../src/scripts/bobber";
-import { Rigidbody } from "../src/scripts/rigidbody";
-import { Mover } from "../src/scripts/mover";
-import { Pulse } from "../src/scripts/pulse";
-import { clearFB, drawFloor } from "../src/engine/render/raster";
-import { drawMeshSolid, setLight, setAmbient } from "../src/engine/render/mesh";
-import { asciiFrameStr } from "../src/engine/testkit/dump";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
+import { Spinner } from "@scripts/spinner";
+import { Bobber } from "@scripts/bobber";
+import { Rigidbody } from "@scripts/rigidbody";
+import { Mover } from "@scripts/mover";
+import { Pulse } from "@scripts/pulse";
+import { clearFB, drawFloor } from "@engine/render/raster";
+import { drawMeshSolid, setLight, setAmbient } from "@engine/render/mesh";
+import { asciiFrameStr } from "@engine/testkit/dump";
 
 const PORT = "127.0.0.1:7777";
 const RW = 240;

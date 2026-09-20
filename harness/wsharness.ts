@@ -10,18 +10,18 @@
 //   ./rts.exe run wsharness.ts        # servidor + janela viva
 //   (browser) abra tools/ws_control.html  → conecta e manda comandos
 // ═══════════════════════════════════════════════════════════════════════════
-import io from "../src/compat/io.ts";
-import math from "../src/compat/math.ts";
+import io from "@compat/io.ts";
+import math from "@compat/math.ts";
 import ws from "rts:ws";
-import fs from "../src/compat/fs.ts";
+import fs from "@compat/fs.ts";
 
-import { Scene } from "../src/engine/core/scene";
-import { GameObject } from "../src/engine/core/gameobject";
-import { Spinner } from "../src/scripts/spinner";
-import { Bobber } from "../src/scripts/bobber";
-import { Mover } from "../src/scripts/mover";
-import { Pulse } from "../src/scripts/pulse";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum, winWidth, winHeight } from "../src/engine/render/gpu3d";
+import { Scene } from "@engine/core/scene";
+import { GameObject } from "@engine/core/gameobject";
+import { Spinner } from "@scripts/spinner";
+import { Bobber } from "@scripts/bobber";
+import { Mover } from "@scripts/mover";
+import { Pulse } from "@scripts/pulse";
+import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum, winWidth, winHeight } from "@engine/render/gpu3d";
 
 const PORT = 7777;
 

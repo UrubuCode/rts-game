@@ -36,7 +36,7 @@
 // corpos, 2 sub-passos, máquina ociosa: 2,30 ms numa thread e 0,42 ms em 16,
 // contra 159,6 ms do solver TypeScript da `Scene` na mesma cena.
 // ═══════════════════════════════════════════════════════════════════════════
-import rigid from "../../compat/rigid.ts";
+import rigid from "@compat/rigid.ts";
 
 import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
