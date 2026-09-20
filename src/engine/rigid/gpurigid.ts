@@ -52,7 +52,7 @@ import buffer from "@compat/buffer.ts";
 
 import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
-import { shapeOf, halfXOf, halfYOf, halfZOf } from "../core/collider";
+import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
          matFillDefaults, matWriteBody, matWriteStatic } from "./materials";
 import { Transform } from "../core/transform";
@@ -681,9 +681,9 @@ export function rbSyncStatics(sc: Scene): void {
     if (o.collideFlag !== 0 && shapeOf(o) < 2 && o.active !== 0 && o.stationary !== 0) {
       const t: Transform = trs[i];
       const base = 4 + m * 8;
-      buffer.write_f32(rbWorldBuf, (base) * 4, t.wx);
-      buffer.write_f32(rbWorldBuf, (base + 1) * 4, t.wy);
-      buffer.write_f32(rbWorldBuf, (base + 2) * 4, t.wz);
+      buffer.write_f32(rbWorldBuf, (base) * 4, centerWorldX(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 1) * 4, centerWorldY(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 2) * 4, centerWorldZ(o, t));
       // a REDONDEZA (ver o kernel): 1 = esfera, 0 = caixa
       buffer.write_f32(rbWorldBuf, (base + 3) * 4, shapeOf(o) === 0 ? 1.0 : 0.0);
       buffer.write_f32(rbWorldBuf, (base + 4) * 4, halfXOf(o, t));

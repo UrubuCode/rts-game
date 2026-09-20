@@ -41,7 +41,7 @@ import rigid from "@compat/rigid.ts";
 import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
-import { shapeOf, halfXOf, halfYOf, halfZOf } from "../core/collider";
+import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_AT, MAT_MAX_STATICS, matBytesFor, matFillDefaults,
          matWriteBody, matWriteStatic } from "./materials";
 
@@ -187,11 +187,8 @@ export function crUpload(): void {
 /// `pbSync` do decisor já lê para os corpos dinâmicos — a regra existe uma vez
 /// e os backends a leem, que é a condição para terminarem no mesmo lugar.
 ///
-/// DIVERGÊNCIA CONHECIDA, dita aqui em vez de descoberta: o `rbSyncStatics` do
-/// backend GPU NÃO passa por `collider.ts` — ele lê `o.colShape` e `t.sx*0.5`
-/// direto. Para um estático sem component `Collider` os dois dão o mesmo
-/// número (o default `hx=0,5` foi escolhido para isso), e é por isso que o
-/// teste de paridade não vê diferença. Para um estático COM component, veriam.
+/// Estáticos passam por `collider.ts` (meia-extensão e centro de mundo com offset),
+/// alinhados nos três backends (CPU, GPU e Rust).
 export function crSyncStatics(sc: Scene): void {
   const objs: GameObject[] = sc.objects;
   const trs: Transform[] = sc.trs;
@@ -210,9 +207,9 @@ export function crSyncStatics(sc: Scene): void {
     if (o.collideFlag !== 0 && o.active !== 0 && o.stationary !== 0 && shapeOf(o) < 2) {
       const t: Transform = trs[i];
       const base = 4 + m * 8;
-      crWorld[base] = t.wx;
-      crWorld[base + 1] = t.wy;
-      crWorld[base + 2] = t.wz;
+      crWorld[base] = centerWorldX(o, t);
+      crWorld[base + 1] = centerWorldY(o, t);
+      crWorld[base + 2] = centerWorldZ(o, t);
       // A REDONDEZA do estático, no `w` do centro: 1 = esfera de raio
       // `min(meia-extensão)`, 0 = caixa. Invertido em relação à forma de um
       // CORPO de propósito — todo escritor anterior a este campo deixava 0 ali

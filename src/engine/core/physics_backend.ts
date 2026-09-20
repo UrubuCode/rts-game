@@ -79,7 +79,7 @@ import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL } from "./collider";
-import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbSetDt, rbSetMaterial,
+import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
          rbCount } from "../rigid/gpurigid";
@@ -497,7 +497,9 @@ function pbSoltar(): void {
       if (intocado !== 0) { t.px = crX(k); t.py = crY(k); t.pz = crZ(k); }
       t.vx = crVelX(k); t.vy = crVelY(k); t.vz = crVelZ(k);
     }
-    if (intocado === 0) { t.vx = 0.0; t.vy = 0.0; t.vz = 0.0; }
+    if (intocado === 0 && pbObjs[k].stationary === 0 && t.mass > 0.0) {
+      t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+    }
     // Quem decide o sono daqui em diante é o próximo dono; acordado é o estado
     // que nunca está errado, só mais caro por dez passos.
     t.asleep = 0; t.quiet = 0;
@@ -598,11 +600,20 @@ function pbEmpurraTeleportes(): void {
   const m = pbObjs.length;
   let k = 0;
   while (k < m) {
-    const t: Transform = pbObjs[k].transform;
+    const ob: GameObject = pbObjs[k];
+    const t: Transform = ob.transform;
     if (t.px !== pbLX[k] || t.py !== pbLY[k] || t.pz !== pbLZ[k]) {
       if (pbDono === 1) { rbSetPos(k, t.px, t.py, t.pz); pbHold[k] = 1; }
       else crSetPos(k, t.px, t.py, t.pz);
-      t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+      // SÓ zera velocidade de corpos dinâmicos livres teleportados.
+      // Corpos cinemáticos (stationary !== 0 ou mass === 0) preservam sua velocidade
+      // calculada por script ou navegação.
+      if (ob.stationary === 0 && t.mass > 0.0) {
+        t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+      } else {
+        if (pbDono === 1) { rbSetVel(k, t.vx, t.vy, t.vz); rbPoke(k); }
+        else crSetVel(k, t.vx, t.vy, t.vz);
+      }
       pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
     }
     k = k + 1;
