@@ -76,6 +76,7 @@ tools/           control_client.py · ws_client.py · ws_control.html · build.b
 assets/          models · prefabs · presets · scenes · textures
 scenes/          arena · demo · meshcollider · shadowdemo · solar · stress500
 docs/            colisores · fisica-paralela · unity-ui-reference · bug-ws-editor
+                 sobrecarga-de-operador (medido: nao usar no caminho quente)
 ```
 
 Why `src/` and not a flat root: the four source trees import each other by
