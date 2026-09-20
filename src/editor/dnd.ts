@@ -10,7 +10,7 @@
 import { scene, S } from "./control/session";
 import { GameObject } from "../engine/core/gameobject";
 import { instantiatePrefab, loadSceneFrom } from "./sceneio";
-import { loadObj, loadTexture } from "../engine/render/gpu3d";
+import { loadTexture } from "../engine/render/gpu3d";
 import { loadModel, isModelPath, SubMesh } from "../engine/render/model";
 import { screenToPlane, screenToForward, snapv } from "./gizmo";
 import { subStr } from "./widgets";

@@ -11,7 +11,7 @@ import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { Scene } from "../core/scene";
 import { renderX, renderY, renderZ } from "../core/interpolate";
-import { drawGPU, drawGPUMesh, drawBatch, meshIdFor } from "./gpu3d";
+import { drawGPU, drawGPUMesh, drawBatch, meshIdFor, meshRadius } from "./gpu3d";
 
 // ── LOTE: os buffers de instância, REAPROVEITADOS entre frames ──────────────
 //
@@ -88,8 +88,20 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
     let rmax: f64 = tr.sx;
     if (tr.sy > rmax) rmax = tr.sy;
     if (tr.sz > rmax) rmax = tr.sz;
-    // `inFrustumFast(tr.wx, tr.wy, tr.wz, rmax * 0.87)`, aberto (ver acima).
-    const r: f64 = rmax * 0.87;
+    // `inFrustumFast(tr.wx, tr.wy, tr.wz, rmax * raio)`, aberto (ver acima).
+    //
+    // O RAIO É DA MALHA, e 0.87 (`sqrt(3)/2`, o cubo unitário) só vale para as
+    // primitivas. Um `.obj` de dois metros com escala 1 tem raio 1,0 e sumia da
+    // borda da tela antes de sair do campo de visão — o culling o descartava
+    // por um raio que não era o dele.
+    //
+    // Só o mesh CUSTOM consulta a tabela, e o campo lido é `customMesh`, que é
+    // um campo simples do objeto. Resolver o `MeshRenderer` aqui seria pagar um
+    // despacho virtual por objeto INVISÍVEL, que é exatamente o que a ordem
+    // deste laço existe para evitar (ver o comentário acima). Um custom mesh
+    // pendurado num `MeshRenderer` continua com o raio da primitiva — está
+    // errado por menos, e consertá-lo custa a medição que o cabeçalho descreve.
+    const r: f64 = rmax * (o.customMesh > 0 ? meshRadius(o.customMesh) : 0.87);
     const dx: f64 = tr.wx - cx; const dy: f64 = tr.wy - cy; const dz: f64 = tr.wz - cz;
     const x1: f64 = dx * cyw - dz * syw;
     const z1: f64 = dx * syw + dz * cyw;

@@ -56,6 +56,23 @@ let idSphere = 0;
 let ready = 0;
 let idSphereLow: number = 0;
 
+/// O RAIO da esfera que envolve cada mesh, por id, em unidades de MALHA.
+///
+/// O culling usava `max(escala) * 0.87` para todo mundo, e 0.87 é
+/// `sqrt(3)/2` — o raio de um CUBO UNITÁRIO. Vale para as primitivas, que são
+/// unitárias por construção, e é ficção para um `.obj`: um modelo de dois
+/// metros com escala 1 tem raio 1,0 e desaparecia da tela antes de sair do
+/// campo de visão. O raio sai dos VÉRTICES, no upload, que é o único lugar que
+/// os vê — e um id desconhecido responde 0.87, que é o que havia antes.
+const meshRadii = new Map<number, number>();
+
+/// O raio envolvente da mesh `id`, em unidades de malha.
+export function meshRadius(id: number): number {
+  const r = meshRadii.get(id);
+  if (r === undefined) return 0.87;
+  return r;
+}
+
 /// Sobe uma mesh pra VRAM e devolve o mesh id (0 = falhou).
 /// Layout do vértice: 8 f32 INTERLEAVED — [x,y,z, nx,ny,nz, u,v].
 /// Exportada porque os LOADERS de modelo (engine/render/model.ts: .obj, .glb)
@@ -67,7 +84,24 @@ let idSphereLow: number = 0;
 /// comprimentos saem das próprias views do outro lado, então some também a
 /// chance de declarar uma contagem que discorde dos dados.
 export function upload(win: number, verts: number[], inds: number[]): number {
-  return meshUpload(win, new Float32Array(verts), new Uint32Array(inds));
+  const id = meshUpload(win, new Float32Array(verts), new Uint32Array(inds));
+  if (id > 0) meshRadii.set(id, raioDe(verts));
+  return id;
+}
+
+/// A maior distância de um vértice à origem. O layout é 8 f32 por vértice e a
+/// posição são os três primeiros (ver `upload`); o resto é normal e uv, que não
+/// entram num raio.
+function raioDe(verts: number[]): number {
+  let maior: number = 0.0;
+  let i = 0;
+  while (i + 2 < verts.length) {
+    const x = verts[i]; const y = verts[i + 1]; const z = verts[i + 2];
+    const d = x * x + y * y + z * z;
+    if (d > maior) maior = d;
+    i = i + 8;
+  }
+  return math.sqrt(maior);
 }
 
 // adiciona um vértice (pos + normal suave = pos normalizada + uv) ao array (esfera).
@@ -224,57 +258,6 @@ export function initMeshes(win: number): void {
 /// O mesh id da esfera de LOD baixo (0 antes do initMeshes). Exposto porque era
 /// o único uso dela — o `drawWaterGPU` — e ele não tem para onde ir aqui.
 export function lowPolySphereId(): number { return idSphereLow; }
-
-/// Carrega um .obj REAL do disco (v/vn/f triangular) → sobe pra VRAM → mesh id
-/// (0 se falhar). Faces `v//vn`, `v/vt/vn` ou `v`; sem vn usa normal pra cima.
-export function loadObj(win: number, path: string): number {
-  if (!fs.exists(path)) return 0;
-  const src = fs.read_text(path);
-  const lines = src.split("\n");
-  const pxs: number[] = []; const pys: number[] = []; const pzs: number[] = [];
-  const nxs: number[] = []; const nys: number[] = []; const nzs: number[] = [];
-  const txs: number[] = []; const tys: number[] = [];   // coords de textura (vt)
-  const verts: number[] = [];
-  const inds: number[] = [];
-  let vi = 0;
-  let li = 0;
-  while (li < lines.length) {
-    const parts = lines[li].split(" ");
-    const t = parts[0];
-    if (t === "v") {
-      pxs.push(parseFloat(parts[1])); pys.push(parseFloat(parts[2])); pzs.push(parseFloat(parts[3]));
-    } else if (t === "vn") {
-      nxs.push(parseFloat(parts[1])); nys.push(parseFloat(parts[2])); nzs.push(parseFloat(parts[3]));
-    } else if (t === "vt") {
-      txs.push(parseFloat(parts[1])); tys.push(parseFloat(parts[2]));
-    } else if (t === "f") {
-      // pega os corners não-vazios (tolera múltiplos espaços); triângulo = 3 primeiros
-      const corners: string[] = [];
-      let ci = 1;
-      while (ci < parts.length) { if (parts[ci].length > 0) corners.push(parts[ci]); ci = ci + 1; }
-      let k = 0;
-      while (k < 3 && k < corners.length) {
-        const seg = corners[k].split("/");
-        const vIdx = (parseFloat(seg[0]) | 0) - 1;
-        let nIdx = 0 - 1;
-        if (seg.length >= 3 && seg[2].length > 0) nIdx = (parseFloat(seg[2]) | 0) - 1;
-        let tIdx = 0 - 1;
-        if (seg.length >= 2 && seg[1].length > 0) tIdx = (parseFloat(seg[1]) | 0) - 1;
-        verts.push(pxs[vIdx]); verts.push(pys[vIdx]); verts.push(pzs[vIdx]);
-        if (nIdx >= 0 && nIdx < nxs.length) { verts.push(nxs[nIdx]); verts.push(nys[nIdx]); verts.push(nzs[nIdx]); }
-        else { verts.push(0.0); verts.push(1.0); verts.push(0.0); }
-        // uv do vt (V invertido: OBJ é origem inferior-esquerda, textura é superior).
-        if (tIdx >= 0 && tIdx < txs.length) { verts.push(txs[tIdx]); verts.push(1.0 - tys[tIdx]); }
-        else { verts.push(0.0); verts.push(0.0); }
-        inds.push(vi); vi = vi + 1;
-        k = k + 1;
-      }
-    }
-    li = li + 1;
-  }
-  if (verts.length === 0) return 0;
-  return upload(win, verts, inds);
-}
 
 // Cache de textura POR PATH: aplicar a mesma imagem em N objetos = 1 upload pra
 // VRAM (as demais reusam o texId). Um `const … = new Map()` de módulo é o padrão
