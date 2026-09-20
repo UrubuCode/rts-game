@@ -1,7 +1,7 @@
 # Paralelismo e fundação: o plano
 
 **Data:** 2026-09-20 · **Revisão 3** (revisão 2 + a discussão da issue #1: a
-Fase 2 foi reordenada em lotes e ganhou a fronteira agente × corpo rígido, §7)
+Fase 2 virou sete lotes de escopo firme, medidos em dois perfis de jogo, §7)
 · **Estado:** desenho para revisão. Nada implementado.
 
 ---
@@ -227,30 +227,72 @@ Ver [UrubuCode/rts-game#1](https://github.com/UrubuCode/rts-game/issues/1).
 Reescrita na **revisão 3**, depois da discussão na issue (quatro comentários de
 revisão externa, conferidos contra o código em `3d29515`).
 
-### 7.1 A decisão que ordena a fase: unidade não é corpo rígido
+### 7.1 A premissa: é um motor, e o jogo não é conhecido
 
-O dilema "qual física para o RTS" tinha uma premissa escondida: que a física
-rígida carrega as unidades. **Não carrega.** Mil soldados em contato formam uma
-única ilha de restrições — o pior caso de qualquer solver, em qualquer backend —
-e o que um soldado precisa (não atravessar o vizinho, contornar, parar no
-destino) é *avoidance*, não impulso e atrito.
+A revisão 3 inicial ordenou esta fase assumindo um RTS ("unidade não é corpo
+rígido, então torque é opcional"). **Premissa errada para um motor**: quem vai
+usar a engine pode querer um RTS de mil agentes ou um jogo de empilhar caixas, e
+a física tem de servir aos dois. O que muda:
 
-| classe | quem é | onde vive | o que paga |
-|---|---|---|---|
-| **agente** | infantaria, veículo comum | sistema de unidades (fora deste plano) | footprint circular, vizinhança espacial, steering |
-| **corpo de gameplay** | porta, ponte, destroço que bloqueia, projétil físico | solver rígido | tudo desta fase |
-| **cosmético** | estilhaço, poeira | solver rígido ou GPU, fora do grupo determinístico | nada de contrato |
+- **Os cinco lotes são escopo firme.** Manifold e dinâmica angular não esperam
+  gatilho de jogo nenhum; a ordem entre eles é só a da dependência técnica.
+- **Nenhuma decisão de jogo bloqueia a fase.** O que a issue listou como
+  "decisões em aberto" (unidades se empurram? lockstep?) vira **opção que o motor
+  expõe**, não pergunta que ele faz ao dono do projeto.
 
-O agente entra no solver rígido **só como cinemático**: empurra corpos, não é
-empurrado por eles. É por isso que cinemático, máscara e consulta sobem para o
-topo da fase e a dinâmica angular desce para o fim — a ordem anterior (rotação
-primeiro) servia a uma demo de física, não a um RTS.
+Os dois perfis que cada lote tem de atender, e que viram as cenas de referência
+de todo aceite e de todo bench:
 
-Consequência de escala: o `n` de corpos rígidos de uma partida é **centenas a
-poucos milhares**, não dezenas de milhares. Na tabela de §2.2 isso é a faixa onde
-o backend Rust vence com 2+ threads. O maior custo de hoje continua sendo o de
-§3.1 — o solver TS legado, 36,92 ms contra 0,62 — e ele é resolvido pela Fase 0,
-não por esta.
+| perfil | cena de referência | o que estressa |
+|---|---|---|
+| **multidão** | 5 000 cinemáticos com footprint + 500 dinâmicos + estáticos | filtro por máscara, cinemático empurrando, consultas por frame, custo por corpo *que não colide* |
+| **rígido denso** | 2 000 caixas dinâmicas empilhadas e tombando | narrow phase, manifold, solver, sono |
+
+O motor oferece os dois caminhos e documenta o custo de cada um: um agente pode
+ser `kinematic` (barato, não recebe impulso) ou `dynamic` (caro, físico de
+verdade), e pares agente × agente podem ser desligados por máscara. **Escolher é
+do jogo.** O que o motor deve é que as duas escolhas funcionem e que a cara
+avise quanto custa — mil `dynamic` em contato formam uma ilha só, e isso aparece
+no `dbg`, não numa recusa.
+
+Consequência de escala: o alvo volta a ser **milhares de corpos dinâmicos**, a
+faixa de §2.2 em que GPU e Rust disputam. Por isso o layout do Lote A reserva
+orientação e velocidade angular **graváveis nos três backends** desde o primeiro
+dia — a GPU não pode ficar para trás na rotação, que era o que `docs/colisores.md`
+§4 aceitava ("rotação é entrada, não estado").
+
+### 7.1.1 O dev escolhe a física, e só paga pela que escolheu
+
+Completo **e** eficiente só fecha de um jeito: cada recurso é opcional e o que
+está desligado custa zero. O dev declara o nível por projeto ou por cena; o motor
+roda o kernel mais barato que atende.
+
+| nível | o que simula | quem quer |
+|---|---|---|
+| `simples` | esfera e caixa alinhada, sem rotação — **o solver de hoje** | RTS, top-down, multidão, protótipo |
+| `orientada` | + quaternion e OBB, sem torque (Lote C) | rampas, paredes giradas, plataformas |
+| `completa` | + manifold, warm starting, dinâmica angular, sono por ilha (D–F) | empilhar, tombar, destruição |
+
+CCD (Lote G) e consultas/eventos (Lote B) são ortogonais ao nível: ligam por
+corpo e por uso.
+
+Como isso vira código sem virar três motores:
+
+- **Um layout, um contrato, N kernels.** O layout do Lote A é o mesmo nos três
+  níveis; o nível `simples` simplesmente não lê nem escreve `quat`/`angVel` e
+  não aloca `contacts`. O WGSL já é montado por string — o nível entra como
+  especialização na montagem, não como `if` dentro do laço quente. No Rust, o
+  mesmo por parâmetro genérico/const.
+- **O nível é um campo de `Needs` (Fase 1).** Backend que não implementa o nível
+  pedido recusa pelo nome e o decisor cai para outro — o mecanismo que já existe
+  para casca (`rigidNeedsFallback`), sem caminho novo.
+- **O perfil medido da Fase 0 ganha a dimensão nível:** `(nível, threads, n) → ms`.
+  O decisor só é honesto se souber que `completa` custa mais que `simples`.
+
+**Regra de aceite que vale para todo lote:** o nível `simples` **não regride**.
+Bench das duas cenas de §7.1 no nível `simples`, antes e depois; mais de 5% de
+perda reprova o lote. É isso que garante que quem não pediu rotação não paga por
+ela — e é o que torna seguro entregar os lotes D–G sem medo de estragar o RTS.
 
 ### 7.2 Os lotes, na ordem
 
@@ -308,7 +350,9 @@ paralelos têm tolerância escrita e desempate determinístico. CPU e Rust prime
 WGSL depois. *Aceite:* paridade comparando **normal e profundidade**, não só a
 posição final; rampa e parede orientadas; save/load conserva a pose.
 
-**Lote D — manifold e warm starting.** Recorte de face incidente, até 4 pontos,
+**Lote D — manifold e warm starting.** Nos três backends: o binding `contacts`
+reservado no Lote A é o armazenamento gravável que o modelo gather da GPU
+precisa para impulsos acumulados. Recorte de face incidente, até 4 pontos,
 casamento entre passos por feature id. *Aceite:* pilha de caixas com jitter e
 energia em repouso medidos, com e sem warm starting.
 
@@ -317,19 +361,31 @@ Vem **depois** do manifold: com um único ponto de contato, uma caixa em repouso
 com torque oscila para sempre. *Aceite:* apoio fora do centro inclina; impacto
 lateral gira; esfera invariante; momento conservado dentro de tolerância escrita.
 
-**D e E têm gatilho, não data:** só entram quando um corpo de gameplay real
-precisar tombar ou empilhar com rotação. Para portas, pontes e projéteis, A–C
-bastam. `docs/colisores.md` §3 continua valendo: casca dinâmica entra como
-esfera.
+**Lote F — sono por ilha.** Com torque, uma caixa dormindo dentro de uma pilha
+acordada deixa de ser cosmético e vira pilha que não desaba. Ilhas por DFS
+determinístico na CPU/Rust; na GPU, propagação de "acordado" por vizinhança em
+passes. *Aceite:* tirar a base de uma pilha adormecida acorda a pilha inteira.
 
-### 7.3 O que a revisão externa propôs e fica adiado, com gatilho
+**Lote G — CCD seletivo.** Modos `discrete` e `sweep` por corpo; primeiro
+esfera/cápsula contra estáticos por `shapeCast` (que o Lote B já entregou).
+O teto de 48 u/s deixa de ser a única defesa. *Aceite:* projétil acima do teto
+não atravessa a parede de referência; custo do CCD medido em separado.
+
+`docs/colisores.md` §3 continua valendo como limite **de desempenho**, não de
+escopo: casca dinâmica contra casca dinâmica entra como esfera até alguém pagar
+o SAT geral, e isso é recusado pelo nome (`Backend::supports`), nunca em silêncio.
+
+### 7.3 O que fica adiado, com gatilho — só estrutura de desempenho
+
+Recurso de física não espera gatilho (é o que um motor deve). O que espera
+medição é **estrutura de otimização**, que troca complexidade por velocidade e só
+se paga quando o perfil mostra:
 
 | proposta | por que não agora | gatilho |
 |---|---|---|
 | `PhysicsWorld` SoA com `BodyId + generation` | o backend Rust já é SoA (`&[f32]`) e o contrato de posse já separa cena de solver; reescrever a fronteira antes do Lote A é mexer em dois eixos de uma vez | resync por spawn (`crInit`, §9) acima de 1 ms numa cena de spawn contínuo |
 | broad-phase persistente, fat AABB, DBVT | o grid é medido e exato; nenhum perfil mostra a broad-phase dominando | broad-phase > 30% do passo em uma das três cenas (densa, esparsa, escalas mistas) |
-| ilhas e sono por ilha | o modelo gather da GPU não tem ordem de restrições a preservar; ilha só paga em Gauss-Seidel na CPU | corpo dormindo dentro de pilha acordada reproduzido em teste, ou paralelismo por ilha necessário no Rust |
-| CCD/TOI | o teto de 48 u/s é declarado, não escondido | primeiro projétil físico mais rápido que o teto — entra junto com `shapeCast` |
+| paralelismo por ilha no Rust | o Lote F entrega ilhas para o sono; usá-las para distribuir o solver é outra coisa | solver > 50% do passo no perfil rígido denso com threads ociosas |
 | GPU-resident completa | já é a Fase 3 deste plano | §8 |
 
 Recusado de vez: quatro variantes de tipo de corpo (duas de cinemático) — uma
@@ -337,7 +393,8 @@ basta, a outra é conversão na borda.
 
 O plano de RTS (unidades, HPA*, flow fields, formação, ORCA, combate) é outro
 épico: `docs/superpowers/plans/2026-09-20-super-plano-rts.md` (commit `57221ad`).
-Deste documento ele recebe a fronteira da §7.1 e os contratos do Lote B; o
+Deste documento ele recebe o nível `simples` com corpos `kinematic` (§7.1.1) e
+os contratos do Lote B; o
 `RTS-2` dele (agente cinemático) **depende do Lote A** e de nada depois dele.
 
 **Nota de aceite:** os lotes C–E mudam o solver e **invalidam a paridade medida
@@ -395,8 +452,8 @@ sistemas declarando ids de buffer, recusa em conflito de escrita (como
   trabalho que nasce e morre nela.
 - **SoA no grafo de cena agora.** O número que a justificava não existe mais.
   Revisitar se `computeWorld` passar de 3 ms numa cena real.
-- **Soldado como corpo rígido.** Uma batalha vira uma ilha só e nenhum backend
-  escala nisso. Unidade é agente; entra no solver como cinemático (§7.1).
+- **Decidir pelo jogo.** O motor não recusa mil soldados `dynamic`; ele oferece
+  `kinematic` e máscara como caminho barato e mostra o custo do caro (§7.1).
 - **SAT isolado no layout atual.** `vel.w` já codifica forma e `hullId`; OBB em
   cima disso congela o layout errado. Layout primeiro (Lote A).
 - **Apagar a decisão de backend.** Tentado na revisão 1 e derrubado pela medição:
@@ -413,7 +470,9 @@ sistemas declarando ids de buffer, recusa em conflito de escrita (como
 | Editor abre no padrão novo sem opt-in; cenas salvas não gravam backend | `rigidSetMode(1)` como rollback em runtime; medir `scenes/stress500.json` visualmente antes e depois |
 | **Deriva entre repositórios** — esquecer `cargo build` e testar binário velho | §12, regra de trabalho. É o modo de falha mais provável deste plano |
 | Outros números do código obsoletos como o do `computeWorld` | Fase 0 item 6 lista os conhecidos e os suspeitos; medir antes de citar, sempre |
-| Fase 2 é grande e pode parar no meio | Lotes A–E de §7.2, cada um com aceite próprio; D e E só com gatilho |
+| Fase 2 é grande e pode parar no meio | Lotes A–G de §7.2, cada um com aceite próprio e suíte verde ao fim |
+| Recurso novo encarece quem não o usa | Níveis de §7.1.1; aceite de todo lote exige `simples` sem regressão > 5% |
+| Otimizar para um perfil e regredir o outro | Todo bench de lote roda as **duas** cenas de §7.1 |
 | Layout novo (4 bindings, `ext` na cauda do `world`) regride o kernel | Bench do Lote A item 2 antes de congelar; > 10% reabre a decisão |
 | Quatro planos sobrepostos no repositório, com fases de mesmo nome e conteúdo diferente | §14: este documento é o normativo; os outros são referência e levam aviso no topo |
 | Contato descartado em silêncio quando um bucket do grid enche (32 vagas) | Lote A ganha contador de overflow por passo, exposto no `dbg`; aceite exige zero nas cenas de referência |
@@ -449,16 +508,15 @@ layout da Fase 2 — então o alvo não afeta só as fases adiadas.
 Perguntas abertas: editor, partida de RTS (com qual N), ou demo? Piso de 2, 4 ou
 16 núcleos?
 
-Decisões de jogo que a Fase 2 precisa antes do Lote B (vieram da issue #1):
+As "decisões de jogo" que a issue #1 levantou **não são pré-requisito**: num
+motor cada uma vira opção exposta, e o lote que a entrega está ao lado.
 
-- unidades se empurram ou só se desviam? (decide se agente × agente passa pelo
-  solver; a §7.1 assume que **não**)
-- mapa 2,5D ou 3D navegável com pontes e andares? (decide se `raycast` basta
-  para seleção e ordem de movimento)
-- quais objetos são corpos de gameplay de verdade? (decide se os Lotes D e E
-  algum dia entram)
-- single-player com replay, ou lockstep? (decide se o grupo determinístico é só
-  o backend Rust — §9 — ou se a GPU fica restrita a cosmético)
+| pergunta da issue | como o motor responde |
+|---|---|
+| unidades se empurram? | tipo do corpo + máscara, por objeto (Lote A) |
+| mapa 2,5D ou 3D navegável? | consultas são 3D (Lote B); 2,5D é um caso particular |
+| quais objetos são rígidos? | componente `Rigidbody` por objeto, como hoje |
+| replay ou lockstep? | `Needs.deterministic` escolhe o backend (Fase 1); o limite entre máquinas está em §9 |
 
 ---
 
@@ -472,7 +530,7 @@ diferentes. A regra:
 |---|---|
 | **este** | normativo: ordem, escopo, gatilhos e aceite |
 | `2026-09-20-fase0-decisor-medido.md` | plano executável da Fase 0 daqui (§5). Inalterado pela revisão 3 |
-| `2026-09-20-issue-1-implementation-plan.md` | referência de **matemática** para os Lotes C–E (SAT de 15 eixos, recorte do manifold, fórmulas angulares, lista de testes). A ordem e os tipos de corpo de lá **não valem** |
+| `2026-09-20-issue-1-implementation-plan.md` | referência de **matemática** para os Lotes C–G (SAT de 15 eixos, recorte do manifold, fórmulas angulares, lista de testes). A ordem e os tipos de corpo de lá **não valem** |
 | `2026-09-20-super-plano-fisica.md` | catálogo do que fica adiado em §7.3; nada dele entra sem o gatilho |
 | `2026-09-20-super-plano-rts.md` | épico separado; ainda sem plano executável |
 | `2026-09-20-review-issue-1.md`, `…research-notes-physics.md` | histórico e bibliografia |
@@ -481,7 +539,8 @@ Onde eles discordam deste, e o que vale:
 
 | ponto | lá | aqui | por quê |
 |---|---|---|---|
-| unidades | `dynamic` (tabela de tipos do plano da issue) | agente, cinemático no solver (§7.1) | o próprio plano de RTS do mesmo autor diz o contrário do plano da issue |
+| unidades | `dynamic` num plano, agente no outro | os dois são suportados; o jogo escolhe (§7.1) | é um motor |
+| ilhas e CCD | fases 4 e 6 de lá | Lotes F e G daqui | são recurso, não otimização — entram sem gatilho |
 | tipos de corpo | quatro, dois cinemáticos | três | posição → velocidade é conversão na borda |
 | primeira entrega | `BodyId`, comando/snapshot, `PhysicsStats`, layout, máscara, tudo junto | Lote A, sem `BodyId` nem snapshot | um PR que troca a fronteira **e** o layout não tem bisect |
 | broad-phase persistente antes de OBB | Fase 1 de lá | adiado, §7.3 | nenhum perfil mostra a broad-phase dominando |
