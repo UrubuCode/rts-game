@@ -1,5 +1,8 @@
 # Superplano RTS — simulação de unidades, navegação e combate
 
+> **Aviso (2026-09-20):** documento de referência. Ordem, escopo e aceite são os de
+> [`../specs/2026-09-20-paralelismo-e-fundacao-design.md`](../specs/2026-09-20-paralelismo-e-fundacao-design.md), §7 e §14.
+
 **Projeto:** `UrubuCode/rts-game`  
 **Relação:** complemento do plano de física da issue #1  
 **Autor:** Manus

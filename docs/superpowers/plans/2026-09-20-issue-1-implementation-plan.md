@@ -1,5 +1,8 @@
 # Plano de implementação futura — física 3D da issue #1
 
+> **Aviso (2026-09-20):** documento de referência. Ordem, escopo e aceite são os de
+> [`../specs/2026-09-20-paralelismo-e-fundacao-design.md`](../specs/2026-09-20-paralelismo-e-fundacao-design.md), §7 e §14.
+
 **Projeto:** `UrubuCode/rts-game`  
 **Issue:** [Rotação, OBB e manifold](https://github.com/UrubuCode/rts-game/issues/1)  
 **Base analisada:** commit `3d29515`  
