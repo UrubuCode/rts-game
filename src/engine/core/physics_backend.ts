@@ -79,11 +79,17 @@ import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL } from "./collider";
-import { rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics, rbService, rbX, rbY, rbZ, rbCount } from "../rigid/gpurigid";
+import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbSetDt, rbSetMaterial,
+         rbUpload, rbSyncStatics,
+         rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
+         rbCount } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
-import { crInit, crSetBody, crSetShape, crSyncStatics, crStep, crX, crY, crZ,
+import { crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
+         crSyncStatics, crStep, crX, crY, crZ, crVelX, crVelY, crVelZ,
          crCount, crThreads } from "../rigid/cpurigid";
+import { FIXED_DT } from "./fixedstep";
+import { Behavior } from "./behavior";
 
 // ── calibração ─────────────────────────────────────────────────────────────
 
@@ -358,35 +364,65 @@ export function rigidFreshFrames(): number { return pbFresh; }
 export function rigidStatsReset(): void { pbFresh = 0; pbFrames = 0; }
 export function rigidFrames(): number { return pbFrames; }
 
-// ── o runtime: a ponte cena ↔ gpurigid ─────────────────────────────────────
+// ── o runtime: a ponte cena ↔ backend ──────────────────────────────────────
+//
+// ── O CONTRATO DE POSSE, e o que ele consertou ─────────────────────────────
+//
+// Enquanto um backend externo (GPU ou Rust) está no comando, o estado dinâmico
+// dos corpos — posição, velocidade, sono — MORA NELE, e os transforms da cena
+// são um espelho de saída. `pbDono` diz quem tem a posse. Três regras saem daí,
+// e cada uma era um defeito antes de estar escrita:
+//
+//   ENTRADA  (`pbSync*`)  o backend recebe posição E VELOCIDADE do transform.
+//            Recebia só a posição, com velocidade zero: qualquer spawn no meio
+//            do play parava o mundo inteiro no ar.
+//   POSSE    o `Rigidbody` de cada corpo é avisado (`setExternalSim`) e para de
+//            integrar. Ele integrava por cima: a gravidade da CPU acumulava sem
+//            contato que a freasse, e nos frames sem resultado da GPU o corpo
+//            descia sozinho e era puxado de volta — tremor.
+//   SAÍDA    (`pbSoltar`)  antes de qualquer ressincronização ou queda para a
+//            CPU, o estado volta INTEIRO para os transforms. É o que faz a
+//            entrada seguinte (ou o solver da CPU) continuar de onde o backend
+//            parou, em vez de recomeçar do repouso.
+//
+// E QUANDO ressincronizar deixou de depender de alguém lembrar: `rigidStep`
+// compara `Scene.compVersion` com a última versão que viu. O editor sempre
+// chamou `rigidStep(scene, 0)` e nunca `rigidInvalidate()`, então depois do
+// primeiro frame o `pbMap` era um retrato congelado — um `removeAt` deslocava os
+// índices e o backend passava a escrever a posição de um corpo no vizinho.
 
 let pbBodies = 0;
-let pbMap: number[] = [];   // corpo k na GPU → índice do objeto na cena
+let pbMap: number[] = [];       // corpo k no backend → índice do objeto na cena
+/// corpo k → o OBJETO. O índice de `pbMap` morre no primeiro `removeAt`; a
+/// referência não, e é por ela que o estado volta para quem é dono dele.
+let pbObjs: GameObject[] = [];
+/// A última posição que ESTE arquivo escreveu (ou leu) em cada corpo. Se o
+/// transform não bate mais com ela, alguém de fora moveu o corpo — o gizmo do
+/// editor, um script — e o backend precisa saber, senão ele devolve o corpo ao
+/// lugar antigo no frame seguinte e o objeto "não deixa" ser arrastado.
+let pbLX: f64[] = [];
+let pbLY: f64[] = [];
+let pbLZ: f64[] = [];
+/// Resultados a IGNORAR para o corpo k. A leitura pipelined da GPU que já
+/// estava em voo na hora de um teleporte descreve o lugar antigo.
+let pbHold: number[] = [];
 let pbDirty = 1;            // a composição mudou: re-sincronizar antes do passo
+let pbVersao = 0 - 1;       // última `Scene.compVersion` vista
+let pbDono = 0;             // 0 = ninguém (CPU), 1 = GPU, 2 = Rust
+/// Passos fixos pedidos e ainda não submetidos à GPU. O `rbService` só submete
+/// quando a leitura anterior chegou; sem esta conta, cada chamada sem resultado
+/// era um passo de simulação PERDIDO e a velocidade do mundo dependia da
+/// latência da placa. Com teto, pelo mesmo motivo do `MAX_STEPS` do passo fixo.
+let pbDevidos = 0;
+const PB_MAX_DEVIDOS = 5;
 let pbFresh = 0;
 let pbFrames = 0;
 
-/// Marca que a composição da cena mudou (add/remove/reparent/estático).
-///
-/// NÃO leio `Scene.colDirty` para isso, embora ele responda a mesma pergunta:
-/// quem o lê também o LIMPA, e limpá-lo aqui roubaria do caminho CPU o sinal de
-/// que ele precisa recoletar. Duas leituras de um flag de uso único é como um
-/// deles passa a nunca disparar.
+/// Marca que a composição da cena mudou. Continua existindo para quem mexe em
+/// algo que a `Scene` não vê (um teste que troca um `Collider` à mão); para
+/// add/remove/reparent/escala o `compVersion` já avisa sozinho.
 export function rigidInvalidate(): void { pbDirty = 1; }
 
-/// Recolhe os corpos dinâmicos da cena e os entrega ao kernel.
-///
-/// `collideFlag` é o mesmo critério da `collectColliders` do caminho CPU (mesh
-/// presente e objeto RAIZ) — usar outro faria os dois backends simularem
-/// conjuntos diferentes, que é a maneira de a troca de backend parecer um bug
-/// de física.
-/// Quem é corpo dinâmico, em `pbMap`. Responde quantos.
-///
-/// Separado de `pbSync` quando o backend Rust entrou: os dois backends
-/// escolhem EXATAMENTE o mesmo conjunto de corpos, e essa escolha é a parte que
-/// não pode divergir. Duas cópias do critério é como dois backends passam a
-/// simular cenas diferentes — que é o modo de a troca de backend parecer um bug
-/// de física, e é o que o comentário abaixo já dizia sobre a `collectColliders`.
 /// Conta colisores de casca. Uma varredura O(n), feita só quando a composição
 /// muda — a mesma condição que já governa `pbCollect`.
 function pbContaCascas(sc: Scene): number {
@@ -401,130 +437,220 @@ function pbContaCascas(sc: Scene): number {
   return c;
 }
 
+/// Quem é corpo dinâmico, em `pbMap`/`pbObjs`. Responde quantos.
+///
+/// `collideFlag` é o mesmo critério da `collectColliders` do caminho CPU (mesh
+/// presente e objeto RAIZ), e os dois backends passam por AQUI: duas cópias do
+/// critério é como dois backends passam a simular cenas diferentes — que é o
+/// modo de a troca de backend parecer um bug de física.
 function pbCollect(sc: Scene): number {
   const objs: GameObject[] = sc.objects;
   const n = objs.length;
   pbMap.length = 0;
+  pbObjs.length = 0;
   let i = 0;
   while (i < n) {
     const o: GameObject = objs[i];
-    if (o.collideFlag !== 0 && o.active !== 0 && o.stationary === 0) pbMap.push(i);
+    if (o.collideFlag !== 0 && o.active !== 0 && o.stationary === 0) {
+      pbMap.push(i);
+      pbObjs.push(o);
+    }
     i = i + 1;
   }
-  return pbMap.length;
+  const m = pbMap.length;
+  while (pbLX.length < m) { pbLX.push(0.0); pbLY.push(0.0); pbLZ.push(0.0); pbHold.push(0); }
+  return m;
 }
 
-/// Entrega os corpos dinâmicos ao solver em Rust.
+/// Avisa os scripts de cada corpo que a posse mudou (ver o contrato acima).
+function pbAvisaPosse(on: number): void {
+  const m = pbObjs.length;
+  let k = 0;
+  while (k < m) {
+    const bs: Behavior[] = pbObjs[k].behaviors;
+    let j = 0;
+    while (j < bs.length) { bs[j].setExternalSim(on); j = j + 1; }
+    k = k + 1;
+  }
+}
+
+/// SAÍDA: devolve o estado do backend dono para os transforms e larga a posse.
+///
+/// A leitura da GPU aqui é SÍNCRONA (`rbReadState`), a única deste arquivo, e é
+/// aceitável pelo mesmo motivo que torna o resto pipelined: isto roda quando a
+/// composição muda, não por frame.
+///
+/// Um corpo que alguém moveu por fora desde a última escrita (`pbL*` não bate)
+/// fica onde o usuário pôs — a intenção dele vale mais que a do solver.
+function pbSoltar(): void {
+  if (pbDono === 0) return;
+  const m = pbObjs.length;
+  if (pbDono === 1 && m === rbCount()) rbReadState();
+  let k = 0;
+  while (k < m) {
+    const t: Transform = pbObjs[k].transform;
+    const intocado = (t.px === pbLX[k] && t.py === pbLY[k] && t.pz === pbLZ[k]) ? 1 : 0;
+    if (pbDono === 1 && m === rbCount()) {
+      if (intocado !== 0 && pbHold[k] === 0) { t.px = rbX(k); t.py = rbY(k); t.pz = rbZ(k); }
+      t.vx = rbVelX(k); t.vy = rbVelY(k); t.vz = rbVelZ(k);
+    } else if (pbDono === 2 && m === crCount()) {
+      if (intocado !== 0) { t.px = crX(k); t.py = crY(k); t.pz = crZ(k); }
+      t.vx = crVelX(k); t.vy = crVelY(k); t.vz = crVelZ(k);
+    }
+    if (intocado === 0) { t.vx = 0.0; t.vy = 0.0; t.vz = 0.0; }
+    // Quem decide o sono daqui em diante é o próximo dono; acordado é o estado
+    // que nunca está errado, só mais caro por dez passos.
+    t.asleep = 0; t.quiet = 0;
+    k = k + 1;
+  }
+  pbAvisaPosse(0);
+  rbCancel();
+  pbDono = 0;
+  pbBodies = 0;
+  pbDevidos = 0;
+  pbDirty = 1;
+}
+
+/// ENTRADA no solver em Rust.
 ///
 /// Os MESMOS argumentos que o `pbSync` passa ao kernel — `collider.ts` para a
 /// forma e a meia-extensão, massa 1 para todo mundo — porque a paridade entre
 /// os dois é o critério de aceite e ela começa aqui, não no solver.
 function pbSyncRust(sc: Scene): number {
-  const objs: GameObject[] = sc.objects;
-  const trs: Transform[] = sc.trs;
   const m = pbCollect(sc);
   if (m === 0) { pbBodies = 0; return 0; }
   if (m !== crCount()) crInit(m);
+  // UMA chamada de `rigidStep` = UM passo fixo, dividido entre os sub-passos. O
+  // solver integra o `dt` inteiro por sub-passo, então com o default cada
+  // chamada avançava 2/60 s e o mundo rodava no dobro da velocidade.
+  crSetDt(FIXED_DT / PB_SUBSTEPS);
   let k = 0;
   while (k < m) {
-    const t: Transform = trs[pbMap[k]];
-    const ob: GameObject = objs[pbMap[k]];
-    crSetBody(k, t.wx, t.wy, t.wz,
-              halfXOf(ob, t), halfYOf(ob, t), halfZOf(ob, t), 1.0);
+    const ob: GameObject = pbObjs[k];
+    const t: Transform = ob.transform;
+    // `px/py/pz` e não `wx/wy/wz`: todo corpo aqui é RAIZ (é o que `collideFlag`
+    // garante), então local e mundo coincidem — e o mundo de um objeto criado
+    // NESTE frame ainda é (0,0,0) até o próximo `computeWorld`.
+    crSetBody(k, t.px, t.py, t.pz,
+              halfXOf(ob, t), halfYOf(ob, t), halfZOf(ob, t), t.mass);
     crSetShape(k, shapeOf(ob));
+    crSetVel(k, t.vx, t.vy, t.vz);
+    crSetMaterial(k, ob, t);
+    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz; pbHold[k] = 0;
     k = k + 1;
   }
   crSyncStatics(sc);
   pbBodies = m;
+  pbDono = 2;
+  pbAvisaPosse(1);
   return m;
 }
 
-/// Escreve as posições do solver Rust de volta nos transforms.
-///
-/// Apart de `pbApply` só porque a fonte difere (`crX` contra `rbX`); a regra —
-/// escrever em `px/py/pz` LOCAL e não em `wx/wy/wz` — é a mesma e está
-/// explicada lá.
-function pbApplyRust(sc: Scene): void {
-  const objs: GameObject[] = sc.objects;
-  const m = pbMap.length;
-  let k = 0;
-  while (k < m) {
-    const t: Transform = objs[pbMap[k]].transform;
-    t.px = crX(k);
-    t.py = crY(k);
-    t.pz = crZ(k);
-    k = k + 1;
-  }
-}
-
+/// ENTRADA no kernel da GPU.
 function pbSync(sc: Scene): number {
-  const objs: GameObject[] = sc.objects;
-  const trs: Transform[] = sc.trs;
   const m = pbCollect(sc);
   if (m === 0) { pbBodies = 0; return 0; }
 
-  // `rbInit` aloca buffers novos e NÃO libera os antigos, então só é chamado
-  // quando a contagem muda de verdade. Um sync por mudança de posição reusa os
-  // buffers existentes.
+  // `rbInit` troca os buffers, então só é chamado quando a contagem muda de
+  // verdade; os pipelines são compilados uma vez só (ver lá).
   if (m !== rbCount() || rbCount() === 0) {
     if (rbInit(m) === 0) { pbGpuMorta = 1; pbMotivo = "rbInit falhou"; return 0; }
   }
+  // A leitura em voo descreve a composição ANTERIOR, mesmo com a contagem igual
+  // (saiu um, entrou outro): aplicada ao mapa novo, é um corpo no lugar de outro.
+  rbCancel();
+  rbSetDt(FIXED_DT / PB_SUBSTEPS);   // ver `pbSyncRust`
   let k = 0;
   while (k < m) {
-    const t: Transform = trs[pbMap[k]];
-    // MASSA 1 para todo corpo dinâmico, e isto é paridade e não preguiça: o
-    // solver da CPU divide a correção de cada par ao meio, o que é exatamente
-    // massas iguais. Dar massa por volume aqui faria a GPU simular uma física
-    // diferente da CPU, e a troca de backend mudaria o resultado.
-    // A meia-extensão vem de `collider.ts`, que é a MESMA fonte que o solver da
-    // CPU lê. Era `t.sx * 0.5` aqui e no `scene.ts`, oito cópias de uma regra —
-    // e duas cópias de uma regra é como dois backends divergem sem que ninguém
-    // toque na física.
-    const ob: GameObject = objs[pbMap[k]];
-    rbSetBody(k, t.wx, t.wy, t.wz,
-              halfXOf(ob, t), halfYOf(ob, t), halfZOf(ob, t), 1.0);
-    // A FORMA REAL. Antes todo corpo ia como caixa e uma esfera colidia como
-    // cubo na GPU — divergência que só era teórica enquanto a CPU era o padrão.
+    const ob: GameObject = pbObjs[k];
+    const t: Transform = ob.transform;
+    // A MASSA do `Transform`, que é o que o `PhysicsMaterial` publica
+    // (densidade × volume) e o que o inspector edita. Era 1 fixo, "por
+    // paridade": o solver da CPU dividia a correção de cada par ao meio, o que
+    // é massas iguais. Mas a CPU já usava a massa real na resposta de IMPULSO,
+    // então a paridade era só da separação — e o preço era um campo do
+    // inspector que não fazia nada nos dois backends rápidos. A separação da
+    // CPU passou a ser proporcional ao inverso da massa (ver `solvePair`), que
+    // é o que estes dois sempre fizeram, e os três voltam a concordar.
+    // A meia-extensão e a FORMA vêm de `collider.ts`, a MESMA fonte que o solver
+    // da CPU lê — duas cópias de uma regra é como dois backends divergem sem que
+    // ninguém toque na física.
+    rbSetBody(k, t.px, t.py, t.pz,
+              halfXOf(ob, t), halfYOf(ob, t), halfZOf(ob, t), t.mass);
     rbSetShape(k, shapeOf(ob));
+    rbSetVel(k, t.vx, t.vy, t.vz);
+    rbSetMaterial(k, ob, t);
+    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz; pbHold[k] = 0;
     k = k + 1;
   }
   rbUpload();
   rbSyncStatics(sc);
   pbBodies = m;
+  pbDono = 1;
+  pbAvisaPosse(1);
   return m;
 }
 
-/// UM frame de física na GPU. Devolve 1 se a GPU assumiu o frame (e o chamador
-/// deve PULAR o caminho CPU), 0 se não — sem GPU, GPU morta, modo CPU, ou cena
-/// sem corpos dinâmicos.
+/// Leva ao backend dono os corpos que alguém moveu POR FORA desde a última
+/// escrita. O(corpos) de comparações por passo, sem alocar; o caso comum
+/// (ninguém mexeu) não escreve nada.
+function pbEmpurraTeleportes(): void {
+  const m = pbObjs.length;
+  let k = 0;
+  while (k < m) {
+    const t: Transform = pbObjs[k].transform;
+    if (t.px !== pbLX[k] || t.py !== pbLY[k] || t.pz !== pbLZ[k]) {
+      if (pbDono === 1) { rbSetPos(k, t.px, t.py, t.pz); pbHold[k] = 1; }
+      else crSetPos(k, t.px, t.py, t.pz);
+      t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+      pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
+    }
+    k = k + 1;
+  }
+}
+
+/// Escreve as posições do solver Rust de volta nos transforms — e a velocidade
+/// junto, que aqui é de graça (os espelhos SÃO o estado): quem lê `t.vx` num
+/// script vê a verdade, e a saída para a CPU não precisa de leitura nenhuma.
 ///
-/// ── `rbService` (pipelined), e por que ele NÃO era usado antes ─────────────
-///
-/// Este arquivo usou `rbStep` (síncrono) por um tempo, com uma justificativa que
-/// era correta quando foi escrita e ENVELHECEU: `compat/gpu.ts` declarava
-/// `read_begin(buf)` com um parâmetro só, o tamanho era descartado, o nativo
-/// recebia `size=0` e devolvia ticket `0` — e com ticket 0 o `rbService` reentra
-/// para sempre no ramo "primeiro frame" e nunca entrega estado novo.
-///
-/// O shim foi corrigido (`read_begin(buf, size)`), então o caminho certo está
-/// livre. A diferença decide o frame:
-///
-///     rbStep    -> rbPull -> gpu.read      ESPERA a GPU terminar
-///     rbService -> readBegin/readPoll      pergunta e segue
-///
-/// O editor desenha com a MESMA GPU, então esperar a compute serializa compute
-/// e render — o frame passa a custar um round-trip inteiro, e o ganho medido no
-/// benchmark (que sempre usou `rbService`) não chega à tela.
-///
-/// O preço é 1 frame de latência: sem estado novo, o desenho repete o anterior.
-/// `dirtyHint` é o `colDirty` da própria `Scene`: 1 = a composição mudou. Ele
-/// entra por PARÂMETRO para que a costura na `Scene` seja UMA linha em vez de
-/// uma chamada de `rigidInvalidate()` em cada um dos quatro pontos que mexem na
-/// cena (add, clear, moveSubtree, removeAt) — quatro lugares para lembrar é o
-/// desenho em que alguém esquece o quinto. E é só HINT: quem lê `colDirty` de
-/// verdade continua sendo o caminho CPU, que também o LIMPA; aqui ele nunca é
-/// zerado, porque uma queda para a CPU depois de um frame de GPU precisa
-/// encontrar o flag ainda de pé.
+/// Escreve em `px/py/pz` (LOCAL) e não em `wx/wy/wz`: todo corpo aqui é RAIZ,
+/// então local e mundo coincidem, e é o local que o `computeWorld` do próximo
+/// frame lê. Escrever no mundo seria escrever no destino de um cálculo que roda
+/// logo depois — perdido no mesmo frame.
+function pbApplyRust(): void {
+  const m = pbObjs.length;
+  let k = 0;
+  while (k < m) {
+    const t: Transform = pbObjs[k].transform;
+    const x = crX(k); const y = crY(k); const z = crZ(k);
+    t.px = x; t.py = y; t.pz = z;
+    t.vx = crVelX(k); t.vy = crVelY(k); t.vz = crVelZ(k);
+    pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+    k = k + 1;
+  }
+}
+
+/// Escreve as posições da GPU de volta nos transforms (ver `pbApplyRust` para o
+/// porquê do LOCAL). A velocidade NÃO vem: o `rbService` só lê posições, e uma
+/// segunda leitura por frame dobraria o tráfego para um número que só importa
+/// na saída — onde `pbSoltar` o busca.
+function pbApply(): void {
+  const m = pbObjs.length;
+  let k = 0;
+  while (k < m) {
+    if (pbHold[k] !== 0) {
+      // resultado de ANTES do teleporte deste corpo: fora
+      pbHold[k] = pbHold[k] - 1;
+    } else {
+      const t: Transform = pbObjs[k].transform;
+      const x = rbX(k); const y = rbY(k); const z = rbZ(k);
+      t.px = x; t.py = y; t.pz = z;
+      pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+    }
+    k = k + 1;
+  }
+}
+
 /// Quantos objetos da cena usam colisor de CASCA. Recontado quando a composição
 /// muda, junto com o resto — é a mesma varredura.
 let pbCascas = 0;
@@ -545,14 +671,11 @@ export function rigidNeedsFallback(): number { return pbCascas > 0 ? 1 : 0; }
 /// Quantas cascas a última varredura viu. Diagnóstico.
 export function rigidHullCount(): number { return pbCascas; }
 
-export function rigidStep(sc: Scene, dirtyHint: number): number {
-  if (dirtyHint !== 0) pbDirty = 1;
-
-  // A CAPACIDADE É PERGUNTADA ANTES, e é o que faz a casca aparecer na tela em
-  // vez de ser engolida. Nenhum dos dois backends rápidos resolve casca; quando
-  // a cena tem uma, o passo devolve 0 e `main.ts` chama `resolveCollisions`, que
-  // resolve. Mais lento e CORRETO, contra rápido e errado.
-  if (pbDirty !== 0) pbCascas = pbContaCascas(sc);
+/// Qual backend DEVE rodar este passo: 0 = CPU, 1 = GPU, 2 = Rust. Separado do
+/// passo porque a posse (`pbDono`) tem de ser devolvida ANTES de qualquer
+/// retorno para a CPU, e a decisão espalhada em cinco `return 0` era cinco
+/// lugares para esquecer disso.
+function pbAlvo(): number {
   if (pbCascas > 0) {
     if (pbMotivo !== "cascas na cena") {
       pbMotivo = "cascas na cena";
@@ -562,21 +685,8 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
     }
     return 0;
   }
-  // RUST: síncrono e sem calibração. Não há round-trip para esconder nem placa
-  // que possa faltar, então este ramo não tem nem o pipelining do `rbService`
-  // nem o portão de `pbGpuMorta` — os dois existem por causa da GPU.
-  if (pbModo === 2) {
-    if (pbDirty !== 0) {
-      if (pbSyncRust(sc) === 0) return 0;
-      pbDirty = 0;
-    }
-    if (pbBodies === 0) return 0;
-    pbFrames = pbFrames + 1;
-    if (crStep(PB_SUBSTEPS) === 0) return 0;
-    pbFresh = pbFresh + 1;
-    pbApplyRust(sc);
-    return 1;
-  }
+  // RUST: sem calibração e sem portão — não há placa que possa faltar.
+  if (pbModo === 2) return 2;
   if (pbModo !== 1) return 0;
   rigidCalibrate();
   if (pbTemGpu === 0) {
@@ -584,55 +694,69 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
     return 0;
   }
   if (pbGpuMorta !== 0) return 0;
+  return 1;
+}
+
+/// UM PASSO FIXO de física num backend externo. Devolve 1 se o backend assumiu
+/// o passo (e o chamador deve PULAR o caminho CPU), 0 se não — sem GPU, GPU
+/// morta, modo CPU, cena com casca, ou cena sem corpos dinâmicos.
+///
+/// `dirtyHint` força a ressincronização; 0 é o normal, porque a mudança de
+/// composição chega sozinha por `Scene.compVersion` (ver o contrato de posse).
+///
+/// ── `rbService` (pipelined), e o que ele custa ─────────────────────────────
+///
+///     rbStep    -> rbPull -> gpu.read      ESPERA a GPU terminar
+///     rbService -> readBegin/readPoll      pergunta e segue
+///
+/// O editor desenha com a MESMA GPU, então esperar a compute serializa compute
+/// e render — o frame passa a custar um round-trip inteiro, e o ganho medido no
+/// benchmark (que sempre usou `rbService`) não chega à tela. O preço é 1 frame
+/// de latência: sem estado novo, o desenho repete o anterior. Os passos pedidos
+/// nesse meio-tempo NÃO se perdem — ver `pbDevidos`.
+export function rigidStep(sc: Scene, dirtyHint: number): number {
+  if (dirtyHint !== 0) pbDirty = 1;
+  if (sc.compVersion !== pbVersao) { pbVersao = sc.compVersion; pbDirty = 1; }
+
+  // A CAPACIDADE É PERGUNTADA ANTES, e é o que faz a casca aparecer na tela em
+  // vez de ser engolida: com casca na cena o alvo é a CPU. Mais lento e
+  // CORRETO, contra rápido e errado.
+  if (pbDirty !== 0) pbCascas = pbContaCascas(sc);
+  const alvo = pbAlvo();
+
+  // SAÍDA antes de tudo: trocar de dono, cair para a CPU ou ressincronizar
+  // começa por devolver o estado a quem ele pertence.
+  if (pbDono !== 0 && (pbDono !== alvo || pbDirty !== 0)) pbSoltar();
+  if (alvo === 0) return 0;
 
   if (pbDirty !== 0) {
-    if (pbSync(sc) === 0) return 0;
+    const m = alvo === 2 ? pbSyncRust(sc) : pbSync(sc);
+    if (m === 0) return 0;
     pbDirty = 0;
   }
   if (pbBodies === 0) return 0;
-
+  pbEmpurraTeleportes();
   pbFrames = pbFrames + 1;
-  // `rbService`, NÃO `rbStep`. A diferença decide o frame:
-  //
-  //   rbStep    -> rbPull -> gpu.read      ESPERA a GPU terminar
-  //   rbService -> readBegin/readPoll      pergunta e segue
-  //
-  // O editor desenha com a MESMA GPU, então esperar a compute serializa
-  // compute e render: o frame passa a custar um round-trip inteiro, e o ganho
-  // de 34× medido no benchmark (que usa `rbService`) não chega à tela. É o
-  // padrão que o fluido já usava, e que o próprio `gpurigid` chama de "física
-  // como serviço".
-  //
-  // O preço é 1 frame de latência: quando o resultado ainda não chegou, o
-  // desenho usa o estado do frame anterior.
-  const novo = rbService(PB_SUBSTEPS);
+
+  if (alvo === 2) {
+    // Síncrono: a chamada volta com os espelhos já escritos.
+    if (crStep(PB_SUBSTEPS) === 0) { pbSoltar(); return 0; }
+    pbFresh = pbFresh + 1;
+    pbApplyRust();
+    return 1;
+  }
+
+  if (pbDevidos < PB_MAX_DEVIDOS) pbDevidos = pbDevidos + 1;
+  const novo = rbService(PB_SUBSTEPS * pbDevidos);
+  if (rbKicked() !== 0) pbDevidos = 0;
   if (novo !== 0) {
     pbFresh = pbFresh + 1;
-    pbApply(sc);
+    pbApply();
   }
   // 1 SEMPRE que a GPU está no comando, mesmo sem estado novo. Devolver 0 faria
   // a CPU rodar a varredura de pares por cima — duas físicas sobre o mesmo
   // estado, que é pior que um frame repetido.
   return 1;
-}
-
-/// Escreve as posições da GPU de volta nos transforms.
-///
-/// Escreve em `px/py/pz` (LOCAL) e não em `wx/wy/wz`: todo corpo aqui é RAIZ
-/// (é o que `collideFlag` garante), então local e mundo coincidem, e é o local
-/// que o `computeWorld` do próximo frame lê. Escrever no mundo seria escrever
-/// no destino de um cálculo que roda logo depois — perdido no mesmo frame.
-function pbApply(sc: Scene): void {
-  const objs: GameObject[] = sc.objects;
-  const m = pbMap.length;
-  let k = 0;
-  while (k < m) {
-    const t: Transform = objs[pbMap[k]].transform;
-    t.px = rbX(k);
-    t.py = rbY(k);
-    t.pz = rbZ(k);
-    k = k + 1;
-  }
 }
 
 /// Imprime a calibração e a decisão (debug/telemetria).

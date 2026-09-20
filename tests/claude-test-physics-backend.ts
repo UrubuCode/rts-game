@@ -14,6 +14,7 @@ import io from "@compat/io.ts";
 
 import { Scene } from "@engine/core/scene";
 import { GameObject } from "@engine/core/gameobject";
+import { Rigidbody } from "@scripts/rigidbody";
 import {
   rigidCalibrate, rigidReport, rigidBackendFor, rigidBand,
   rigidSetMode, rigidMode, rigidBackendName, rigidStep,
@@ -45,6 +46,15 @@ while (b < 24) {
   g.setMesh(1, 200, 200, 200);
   g.transform.setPosition((b % 4) * 1.4 - 2.1, 8.0 + ((b / 4) | 0) * 1.4, 0.0);
   g.transform.sx = 1.3; g.transform.sy = 1.3; g.transform.sz = 1.3;
+  // O INTEGRADOR, que este teste não tinha e precisava ter.
+  //
+  // Ele caía sem um: o kernel aplicava gravidade a todo corpo que recebia,
+  // enquanto no caminho da CPU um objeto sem `Rigidbody` fica parado porque
+  // ninguém o move. A mesma cena caía ou não conforme o backend, e este teste
+  // pinava o lado errado dessa divergência. Agora a gravidade é do CORPO (ver
+  // `engine/rigid/materials.ts`) e quem não tem integrador não cai em backend
+  // nenhum — o que o bloco no fim deste arquivo passa a pinar.
+  g.addBehavior(new Rigidbody(0.0 - 9.8, 0.0));
   sc.add(g);
   b = b + 1;
 }
@@ -106,7 +116,27 @@ rigidSetMode(0);
 check("voltar para CPU: nome = 'cpu'", rigidBackendName() === "cpu" ? 1 : 0);
 check("voltar para CPU: o passo devolve 0", rigidStep(sc, 0) === 0 ? 1 : 0);
 
-// ── 4) a faixa é coerente ──────────────────────────────────────────────────
+// ── 4) um corpo SEM integrador não cai em backend nenhum ───────────────────
+//
+// A regra que os três solvers passaram a compartilhar. Vale a pena um teste
+// próprio porque a violação era invisível: só aparecia ao TROCAR de backend, que
+// é a coisa que este arquivo existe para vigiar.
+{
+  const parado = new Scene("SemIntegrador");
+  const g = new GameObject("Solto");
+  g.setMesh(1, 200, 200, 200);
+  g.transform.setPosition(0.0, 20.0, 0.0);
+  parado.add(g);
+  parado.computeWorld();
+  rigidSetMode(2);   // o Rust: síncrono, sem depender de placa
+  let f = 0;
+  while (f < 120) { rigidStep(parado, 0); f = f + 1; }
+  io.print("  sem Rigidbody: y = " + parado.objects[0].transform.py);
+  check("sem integrador, o corpo NAO cai", parado.objects[0].transform.py === 20.0 ? 1 : 0);
+  rigidSetMode(0);
+}
+
+// ── 5) a faixa é coerente ──────────────────────────────────────────────────
 const faixa = rigidBand();
 check("faixa coerente (lo <= hi)", faixa[0] <= faixa[1] ? 1 : 0);
 

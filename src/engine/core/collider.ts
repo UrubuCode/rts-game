@@ -241,6 +241,23 @@ export function halfZOf(o: GameObject, t: Transform): f64 {
 // par; estas são o que ele guarda. `halfXOf` e companhia continuam existindo
 // para quem lê a forma fora do laço quente — `physics_backend.pbSync` é o caso,
 // e lá o custo é por corpo e por sincronização, não por par.
+/// O CENTRO do colisor, local e sem escala. Sem component é zero — o colisor
+/// legado é centrado no pivô, e era a única opção que existia.
+export function centerLocalX(o: GameObject): f64 {
+  const c = colDe(o); return c !== null ? c.cCenterX() : 0.0;
+}
+export function centerLocalY(o: GameObject): f64 {
+  const c = colDe(o); return c !== null ? c.cCenterY() : 0.0;
+}
+export function centerLocalZ(o: GameObject): f64 {
+  const c = colDe(o); return c !== null ? c.cCenterZ() : 0.0;
+}
+
+/// 1 = detecta contato e não empurra ninguém (o `isTrigger` da Unity).
+export function triggerOf(o: GameObject): number {
+  const c = colDe(o); return c !== null ? c.cTrigger() : 0;
+}
+
 export function halfLocalX(o: GameObject): f64 {
   const c = colDe(o); return c !== null ? c.cHalfX() : 0.5;
 }

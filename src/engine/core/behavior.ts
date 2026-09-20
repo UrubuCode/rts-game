@@ -42,6 +42,35 @@ export class Behavior {
   /// Chamado todo frame com o delta em SEGUNDOS.
   update(dt: f64): void {}
 
+  /// Um backend EXTERNO (GPU ou o solver em Rust) assumiu (`1`) ou devolveu
+  /// (`0`) a simulação do corpo dono. Quem INTEGRA movimento sobrescreve e para
+  /// de integrar enquanto estiver ligado: o backend já aplica gravidade e move
+  /// o corpo, e integrar aqui também seriam duas físicas sobre o mesmo estado —
+  /// a velocidade da CPU cresce sem contato nenhum para freá-la, e o corpo
+  /// treme a cada frame em que o resultado do backend não chegou. No-op no
+  /// default. Chamado só na ressincronização, nunca por frame.
+  setExternalSim(on: number): void {}
+
+  // ── SURFACE DE INTEGRADOR (lida pelos backends de física, sem cast) ────────
+  //
+  // Quem MOVE um corpo por gravidade responde `1` em `bodyIntegrates` e os três
+  // números abaixo; só o `Rigidbody` faz isso hoje. Existe porque os backends
+  // externos (GPU, Rust) precisam desses valores — eles integram no lugar do
+  // script — e perguntar por eles é o que faz os três solvers concordarem.
+  //
+  // O DEFAULT `0` é a metade que importa: um corpo dinâmico SEM integrador não
+  // cai no caminho da CPU, e passou a não cair nos outros dois. Antes o kernel
+  // aplicava gravidade a todo corpo que recebia, então a mesma cena caía ou não
+  // conforme o backend.
+  bodyIntegrates(): number { return 0; }
+  /// Aceleração da gravidade deste corpo, como o script a guarda (negativa =
+  /// para baixo). Quem lê normaliza o sinal.
+  bodyGravity(): f64 { return 0.0; }
+  /// Fração da velocidade perdida por segundo (0 = nenhuma).
+  bodyDrag(): f64 { return 0.0; }
+  /// Altura do chão implícito, ou um valor muito negativo para "desligado".
+  bodyFloor(): f64 { return 0.0 - 1.0e30; }
+
   /// Devolve os dados do script como objeto simples (pra JSON.stringify da cena).
   /// `null` = não serializa. Subclasses sobrescrevem (o componente se descreve
   /// sozinho); o objeto é o que vai pro array `scripts` da cena.

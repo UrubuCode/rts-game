@@ -20,6 +20,9 @@ export class Rigidbody extends Behavior {
   mass: f64;     // 0 = massa infinita (não é movido por impulso)
   drag: f64;     // arrasto do ar por segundo (0 = nenhum)
   floorY: f64;   // chão implícito; -1e9 desliga (a cena tem chão de verdade)
+  /// 1 = um backend externo integra este corpo (ver `Behavior.setExternalSim`).
+  /// Estado de execução, não de cena: não é serializado nem vai ao inspector.
+  externo: number;
 
   constructor(g: f64, bounce: f64) {
     super();
@@ -28,7 +31,19 @@ export class Rigidbody extends Behavior {
     this.mass = 1.0;
     this.drag = 0.0;
     this.floorY = 0.0;
+    this.externo = 0;
   }
+
+  setExternalSim(on: number): void { this.externo = on; }
+
+  // O que este script faria por frame, respondido para quem o faz no lugar dele
+  // (ver `Behavior.bodyIntegrates`). São os MESMOS campos que o `update` usa —
+  // uma segunda cópia deles aqui seria a forma de o corpo cair diferente
+  // conforme quem o integra.
+  bodyIntegrates(): number { return 1; }
+  bodyGravity(): f64 { return this.g; }
+  bodyDrag(): f64 { return this.drag; }
+  bodyFloor(): f64 { return this.floorY; }
 
   mount(): void {
     // publica o material físico no Transform, que é o que a colisão lê
@@ -37,6 +52,8 @@ export class Rigidbody extends Behavior {
   }
 
   update(dt: f64): void {
+    // o backend externo é quem integra (ver `externo`); aqui seria a SEGUNDA vez
+    if (this.externo !== 0) return;
     const t = this.host;
     // corpo DORMINDO não integra — é o contrato do sleeping da colisão; ela o
     // acorda quando um contato de verdade chegar

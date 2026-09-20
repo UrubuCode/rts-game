@@ -42,16 +42,20 @@ import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf } from "../core/collider";
+import { MAT_AT, MAT_MAX_STATICS, matBytesFor, matFillDefaults,
+         matWriteBody, matWriteStatic } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
-export const CR_MAX_STATICS = 256;
+export const CR_MAX_STATICS = MAT_MAX_STATICS;
 export const CR_DT: f64 = 1.0 / 60.0;
 
 let crN = 0;
 let crPos: Float32Array = new Float32Array(4);
 let crVel: Float32Array = new Float32Array(4);
 let crExt: Float32Array = new Float32Array(4);
-let crWorld: Float32Array = new Float32Array(4 + CR_MAX_STATICS * 8);
+/// `world` = cabeçalho + estáticos + a REGIÃO DE MATERIAIS (ver `materials.ts`).
+/// Cresce com a contagem de corpos, em `crInit`.
+let crWorld: Float32Array = new Float32Array(MAT_AT + matBytesFor(0));
 /// Meia-extensão MÁXIMA vista: é ela que dimensiona a célula do grid.
 let crMaxHalf: f64 = 0.0;
 let crStatics = 0;
@@ -79,12 +83,23 @@ export function crInit(n: number): number {
   crPos = new Float32Array(n * 4);
   crVel = new Float32Array(n * 4);
   crExt = new Float32Array(n * 4);
+  // A região de materiais tem um registro POR CORPO, e o lado Rust só a lê
+  // inteira: um `world` curto demais responde os defaults legados para todo
+  // mundo, em vez de dar material a uns e não a outros.
+  crWorld = new Float32Array(MAT_AT + matBytesFor(n));
+  matFillDefaults(crWorld, MAT_AT, n);
   crMaxHalf = 0.0;
   crStatics = 0;
   return 1;
 }
 
-/// Define o estado de um corpo. `mass<=0` = 1, como no `rbSetBody`.
+/// Define o estado de um corpo. `mass<=0` = INFINITA (inverso 0): o corpo
+/// colide e empurra, e nada o empurra de volta. É o que o `Transform.mass` do
+/// jogo já significava e o que o layout do buffer sempre disse ("0 is
+/// immovable"); aqui `mass<=0` virava inverso 1, então um corpo declarado
+/// imóvel era o mais leve da cena. Nenhum chamador passava 0 — a suíte e os
+/// benches passam 1, 4 e 32 — então o que muda é o significado de um valor que
+/// ninguém usava, e não a física de quem já usava.
 export function crSetBody(i: number, x: f64, y: f64, z: f64,
                           hx: f64, hy: f64, hz: f64, mass: f64): void {
   crPos[i * 4] = x;
@@ -100,7 +115,7 @@ export function crSetBody(i: number, x: f64, y: f64, z: f64,
   crExt[i * 4] = hx;
   crExt[i * 4 + 1] = hy;
   crExt[i * 4 + 2] = hz;
-  crExt[i * 4 + 3] = mass > 0.0 ? 1.0 / mass : 1.0;
+  crExt[i * 4 + 3] = mass > 0.0 ? 1.0 / mass : 0.0;
   if (hx > crMaxHalf) crMaxHalf = hx;
   if (hy > crMaxHalf) crMaxHalf = hy;
   if (hz > crMaxHalf) crMaxHalf = hz;
@@ -112,6 +127,12 @@ export function crSetShape(i: number, shape: number): void {
   crVel[i * 4 + 3] = shape === 0 ? 0.0 : 1.0;
 }
 
+/// O MATERIAL do corpo `i`: gravidade, quique, arrasto, atrito e chão. Sai do
+/// integrador e do `Transform` — ver `materials.ts`, que é onde a regra mora.
+export function crSetMaterial(i: number, o: GameObject, t: Transform): void {
+  matWriteBody(crWorld, MAT_AT, i, o, t);
+}
+
 /// Escreve velocidade e ACORDA o corpo, como o `rbSetVel`.
 export function crSetVel(i: number, vx: f64, vy: f64, vz: f64): void {
   crVel[i * 4] = vx;
@@ -119,6 +140,23 @@ export function crSetVel(i: number, vx: f64, vy: f64, vz: f64): void {
   crVel[i * 4 + 2] = vz;
   crPos[i * 4 + 3] = 0.0;
 }
+
+/// Reposiciona UM corpo (teleporte: gizmo do editor, script): escreve o centro,
+/// ZERA a velocidade e acorda. A velocidade vai a zero porque quem arrasta um
+/// corpo não quer soltá-lo com a queda acumulada enquanto ele era segurado.
+export function crSetPos(i: number, x: f64, y: f64, z: f64): void {
+  crPos[i * 4] = x;
+  crPos[i * 4 + 1] = y;
+  crPos[i * 4 + 2] = z;
+  crSetVel(i, 0.0, 0.0, 0.0);
+}
+
+/// O `dt` de CADA sub-passo. O solver integra o `dt` inteiro por sub-passo —
+/// `crStep(2)` com o default avança 2/60 s — então quem quer que uma chamada
+/// valha UM passo fixo escreve aqui `passo / subPassos`. O default fica em
+/// `CR_DT` porque os testes de paridade foram medidos com ele.
+let crDt: f64 = CR_DT;
+export function crSetDt(dt: f64): void { crDt = dt > 0.0 ? dt : CR_DT; }
 
 /// Escreve os params no `world`.
 ///
@@ -129,7 +167,7 @@ export function crSetVel(i: number, vx: f64, vy: f64, vz: f64): void {
 /// este campo e não deriva um próprio, justamente para que não existam duas
 /// respostas para o tamanho da célula neste projeto.
 function crWriteWorld(substeps: number): void {
-  crWorld[0] = CR_DT;
+  crWorld[0] = crDt;
   crWorld[1] = crStatics * 1.0;
   crWorld[2] = crMaxHalf > 0.0 ? crMaxHalf * 2.0 : 1.0;
   crWorld[3] = substeps * 1.0;
@@ -162,17 +200,29 @@ export function crSyncStatics(sc: Scene): void {
   let i = 0;
   while (i < n && m < CR_MAX_STATICS) {
     const o: GameObject = objs[i];
-    if (o.active !== 0 && o.stationary !== 0 && shapeOf(o) === 1) {
+    // `collideFlag` (mesh + raiz): o mesmo critério da `collectColliders` da CPU.
+    //
+    // A FORMA não filtra mais: só caixa entrava, e um chão ou uma pedra
+    // marcados como esfera simplesmente não existiam para este backend — tudo
+    // os atravessava, sem nada dizer por quê. Casca (2) continua fora, e essa
+    // exclusão é declarada: `rigidNeedsFallback` manda a cena inteira para a
+    // CPU antes de chegar aqui.
+    if (o.collideFlag !== 0 && o.active !== 0 && o.stationary !== 0 && shapeOf(o) < 2) {
       const t: Transform = trs[i];
       const base = 4 + m * 8;
       crWorld[base] = t.wx;
       crWorld[base + 1] = t.wy;
       crWorld[base + 2] = t.wz;
-      crWorld[base + 3] = 0.0;
+      // A REDONDEZA do estático, no `w` do centro: 1 = esfera de raio
+      // `min(meia-extensão)`, 0 = caixa. Invertido em relação à forma de um
+      // CORPO de propósito — todo escritor anterior a este campo deixava 0 ali
+      // e queria dizer caixa, então 0 tem de continuar sendo caixa.
+      crWorld[base + 3] = shapeOf(o) === 0 ? 1.0 : 0.0;
       crWorld[base + 4] = halfXOf(o, t);
       crWorld[base + 5] = halfYOf(o, t);
       crWorld[base + 6] = halfZOf(o, t);
       crWorld[base + 7] = 0.0;
+      matWriteStatic(crWorld, MAT_AT, m, t);
       m = m + 1;
     }
     i = i + 1;

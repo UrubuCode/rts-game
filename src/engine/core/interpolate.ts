@@ -40,6 +40,7 @@ let prevX: f64[] = [];
 let prevY: f64[] = [];
 let prevZ: f64[] = [];
 let prevN = 0;
+let prevVersao = 0 - 1;   // `Scene.compVersion` na hora do instantâneo
 let temSnapshot = 0;
 
 /// Guarda o estado ATUAL como "anterior". Chame DEPOIS de `computeWorld()` e
@@ -56,7 +57,20 @@ export function snapshotWorld(sc: Scene): void {
     i = i + 1;
   }
   prevN = n;
+  prevVersao = sc.compVersion;
   temSnapshot = 1;
+}
+
+/// Descarta o instantâneo se a COMPOSIÇÃO da cena mudou desde que ele foi
+/// tirado. Chame uma vez por frame, antes de desenhar.
+///
+/// O instantâneo é indexado como `scene.objects`, e um `removeAt` desloca todo
+/// mundo que vinha depois: sem isto, por um frame cada objeto interpolava a
+/// partir da posição do VIZINHO — um risco na tela a cada unidade destruída.
+/// Cena recarregada (undo, stop, load) cai no mesmo caso. A checagem mora aqui
+/// e não dentro de `renderX` porque aquele roda três vezes por objeto visível.
+export function interpolateSync(sc: Scene): void {
+  if (temSnapshot !== 0 && sc.compVersion !== prevVersao) interpolateReset();
 }
 
 /// A posição X de render do objeto `i`, misturada por `alpha` (0..1).

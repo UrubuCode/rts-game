@@ -4,10 +4,18 @@
 import { GameObject, COL_BOX } from "./gameobject";
 import { Transform } from "./transform";
 import { Behavior, KIND_CAMERA } from "./behavior";
-import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL } from "./collider";
+import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL,
+         centerLocalX, centerLocalY, centerLocalZ, triggerOf } from "./collider";
 import { Hull, Contact, hullContactLocal } from "./hullpack";
 import { hullAt } from "./hullreg";
 import math from "@compat/math.ts";
+
+/// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
+/// MÓDULO e não um contador por cena: quem compara versões (o backend de
+/// rígidos, a interpolação) guarda só o número, e duas cenas diferentes com
+/// cinco `add` cada teriam a mesma versão 5 — trocar de cena pareceria "nada
+/// mudou". Com a sequência global, um número identifica a cena E o momento.
+let sceneVersionSeq = 0;
 
 export class Scene {
   name: string;
@@ -61,6 +69,12 @@ export class Scene {
   /// é reparenteado ou troca de mesh. Marcar sujo custa nada; revarrer custa
   /// ~1 ms com 500 objetos.
   colDirty: number;
+  /// VERSÃO da composição: muda sempre que `colDirty` é levantado, e NUNCA é
+  /// limpa. `colDirty` é um flag de uso único — quem o lê também o zera, então
+  /// só serve a UM consumidor (o caminho CPU). Os outros (o backend GPU/Rust,
+  /// o instantâneo da interpolação) guardam a última versão que viram e
+  /// comparam: cada um percebe a mudança sem roubar o sinal do vizinho.
+  compVersion: number;
   colMaxR: f64;      // maior raio entre os colisores (cacheado com cIdx)
   colMovers: number; // quantos colisores podem se mover (cacheado com cIdx)
   /// Array PARALELO a `objects` com os transforms. Chegar ao transform por
@@ -85,17 +99,38 @@ export class Scene {
     this.done = [];
     this.trs = [];
     this.colDirty = 1;
+    sceneVersionSeq = sceneVersionSeq + 1;
+    this.compVersion = sceneVersionSeq;
     this.colMaxR = 0.0001;
     this.colMovers = 0;
+  }
+
+  /// A composição (ou a FORMA de alguém: escala, estático, component de
+  /// colisor) mudou. É o único jeito certo de levantar `colDirty` — escrever o
+  /// flag direto deixa os backends externos simulando a cena de antes.
+  markCollidersDirty(): void {
+    this.colDirty = 1;
+    sceneVersionSeq = sceneVersionSeq + 1;
+    this.compVersion = sceneVersionSeq;
   }
 
   add(go: GameObject): GameObject {
     go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
-    this.colDirty = 1;
+    this.markCollidersDirty();
     go.mount();
     return go;
+  }
+
+  // Caminho padrao para criar um objeto novo diretamente nesta cena.
+  // Configura mesh e parentesco ANTES de add/mount, preservando os caches.
+  createGameObject(name: string, meshKind: number = 0, r: number = 0, g: number = 0,
+                   b: number = 0, parentIdx: number = 0 - 1): GameObject {
+    const go = new GameObject(name);
+    if (meshKind > 0) go.setMesh(meshKind, r, g, b);
+    if (parentIdx >= 0 && parentIdx < this.objects.length) go.parent = parentIdx;
+    return this.add(go);
   }
 
   update(dt: f64): void {
@@ -110,7 +145,7 @@ export class Scene {
   clear(): void {
     this.objects = [];
     this.trs = [];
-    this.colDirty = 1;
+    this.markCollidersDirty();
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
@@ -194,7 +229,7 @@ export class Scene {
     this.trs.length = 0;
     let ti = 0;
     while (ti < order.length) { this.trs.push(order[ti].transform); ti = ti + 1; }
-    this.colDirty = 1;
+    this.markCollidersDirty();
     let j = 0;
     while (j < order.length) {
       const o = order[j];
@@ -230,7 +265,7 @@ export class Scene {
     }
     this.objects.length = w;
     this.trs.length = w;
-    this.colDirty = 1;
+    this.markCollidersDirty();
   }
 
   /// Índice do objeto ATIVO que carrega a câmera principal (-1 = nenhuma).
@@ -286,6 +321,8 @@ export class Scene {
   /// a densidade for razoável.
   resolveCollisions(): void {
     const n = this.objects.length;
+    tgA.length = 0;
+    tgB.length = 0;
     if (n < 2) return;
 
     // ── 1) coleta os candidatos (quem de fato colide) e o maior raio ──────────
@@ -496,6 +533,44 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
     bi = bi + 1;
   }
 
+  // ── ESTÁTICOS QUE SE MOVEM: plataforma, elevador, ponte levadiça ─────────
+  //
+  // Um estático é varrido pelos DINÂMICOS, e a passada reativa só varre quem se
+  // mexeu — então um corpo em repouso sobre uma plataforma não a testava, e a
+  // plataforma, sendo estática, não testava ninguém. Ela atravessava o que
+  // carregava. É o caso que um editor produz no primeiro dia: arrastar o chão
+  // pelo gizmo com a cena rodando.
+  //
+  // Contra TODOS os dinâmicos, sem grid: um estático é grande (um chão de 90 de
+  // largura), e a vizinhança de 9 células em volta do CENTRO dele não cobre as
+  // pontas — foi por isso que os estáticos saíram do grid. São poucos, e só os
+  // que se MOVERAM pagam; uma cena cujo cenário está parado não paga nada.
+  let sm = 0;
+  while (sm < ns) {
+    const oi = sIdx[sm];
+    const t: Transform = trs[oi];
+    if (t.px !== lastX[oi] || t.py !== lastY[oi] || t.pz !== lastZ[oi]) {
+      lastX[oi] = t.px; lastY[oi] = t.py; lastZ[oi] = t.pz;
+      let q = 0;
+      while (q < m) {
+        // ACORDA quem ela carrega: o corpo dorme em cima dela e não tem como
+        // saber que o apoio saiu de baixo dele.
+        const to: Transform = trs[cIdx[q]];
+        if (to.asleep !== 0) { to.asleep = 0; to.quiet = 0; }
+        solvePair(objs, trs, oi, cIdx[q]);
+        q = q + 1;
+      }
+      q = 0;
+      while (q < nb) {
+        const to: Transform = trs[bIdx[q]];
+        if (to.asleep !== 0) { to.asleep = 0; to.quiet = 0; }
+        solvePair(objs, trs, oi, bIdx[q]);
+        q = q + 1;
+      }
+    }
+    sm = sm + 1;
+  }
+
   if (reactive === 0) return;   // contabilidade do sono só na passada reativa
 
   let sb = 0;
@@ -597,6 +672,7 @@ const hcOut: Contact = new Contact();
 /// que o resto do `solvePair` usa.
 function hullContact(
   trs: Transform[], ia: number, ib: number,
+  ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64,
   hullA: Hull | null, hullB: Hull | null,
 ): number {
   // Quem é a casca e quem entra como esfera. Com casca dos DOIS lados, a casca
@@ -610,21 +686,29 @@ function hullContact(
   // de parar sobre ela: o empurrão saía para dentro. O teste pegou pelo lado
   // CHEIO da rampa, onde casca e caixa deveriam concordar e discordavam por 0,98.
   let ih = ia; let ie = ib; let h = hullA; let sinal: f64 = 1.0;
+  let trocou = 0;
   if (hullA === null) {
-    ih = ib; ie = ia; h = hullB; sinal = 0.0 - 1.0;
+    ih = ib; ie = ia; h = hullB; sinal = 0.0 - 1.0; trocou = 1;
   } else if (hullB !== null && hullB.radius > hullA.radius) {
-    ih = ib; ie = ia; h = hullB; sinal = 0.0 - 1.0;
+    ih = ib; ie = ia; h = hullB; sinal = 0.0 - 1.0; trocou = 1;
   }
   if (h === null) return 0;
 
   const th: Transform = trs[ih];
   const te: Transform = trs[ie];
   const r: f64 = minOf3(csHX[ie] * te.sx, csHY[ie] * te.sy, csHZ[ie] * te.sz);
+  // os CENTROS já deslocados, na mesma troca que os índices
+  const hcx: f64 = trocou !== 0 ? bx : ax;
+  const hcy: f64 = trocou !== 0 ? by : ay;
+  const hcz: f64 = trocou !== 0 ? bz : az;
+  const ecx: f64 = trocou !== 0 ? ax : bx;
+  const ecy: f64 = trocou !== 0 ? ay : by;
+  const ecz: f64 = trocou !== 0 ? az : bz;
 
   // ── ida: o centro da esfera para o espaço local da casca ────────────────
-  let dx = te.px - th.px;
-  let dy = te.py - th.py;
-  let dz = te.pz - th.pz;
+  let dx = ecx - hcx;
+  let dy = ecy - hcy;
+  let dz = ecz - hcz;
 
   // A CAMADA BARATA, antes de qualquer plano: raio envolvente da casca mais o
   // da esfera. Um `dot` e uma comparação descartam o par sem ler os M planos, e
@@ -705,6 +789,47 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   // varredura. Ler o component aqui é O(pares) e custou +43% a 2000 corpos.
   const boxA = csShape[ia] === COL_BOX ? 1 : 0;
   const boxB = csShape[ib] === COL_BOX ? 1 : 0;
+  // GATILHO: detecta e não empurra (o `isTrigger` da Unity). A pergunta é feita
+  // ANTES da narrow-phase e não depois porque o par ainda precisa ser RESOLVIDO
+  // para saber se houve contato — o que muda é o que acontece com o resultado.
+  const gatilho = (csTrigger[ia] !== 0 || csTrigger[ib] !== 0) ? 1 : 0;
+
+  // ── O CENTRO DO COLISOR, que não é o pivô do objeto ──────────────────────
+  //
+  // Um personagem cujo pivô está nos pés quer o colisor um metro acima, e isso
+  // não é escala — era o buraco que o component `Collider` abriu ao ganhar
+  // `cx/cy/cz` sem ninguém para lê-los.
+  //
+  // O contato roda sobre os CENTROS; o empurrão continua escrevendo em
+  // `px/py/pz`, que é o pivô. Deslocar os dois pelo mesmo vetor não muda a
+  // normal nem a profundidade, então o solver não precisa saber da diferença —
+  // e o resto do motor (render, gizmo, hierarquia) continua vendo o pivô.
+  //
+  // ROTACIONADO pelo yaw, senão o colisor desgruda quando o objeto vira; a
+  // conta é a mesma de `applyParentTo`. Guardado por `csOff` porque o offset
+  // zero é o caso dominante e nenhum par deve pagar um seno para somar zero.
+  let ax: f64 = ta.px; let ay: f64 = ta.py; let az: f64 = ta.pz;
+  let bx: f64 = tb.px; let by: f64 = tb.py; let bz: f64 = tb.pz;
+  if (csOff[ia] !== 0) {
+    const ox = csCX[ia] * ta.sx; const oz = csCZ[ia] * ta.sz;
+    ay = ay + csCY[ia] * ta.sy;
+    if (ta.ry === 0.0) { ax = ax + ox; az = az + oz; }
+    else {
+      const c = math.cos(ta.ry); const sn = math.sin(ta.ry);
+      ax = ax + (ox * c + oz * sn);
+      az = az + (0.0 - ox * sn + oz * c);
+    }
+  }
+  if (csOff[ib] !== 0) {
+    const ox = csCX[ib] * tb.sx; const oz = csCZ[ib] * tb.sz;
+    by = by + csCY[ib] * tb.sy;
+    if (tb.ry === 0.0) { bx = bx + ox; bz = bz + oz; }
+    else {
+      const c = math.cos(tb.ry); const sn = math.sin(tb.ry);
+      bx = bx + (ox * c + oz * sn);
+      bz = bz + (0.0 - ox * sn + oz * c);
+    }
+  }
 
   // ── CASCA CONVEXA: a forma que ACOMPANHA A GEOMETRIA ────────────────────
   //
@@ -729,7 +854,7 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     // que os outros ramos usam — impulso, restituição, herança de apoio. Um
     // caminho de resposta próprio para a casca seria a terceira cópia de uma
     // regra que já tem duas (aqui e no WGSL), e é como os backends divergem.
-    if (hullContact(trs, ia, ib, hullA, hullB) === 0) return;
+    if (hullContact(trs, ia, ib, ax, ay, az, bx, by, bz, hullA, hullB) === 0) return;
     nx = hcOut.nx; ny = hcOut.ny; nz = hcOut.nz; overlap = hcOut.depth;
   } else if (boxA !== 0 && boxB !== 0) {
     // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
@@ -737,15 +862,15 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     // eixo de MENOR penetração — é o que faz um cubo caindo num chão largo ser
     // empurrado para CIMA (menor penetração em Y) e não para o lado.
     const ex = csHX[ia] * ta.sx + csHX[ib] * tb.sx;
-    const dx = tb.px - ta.px;
+    const dx = bx - ax;
     const ox = ex - (dx < 0.0 ? 0.0 - dx : dx);
     if (ox <= 0.0) return;
     const ey = csHY[ia] * ta.sy + csHY[ib] * tb.sy;
-    const dy = tb.py - ta.py;
+    const dy = by - ay;
     const oy = ey - (dy < 0.0 ? 0.0 - dy : dy);
     if (oy <= 0.0) return;
     const ez = csHZ[ia] * ta.sz + csHZ[ib] * tb.sz;
-    const dz = tb.pz - ta.pz;
+    const dz = bz - az;
     const oz = ez - (dz < 0.0 ? 0.0 - dz : dz);
     if (oz <= 0.0) return;
     if (oy <= ox && oy <= oz) {
@@ -763,6 +888,13 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     // "de A para B" no fim.
     const bt: Transform = boxA !== 0 ? ta : tb;
     const st: Transform = boxA !== 0 ? tb : ta;
+    // os CENTROS do par, na mesma troca que os transforms (ver o offset acima)
+    const bcx: f64 = boxA !== 0 ? ax : bx;
+    const bcy: f64 = boxA !== 0 ? ay : by;
+    const bcz: f64 = boxA !== 0 ? az : bz;
+    const scx: f64 = boxA !== 0 ? bx : ax;
+    const scy: f64 = boxA !== 0 ? by : ay;
+    const scz: f64 = boxA !== 0 ? bz : az;
     // O OBJETO tem de andar junto com o transform: a meia-extensão agora vem do
     // component, e ler a do objeto errado é uma troca que nenhum teste de
     // esfera-contra-esfera pegaria.
@@ -774,12 +906,12 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     const sgn: f64 = boxA !== 0 ? 1.0 : 0.0 - 1.0;
     const r: f64 = minOf3(csHX[si] * st.sx, csHY[si] * st.sy, csHZ[si] * st.sz);
     const hx = csHX[bi] * bt.sx; const hy = csHY[bi] * bt.sy; const hz = csHZ[bi] * bt.sz;
-    let qx = st.px - bt.px; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
-    let qy = st.py - bt.py; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
-    let qz = st.pz - bt.pz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
-    const vx = st.px - (bt.px + qx);
-    const vy = st.py - (bt.py + qy);
-    const vz = st.pz - (bt.pz + qz);
+    let qx = scx - bcx; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
+    let qy = scy - bcy; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
+    let qz = scz - bcz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
+    const vx = scx - (bcx + qx);
+    const vy = scy - (bcy + qy);
+    const vz = scz - (bcz + qz);
     const d2 = vx * vx + vy * vy + vz * vz;
     if (d2 >= r * r) return;
     if (d2 > 0.000001) {
@@ -800,18 +932,31 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     const ra: f64 = minOf3(csHX[ia] * ta.sx, csHY[ia] * ta.sy, csHZ[ia] * ta.sz);
     const rb: f64 = minOf3(csHX[ib] * tb.sx, csHY[ib] * tb.sy, csHZ[ib] * tb.sz);
     const rs: f64 = ra + rb;
-    const dx: f64 = tb.px - ta.px;
+    const dx: f64 = bx - ax;
     // descarte barato por eixo antes da distância (evita 2 mult + sqrt)
     if (dx > rs || dx < 0.0 - rs) return;
-    const dz: f64 = tb.pz - ta.pz;
+    const dz: f64 = bz - az;
     if (dz > rs || dz < 0.0 - rs) return;
-    const dy: f64 = tb.py - ta.py;
+    const dy: f64 = by - ay;
     if (dy > rs || dy < 0.0 - rs) return;
     const d2: f64 = dx * dx + dy * dy + dz * dz;
     if (d2 >= rs * rs || d2 <= 0.0001) return;
     const d: f64 = math.sqrt(d2);
     nx = dx / d; ny = dy / d; nz = dz / d;
     overlap = rs - d;
+  }
+
+  // ── GATILHO: houve contato, e é só isso que ele queria saber ─────────────
+  //
+  // Sem empurrão e sem impulso: o corpo ATRAVESSA, e o jogo fica sabendo por
+  // `triggerCount`/`triggerA`/`triggerB`. Registrar em vez de chamar um callback
+  // daqui é deliberado — isto roda no laço mais quente do motor, duas passadas
+  // por frame, e um script chamado daí pode criar ou destruir objetos no meio de
+  // uma varredura que está iterando a cena.
+  if (gatilho !== 0) {
+    tgA.push(ia);
+    tgB.push(ib);
+    return;
   }
 
   // ── separação (comum às três formas) ──────────────────────────────────────
@@ -826,10 +971,23 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   // penetração visual de ~3% do tamanho do bloco, invisível.
   let corr: f64 = (overlap - 0.04) * 0.85;
   if (corr < 0.0) corr = 0.0;
-  let pushA: f64 = corr * 0.5;
-  let pushB: f64 = corr * 0.5;
-  if (a.stationary !== 0) { pushA = 0.0; pushB = corr; }
-  else if (b.stationary !== 0) { pushA = corr; pushB = 0.0; }
+  // A CORREÇÃO SE DIVIDE PELO INVERSO DA MASSA, e não ao meio.
+  //
+  // Meio a meio é massas iguais, e era o que o inspector conseguia pedir: a
+  // massa entrava só na resposta de IMPULSO, então uma bigorna e uma bola de
+  // isopor se empurravam igual e a bigorna recuava metade da penetração. Os
+  // backends GPU e Rust sempre dividiram por `im/(im+imj)`, então isto também
+  // é o que faz os três concordarem — a separação era a última diferença.
+  //
+  // Massa 0 = INFINITA (inverso 0), que é o chão e a parede. Com os dois
+  // inversos em zero ninguém se move, que é o par estático × estático já
+  // descartado acima.
+  const iA: f64 = a.stationary !== 0 || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
+  const iB: f64 = b.stationary !== 0 || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
+  const iSum: f64 = iA + iB;
+  if (iSum <= 0.0) return;
+  const pushA: f64 = corr * (iA / iSum);
+  const pushB: f64 = corr * (iB / iSum);
   ta.px = ta.px - nx * pushA;
   ta.py = ta.py - ny * pushA;
   ta.pz = ta.pz - nz * pushA;
@@ -844,9 +1002,11 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   // Impulso de corpo rígido clássico: j = -(1+e)·v_rel·n / (1/mA + 1/mB).
   // Massa 0 = INFINITA (chão, parede): entra como inverso 0, então o corpo não
   // é movido e o outro leva o impulso inteiro.
-  const imA: f64 = a.stationary !== 0 || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
-  const imB: f64 = b.stationary !== 0 || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
-  const imSum: f64 = imA + imB;
+  // Os mesmos inversos da separação — a massa não muda entre uma linha e outra,
+  // e duas contas dela seriam dois lugares para divergirem.
+  const imA: f64 = iA;
+  const imB: f64 = iB;
+  const imSum: f64 = iSum;
   if (imSum > 0.0) {
     // velocidade RELATIVA de B em relação a A, projetada na normal
     const rvx = tb.vx - ta.vx;
@@ -1116,6 +1276,20 @@ let ccMaxR: f64 = 0.0001;
 // ficaria obsoleto ao redimensionar um objeto sem adicionar nada. A
 // meia-extensão local é campo do component e só muda quando alguém edita o
 // colisor; a escala entra no par, onde é lida do transform vivo.
+/// Os pares de GATILHO que esta passada viu, como dois arrays paralelos de
+/// índices. Reaproveitados entre frames (`length = 0`), como todo o resto deste
+/// arquivo: alocar por frame no caminho quente é a pressão de GC que o módulo
+/// inteiro evita.
+const tgA: number[] = [];
+const tgB: number[] = [];
+
+/// Quantos contatos de gatilho a última `resolveCollisions` registrou, e quem
+/// são. Um par aparece uma vez por LADO que o varreu (a mesma repetição que o
+/// solver usa como iteração extra), então quem conta eventos deduplica.
+export function triggerCount(): number { return tgA.length; }
+export function triggerA(i: number): number { return tgA[i]; }
+export function triggerB(i: number): number { return tgB[i]; }
+
 const csShape: number[] = [];
 /// O `hullId` de cada objeto, resolvido na mesma varredura que a forma. Existe
 /// pelo mesmo motivo das outras: perguntar ao component dentro do par é
@@ -1124,6 +1298,19 @@ const csHull: number[] = [];
 const csHX: f64[] = [];
 const csHY: f64[] = [];
 const csHZ: f64[] = [];
+/// O CENTRO do colisor, local e sem escala — o `cx/cy/cz` do component.
+///
+/// Existia no component e ninguém o lia: um personagem com o pivô nos pés
+/// precisa do colisor um metro acima, e o solver colidia pelo pivô. `csOff`
+/// responde se algum é diferente de zero, que é o caso raro — sem ele todo par
+/// pagaria a rotação do offset para somar zero.
+const csCX: f64[] = [];
+const csCY: f64[] = [];
+const csCZ: f64[] = [];
+const csOff: number[] = [];
+/// 1 = detecta e não empurra. Resolvido na varredura, como a forma, pelo mesmo
+/// motivo: perguntar ao component por par é O(pares) contra O(n).
+const csTrigger: number[] = [];
 
 function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
                           outStatic: number[], outBig: number[]): void {
@@ -1136,6 +1323,8 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
   while (csShape.length < n) {
     csShape.push(0); csHull.push(0);
     csHX.push(0.5); csHY.push(0.5); csHZ.push(0.5);
+    csCX.push(0.0); csCY.push(0.0); csCZ.push(0.0);
+    csOff.push(0); csTrigger.push(0);
   }
   let maxR: f64 = 0.0001;
   let i = 0;
@@ -1150,6 +1339,10 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
       csShape[i] = shapeOf(o);
       csHull[i] = hullIdOf(o);
       csHX[i] = halfLocalX(o); csHY[i] = halfLocalY(o); csHZ[i] = halfLocalZ(o);
+      const cx = centerLocalX(o); const cy = centerLocalY(o); const cz = centerLocalZ(o);
+      csCX[i] = cx; csCY[i] = cy; csCZ[i] = cz;
+      csOff[i] = (cx !== 0.0 || cy !== 0.0 || cz !== 0.0) ? 1 : 0;
+      csTrigger[i] = triggerOf(o);
       // ESTÁTICO sai do grid, para a lista direta (ver `sIdx`): um chão de 90
       // de largura dimensionava a célula em 180 e punha a cena inteira num
       // único bucket — colisão O(n²), fortaleza de 392 blocos a ~6 fps.

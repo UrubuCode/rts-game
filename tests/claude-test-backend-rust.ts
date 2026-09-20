@@ -10,6 +10,7 @@
 import io from "@compat/io.ts";
 import { Scene } from "@engine/core/scene";
 import { GameObject, COL_SPHERE, COL_BOX } from "@engine/core/gameobject";
+import { Rigidbody } from "@scripts/rigidbody";
 import { rigidSetMode, rigidMode, rigidStep, rigidBackendName,
          rigidBodyCount, rigidFreshFrames } from "@engine/core/physics_backend";
 
@@ -34,6 +35,13 @@ caixa.setMesh(1, 200, 200, 200);
 caixa.colShape = COL_BOX;
 caixa.transform.setPosition(0.0, 8.0, 0.0);
 caixa.transform.setScale(1.0);
+// O INTEGRADOR. Sem ele o corpo não cai em backend nenhum, e este teste caía
+// porque o kernel aplicava gravidade a todo corpo que recebia — enquanto no
+// caminho da CPU um objeto sem `Rigidbody` fica parado. A gravidade passou a
+// ser do CORPO (ver `engine/rigid/materials.ts`), e o que este arquivo mede é a
+// COSTURA, que continua sendo medida: quem escolhe o ramo, quem coleta e quem
+// escreve de volta.
+caixa.addBehavior(new Rigidbody(0.0 - 9.8, 0.0));
 sc.add(caixa);
 
 const esfera = new GameObject("Esfera");
@@ -41,6 +49,7 @@ esfera.setMesh(4, 200, 200, 200);
 esfera.colShape = COL_SPHERE;
 esfera.transform.setPosition(6.0, 8.0, 0.0);
 esfera.transform.setScale(2.0);
+esfera.addBehavior(new Rigidbody(0.0 - 9.8, 0.0));
 sc.add(esfera);
 
 sc.computeWorld();

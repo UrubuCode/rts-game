@@ -30,7 +30,13 @@ export default {
   dispatch(pipe: number, x: number, y: number, z: number): void { dispatch(pipe, x, y, z); },
 
   write(buf: number, data: any): void { write(buf, data); },
-  write_at(buf: number, off: number, data: any): void { writeAt(buf, off, data); },
+  // `writeAt` nativo recebe um OBJETO (`{ data, srcOff, dstOff, bytes }` — cinco
+  // parâmetros não cabem na convenção de quatro). Isto repassava posicional, e o
+  // nativo lia `off` como o objeto de opções: sem campo `data`, devolvia `false`
+  // e nada era escrito. `data` é a view já recortada; `off` é o destino em bytes.
+  write_at(buf: number, off: number, data: any): void {
+    writeAt(buf, { data: data, srcOff: 0, dstOff: off });
+  },
   bind_buffer(pipe: number, slot: number, buf: number): void { bindBuffer(pipe, slot, buf); },
 
   // ── AQUI a superfície mudou de FORMA, não só de nome ──────────────────────
