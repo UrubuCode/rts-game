@@ -30,9 +30,14 @@ import { loadModel } from "../engine/render/model";
 export function recreateBehavior(sd: any): Behavior {
   const t = sd.type;
   if (t === "spin") return new Spinner(sd.sy, sd.sx);
-  if (t === "bob") return new Bobber(sd.amp, sd.freq, sd.base);
-  if (t === "rigidbody") return new Rigidbody(sd.g, sd.bounce);
-  if (t === "mover") return new Mover(sd.vx, sd.vy, sd.vz);
+  if (t === "rigidbody") {
+    const rb = new Rigidbody(sd.g, sd.bounce);
+    if (sd.mass !== undefined) rb.mass = sd.mass;
+    if (sd.drag !== undefined) rb.drag = sd.drag;
+    if (sd.floorY !== undefined) rb.floorY = sd.floorY;
+    if (sd.bodyType !== undefined) rb.bodyType = sd.bodyType;
+    return rb;
+  }
   if (t === "pulse") return new Pulse(sd.amp, sd.freq, sd.base);
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
   if (t === "patrol") return new Patrol(sd.range, sd.speed);
@@ -112,6 +117,9 @@ export function objectToData(go: GameObject): any {
     scale3: [t.sx, t.sy, t.sz],
     parent: go.parent,
     stationary: go.stationary,
+    bodyType: go.bodyType,
+    layer: go.layer,
+    mask: go.mask,
     emissive: go.emissive,
     tex: go.tex,
     meshPath: go.meshPath,   // modelo do objeto (o id de GPU não serializa; recarrega no load)
@@ -159,6 +167,10 @@ export function buildObject(od: any): GameObject {
   const go = new GameObject(od.name);
   if (od.parent !== undefined) go.parent = od.parent;
   if (od.stationary !== undefined) go.stationary = od.stationary;
+  if (od.bodyType !== undefined) go.bodyType = od.bodyType;
+  else if (od.stationary !== undefined && od.stationary !== 0) go.bodyType = 1;
+  if (od.layer !== undefined) go.layer = od.layer;
+  if (od.mask !== undefined) go.mask = od.mask;
   if (od.emissive !== undefined) go.emissive = od.emissive;
   if (od.tex !== undefined) go.tex = od.tex;
   // modelo do objeto (.obj/.glb/.gltf): o id de GPU não sobrevive ao JSON —

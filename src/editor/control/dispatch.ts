@@ -13,7 +13,7 @@ import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { history } from "../undo";
 import { inFrustum } from "@engine/render/gpu3d";
-import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport } from "@engine/core/physics_backend";
+import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport, rigidGridOverflow } from "@engine/core/physics_backend";
 import { profReport, profEnable, profReset, profEnabled } from "@engine/core/profiler";
 import { stepsLastFrame, stepDiscards, stepAlpha } from "@engine/core/fixedstep";
 
@@ -80,7 +80,7 @@ function execCommandInner(w: number, h: number, line: string): string {
       return profReport() + nl +
              "  passo fixo: " + stepsLastFrame() + " passos no ultimo frame, alpha=" +
              stepAlpha().toFixed(2) + ", descartes=" + stepDiscards() + nl +
-             "  fisica: " + rigidBackendName() + " com " + rigidBodyCount() + " corpos";
+             "  fisica: " + rigidBackendName() + " com " + rigidBodyCount() + " corpos (overflow=" + rigidGridOverflow() + ")";
     }
     // Trocar o backend da física EM TEMPO DE EXECUÇÃO, sem reiniciar o editor.
     //
@@ -122,7 +122,7 @@ function execCommandInner(w: number, h: number, line: string): string {
       // do que está ATIVO, não do que foi pedido: pedir GPU e cair para a CPU
       // (sem placa, kernel que não compilou) é exatamente o estado que um
       // número inexplicável costuma esconder.
-      return "[dbg] fisica=" + rigidBackendName() + " corpos=" + rigidBodyCount() +
+      return "[dbg] fisica=" + rigidBackendName() + " corpos=" + rigidBodyCount() + " grid_overflow=" + rigidGridOverflow() +
         " fps=" + S.fpsLast + " ativos=" + activeN + " wouldDraw=" + wouldDraw + " drawnLast=" + S.drawnLast +
         " | ultimo " + last.name + " world(" + last.transform.wx + "," + last.transform.wy + "," + last.transform.wz + ")";
     }

@@ -46,9 +46,14 @@ Fase 0 (Decisor Honesto) ──► Fase 1 (Contratos) ──► Fase 2 (Lotes A 
 #### [x] Lote A — Fundação, Layout e Correções de Paridade *(Concluído e Testado)*
 - [x] **A1. Host wgpu (`rts`):** Ajustado para `min(8, adapter.limits().max_storage_buffers_per_shader_stage)` em `crates/rts-egui/src/frame/gpu.rs`; exposto ao TS via `rts:gpu` (`maxStorageBuffers`) com commit separado (`effe375ad`).
 - [x] **A2. Paridade dos Estáticos (`rts-game`):** Teste discriminante real (chão hx=2, cx=+10 cobrindo [8, 12]; C1 em x=10 assenta e C0 em x=0 cai; Scene CPU [Oráculo] × Rust × GPU 100% idênticos).
-- [x] **A3. Semântica de Cinemáticos Real:** Tipo de corpo com 3 valores (`static`=0, `kinematic`=1, `dynamic`=2) no layout dos três backends; solver pula gravidade/arrasto/chão/impulsos para cinemáticos; dinâmico apoiado com `Rigidbody` é carregado pela plataforma preservando velocidade.
+- [x] **A3. Semântica de Cinemáticos Real:** `bodyType` declarado (`0 = unassigned => dynamic`, `1 = static`, `2 = kinematic`, `3 = dynamic`) desacoplado de `mass <= 0`; solver ignora gravidade/arrasto/chão/impulsos para cinemáticos; dinâmico apoiado com `Rigidbody` é carregado pela plataforma preservando velocidade.
 - [x] **A4. Fallback Seguro para Corpos Dinâmicos com Offset:** Corpos dinâmicos com colisor com offset caem com segurança para Scene CPU via `rigidNeedsFallback` (que já resolve offsets de centro) até o Lote C (OBB).
-- [x] **A5. Portão de Aceite:** 21 de 21 testes verdes em `tests/claude-test-lote-a-paridade.ts`. Sem regressão nos 32 testes de `claude-test-materiais.ts` e 9 de `claude-test-paridade-formas.ts`.
+- [x] **A5. Correção da Regressão 1 (Upload em Lote):** `rbUploadPosVel` nunca sobe buffer de velocidades durante posse da GPU; remoção da chamada em lote em `pbEmpurraTeleportes` mantendo `rbPoke` (`write_at`) cirúrgico para corpos movidos (`tests/claude-prova-upload-lote.ts`).
+- [x] **A6. Correção da Regressão 2 (Cinemático na CPU):** Cinemáticos na Scene CPU avançam por $p += v \cdot dt$ sem integrador, preservando velocidade e carregando corpos apoiados (`tests/claude-prova-cinematico-cpu.ts`).
+- [x] **A7. Filtragem por Layer e Mask:** Bitmasks de 32 bits antes da narrow-phase em CPU (`scene.ts`), Rust (`solver/step.rs`) e GPU (`gpurigid.ts`) provada por `tests/claude-test-layers-masks.ts`.
+- [x] **A8. Layout Versionado e Offsets:** `PHYSICS_LAYOUT_VERSION = 1` no cabeçalho do `world` com conformidade de offsets testada em `tests/claude-test-layout-offsets.ts`.
+- [x] **A9. Rastreamento de Grid Overflow:** Contador de overflow de células exposto via `rigidGridOverflow()` em Rust e GPU, integrado aos comandos `dbg` e `prof` do editor.
+- [x] **A10. Portão de Aceite e Benchmarks:** 21/21 em `claude-test-lote-a-paridade.ts`, 32/32 em `claude-test-materiais.ts`, 9/9 em `claude-test-paridade-formas.ts`, 40/40 em `cargo test -p rts-physics`. `bench/claude-bench-denso-gpu-rust.ts` executado e sem regressões (>5%).
 
 #### [ ] Lote B — Consultas e Eventos
 - [ ] **B1. Consultas Espaciais:** `raycast` e `overlap` com especificação de latência e retorno associado ao `stepId`.

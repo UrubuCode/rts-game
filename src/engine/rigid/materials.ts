@@ -69,9 +69,12 @@ export const MAT_NO_FLOOR: f64 = 0.0 - 1.0e8;
 const MAT_DEF_G: f64 = 9.8;
 const MAT_DEF_FRICTION: f64 = 0.35;
 
-export const BODY_STATIC = 0;
-export const BODY_KINEMATIC = 1;
-export const BODY_DYNAMIC = 2;
+export const PHYSICS_LAYOUT_VERSION = 1;
+
+export const BODY_UNASSIGNED = 0;
+export const BODY_STATIC = 1;
+export const BODY_KINEMATIC = 2;
+export const BODY_DYNAMIC = 3;
 
 /// Preenche a região INTEIRA com os valores de ontem.
 ///
@@ -85,11 +88,14 @@ export const BODY_DYNAMIC = 2;
 /// constantes de atrito dos solvers foram aferidas: `friction_loss` divide por
 /// ele, então 0,35 contra 0,35 devolve a constante intacta.
 export function matFillDefaults(w: Float32Array, at: number, n: number): void {
+  const wU32 = new Uint32Array(w.buffer, w.byteOffset, w.length);
   let k = 0;
   while (k < MAT_MAX_STATICS) {
     const base = at + k * MAT_STATIC_REC;
     w[base] = 0.0;
     w[base + 1] = MAT_DEF_FRICTION;
+    wU32[base + 2] = 1;          // default layer = 1
+    wU32[base + 3] = 0xFFFFFFFF; // default mask = all
     k = k + 1;
   }
   const bodies = at + MAT_MAX_STATICS * MAT_STATIC_REC;
@@ -101,7 +107,9 @@ export function matFillDefaults(w: Float32Array, at: number, n: number): void {
     w[base + 2] = 0.0;
     w[base + 3] = MAT_DEF_FRICTION;
     w[base + 4] = 0.0 - 1.0e30;
-    w[base + 5] = 2.0; // dynamic por default
+    w[base + 5] = BODY_DYNAMIC;  // 3.0 = dynamic por default
+    wU32[base + 6] = 1;          // default layer = 1
+    wU32[base + 7] = 0xFFFFFFFF; // default mask = all
     k = k + 1;
   }
 }
@@ -147,20 +155,25 @@ export function matWriteBody(w: Float32Array, at: number, k: number,
   // (`floorY + t.sy*0.5`) — aqui ela acontece uma vez por sincronização em vez
   // de uma vez por frame.
   w[base + 4] = floor > MAT_NO_FLOOR ? floor + t.sy * 0.5 : floor;
-  // Tipo de corpo: 0 = static, 1 = kinematic, 2 = dynamic
-  let tipo: f64 = 2.0;
-  if (o.stationary !== 0) tipo = 0.0;
-  else if (t.mass <= 0.0) tipo = 1.0;
+  // Tipo de corpo: 1 = static, 2 = kinematic, 3 = dynamic (0 = unassigned => dynamic)
+  let tipo: f64 = BODY_DYNAMIC;
+  if (t.bodyType !== BODY_UNASSIGNED) tipo = t.bodyType;
+  else if (o.bodyType !== BODY_UNASSIGNED) tipo = o.bodyType;
+  else if (o.stationary !== 0) tipo = BODY_STATIC;
+  else if (t.mass <= 0.0 && (t.vx !== 0.0 || t.vy !== 0.0 || t.vz !== 0.0)) tipo = BODY_KINEMATIC;
   w[base + 5] = tipo;
-  w[base + 6] = 0.0;
-  w[base + 7] = 0.0;
+
+  const wU32 = new Uint32Array(w.buffer, w.byteOffset, w.length);
+  wU32[base + 6] = o.layer !== undefined ? o.layer : 1;
+  wU32[base + 7] = o.mask !== undefined ? o.mask : 0xFFFFFFFF;
 }
 
 /// Escreve o material do estático `k` em `w` (ver `matWriteBody` sobre `at`).
-export function matWriteStatic(w: Float32Array, at: number, k: number, t: Transform): void {
+export function matWriteStatic(w: Float32Array, at: number, k: number, t: Transform, o?: GameObject): void {
   const base = at + k * MAT_STATIC_REC;
   w[base] = t.restitution;
   w[base + 1] = t.friction;
-  w[base + 2] = 0.0;
-  w[base + 3] = 0.0;
+  const wU32 = new Uint32Array(w.buffer, w.byteOffset, w.length);
+  wU32[base + 2] = (o !== undefined && o.layer !== undefined) ? o.layer : (t.layer !== undefined ? t.layer : 1);
+  wU32[base + 3] = (o !== undefined && o.mask !== undefined) ? o.mask : (t.mask !== undefined ? t.mask : 0xFFFFFFFF);
 }

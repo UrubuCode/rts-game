@@ -10,6 +10,7 @@
 
 import { Behavior } from "../engine/core/behavior";
 import math from "../compat/math.ts";
+import { BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC } from "../engine/rigid/materials";
 
 /// Velocidade máxima de queda (ver o teto anti-tunneling em `update`).
 const MAX_FALL: f64 = 60.0;
@@ -20,6 +21,7 @@ export class Rigidbody extends Behavior {
   mass: f64;     // 0 = massa infinita (não é movido por impulso)
   drag: f64;     // arrasto do ar por segundo (0 = nenhum)
   floorY: f64;   // chão implícito; -1e9 desliga (a cena tem chão de verdade)
+  bodyType: number; // 1 = static, 2 = kinematic, 3 = dynamic
   /// 1 = um backend externo integra este corpo (ver `Behavior.setExternalSim`).
   /// Estado de execução, não de cena: não é serializado nem vai ao inspector.
   externo: number;
@@ -31,6 +33,7 @@ export class Rigidbody extends Behavior {
     this.mass = 1.0;
     this.drag = 0.0;
     this.floorY = 0.0;
+    this.bodyType = BODY_DYNAMIC;
     this.externo = 0;
   }
 
@@ -41,26 +44,37 @@ export class Rigidbody extends Behavior {
   // uma segunda cópia deles aqui seria a forma de o corpo cair diferente
   // conforme quem o integra.
   bodyIntegrates(): number { return 1; }
-  bodyGravity(): f64 { return this.g; }
-  bodyDrag(): f64 { return this.drag; }
-  bodyFloor(): f64 { return this.floorY; }
+  bodyGravity(): f64 { return this.bodyType === BODY_KINEMATIC ? 0.0 : this.g; }
+  bodyDrag(): f64 { return this.bodyType === BODY_KINEMATIC ? 0.0 : this.drag; }
+  bodyFloor(): f64 { return this.bodyType === BODY_KINEMATIC ? -1.0e30 : this.floorY; }
 
   mount(): void {
     // publica o material físico no Transform, que é o que a colisão lê
     this.host.mass = this.mass;
     this.host.restitution = this.bounce;
+    this.host.bodyType = this.bodyType;
   }
 
   update(dt: f64): void {
     // o backend externo é quem integra (ver `externo`); aqui seria a SEGUNDA vez
     if (this.externo !== 0) return;
     const t = this.host;
+
+    // corpo CINEMÁTICO: avança puramente por velocidade linear sem gravidade ou arrasto
+    if (this.bodyType === BODY_KINEMATIC) {
+      t.px = t.px + t.vx * dt;
+      t.py = t.py + t.vy * dt;
+      t.pz = t.pz + t.vz * dt;
+      return;
+    }
+
     // corpo DORMINDO não integra — é o contrato do sleeping da colisão; ela o
     // acorda quando um contato de verdade chegar
     if (t.asleep !== 0) return;
     // mantém em dia se o usuário editar pelo inspector
     t.mass = this.mass;
     t.restitution = this.bounce;
+    t.bodyType = this.bodyType;
     t.vy = t.vy + this.g * dt;
     // TETO DE VELOCIDADE (anti-tunneling). Um corpo rápido o bastante percorre
     // mais que a espessura do colisor num único frame e o ATRAVESSA — e, uma vez
@@ -96,30 +110,34 @@ export class Rigidbody extends Behavior {
 
   toData(): any {
     return { type: "rigidbody", g: this.g, bounce: this.bounce,
-             mass: this.mass, drag: this.drag, floorY: this.floorY };
+             mass: this.mass, drag: this.drag, floorY: this.floorY,
+             bodyType: this.bodyType };
   }
 
   typeName(): string { return "Rigidbody"; }
-  fieldCount(): number { return 5; }
+  fieldCount(): number { return 6; }
   fieldLabel(i: number): string {
     if (i === 0) return "Grav";
     if (i === 1) return "Bounce";
     if (i === 2) return "Massa";
     if (i === 3) return "Drag";
-    return "ChaoY";
+    if (i === 4) return "ChaoY";
+    return "Tipo";
   }
   fieldGet(i: number): f64 {
     if (i === 0) return this.g;
     if (i === 1) return this.bounce;
     if (i === 2) return this.mass;
     if (i === 3) return this.drag;
-    return this.floorY;
+    if (i === 4) return this.floorY;
+    return this.bodyType * 1.0;
   }
   fieldSet(i: number, v: f64): void {
     if (i === 0) this.g = v;
     else if (i === 1) { this.bounce = v; this.host.restitution = v; }
     else if (i === 2) { this.mass = v; this.host.mass = v; }
     else if (i === 3) this.drag = v;
-    else this.floorY = v;
+    else if (i === 4) this.floorY = v;
+    else { this.bodyType = v | 0; this.host.bodyType = this.bodyType; }
   }
 }

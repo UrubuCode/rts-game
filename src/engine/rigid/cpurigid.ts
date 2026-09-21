@@ -43,7 +43,7 @@ import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_AT, MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor, matFillDefaults,
-         matWriteBody, matWriteStatic } from "./materials";
+         matWriteBody, matWriteStatic, BODY_STATIC, BODY_DYNAMIC } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
 export const CR_MAX_STATICS = MAT_MAX_STATICS;
@@ -148,7 +148,7 @@ export function crSetBody(i: number, x: f64, y: f64, z: f64,
   crExt[i * 4 + 3] = mass > 0.0 ? 1.0 / mass : 0.0;
   const baseMat = MAT_AT + MAT_MAX_STATICS * MAT_STATIC_REC + i * MAT_BODY_REC;
   if (baseMat + 5 < crWorld.length) {
-    crWorld[baseMat + 5] = mass <= 0.0 ? 1.0 : 2.0;
+    crWorld[baseMat + 5] = mass <= 0.0 ? BODY_STATIC : BODY_DYNAMIC;
   }
   if (hx > crMaxHalf) crMaxHalf = hx;
   if (hy > crMaxHalf) crMaxHalf = hy;
@@ -253,7 +253,7 @@ export function crSyncStatics(sc: Scene): void {
       crWorld[base + 5] = halfYOf(o, t);
       crWorld[base + 6] = halfZOf(o, t);
       crWorld[base + 7] = 0.0;
-      matWriteStatic(crWorld, MAT_AT, m, t);
+      matWriteStatic(crWorld, MAT_AT, m, t, o);
       m = m + 1;
     }
     i = i + 1;
@@ -272,3 +272,9 @@ export function crStep(substeps: number): number {
   crWriteWorld(substeps);
   return rigid.step(crPos, crVel, crExt, crWorld);
 }
+
+/// Retorna o contador de overflow de células do grid no solver Rust.
+export function crGridOverflow(): number {
+  return rigid.overflows();
+}
+

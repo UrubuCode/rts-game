@@ -54,7 +54,8 @@ import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
-         matFillDefaults, matWriteBody, matWriteStatic } from "./materials";
+         matFillDefaults, matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
+         BODY_STATIC, BODY_DYNAMIC } from "./materials";
 import { Transform } from "../core/transform";
 
 export const RB_MAX_STATICS = MAT_MAX_STATICS;
@@ -72,6 +73,7 @@ const RB_SLEEP_SPEED2 = "0.2025";   // 0.45 u/s ao quadrado
 // seriam piores que o O(n²) que isto remove.
 const RB_NCELLS_N = 8192;
 const RB_SLOT_N = 32;
+const RB_GRID_OVERFLOW_I32 = 2051;
 
 // ONDE o grid mora: na CAUDA do buffer `world`, e não num buffer próprio.
 //
@@ -175,6 +177,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let s = atomicAdd(&world[${RB_GRID_I32_N}u + c], 1);
   if (s < ${RB_SLOT_N}) {
     atomicStore(&world[${RB_GRID_I32_N + RB_NCELLS_N}u + c * ${RB_SLOT_N}u + u32(s)], i32(id.x));
+  } else {
+    atomicAdd(&world[${RB_GRID_OVERFLOW_I32}u], 1);
   }
 }
 `;
@@ -191,6 +195,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 @group(0) @binding(0) var<storage, read_write> world: array<atomic<i32>>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  if (id.x == 0u) {
+    atomicStore(&world[${RB_GRID_OVERFLOW_I32}u], 0);
+  }
   if (id.x >= ${RB_NCELLS_N}u) { return; }
   atomicStore(&world[${RB_GRID_I32_N}u + id.x], 0);
 }
@@ -275,22 +282,24 @@ fn worldAt(k: u32) -> f32 {
   return world[k / 4u][k % 4u];
 }
 
-// O material de um CORPO: gravidade, quique, arrasto, atrito, chão do centro.
+// O material de um CORPO: gravidade, quique, arrasto, atrito, chão do centro, tipo, layer, mask.
 // O formato é o de engine/rigid/materials.ts, que é o mesmo que o solver em
 // Rust lê — uma segunda descrição dele aqui seria a forma de os dois backends
 // discordarem sobre qual número é o atrito.
-struct Material { g: f32, quique: f32, arrasto: f32, atrito: f32, chao: f32, tipo: f32 }
+struct Material { g: f32, quique: f32, arrasto: f32, atrito: f32, chao: f32, tipo: f32, layer: u32, mask: u32 }
 
 fn materialDoCorpo(i: u32) -> Material {
   let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
   return Material(worldAt(at), worldAt(at + 1u), worldAt(at + 2u),
-                  worldAt(at + 3u), worldAt(at + 4u), worldAt(at + 5u));
+                  worldAt(at + 3u), worldAt(at + 4u), worldAt(at + 5u),
+                  bitcast<u32>(worldAt(at + 6u)), bitcast<u32>(worldAt(at + 7u)));
 }
 
-// O de um ESTÁTICO: só quique e atrito. Ele não cai, não arrasta e é o chão.
+// O de um ESTÁTICO: só quique, atrito, layer, mask. Ele não cai, não arrasta e é o chão.
 fn materialDoEstatico(k: u32) -> Material {
   let at = ${RB_MAT_AT}u + k * ${MAT_STATIC_REC}u;
-  return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30, 0.0);
+  return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30, 1.0,
+                  bitcast<u32>(worldAt(at + 2u)), bitcast<u32>(worldAt(at + 3u)));
 }
 
 // Quanto da velocidade de aproximação volta. A média dos dois, e nada abaixo de
@@ -323,13 +332,13 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let im = ext[id.x].w;
   let meu = materialDoCorpo(id.x);
 
-  // ── TIPOS DE CORPO: 0 = estático, 1 = cinemático, 2 = dinâmico ──────────
-  if (meu.tipo == 0.0) {
-    pos[id.x] = vec4<f32>(p, 10.0);
+  // ── TIPOS DE CORPO: 1 = estático, 2 = cinemático, 3 (ou 0 default) = dinâmico ──
+  if (meu.tipo == 1.0) {
+    pos[id.x] = vec4<f32>(p, ${RB_SLEEP_FRAMES});
     vel[id.x] = vec4<f32>(0.0, 0.0, 0.0, forma);
     return;
   }
-  if (meu.tipo == 1.0) {
+  if (meu.tipo == 2.0) {
     p = p + v * dt;
     pos[id.x] = vec4<f32>(p, 0.0);
     vel[id.x] = vec4<f32>(v, forma);
@@ -353,6 +362,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
       for (var s: u32 = 0u; s < cnt; s = s + 1u) {
         let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + s));
         if (j == id.x) { continue; }
+        let outro = materialDoCorpo(j);
+        if ((meu.mask & outro.layer) == 0u || (outro.mask & meu.layer) == 0u) { continue; }
         let vj = vel[j].xyz;
         if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
           let c = contato(p, h, forma, pos[j].xyz, ext[j].xyz, vel[j].w);
@@ -388,6 +399,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
   // ── ESTÁTICOS (AABBs do world): expulsa pelo eixo mais raso, absorve ─────
   for (var k: u32 = 0u; k < m; k = k + 1u) {
+    let dele = materialDoEstatico(k);
+    if ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u) { continue; }
     let sc = world[1u + k * 2u].xyz;
     let sh = world[2u + k * 2u].xyz;
     // A REDONDEZA do estático vive no w do centro: 1 = esfera. Invertido em
@@ -400,7 +413,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (c.w > 0.0) {
       apoiado = true;
       let nr = c.xyz;
-      let dele = materialDoEstatico(k);
       // Estático não cede: a correção inteira é minha (85%, slop 0.04).
       p = p + nr * max(c.w - 0.04, 0.0) * 0.85;
       let vn = dot(v, nr);
@@ -436,6 +448,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var sl: u32 = 0u; sl < cnt; sl = sl + 1u) {
     let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + sl));
     if (j == id.x) { continue; }
+    let dele = materialDoCorpo(j);
+    if ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u) { continue; }
     let pj = pos[j].xyz;
     let hj = ext[j].xyz;
     let c = contato(p, h, forma, pj, hj, vel[j].w);
@@ -445,7 +459,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let imj = ext[j].w;
     let share = im / max(im + imj, 0.0001);
     let vj = vel[j].xyz;
-    let dele = materialDoCorpo(j);
     // Velocidade relativa projetada na normal. Negativa = nos aproximando.
     let vn = dot(v - vj, nr);
     let volta = 1.0 + quique(vn, meu.quique, dele.quique);
@@ -576,7 +589,7 @@ export function rbSetBody(i: number, x: f64, y: f64, z: f64,
   buffer.write_f32(rbExtBuf, (i * 4 + 3) * 4, mass > 0.0 ? 1.0 / mass : 0.0);
   const baseMat = MAT_MAX_STATICS * MAT_STATIC_REC + i * MAT_BODY_REC;
   if (baseMat + 5 < rbMatBuf.length) {
-    rbMatBuf[baseMat + 5] = mass <= 0.0 ? 1.0 : 2.0;
+    rbMatBuf[baseMat + 5] = mass <= 0.0 ? BODY_STATIC : BODY_DYNAMIC;
   }
   // A célula é dimensionada pelo MAIOR corpo (ver rbWriteWorld); acompanhar
   // aqui é o único lugar que vê todas as extensões sem varrer nada de novo.
@@ -585,11 +598,19 @@ export function rbSetBody(i: number, x: f64, y: f64, z: f64,
   if (hz > rbMaxHalf) rbMaxHalf = hz;
 }
 
-/// Sobe posições e velocidades para a GPU em lote (usado quando muitos corpos se movem).
+/// Sobe posições para a GPU em lote (usado quando muitos corpos se movem).
+/// NUNCA sobe velocidade aqui durante ownership da GPU para não sobrescrever
+/// velocidades correntes da GPU com valores velhos ou zerados do host.
 export function rbUploadPosVel(): void {
   if (rbPipe === 0) return;
   gpu.write(rbGPos, rbPosBuf, rbN * 16);
-  gpu.write(rbGVel, rbVelBuf, rbN * 16);
+}
+
+/// Retorna o contador de overflow de células do grid espacial na GPU.
+export function rbGridOverflow(): number {
+  if (rbPipe === 0) return 0;
+  gpu.read(rbGWorld, rbWorldBuf, (RB_GRID_OVERFLOW_I32 + 1) * 4);
+  return buffer.read_i32(rbWorldBuf, RB_GRID_OVERFLOW_I32 * 4);
 }
 
 /// Escreve params + estáticos do espelho para a GPU.
@@ -613,6 +634,7 @@ function rbWriteWorld(): void {
   buffer.write_f32(rbWorldBuf, 0, rbDt);
   buffer.write_f32(rbWorldBuf, 4, rbStatics * 1.0);
   buffer.write_f32(rbWorldBuf, 8, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
+  buffer.write_f32(rbWorldBuf, 12, PHYSICS_LAYOUT_VERSION * 1.0);
   gpu.write(rbGWorld, rbWorldBuf, (1 + rbStatics * 2) * 16);
 }
 
@@ -714,7 +736,7 @@ export function rbSyncStatics(sc: Scene): void {
       buffer.write_f32(rbWorldBuf, (base + 5) * 4, halfYOf(o, t));
       buffer.write_f32(rbWorldBuf, (base + 6) * 4, halfZOf(o, t));
       buffer.write_f32(rbWorldBuf, (base + 7) * 4, 0.0);
-      matWriteStatic(rbMatBuf, 0, m, t);
+      matWriteStatic(rbMatBuf, 0, m, t, o);
       m = m + 1;
     }
     i = i + 1;

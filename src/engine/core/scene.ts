@@ -772,6 +772,7 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   const a: GameObject = objs[ia];
   const b: GameObject = objs[ib];
   if (a.stationary !== 0 && b.stationary !== 0) return;   // nada a mover
+  if (((a.mask & b.layer) === 0) || ((b.mask & a.layer) === 0)) return; // filtro layer/mask
   const ta: Transform = trs[ia];
   const tb: Transform = trs[ib];
 
@@ -982,8 +983,10 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   // Massa 0 = INFINITA (inverso 0), que é o chão e a parede. Com os dois
   // inversos em zero ninguém se move, que é o par estático × estático já
   // descartado acima.
-  const iA: f64 = a.stationary !== 0 || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
-  const iB: f64 = b.stationary !== 0 || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
+  const kinA = (ta.bodyType === 2 || a.bodyType === 2 || (ta.bodyType === 0 && a.bodyType === 0 && a.stationary === 0 && ta.mass <= 0.0 && (ta.vx !== 0.0 || ta.vy !== 0.0 || ta.vz !== 0.0)));
+  const kinB = (tb.bodyType === 2 || b.bodyType === 2 || (tb.bodyType === 0 && b.bodyType === 0 && b.stationary === 0 && tb.mass <= 0.0 && (tb.vx !== 0.0 || tb.vy !== 0.0 || tb.vz !== 0.0)));
+  const iA: f64 = a.stationary !== 0 || kinA || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
+  const iB: f64 = b.stationary !== 0 || kinB || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
   const iSum: f64 = iA + iB;
   if (iSum <= 0.0) return;
   const pushA: f64 = corr * (iA / iSum);
@@ -1043,8 +1046,13 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
       // no impulso clássico. O `j` ainda é calculado: é o teto do atrito.
       const resting = (vn > 0.0 - 1.0 && (ny > 0.5 || ny < 0.0 - 0.5)) ? 1 : 0;
       if (resting !== 0) {
-        if (ny > 0.5) tb.vy = ta.vy;        // b está em cima de a
-        else ta.vy = tb.vy;                 // a está em cima de b
+        if (ny > 0.5) {
+          tb.vy = ta.vy;        // b está em cima de a
+          if (kinA) { tb.vx = ta.vx; tb.vz = ta.vz; } // se a é cinemático, carrega b
+        } else {
+          ta.vy = tb.vy;        // a está em cima de b
+          if (kinB) { ta.vx = tb.vx; ta.vz = tb.vz; } // se b é cinemático, carrega a
+        }
       } else {
         ta.vx = ta.vx - nx * j * imA;
         ta.vy = ta.vy - ny * j * imA;
@@ -1253,13 +1261,26 @@ function updateAll(objs: GameObject[], dt: f64): void {
     if (o.active !== 0) {
       const bs: Behavior[] = o.behaviors;
       const nb = bs.length;
-      // a maioria dos objetos de cena não tem script: sai antes de tudo
+      let hasIntegrator = 0;
       if (nb !== 0) {
         let j = 0;
         while (j < nb) {
           const b: Behavior = bs[j];
-          if (b.enabled !== 0) b.update(dt);
+          if (b.enabled !== 0) {
+            b.update(dt);
+            if (b.bodyIntegrates !== undefined && b.bodyIntegrates() !== 0) hasIntegrator = 1;
+          }
           j = j + 1;
+        }
+      }
+      if (hasIntegrator === 0) {
+        const t = o.transform;
+        const isKinematic = (t.bodyType === 2 || o.bodyType === 2 ||
+          (t.bodyType === 0 && o.bodyType === 0 && o.stationary === 0 && t.mass <= 0.0 && (t.vx !== 0.0 || t.vy !== 0.0 || t.vz !== 0.0)));
+        if (isKinematic) {
+          t.px = t.px + t.vx * dt;
+          t.py = t.py + t.vy * dt;
+          t.pz = t.pz + t.vz * dt;
         }
       }
     }

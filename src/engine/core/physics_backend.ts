@@ -45,13 +45,13 @@ import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocalY, centerLocalZ } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
-         rbUpload, rbSyncStatics, rbUploadPosVel,
+         rbUpload, rbSyncStatics, rbUploadPosVel, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
          rbCount } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
 import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
-         crSyncStatics, crStep, crX, crY, crZ, crVelX, crVelY, crVelZ,
+         crSyncStatics, crStep, crGridOverflow, crX, crY, crZ, crVelX, crVelY, crVelZ,
          crCount, crThreads } from "../rigid/cpurigid";
 import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
@@ -415,9 +415,6 @@ function pbEmpurraTeleportes(): void {
     }
     k = k + 1;
   }
-  if (pbDono === 1 && movedCount > 16) {
-    rbUploadPosVel();
-  }
 }
 
 /// Escreve as posições do solver Rust de volta nos transforms — e a velocidade
@@ -657,5 +654,13 @@ export function rigidReport(): void {
     i = i + 1;
   }
   io.print("[rigid] corpos agora=" + pbBodies + " modo=" + pbModo +
-           " ativo=" + rigidBackendName());
+           " ativo=" + rigidBackendName() + " overflow=" + rigidGridOverflow());
 }
+
+/// Retorna o número de overflows de células no grid espacial (GPU ou Rust).
+export function rigidGridOverflow(): number {
+  if (pbDono === 1) return rbGridOverflow();
+  if (pbDono === 2) return crGridOverflow();
+  return 0;
+}
+
