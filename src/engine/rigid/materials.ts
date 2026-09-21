@@ -69,6 +69,10 @@ export const MAT_NO_FLOOR: f64 = 0.0 - 1.0e8;
 const MAT_DEF_G: f64 = 9.8;
 const MAT_DEF_FRICTION: f64 = 0.35;
 
+export const BODY_STATIC = 0;
+export const BODY_KINEMATIC = 1;
+export const BODY_DYNAMIC = 2;
+
 /// Preenche a região INTEIRA com os valores de ontem.
 ///
 /// Chamado na alocação, e é o que torna a região segura de existir: um chamador
@@ -97,6 +101,7 @@ export function matFillDefaults(w: Float32Array, at: number, n: number): void {
     w[base + 2] = 0.0;
     w[base + 3] = MAT_DEF_FRICTION;
     w[base + 4] = 0.0 - 1.0e30;
+    w[base + 5] = 2.0; // dynamic por default
     k = k + 1;
   }
 }
@@ -142,7 +147,11 @@ export function matWriteBody(w: Float32Array, at: number, k: number,
   // (`floorY + t.sy*0.5`) — aqui ela acontece uma vez por sincronização em vez
   // de uma vez por frame.
   w[base + 4] = floor > MAT_NO_FLOOR ? floor + t.sy * 0.5 : floor;
-  w[base + 5] = 0.0;
+  // Tipo de corpo: 0 = static, 1 = kinematic, 2 = dynamic
+  let tipo: f64 = 2.0;
+  if (o.stationary !== 0) tipo = 0.0;
+  else if (t.mass <= 0.0) tipo = 1.0;
+  w[base + 5] = tipo;
   w[base + 6] = 0.0;
   w[base + 7] = 0.0;
 }

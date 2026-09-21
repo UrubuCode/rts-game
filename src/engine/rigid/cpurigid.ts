@@ -42,7 +42,7 @@ import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
-import { MAT_AT, MAT_MAX_STATICS, matBytesFor, matFillDefaults,
+import { MAT_AT, MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor, matFillDefaults,
          matWriteBody, matWriteStatic } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
@@ -146,6 +146,10 @@ export function crSetBody(i: number, x: f64, y: f64, z: f64,
   crExt[i * 4 + 1] = hy;
   crExt[i * 4 + 2] = hz;
   crExt[i * 4 + 3] = mass > 0.0 ? 1.0 / mass : 0.0;
+  const baseMat = MAT_AT + MAT_MAX_STATICS * MAT_STATIC_REC + i * MAT_BODY_REC;
+  if (baseMat + 5 < crWorld.length) {
+    crWorld[baseMat + 5] = mass <= 0.0 ? 1.0 : 2.0;
+  }
   if (hx > crMaxHalf) crMaxHalf = hx;
   if (hy > crMaxHalf) crMaxHalf = hy;
   if (hz > crMaxHalf) crMaxHalf = hz;

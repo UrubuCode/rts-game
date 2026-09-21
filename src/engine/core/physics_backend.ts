@@ -43,22 +43,22 @@ import io from "@compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL } from "./collider";
+import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocalY, centerLocalZ } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
-         rbUpload, rbSyncStatics,
+         rbUpload, rbSyncStatics, rbUploadPosVel,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
          rbCount } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
-import { crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
+import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
          crSyncStatics, crStep, crX, crY, crZ, crVelX, crVelY, crVelZ,
-         crCount, crThreads, crAvailable } from "../rigid/cpurigid";
+         crCount, crThreads } from "../rigid/cpurigid";
 import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
 import { profBest, profGpuMs, profRustMs, profRange,
          PROF_GPU, PROF_RUST, PROF_DESCONHECIDO } from "./backend_profile";
 
-// /// Sub-passos que o backend GPU submete por frame.
+/// Sub-passos que o backend GPU submete por frame.
 export const PB_SUBSTEPS = 2;
 
 /// 0 = não perguntado, 1 = há placa, 2 = não há.
@@ -104,23 +104,38 @@ let pbGpuMorta = 0;
 /// Último motivo de queda, para o `dbg` dizer POR QUE está na CPU.
 let pbMotivo = "";
 
+/// Histerese do modo AUTO:
+/// Alterna entre Rust e GPU somente com margem >= 20% sustentada por 10 passos.
+let pbAutoAtivo = 0;        // 1 = GPU, 2 = Rust, 0 = inicial
+let pbAutoCandidate = 0;    // candidato proposto
+let pbAutoStreak = 0;       // passos consecutivos sustentados
+
 /// Pede o backend. `1` = GPU, `2` = RUST, `3` = AUTO, `0` = CPU.
 export function rigidSetMode(modo: number): void {
   pbModo = modo === 1 ? 1 : (modo === 2 ? 2 : (modo === 3 ? 3 : 0));
   if (pbModo === 0) pbMotivo = "";
+  pbAutoAtivo = 0;
+  pbAutoCandidate = 0;
+  pbAutoStreak = 0;
 }
 
 export function rigidMode(): number { return pbModo; }
+
+/// Estado interno da histerese do modo AUTO (para testes e diagnóstico).
+export function rigidAutoHysteresis(): { ativo: number, candidate: number, streak: number } {
+  return { ativo: pbAutoAtivo, candidate: pbAutoCandidate, streak: pbAutoStreak };
+}
 
 /// O nome do que está REALMENTE ativo — é isto que o `dbg` reporta, e não
 /// `rigidMode`, porque pedir GPU e estar na CPU é exatamente o estado que
 /// alguém medindo precisa enxergar.
 export function rigidBackendName(): string {
   if (pbModo === 3) {
-    const quem = profBest(pbBodies, crThreads());
-    if (quem === PROF_RUST || quem === PROF_DESCONHECIDO) {
+    const threads = crThreads();
+    const ativo = pbAutoAtivo !== 0 ? pbAutoAtivo : (profBest(pbBodies, threads) === PROF_GPU ? 1 : 2);
+    if (ativo === 2) {
       if (pbBodies === 0) return "rust (auto, aguardando corpos)";
-      return "rust (auto, " + crThreads() + " threads)";
+      return "rust (auto, " + threads + " threads)";
     }
     return "gpu (auto)";
   }
@@ -380,16 +395,17 @@ function pbSync(sc: Scene): number {
 function pbEmpurraTeleportes(): void {
   const m = pbObjs.length;
   let k = 0;
+  let movedCount = 0;
   while (k < m) {
     const ob: GameObject = pbObjs[k];
     const t: Transform = ob.transform;
     if (t.px !== pbLX[k] || t.py !== pbLY[k] || t.pz !== pbLZ[k]) {
+      movedCount = movedCount + 1;
       if (pbDono === 1) { rbSetPos(k, t.px, t.py, t.pz); pbHold[k] = 1; }
       else crSetPos(k, t.px, t.py, t.pz);
       // SÓ zera velocidade de corpos dinâmicos livres teleportados.
-      // Corpos cinemáticos (stationary !== 0 ou mass === 0) preservam sua velocidade
-      // calculada por script ou navegação.
-      if (ob.stationary === 0 && t.mass > 0.0) {
+      // Corpos cinemáticos (mass <= 0) preservam sua velocidade calculada por script ou navegação.
+      if (t.mass > 0.0) {
         t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
       } else {
         if (pbDono === 1) { rbSetVel(k, t.vx, t.vy, t.vz); rbPoke(k); }
@@ -398,6 +414,9 @@ function pbEmpurraTeleportes(): void {
       pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
     }
     k = k + 1;
+  }
+  if (pbDono === 1 && movedCount > 16) {
+    rbUploadPosVel();
   }
 }
 
@@ -446,22 +465,35 @@ function pbApply(): void {
 /// Quantos objetos da cena usam colisor de CASCA. Recontado quando a composição
 /// muda, junto com o resto — é a mesma varredura.
 let pbCascas = 0;
+let pbOffsets = 0;
 
-/// A cena precisa de casca, e o backend escolhido não sabe fazer casca?
-///
-/// Só o caminho da CPU resolve casca hoje: `solvePair` chama `hullContact`, e
-/// nem o kernel WGSL nem o solver em Rust foram ensinados. Sem esta pergunta a
-/// GPU rodaria e o colisor de casca seria IGNORADO em silêncio — a pedra
-/// chanfrada colidiria como caixa e nada diria por quê, que é exatamente o modo
-/// de falha que `rts-physics` ganhou `supports()` para recusar.
-///
-/// A resposta é CAIR PARA A CPU, e não recusar o frame: aqui existe um backend
-/// que sabe fazer, então usá-lo é a escolha certa. O motivo fica em `pbMotivo`
-/// para o `dbg` poder dizer por que o jogo está mais lento numa cena com cascas.
-export function rigidNeedsFallback(): number { return pbCascas > 0 ? 1 : 0; }
+/// Conta corpos dinâmicos com colisor com offset (centerLocalX/Y/Z !== 0).
+/// Apenas o solver da CPU (Scene) resolve corpos dinâmicos com centro deslocado
+/// até o Lote C (OBB); os backends GPU e Rust assumem centro alinhado ao transform.
+function pbContaOffsets(sc: Scene): number {
+  const objs: GameObject[] = sc.objects;
+  const n = objs.length;
+  let c = 0;
+  let i = 0;
+  while (i < n) {
+    const o: GameObject = objs[i];
+    if (o.collideFlag !== 0 && o.active !== 0 && o.stationary === 0) {
+      if (centerLocalX(o) !== 0.0 || centerLocalY(o) !== 0.0 || centerLocalZ(o) !== 0.0) {
+        c = c + 1;
+      }
+    }
+    i = i + 1;
+  }
+  return c;
+}
+
+/// A cena precisa de casca ou colisor com offset em corpo dinâmico?
+/// Se sim, cai para a CPU (Scene).
+export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets > 0) ? 1 : 0; }
 
 /// Quantas cascas a última varredura viu. Diagnóstico.
 export function rigidHullCount(): number { return pbCascas; }
+export function rigidOffsetCount(): number { return pbOffsets; }
 
 /// Qual backend DEVE rodar este passo: 0 = CPU, 1 = GPU, 2 = Rust. Separado do
 /// passo porque a posse (`pbDono`) tem de ser devolvida ANTES de qualquer
@@ -477,16 +509,54 @@ function pbAlvo(): number {
     }
     return 0;
   }
-  // AUTO: a medição escolhe. `pbBodies` é a contagem do último sync; no
-  // primeiro frame ela é 0 e a escolha cai no Rust pelo desempate — que é o
-  // certo, porque uma cena vazia não tem por que pagar um round-trip.
+  if (pbOffsets > 0) {
+    if (pbMotivo !== "corpos dinamicos com colisor com offset") {
+      pbMotivo = "corpos dinamicos com colisor com offset";
+      io.print("[rigid] " + pbOffsets + " corpo(s) dinamico(s) com offset no colisor na cena — " +
+               "apenas a Scene CPU resolve corpos dinamicos com centro deslocado ate o Lote C (OBB), " +
+               "entao a fisica cai para a CPU.");
+    }
+    return 0;
+  }
+  // AUTO: a medição escolhe, com histerese (margem >= 20% por 10 passos).
   let modo = pbModo;
   if (modo === 3) {
-    if (crAvailable() === 0) modo = pbGpuPresente() !== 0 ? 1 : 0;
-    else {
-      const quem = profBest(pbBodies, crThreads());
-      modo = quem === PROF_RUST || quem === PROF_DESCONHECIDO ? 2 : 1;
-      if (modo === 1 && pbGpuPresente() === 0) modo = 2;
+    if (crAvailable() === 0) {
+      modo = pbGpuPresente() !== 0 ? 1 : 0;
+    } else if (pbGpuPresente() === 0) {
+      modo = 2;
+    } else {
+      const threads = crThreads();
+      const quem = profBest(pbBodies, threads);
+      const candidato = quem === PROF_GPU ? 1 : 2;
+      if (pbAutoAtivo === 0) {
+        pbAutoAtivo = candidato;
+        pbAutoCandidate = candidato;
+        pbAutoStreak = 0;
+      } else if (candidato !== pbAutoAtivo) {
+        const curMs = pbAutoAtivo === 1 ? profGpuMs(pbBodies) : profRustMs(pbBodies, threads);
+        const candMs = candidato === 1 ? profGpuMs(pbBodies) : profRustMs(pbBodies, threads);
+        // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
+        if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
+          if (candidato === pbAutoCandidate) {
+            pbAutoStreak = pbAutoStreak + 1;
+            if (pbAutoStreak >= 10) {
+              pbAutoAtivo = candidato;
+              pbAutoStreak = 0;
+            }
+          } else {
+            pbAutoCandidate = candidato;
+            pbAutoStreak = 1;
+          }
+        } else {
+          pbAutoCandidate = pbAutoAtivo;
+          pbAutoStreak = 0;
+        }
+      } else {
+        pbAutoCandidate = pbAutoAtivo;
+        pbAutoStreak = 0;
+      }
+      modo = pbAutoAtivo;
     }
   }
   // RUST: sem calibração e sem portão — não há placa que possa faltar.
@@ -524,7 +594,10 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
   // A CAPACIDADE É PERGUNTADA ANTES, e é o que faz a casca aparecer na tela em
   // vez de ser engolida: com casca na cena o alvo é a CPU. Mais lento e
   // CORRETO, contra rápido e errado.
-  if (pbDirty !== 0) pbCascas = pbContaCascas(sc);
+  if (pbDirty !== 0) {
+    pbCascas = pbContaCascas(sc);
+    pbOffsets = pbContaOffsets(sc);
+  }
   const alvo = pbAlvo();
 
   // SAÍDA antes de tudo: trocar de dono, cair para a CPU ou ressincronizar

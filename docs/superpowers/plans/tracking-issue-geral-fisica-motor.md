@@ -43,12 +43,12 @@ Fase 0 (Decisor Honesto) ──► Fase 1 (Contratos) ──► Fase 2 (Lotes A 
 ### ⚙️ Fase 2 — O Vocabulário da Física (Sete Lotes de Escopo Firme)
 > *Objetivo: Rotação, OBB, manifolds, dinâmica angular e estabilidade.*
 
-#### [x] Lote A — Fundação, Layout e Correções de Paridade *(Concluído)*
-- [x] **A1. Host wgpu (`rts`):** `max_storage_buffers_per_shader_stage = 8` no `crates/rts-egui/src/frame/gpu.rs`.
-- [x] **A2. Paridade dos Estáticos (`rts-game`):** `rbSyncStatics` e `crSyncStatics` somando `centerLocal*` rotacionado por yaw.
-- [x] **A3. Semântica de Cinemáticos (`rts-game`):** `pbEmpurraTeleportes` preservando velocidade de corpos cinemáticos.
-- [x] **A4. Layout Versionado nos 3 Backends:** `pose` (8 floats), `motion` (8 floats) e `world_tail` (frio). Tipos canônicos `static`, `kinematic`, `dynamic` e `layer/mask`.
-- [x] **A5. Portão de Aceite:** 27 testes do jogo e 36 testes do crate verdes; sem regressão > 5% no nível `simples`.
+#### [ ] Lote A — Fundação, Layout e Correções de Paridade *(Reaberto após Revisão do Claude - Em andamento)*
+- [ ] **A1. Host wgpu (`rts`):** Ajustar para `min(8, adapter.limits().max_storage_buffers_per_shader_stage)` em `crates/rts-egui/src/frame/gpu.rs` para não falhar em adapters antigos; expor ao TS e separar do commit de runtime-boot.
+- [ ] **A2. Paridade dos Estáticos (`rts-game`):** Teste discriminante real (offset > meia-extensão: chão hx=2, cx=+10; C1 em x=10 assenta e C0 em x=0 NÃO assenta; comparar CPU Scene × GPU × Rust).
+- [ ] **A3. Semântica de Cinemáticos Real:** Tipo de corpo com 3 valores (`static`/`kinematic`/`dynamic`) no layout; integradores pulando gravidade/arrasto para `kinematic`; dinâmico apoiado é carregado.
+- [ ] **A4. Layout Versionado nos 3 Backends:** `pose` (8 floats), `motion` (8 floats) e `world_tail` (frio). Layer/mask e contador de overflow do grid (32 vagas por bucket).
+- [ ] **A5. Portão de Aceite:** Testes discriminantes verdes em branch e vermelhos em master; sem regressão > 5% no nível `simples`.
 
 #### [ ] Lote B — Consultas e Eventos
 - [ ] **B1. Consultas Espaciais:** `raycast` e `overlap` com especificação de latência e retorno associado ao `stepId`.

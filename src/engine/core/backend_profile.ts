@@ -33,51 +33,91 @@ export const PROF_GPU = 1;
 export const PROF_RUST = 2;
 export const PROF_DESCONHECIDO = 0 - 1;
 
-/// Os n medidos, em ordem crescente.
-const PROF_NS: number[] = [250, 1000, 2000, 4000, 8000];
-/// ms/passo da GPU em cada n de `PROF_NS`.
-const PROF_GPU_MS: f64[] = [0.52, 0.73, 0.97, 1.63, 3.43];
-/// As contagens de thread medidas, em ordem crescente.
-const PROF_TS: number[] = [1, 2, 4, 16];
-/// ms/passo do Rust: uma linha por contagem de thread, na ordem de `PROF_NS`.
-const PROF_RUST_MS: f64[][] = [
+/// Dispositivo da medição de fábrica (padrão de referência).
+export const PROF_FACTORY_DEVICE = "NVIDIA GeForce RTX 2080 Ti";
+
+/// Os n medidos de fábrica, em ordem crescente.
+const FACTORY_NS: number[] = [250, 1000, 2000, 4000, 8000];
+/// ms/passo da GPU em cada n de `FACTORY_NS`.
+const FACTORY_GPU_MS: f64[] = [0.52, 0.73, 0.97, 1.63, 3.43];
+/// As contagens de thread medidas de fábrica, em ordem crescente.
+const FACTORY_TS: number[] = [1, 2, 4, 16];
+/// ms/passo do Rust: uma linha por contagem de thread, na ordem de `FACTORY_NS`.
+const FACTORY_RUST_MS: f64[][] = [
   [0.142, 0.767, 1.867, 4.550, 10.383],   // 1 thread
   [0.100, 0.425, 0.975, 2.333, 5.300],    // 2 threads
   [0.067, 0.258, 0.550, 1.250, 2.750],    // 4 threads
   [0.042, 0.183, 0.308, 0.625, 1.417],    // 16 threads
 ];
 
+let profNs: number[] = [250, 1000, 2000, 4000, 8000];
+let profGpuMsArr: f64[] = [0.52, 0.73, 0.97, 1.63, 3.43];
+let profTs: number[] = [1, 2, 4, 16];
+let profRustMsArr: f64[][] = [
+  [0.142, 0.767, 1.867, 4.550, 10.383],
+  [0.100, 0.425, 0.975, 2.333, 5.300],
+  [0.067, 0.258, 0.550, 1.250, 2.750],
+  [0.042, 0.183, 0.308, 0.625, 1.417],
+];
+
+/// Dispositivo em uso pela calibração atual.
+export function profDevice(): string {
+  return PROF_FACTORY_DEVICE;
+}
+
+/// Restaura a tabela de fábrica medida na RTX 2080 Ti.
+export function profResetFactoryDefaults(): void {
+  profNs = FACTORY_NS.slice();
+  profGpuMsArr = FACTORY_GPU_MS.slice();
+  profTs = FACTORY_TS.slice();
+  profRustMsArr = [
+    FACTORY_RUST_MS[0].slice(),
+    FACTORY_RUST_MS[1].slice(),
+    FACTORY_RUST_MS[2].slice(),
+    FACTORY_RUST_MS[3].slice(),
+  ];
+}
+
+/// Permite injetar uma nova tabela medida em tempo de execução.
+export function profSetTable(ns: number[], gpuMs: f64[], ts: number[], rustMs: f64[][]): void {
+  profNs = ns.slice();
+  profGpuMsArr = gpuMs.slice();
+  profTs = ts.slice();
+  profRustMsArr = [];
+  let i = 0;
+  while (i < rustMs.length) {
+    profRustMsArr.push(rustMs[i].slice());
+    i = i + 1;
+  }
+}
+
 /// A faixa de `n` em que há medição: `[nMin, nMax]`.
 export function profRange(): number[] {
-  return [PROF_NS[0], PROF_NS[PROF_NS.length - 1]];
+  return [profNs[0], profNs[profNs.length - 1]];
 }
 
 /// O índice da linha de threads mais próxima (por baixo) de `threads`.
-///
-/// Por baixo e não a mais próxima: entre 4 e 16 medidos, uma máquina de 8
-/// threads é tratada como 4. Subestimar o Rust erra para o lado seguro — no
-/// máximo escolhe a GPU onde o Rust já serviria, e nunca o contrário.
 function profLinha(threads: number): number {
   let k = 0;
   let i = 0;
-  while (i < PROF_TS.length) {
-    if (PROF_TS[i] <= threads) k = i;
+  while (i < profTs.length) {
+    if (profTs[i] <= threads) k = i;
     i = i + 1;
   }
   return k;
 }
 
-/// Interpola `vals` (alinhada a `PROF_NS`) no ponto `n`. `-1` acima da faixa;
+/// Interpola `vals` (alinhada a `profNs`) no ponto `n`. `-1` acima da faixa;
 /// abaixo dela, GRAMPEIA no primeiro ponto — ver o doc de `profBest`.
 function profEm(vals: f64[], n: number): f64 {
-  const ultimo = PROF_NS.length - 1;
-  if (n > PROF_NS[ultimo]) return 0.0 - 1.0;
-  if (n <= PROF_NS[0]) return vals[0];
+  const ultimo = profNs.length - 1;
+  if (n > profNs[ultimo]) return 0.0 - 1.0;
+  if (n <= profNs[0]) return vals[0];
   let i = 0;
   while (i < ultimo) {
-    if (n <= PROF_NS[i + 1]) {
-      const a: f64 = PROF_NS[i] * 1.0;
-      const b: f64 = PROF_NS[i + 1] * 1.0;
+    if (n <= profNs[i + 1]) {
+      const a: f64 = profNs[i] * 1.0;
+      const b: f64 = profNs[i + 1] * 1.0;
       const t: f64 = (n * 1.0 - a) / (b - a);
       return vals[i] + (vals[i + 1] - vals[i]) * t;
     }
@@ -87,17 +127,20 @@ function profEm(vals: f64[], n: number): f64 {
 }
 
 /// ms por passo simulado da GPU a `n` corpos. `-1` = fora da faixa medida.
-export function profGpuMs(n: number): f64 {
-  return profEm(PROF_GPU_MS, n);
+/// `nivel` reservado para complexidade de cena/colisores (Lote B/C).
+export function profGpuMs(n: number, nivel: number = 0): f64 {
+  return profEm(profGpuMsArr, n);
 }
 
 /// ms por passo simulado do Rust a `n` corpos com `threads` threads.
 /// `-1` = fora da faixa medida.
-export function profRustMs(n: number, threads: number): f64 {
-  return profEm(PROF_RUST_MS[profLinha(threads)], n);
+/// `nivel` reservado para complexidade de cena/colisores (Lote B/C).
+export function profRustMs(n: number, threads: number, nivel: number = 0): f64 {
+  return profEm(profRustMsArr[profLinha(threads)], n);
 }
 
 /// Quem vence em `(n, threads)`: `PROF_GPU`, `PROF_RUST` ou `PROF_DESCONHECIDO`.
+/// `nivel` reservado para complexidade de cena/colisores (Lote B/C).
 ///
 /// ACIMA da faixa recusa, porque lá a medição mede um backend quebrado (ver o
 /// cabeçalho). ABAIXO dela grampeia no menor n medido, e isso não é
@@ -106,9 +149,9 @@ export function profRustMs(n: number, threads: number): f64 {
 ///
 /// No empate o RUST ganha — ele é determinístico bit a bit e não custa um frame
 /// de latência, então empate de desempenho não é empate de propriedades.
-export function profBest(n: number, threads: number): number {
-  const g = profGpuMs(n);
-  const r = profRustMs(n, threads);
+export function profBest(n: number, threads: number, nivel: number = 0): number {
+  const g = profGpuMs(n, nivel);
+  const r = profRustMs(n, threads, nivel);
   if (g < 0.0 || r < 0.0) return PROF_DESCONHECIDO;
   return r <= g ? PROF_RUST : PROF_GPU;
 }

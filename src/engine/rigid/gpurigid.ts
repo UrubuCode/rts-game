@@ -279,18 +279,18 @@ fn worldAt(k: u32) -> f32 {
 // O formato é o de engine/rigid/materials.ts, que é o mesmo que o solver em
 // Rust lê — uma segunda descrição dele aqui seria a forma de os dois backends
 // discordarem sobre qual número é o atrito.
-struct Material { g: f32, quique: f32, arrasto: f32, atrito: f32, chao: f32 }
+struct Material { g: f32, quique: f32, arrasto: f32, atrito: f32, chao: f32, tipo: f32 }
 
 fn materialDoCorpo(i: u32) -> Material {
   let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
   return Material(worldAt(at), worldAt(at + 1u), worldAt(at + 2u),
-                  worldAt(at + 3u), worldAt(at + 4u));
+                  worldAt(at + 3u), worldAt(at + 4u), worldAt(at + 5u));
 }
 
 // O de um ESTÁTICO: só quique e atrito. Ele não cai, não arrasta e é o chão.
 fn materialDoEstatico(k: u32) -> Material {
   let at = ${RB_MAT_AT}u + k * ${MAT_STATIC_REC}u;
-  return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30);
+  return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30, 0.0);
 }
 
 // Quanto da velocidade de aproximação volta. A média dos dois, e nada abaixo de
@@ -322,6 +322,19 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let h = ext[id.x].xyz;
   let im = ext[id.x].w;
   let meu = materialDoCorpo(id.x);
+
+  // ── TIPOS DE CORPO: 0 = estático, 1 = cinemático, 2 = dinâmico ──────────
+  if (meu.tipo == 0.0) {
+    pos[id.x] = vec4<f32>(p, 10.0);
+    vel[id.x] = vec4<f32>(0.0, 0.0, 0.0, forma);
+    return;
+  }
+  if (meu.tipo == 1.0) {
+    p = p + v * dt;
+    pos[id.x] = vec4<f32>(p, 0.0);
+    vel[id.x] = vec4<f32>(v, forma);
+    return;
+  }
 
   // ── DORMINDO: só escaneia por um vizinho RÁPIDO encostando (senão sai) ───
   // A varredura de acordar também passou pelo grid. Ela era O(n) POR CORPO
@@ -561,11 +574,22 @@ export function rbSetBody(i: number, x: f64, y: f64, z: f64,
   buffer.write_f32(rbExtBuf, (i * 4 + 1) * 4, hy);
   buffer.write_f32(rbExtBuf, (i * 4 + 2) * 4, hz);
   buffer.write_f32(rbExtBuf, (i * 4 + 3) * 4, mass > 0.0 ? 1.0 / mass : 0.0);
+  const baseMat = MAT_MAX_STATICS * MAT_STATIC_REC + i * MAT_BODY_REC;
+  if (baseMat + 5 < rbMatBuf.length) {
+    rbMatBuf[baseMat + 5] = mass <= 0.0 ? 1.0 : 2.0;
+  }
   // A célula é dimensionada pelo MAIOR corpo (ver rbWriteWorld); acompanhar
   // aqui é o único lugar que vê todas as extensões sem varrer nada de novo.
   if (hx > rbMaxHalf) rbMaxHalf = hx;
   if (hy > rbMaxHalf) rbMaxHalf = hy;
   if (hz > rbMaxHalf) rbMaxHalf = hz;
+}
+
+/// Sobe posições e velocidades para a GPU em lote (usado quando muitos corpos se movem).
+export function rbUploadPosVel(): void {
+  if (rbPipe === 0) return;
+  gpu.write(rbGPos, rbPosBuf, rbN * 16);
+  gpu.write(rbGVel, rbVelBuf, rbN * 16);
 }
 
 /// Escreve params + estáticos do espelho para a GPU.

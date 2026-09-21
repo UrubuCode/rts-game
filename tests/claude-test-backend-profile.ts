@@ -61,6 +61,21 @@ check("o backend Rust responde a sondagem", crAvailable() === 1 ? 1 : 0);
 check("e a sondagem e idempotente", crAvailable() === 1 ? 1 : 0);
 check("threads > 0 quando disponivel", crThreads() > 0 ? 1 : 0);
 
+// ── 8) rotulo de dispositivo de fabrica e nivel reservado ─────────────────
+import { profDevice, profSetTable, profResetFactoryDefaults } from "@engine/core/backend_profile";
+check("dispositivo de fabrica e RTX 2080 Ti", profDevice().indexOf("2080 Ti") >= 0 ? 1 : 0);
+check("nivel reservado e aceito em profGpuMs", profGpuMs(2000, 0) > 0.0 ? 1 : 0);
+check("nivel reservado e aceito em profRustMs", profRustMs(2000, 16, 0) > 0.0 ? 1 : 0);
+check("nivel reservado e aceito em profBest", profBest(2000, 16, 0) === PROF_RUST ? 1 : 0);
+
+// ── 9) re-medicao dinamica (profSetTable) e restauracao (profResetFactoryDefaults) ──
+profSetTable([100, 500], [0.10, 0.20], [1, 2], [[0.50, 1.00], [0.30, 0.60]]);
+check("tabela customizada: faixa alterada para 100..500", profRange()[0] === 100 && profRange()[1] === 500 ? 1 : 0);
+check("tabela customizada: GPU vence em 100 com 1 thread", profBest(100, 1) === PROF_GPU ? 1 : 0);
+profResetFactoryDefaults();
+check("restauracao de fabrica: faixa volta a 250..8000", profRange()[0] === 250 && profRange()[1] === 8000 ? 1 : 0);
+check("restauracao de fabrica: Rust vence em 250 com 1 thread", profBest(250, 1) === PROF_RUST ? 1 : 0);
+
 io.print("[resultado] " + ok + " ok, " + fail + " falhas");
 if (fail === 0) {
   io.print("[PASSOU]");
