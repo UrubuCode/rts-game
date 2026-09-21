@@ -55,6 +55,7 @@ import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
+         MAT_STATIC_LAYER, MAT_STATIC_MASK, MAT_BODY_LAYER, MAT_BODY_MASK,
          matFillDefaults, matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
          WORLD_HEADER_FLOATS, WORLD_HEADER_VEC4S, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
          WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
@@ -307,14 +308,35 @@ fn materialDoCorpo(i: u32) -> Material {
   let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
   return Material(worldAt(at), worldAt(at + 1u), worldAt(at + 2u),
                   worldAt(at + 3u), worldAt(at + 4u), worldAt(at + 5u),
-                  bitcast<u32>(worldAt(at + 6u)), bitcast<u32>(worldAt(at + 7u)));
+                  bitcast<u32>(worldAt(at + ${MAT_BODY_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_BODY_MASK}u)));
+}
+
+// Só (layer, mask) de um corpo VIZINHO: é tudo que o filtro precisa ANTES do
+// teste de contato. O material inteiro são oito leituras do world e na cena
+// densa havia uma por candidato; agora ele só é lido depois que o contato
+// existe, e estas duas só quando a cena tem alguma máscara (any_mask).
+fn mascaraDoCorpo(i: u32) -> vec2<u32> {
+  let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
+  return vec2<u32>(bitcast<u32>(worldAt(at + ${MAT_BODY_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_BODY_MASK}u)));
 }
 
 // O de um ESTÁTICO: só quique, atrito, layer, mask. Ele não cai, não arrasta e é o chão.
 fn materialDoEstatico(k: u32) -> Material {
   let at = ${RB_MAT_AT}u + k * ${MAT_STATIC_REC}u;
   return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30, 1.0,
-                  bitcast<u32>(worldAt(at + 2u)), bitcast<u32>(worldAt(at + 3u)));
+                  bitcast<u32>(worldAt(at + ${MAT_STATIC_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_STATIC_MASK}u)));
+}
+
+// O mesmo que mascaraDoCorpo, para um estático.
+fn mascaraDoEstatico(k: u32) -> vec2<u32> {
+  let at = ${RB_MAT_AT}u + k * ${MAT_STATIC_REC}u;
+  return vec2<u32>(bitcast<u32>(worldAt(at + ${MAT_STATIC_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_STATIC_MASK}u)));
+}
+
+// O filtro de colisão, simétrico: os dois lados precisam se aceitar. x = layer,
+// y = mask, no formato de mascaraDoCorpo/mascaraDoEstatico.
+fn filtrado(a: vec2<u32>, b: vec2<u32>) -> bool {
+  return (a.y & b.x) == 0u || (b.y & a.x) == 0u;
 }
 
 // Quanto da velocidade de aproximação volta. A média dos dois, e nada abaixo de
@@ -348,6 +370,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let h = ext[id.x].xyz;
   let im = ext[id.x].w;
   let meu = materialDoCorpo(id.x);
+  let minhaMascara = vec2<u32>(meu.layer, meu.mask);
 
   // ── TIPOS DE CORPO: 1 = estático, 2 = cinemático, 3 (ou 0 default) = dinâmico ──
   if (meu.tipo == ${BODY_STATIC.toFixed(1)}) {
@@ -379,8 +402,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
       for (var s: u32 = 0u; s < cnt; s = s + 1u) {
         let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + s));
         if (j == id.x) { continue; }
-        let outro = materialDoCorpo(j);
-        if (anyMask && ((meu.mask & outro.layer) == 0u || (outro.mask & meu.layer) == 0u)) { continue; }
+        // Aqui o material do vizinho nem é preciso: acordar só depende de haver
+        // contato. Com filtro ligado, basta layer/mask.
+        if (anyMask && filtrado(minhaMascara, mascaraDoCorpo(j))) { continue; }
         let vj = vel[j].xyz;
         if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
           let c = contato(p, h, forma, pos[j].xyz, ext[j].xyz, vel[j].w);
@@ -416,8 +440,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
   // ── ESTÁTICOS (AABBs do world): expulsa pelo eixo mais raso, absorve ─────
   for (var k: u32 = 0u; k < m; k = k + 1u) {
-    let dele = materialDoEstatico(k);
-    if (anyMask && ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u)) { continue; }
+    if (anyMask && filtrado(minhaMascara, mascaraDoEstatico(k))) { continue; }
     let base = ${WORLD_HEADER_VEC4S}u + k * ${STATIC_RECORD_VEC4S}u;
     let sc = world[base].xyz;
     let sh = world[base + 1u].xyz;
@@ -429,6 +452,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let formaEst = select(1.0, 0.0, world[base].w > 0.5);
     let c = contato(p, h, forma, sc, sh, formaEst);
     if (c.w > 0.0) {
+      // O material completo só quando há contato de verdade (ver mascaraDoCorpo).
+      let dele = materialDoEstatico(k);
       apoiado = true;
       let nr = c.xyz;
       // Estático não cede: a correção inteira é minha (85%, slop 0.04).
@@ -466,12 +491,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var sl: u32 = 0u; sl < cnt; sl = sl + 1u) {
     let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + sl));
     if (j == id.x) { continue; }
-    let dele = materialDoCorpo(j);
-    if (anyMask && ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u)) { continue; }
+    if (anyMask && filtrado(minhaMascara, mascaraDoCorpo(j))) { continue; }
     let pj = pos[j].xyz;
     let hj = ext[j].xyz;
     let c = contato(p, h, forma, pj, hj, vel[j].w);
     if (c.w <= 0.0) { continue; }
+    // O material completo do vizinho só DEPOIS do contato: na cena densa quase
+    // todo candidato é contato, mas os que não são deixam de pagar 8 leituras.
+    let dele = materialDoCorpo(j);
     apoiado = true;
     let nr = c.xyz;
     let imj = ext[j].w;

@@ -67,8 +67,16 @@ export const MAT_MAX_STATICS = 256;
 export const MAT_AT = WORLD_HEADER_FLOATS + MAT_MAX_STATICS * STATIC_RECORD_FLOATS;
 /// Um estático: restituição, atrito, dois livres.
 export const MAT_STATIC_REC = 4;
-/// Um corpo: gravidade, restituição, arrasto, atrito, chão, três livres.
+/// Um corpo: gravidade, restituição, arrasto, atrito, chão, tipo, layer, mask.
 export const MAT_BODY_REC = 8;
+/// Onde layer e mask moram DENTRO de cada registro (índices de f32, gravados
+/// como u32). Nomeados porque há três leitores — estes escritores, o kernel
+/// WGSL (que lê só os dois quando o filtro está ligado) e o solver em Rust — e
+/// um número repetido em cada um é como eles passariam a ler campos diferentes.
+export const MAT_STATIC_LAYER = 2;
+export const MAT_STATIC_MASK = 3;
+export const MAT_BODY_LAYER = 6;
+export const MAT_BODY_MASK = 7;
 /// Quantos f32 a região inteira ocupa para `n` corpos.
 export function matBytesFor(n: number): number {
   return MAT_MAX_STATICS * MAT_STATIC_REC + n * MAT_BODY_REC;
@@ -128,8 +136,8 @@ export function matFillDefaults(w: Float32Array, at: number, n: number, wU32?: U
     const base = at + k * MAT_STATIC_REC;
     w[base] = 0.0;
     w[base + 1] = MAT_DEF_FRICTION;
-    u32[base + 2] = LAYER_DEFAULT;
-    u32[base + 3] = MASK_ALL;
+    u32[base + MAT_STATIC_LAYER] = LAYER_DEFAULT;
+    u32[base + MAT_STATIC_MASK] = MASK_ALL;
     k = k + 1;
   }
   const bodies = at + MAT_MAX_STATICS * MAT_STATIC_REC;
@@ -142,8 +150,8 @@ export function matFillDefaults(w: Float32Array, at: number, n: number, wU32?: U
     w[base + 3] = MAT_DEF_FRICTION;
     w[base + 4] = 0.0 - 1.0e30;
     w[base + 5] = BODY_DYNAMIC;  // 3.0 = dynamic por default
-    u32[base + 6] = LAYER_DEFAULT;
-    u32[base + 7] = MASK_ALL;
+    u32[base + MAT_BODY_LAYER] = LAYER_DEFAULT;
+    u32[base + MAT_BODY_MASK] = MASK_ALL;
     k = k + 1;
   }
 }
@@ -192,8 +200,8 @@ export function matWriteBody(w: Float32Array, at: number, k: number,
   w[base + 5] = bodyTypeOf(o);
 
   const u32 = wU32 !== undefined ? wU32 : new Uint32Array(w.buffer, w.byteOffset, w.length);
-  u32[base + 6] = o.layer;
-  u32[base + 7] = o.mask;
+  u32[base + MAT_BODY_LAYER] = o.layer;
+  u32[base + MAT_BODY_MASK] = o.mask;
 }
 
 /// Escreve o material do estático `k` em `w` (ver `matWriteBody` sobre `at`).
@@ -202,6 +210,6 @@ export function matWriteStatic(w: Float32Array, at: number, k: number, t: Transf
   w[base] = t.restitution;
   w[base + 1] = t.friction;
   const u32 = wU32 !== undefined ? wU32 : new Uint32Array(w.buffer, w.byteOffset, w.length);
-  u32[base + 2] = o !== undefined ? o.layer : LAYER_DEFAULT;
-  u32[base + 3] = o !== undefined ? o.mask : MASK_ALL;
+  u32[base + MAT_STATIC_LAYER] = o !== undefined ? o.layer : LAYER_DEFAULT;
+  u32[base + MAT_STATIC_MASK] = o !== undefined ? o.mask : MASK_ALL;
 }
