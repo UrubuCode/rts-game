@@ -147,6 +147,14 @@ corrigir o teste deixa a suíte vermelha no meio do caminho.
    em wasm) e `physics` é *feature* opcional no `rts-host`. Num build sem ela o
    padrão falharia no carregamento. `crAvailable()` passa a responder de verdade
    e `pbAlvo` cai para GPU ou CPU quando `rts:rigid` não existe.
+   *Limite achado na implementação (`803c3f7`):* o import de `@compat/rigid.ts`
+   é de topo, então um build sem o módulo falha no **carregamento**, antes de
+   qualquer sondagem. A queda em runtime só existe com import dinâmico; até lá
+   o portão cobre "o módulo está e recusa", não "o módulo não está".
+4a. **Histerese na troca de dono.** O modo AUTO reavalia o perfil a cada passo;
+   perto do joelho (≈2 000 corpos com 2 threads) uma cena com spawn contínuo
+   trocaria Rust↔GPU repetidamente, pagando leitura síncrona e ressincronização
+   a cada troca. Só troca quem vence por margem ≥ 20% durante N passos seguidos.
 4. **Padrão → Rust, condicionado ao perfil.** Nesta máquina (16 threads) ele
    vence em toda a faixa; numa de 1–2 threads com cena grande, não.
 5. **Corrigir o que a mudança quebra**, nominalmente:
