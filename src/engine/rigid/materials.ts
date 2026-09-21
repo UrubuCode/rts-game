@@ -53,6 +53,11 @@ export const WORLD_PARAM_CELL_SIZE = 2;
 export const WORLD_PARAM_SUBSTEPS = 3;
 export const WORLD_PARAM_LAYOUT_VERSION = 4;
 export const WORLD_PARAM_ANY_MASK = 5;
+/// Os dois slots livres do cabeçalho. Nomeados para que quem os zera escreva
+/// por nome: um `world[6] = 0` literal apagaria em silêncio um parâmetro que
+/// um dia fosse movido para lá (é como se perderia o `any_mask`, por exemplo).
+export const WORLD_PARAM_RESERVED_A = 6;
+export const WORLD_PARAM_RESERVED_B = 7;
 
 /// Registro de estático no world (pos/round: 4 floats, half/pad: 4 floats = 8 floats / 2 vec4s)
 export const STATIC_RECORD_FLOATS = 8;

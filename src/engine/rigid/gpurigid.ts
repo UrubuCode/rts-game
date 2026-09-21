@@ -59,7 +59,7 @@ import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
          matFillDefaults, matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
          WORLD_HEADER_FLOATS, WORLD_HEADER_VEC4S, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
          WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
-         WORLD_PARAM_ANY_MASK,
+         WORLD_PARAM_ANY_MASK, WORLD_PARAM_RESERVED_A, WORLD_PARAM_RESERVED_B,
          STATIC_RECORD_FLOATS, STATIC_RECORD_VEC4S,
          BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 import { Transform } from "../core/transform";
@@ -671,9 +671,9 @@ function rbWriteWorld(): void {
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_SUBSTEPS * 4, 1.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4, PHYSICS_LAYOUT_VERSION * 1.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_ANY_MASK * 4, rbAnyMask > 0 ? 1.0 : 0.0);
-  buffer.write_f32(rbWorldBuf, 24, 0.0);
-  buffer.write_f32(rbWorldBuf, 28, 0.0);
-  gpu.write(rbGWorld, rbWorldBuf, (2 + rbStatics * 2) * 16);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_RESERVED_A * 4, 0.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_RESERVED_B * 4, 0.0);
+  gpu.write(rbGWorld, rbWorldBuf, (WORLD_HEADER_VEC4S + rbStatics * STATIC_RECORD_VEC4S) * 16);
 }
 
 /// A FORMA do colisor: `COL_SPHERE` (0) ou `COL_BOX` (1) de `gameobject.ts`.

@@ -46,7 +46,8 @@ import { MAT_AT, MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor, mat
          matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
          WORLD_HEADER_FLOATS, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
          WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
-         WORLD_PARAM_ANY_MASK, STATIC_RECORD_FLOATS,
+         WORLD_PARAM_ANY_MASK, WORLD_PARAM_RESERVED_A, WORLD_PARAM_RESERVED_B,
+         STATIC_RECORD_FLOATS,
          BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
@@ -214,8 +215,8 @@ function crWriteWorld(substeps: number): void {
   crWorld[WORLD_PARAM_SUBSTEPS] = substeps * 1.0;
   crWorld[WORLD_PARAM_LAYOUT_VERSION] = PHYSICS_LAYOUT_VERSION * 1.0;
   crWorld[WORLD_PARAM_ANY_MASK] = crAnyMask > 0 ? 1.0 : 0.0;
-  crWorld[6] = 0.0;
-  crWorld[7] = 0.0;
+  crWorld[WORLD_PARAM_RESERVED_A] = 0.0;
+  crWorld[WORLD_PARAM_RESERVED_B] = 0.0;
 }
 
 /// Compat com o `rbUpload`: aqui os espelhos SÃO o estado, então não há o que

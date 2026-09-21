@@ -21,6 +21,10 @@ import {
   WORLD_PARAM_CELL_SIZE,
   WORLD_PARAM_SUBSTEPS,
   WORLD_PARAM_LAYOUT_VERSION,
+  WORLD_PARAM_NUM_STATICS,
+  WORLD_PARAM_RESERVED_A,
+  WORLD_PARAM_RESERVED_B,
+  WORLD_HEADER_FLOATS,
   matBytesFor,
   matFillDefaults,
   matWriteBody,
@@ -142,6 +146,19 @@ check("Aceite de versao de layout valida (PHYSICS_LAYOUT_VERSION -> 1)", aceitou
 
 // 5. Teste de recusa e aceite de versão de layout no rbInit (GPU)
 check("WORLD_PARAM_ANY_MASK === 5", WORLD_PARAM_ANY_MASK === 5);
+// Todo slot do cabeçalho tem nome, cabe no cabeçalho e nenhum divide lugar com
+// outro — é o que impede zerar um slot "livre" de apagar o any_mask.
+const slotsCabecalho = [WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS, WORLD_PARAM_CELL_SIZE,
+  WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION, WORLD_PARAM_ANY_MASK,
+  WORLD_PARAM_RESERVED_A, WORLD_PARAM_RESERVED_B];
+let slotsOk = slotsCabecalho.length === WORLD_HEADER_FLOATS;
+for (let a = 0; a < slotsCabecalho.length; a = a + 1) {
+  if (slotsCabecalho[a] < 0 || slotsCabecalho[a] >= WORLD_HEADER_FLOATS) slotsOk = false;
+  for (let b = a + 1; b < slotsCabecalho.length; b = b + 1) {
+    if (slotsCabecalho[a] === slotsCabecalho[b]) slotsOk = false;
+  }
+}
+check("Slots WORLD_PARAM_* distintos e cobrindo o cabecalho", slotsOk);
 // A checagem acompanha a CONSTANTE: a versão vizinha é recusada e a própria é
 // aceita. Com o literal antigo (`!== 1`), subir a constante inverteria os dois.
 check("rbInit recusa versao de layout invalida (999 -> 0)", rbInit(1, 999) === 0);
