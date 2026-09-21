@@ -16,10 +16,11 @@ import { Scene } from "@engine/core/scene";
 import { GameObject } from "@engine/core/gameobject";
 import { Rigidbody } from "@scripts/rigidbody";
 import {
-  rigidCalibrate, rigidReport, rigidBackendFor, rigidBand,
+  rigidReport,
   rigidSetMode, rigidMode, rigidBackendName, rigidStep,
   rigidInvalidate, rigidBodyCount, rigidFreshFrames, rigidFrames,
 } from "@engine/core/physics_backend";
+import { crThreads } from "@engine/rigid/cpurigid";
 
 let ok = 0;
 let fail = 0;
@@ -28,7 +29,6 @@ function check(name: string, cond: number): void {
   else { fail = fail + 1; io.print("  [FALHOU] " + name); }
 }
 
-rigidCalibrate();
 rigidReport();
 
 const sc = new Scene("BackendTest");
@@ -60,25 +60,20 @@ while (b < 24) {
 }
 sc.computeWorld();
 
-// ── 1) o padrão é GPU, com queda para a CPU ────────────────────────────────
-//
-// Era CPU, e as três asserções aqui diziam isso. A decisão mudou em 2026-08-11
-// — "default gpu e fallback cpu" — e este teste FALHOU, que é exatamente o que
-// ele existe para fazer. O que ele pina agora é a queda: numa máquina sem placa
-// o padrão GPU não pode lançar nem travar o editor, e a prova disso é o nome do
-// backend explicar por que caiu.
-check("modo padrao = GPU", rigidMode() === 1 ? 1 : 0);
+check("o padrao e AUTO", rigidMode() === 3 ? 1 : 0);
 
-const temPlaca = rigidBackendFor(24) >= 0 ? 1 : 0;
-// O passo vem ANTES de olhar o nome: o backend só se resolve ao ser usado, e
-// perguntar o nome antes disso mede a inicialização e não a decisão.
-const assumiuNoPadrao = rigidStep(sc, 0) !== 0 ? 1 : 0;
-io.print("  padrao: placa=" + temPlaca + " assumiu=" + assumiuNoPadrao +
-         " nome=" + rigidBackendName());
-check("no padrao, quem assume o frame e a GPU — e so ela",
-      assumiuNoPadrao === temPlaca ? 1 : 0);
-check("sem placa, o nome do backend EXPLICA a queda",
-      temPlaca === 1 || rigidBackendName() !== "gpu" ? 1 : 0);
+// ── 1) a queda para a CPU nao depende do calibrador ────────────────────────
+//
+// `pbTemGpu = gpu.available()` era escrito SO dentro de `rigidCalibrate`, e
+// `pbAlvo` o lia para decidir se havia placa. Remover o calibrador sem mover
+// essa deteccao tiraria a queda para a CPU que o cabecalho deste modulo chama
+// de "nao opcional".
+rigidSetMode(1);
+const assumiuGpu = rigidStep(sc, 0) !== 0 ? 1 : 0;
+io.print("  modo gpu: assumiu=" + assumiuGpu + " nome=" + rigidBackendName());
+check("pedir GPU nao lanca, com ou sem placa", 1);
+check("sem placa, o nome EXPLICA a queda",
+      assumiuGpu === 1 || rigidBackendName() !== "gpu" ? 1 : 0);
 
 // ── 2) opt-in explícito ────────────────────────────────────────────────────
 rigidSetMode(1);
@@ -97,7 +92,7 @@ io.print("  backend ativo: " + rigidBackendName() + " | corpos=" + rigidBodyCoun
          " frames=" + rigidFrames() + " comEstadoNovo=" + rigidFreshFrames());
 io.print("  bloco 0: y " + alturaAntes + " -> " + alturaDepois);
 
-if (rigidBackendFor(24) >= 0 && rigidBackendName() === "gpu") {
+if (rigidBackendName() === "gpu") {
   check("a GPU assumiu todos os 180 frames", assumidos === 180 ? 1 : 0);
   check("a GPU devolveu estado novo em algum frame", rigidFreshFrames() > 0 ? 1 : 0);
   check("os corpos CAIRAM (a fisica chegou nos transforms)", alturaDepois < alturaAntes - 1.0 ? 1 : 0);
@@ -136,9 +131,18 @@ check("voltar para CPU: o passo devolve 0", rigidStep(sc, 0) === 0 ? 1 : 0);
   rigidSetMode(0);
 }
 
-// ── 5) a faixa é coerente ──────────────────────────────────────────────────
-const faixa = rigidBand();
-check("faixa coerente (lo <= hi)", faixa[0] <= faixa[1] ? 1 : 0);
+// ── 5) o modo AUTO consulta o perfil medido ───────────────────────────────
+//
+// O modo 3 e novo. O 2 continua sendo "Rust sempre" (escolha manual); o 3 diz
+// "escolha por medicao", e e o que o editor usa por padrao.
+rigidSetMode(3);
+check("modo auto fica em 3", rigidMode() === 3 ? 1 : 0);
+const nomeAuto = rigidBackendName();
+io.print("  auto escolheu: " + nomeAuto + " (threads=" + crThreads() + ")");
+check("auto escolhe rust ou gpu, nunca vazio", nomeAuto.length > 2 ? 1 : 0);
+// Nesta maquina (>=16 threads) e nesta cena (24 corpos), o perfil diz Rust.
+check("com muitas threads e cena pequena, auto = rust",
+      crThreads() < 4 || nomeAuto.indexOf("rust") === 0 ? 1 : 0);
 
 io.print("[resultado] " + ok + " ok, " + fail + " falhas");
 io.print(fail === 0 ? "[PASSOU]" : "[FALHOU]");

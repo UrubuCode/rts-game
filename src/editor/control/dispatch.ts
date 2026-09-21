@@ -92,10 +92,11 @@ function execCommandInner(w: number, h: number, line: string): string {
       const alvo = parts[1];
       if (alvo === "gpu") { rigidSetMode(1); return "[fisica] modo=gpu ativo=" + rigidBackendName(); }
       if (alvo === "cpu") { rigidSetMode(0); return "[fisica] modo=cpu ativo=" + rigidBackendName(); }
-      if (alvo === "auto") { rigidSetMode(2); return "[fisica] modo=auto ativo=" + rigidBackendName(); }
+      if (alvo === "rust") { rigidSetMode(2); return "[fisica] modo=rust ativo=" + rigidBackendName(); }
+      if (alvo === "auto") { rigidSetMode(3); return "[fisica] modo=auto ativo=" + rigidBackendName(); }
       if (alvo === "report") { rigidReport(); return "[fisica] relatorio impresso no stdout do editor"; }
       return "[fisica] modo=" + rigidMode() + " ativo=" + rigidBackendName() +
-             " | use: fisica cpu | fisica gpu | fisica auto | fisica report";
+             " | use: fisica cpu | fisica gpu | fisica rust | fisica auto | fisica report";
     }
     case "dbg": {
       // replica a decisão do loop de render pra TODOS os objetos e conta
