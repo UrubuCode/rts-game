@@ -47,13 +47,13 @@ import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocal
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
-         rbCount, rbKick } from "../rigid/gpurigid";
+         rbCount, rbKick, rbGpuLastReadbackStep, rbSetLastReadbackStep } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
 import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
          crSyncStatics, crStep, crGridOverflow, crX, crY, crZ, crVelX, crVelY, crVelZ,
          crCount, crThreads } from "../rigid/cpurigid";
-import { FIXED_DT } from "./fixedstep";
+import { FIXED_DT, stepCount } from "./fixedstep";
 import { Behavior } from "./behavior";
 import rigid, { needForLevel } from "../../compat/rigid";
 import { profBest, profGpuMs, profRustMs, profRange, gpuSupportsLevel,
@@ -718,6 +718,7 @@ export function rigidFlush(): void {
       pbDevidos = 0;
     }
     rbReadState();
+    rbSetLastReadbackStep(stepCount());
     const m = pbObjs.length;
     let k = 0;
     while (k < m) {
@@ -739,6 +740,16 @@ export function rigidFlush(): void {
     }
     rbCancel();
   }
+}
+
+/// Retorna o passo exato da simulação do último readback concluído da GPU (Lote B, §5.1 e §7.1).
+export function pbGpuLastReadbackStep(): number {
+  return rbGpuLastReadbackStep();
+}
+
+/// Retorna o backend atualmente dono da simulação (0 = CPU, 1 = GPU, 2 = Rust).
+export function pbActiveBackend(): number {
+  return pbDono;
 }
 
 /// Imprime o PERFIL e a decisão (debug/telemetria).

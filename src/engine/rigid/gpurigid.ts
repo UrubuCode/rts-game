@@ -63,6 +63,7 @@ import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
          STATIC_RECORD_FLOATS, STATIC_RECORD_VEC4S,
          BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 import { Transform } from "../core/transform";
+import { stepCount } from "../core/fixedstep";
 
 export const RB_MAX_STATICS = MAT_MAX_STATICS;
 export const RB_DT: f64 = 1.0 / 60.0;
@@ -868,10 +869,26 @@ function rbUploadMaterials(): void {
 let rbTicket: i64 = 0;
 let rbTicketAge = 0;
 let rbKickou = 0;
+let rbKickedStep = 0;
+let rbLastReadbackStep = 0;
+
+/// Retorna o passo exato da simulação do último readback concluído da GPU.
+export function rbGpuLastReadbackStep(): number {
+  return rbLastReadbackStep;
+}
+
+/// Define manualmente o passo do último readback (para sincronizações síncronas / rigidFlush).
+export function rbSetLastReadbackStep(step: number): void {
+  rbLastReadbackStep = step;
+}
 
 /// Abandona a leitura em voo. Para quem reescreve os corpos (ressincronização):
 /// o resultado pendente descreve o estado de ANTES e não pode cair no espelho.
-export function rbCancel(): void { rbTicket = 0; rbTicketAge = 0; }
+export function rbCancel(): void {
+  rbTicket = 0;
+  rbTicketAge = 0;
+  rbKickedStep = 0;
+}
 
 /// 1 se o ÚLTIMO `rbService` submeteu passos. Ele devolve 0 tanto para "não
 /// chegou nada" quanto para "primeiro frame, acabei de submeter", e quem conta
@@ -888,6 +905,7 @@ export function rbService(substeps: number): number {
   if (rbTicket === 0) {
     rbKickou = 1;
     rbKick(substeps);
+    rbKickedStep = stepCount();
     rbTicket = gpu.read_begin(rbGPos, rbN * 16);
     return 0;
   }
@@ -896,14 +914,16 @@ export function rbService(substeps: number): number {
     // WATCHDOG: ticket preso (>60 frames sem resposta) e abandonado — a
     // simulacao NUNCA pode congelar por uma leitura perdida.
     rbTicketAge = rbTicketAge + 1;
-    if (rbTicketAge > 60) { rbTicket = 0; rbTicketAge = 0; }
+    if (rbTicketAge > 60) { rbTicket = 0; rbTicketAge = 0; rbKickedStep = 0; }
     return 0;
   }
   rbTicketAge = 0;
   rbTicket = 0;
   if (got < 0) return 0;
+  rbLastReadbackStep = rbKickedStep;
   rbKickou = 1;
   rbKick(substeps);
+  rbKickedStep = stepCount();
   rbTicket = gpu.read_begin(rbGPos, rbN * 16);
   return 1;
 }
@@ -912,6 +932,7 @@ export function rbService(substeps: number): number {
 export function rbPull(): void {
   if (rbPipe === 0) return;
   gpu.read(rbGPos, rbPosBuf, rbN * 16);
+  rbLastReadbackStep = stepCount();
 }
 /// KICK: submete `substeps` passos novos SEM esperar.
 export function rbKick(substeps: number): void {
