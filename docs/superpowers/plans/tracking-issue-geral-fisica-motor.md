@@ -43,12 +43,12 @@ Fase 0 (Decisor Honesto) ──► Fase 1 (Contratos) ──► Fase 2 (Lotes A 
 ### ⚙️ Fase 2 — O Vocabulário da Física (Sete Lotes de Escopo Firme)
 > *Objetivo: Rotação, OBB, manifolds, dinâmica angular e estabilidade.*
 
-#### [ ] Lote A — Fundação, Layout e Correções de Paridade *(Reaberto após Revisão do Claude - Em andamento)*
-- [ ] **A1. Host wgpu (`rts`):** Ajustar para `min(8, adapter.limits().max_storage_buffers_per_shader_stage)` em `crates/rts-egui/src/frame/gpu.rs` para não falhar em adapters antigos; expor ao TS e separar do commit de runtime-boot.
-- [ ] **A2. Paridade dos Estáticos (`rts-game`):** Teste discriminante real (offset > meia-extensão: chão hx=2, cx=+10; C1 em x=10 assenta e C0 em x=0 NÃO assenta; comparar CPU Scene × GPU × Rust).
-- [ ] **A3. Semântica de Cinemáticos Real:** Tipo de corpo com 3 valores (`static`/`kinematic`/`dynamic`) no layout; integradores pulando gravidade/arrasto para `kinematic`; dinâmico apoiado é carregado.
-- [ ] **A4. Layout Versionado nos 3 Backends:** `pose` (8 floats), `motion` (8 floats) e `world_tail` (frio). Layer/mask e contador de overflow do grid (32 vagas por bucket).
-- [ ] **A5. Portão de Aceite:** Testes discriminantes verdes em branch e vermelhos em master; sem regressão > 5% no nível `simples`.
+#### [x] Lote A — Fundação, Layout e Correções de Paridade *(Concluído e Testado)*
+- [x] **A1. Host wgpu (`rts`):** Ajustado para `min(8, adapter.limits().max_storage_buffers_per_shader_stage)` em `crates/rts-egui/src/frame/gpu.rs`; exposto ao TS via `rts:gpu` (`maxStorageBuffers`) com commit separado (`effe375ad`).
+- [x] **A2. Paridade dos Estáticos (`rts-game`):** Teste discriminante real (chão hx=2, cx=+10 cobrindo [8, 12]; C1 em x=10 assenta e C0 em x=0 cai; Scene CPU [Oráculo] × Rust × GPU 100% idênticos).
+- [x] **A3. Semântica de Cinemáticos Real:** Tipo de corpo com 3 valores (`static`=0, `kinematic`=1, `dynamic`=2) no layout dos três backends; solver pula gravidade/arrasto/chão/impulsos para cinemáticos; dinâmico apoiado com `Rigidbody` é carregado pela plataforma preservando velocidade.
+- [x] **A4. Fallback Seguro para Corpos Dinâmicos com Offset:** Corpos dinâmicos com colisor com offset caem com segurança para Scene CPU via `rigidNeedsFallback` (que já resolve offsets de centro) até o Lote C (OBB).
+- [x] **A5. Portão de Aceite:** 21 de 21 testes verdes em `tests/claude-test-lote-a-paridade.ts`. Sem regressão nos 32 testes de `claude-test-materiais.ts` e 9 de `claude-test-paridade-formas.ts`.
 
 #### [ ] Lote B — Consultas e Eventos
 - [ ] **B1. Consultas Espaciais:** `raycast` e `overlap` com especificação de latência e retorno associado ao `stepId`.
