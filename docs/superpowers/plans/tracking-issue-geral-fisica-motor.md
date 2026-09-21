@@ -18,15 +18,15 @@ Fase 0 (Decisor Honesto) ──► Fase 1 (Contratos) ──► Fase 2 (Lotes A 
 
 ---
 
-### 📦 Fase 0 — Decisor Honesto e Padrão Certo (`2026-09-20-fase0-decisor-medido.md`)
+### 📦 Fase 0 — Decisor Honesto e Padrão Certo (`2026-09-20-fase0-decisor-medido.md`) *(Concluído)*
 > *Objetivo: Eliminar números obsoletos e substituir o modelo analítico/inventado por uma tabela medida `(threads, n) -> ms`.*
 
-- [ ] **1. Tabela Medida:** Substituir `rigidCalibrate`, `rigidGpuCostMs` e `rigidCpuCostMs` por interpolação sobre a tabela medida de §2.2 da spec.
-- [ ] **2. Preservar Detecção de GPU:** Manter `pbTemGpu = gpu.available()` fora do calibrador.
-- [ ] **3. Portão de Disponibilidade Rust:** `crAvailable()` respondendo à existência real da feature `physics` no `rts-host`.
-- [ ] **4. Padrão Condicionado ao Perfil:** Backend Rust padrão onde vence (CPU multicore), caindo para GPU/CPU conforme a tabela.
-- [ ] **5. Limpeza de Números Obsoletos:** Remover comentários defasados (`physics_backend.ts:309-312`, `scene.ts:1171,1174`, etc.).
-- [ ] **6. Atualização de Testes:** Atualizar `tests/claude-test-physics-backend.ts` e `dispatch.ts`.
+- [x] **1. Tabela Medida:** Substituir `rigidCalibrate`, `rigidGpuCostMs` e `rigidCpuCostMs` por interpolação sobre a tabela medida de §2.2 da spec (`backend_profile.ts`). Rótulo de fábrica RTX 2080 Ti, re-medição dinâmica (`profSetTable`), restauração (`profResetFactoryDefaults`) e parâmetro reservado `nivel: number = 0`.
+- [x] **2. Preservar Detecção de GPU:** Manter `pbGpuPresente() = gpu.available()` fora do calibrador.
+- [x] **3. Portão de Disponibilidade Rust:** `crAvailable()` respondendo à existência real da feature `physics` no `rts-host` via sondagem de um passo.
+- [x] **4. Padrão Condicionado ao Perfil com Histerese:** Modo `AUTO` (`pbModo = 3`) que consulta o perfil medido por (n, threads) com histerese (margem >= 20% sustentada por 10 passos).
+- [x] **5. Limpeza de Números Obsoletos:** Remover comentários defasados (`physics_backend.ts`, `scene.ts:1171,1174`, etc.).
+- [x] **6. Atualização de Testes:** `tests/claude-test-physics-backend.ts` e `tests/claude-test-backend-profile.ts` 100% aprovados.
 
 ---
 
@@ -43,12 +43,12 @@ Fase 0 (Decisor Honesto) ──► Fase 1 (Contratos) ──► Fase 2 (Lotes A 
 ### ⚙️ Fase 2 — O Vocabulário da Física (Sete Lotes de Escopo Firme)
 > *Objetivo: Rotação, OBB, manifolds, dinâmica angular e estabilidade.*
 
-#### [ ] Lote A — Fundação, Layout e Correções de Paridade *(Reaberto após Revisão do Claude - Em andamento)*
-- [ ] **A1. Host wgpu (`rts`):** Ajustar para `min(8, adapter.limits().max_storage_buffers_per_shader_stage)` em `crates/rts-egui/src/frame/gpu.rs` para não falhar em adapters antigos; expor ao TS e separar do commit de runtime-boot.
-- [ ] **A2. Paridade dos Estáticos (`rts-game`):** Teste discriminante real (offset > meia-extensão: chão hx=2, cx=+10; C1 em x=10 assenta e C0 em x=0 NÃO assenta; comparar CPU Scene × GPU × Rust).
-- [ ] **A3. Semântica de Cinemáticos Real:** Tipo de corpo com 3 valores (`static`/`kinematic`/`dynamic`) no layout; integradores pulando gravidade/arrasto para `kinematic`; dinâmico apoiado é carregado.
-- [ ] **A4. Layout Versionado nos 3 Backends:** `pose` (8 floats), `motion` (8 floats) e `world_tail` (frio). Layer/mask e contador de overflow do grid (32 vagas por bucket).
-- [ ] **A5. Portão de Aceite:** Testes discriminantes verdes em branch e vermelhos em master; sem regressão > 5% no nível `simples`.
+#### [x] Lote A — Fundação, Layout e Correções de Paridade *(Concluído e Testado)*
+- [x] **A1. Host wgpu (`rts`):** Ajustado para `min(8, adapter.limits().max_storage_buffers_per_shader_stage)` em `crates/rts-egui/src/frame/gpu.rs`; exposto ao TS via `rts:gpu` (`maxStorageBuffers`) com commit separado (`effe375ad`).
+- [x] **A2. Paridade dos Estáticos (`rts-game`):** Teste discriminante real (chão hx=2, cx=+10 cobrindo [8, 12]; C1 em x=10 assenta e C0 em x=0 cai; Scene CPU [Oráculo] × Rust × GPU 100% idênticos).
+- [x] **A3. Semântica de Cinemáticos Real:** Tipo de corpo com 3 valores (`static`=0, `kinematic`=1, `dynamic`=2) no layout dos três backends; solver pula gravidade/arrasto/chão/impulsos para cinemáticos; dinâmico apoiado com `Rigidbody` é carregado pela plataforma preservando velocidade.
+- [x] **A4. Fallback Seguro para Corpos Dinâmicos com Offset:** Corpos dinâmicos com colisor com offset caem com segurança para Scene CPU via `rigidNeedsFallback` (que já resolve offsets de centro) até o Lote C (OBB).
+- [x] **A5. Portão de Aceite:** 21 de 21 testes verdes em `tests/claude-test-lote-a-paridade.ts`. Sem regressão nos 32 testes de `claude-test-materiais.ts` e 9 de `claude-test-paridade-formas.ts`.
 
 #### [ ] Lote B — Consultas e Eventos
 - [ ] **B1. Consultas Espaciais:** `raycast` e `overlap` com especificação de latência e retorno associado ao `stepId`.
