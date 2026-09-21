@@ -15,9 +15,24 @@
 import { step, threads } from "rts:rigid";
 import * as rtsRigid from "rts:rigid";
 
+/// Códigos de necessidade da superfície rts:rigid.supports(need)
+export const NEED_LEVEL_BASE = 9;
+export const NEED_LEVEL_SIMPLES = 9;
+export const NEED_LEVEL_ORIENTADA = 10;
+export const NEED_LEVEL_COMPLETA = 11;
+
+/// Converte o nível de simulação (0, 1, 2) no código de necessidade de rts:rigid.supports().
+export function needForLevel(nivel: number): number {
+  return NEED_LEVEL_BASE + nivel;
+}
+
 export default {
   step,
   threads,
+  supports(need: number): number {
+    const fn = (rtsRigid as any).supports;
+    return typeof fn === "function" ? fn(need) : 0;
+  },
   overflows(): number {
     const fn = (rtsRigid as any).overflows;
     return typeof fn === "function" ? fn() : 0;
