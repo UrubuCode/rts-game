@@ -122,7 +122,8 @@ let rbAnyMask = 0;
 // n = 8000, medido com passos em lote).
 let rbPipe: i64 = 0;
 // Compilada só na PRIMEIRA vez que uma cena com máscara chega ao `rbKick`
-// (ver `rbPipeComFiltro`): a cena sem máscara nunca a cria.
+// (ver `rbPipeComFiltro`): a cena sem máscara nunca paga a compilação (~1 s).
+// Existir, ela não custa nada por passo.
 let rbPipeFiltro: i64 = 0;
 let rbPipeFiltroFalhou = 0;   // não recompila (nem repete o erro) a cada kick
 let rbPipeGrid: i64 = 0;    // constrói o grid — os ÚNICOS atomics daqui
@@ -608,10 +609,24 @@ function rbBindFiltro(): void {
 }
 
 /// A variante com filtro, compilada sob demanda. Sob demanda e não no `rbInit`
-/// porque MEDIU pior: com o segundo pipeline criado já no `rbInit`, a cena sem
-/// máscara — que nunca o despacha — ficou 3–6% mais lenta por passo em modo
-/// pipelined (n = 4000–8000), enquanto o tempo de GPU do kernel não mudou; sem
-/// ele, a diferença sumiu. O porquê está no host/driver e não foi isolado.
+/// porque compilar custa: ~1,0 s de host bloqueado para esta variante (0,9 s os
+/// três pipelines do `rbInit`; RTX 2080 Ti, DX12), e a cena sem máscara não tem
+/// por que pagar isso. A cena com máscara paga uma vez, no primeiro kick.
+///
+/// A variante EXISTIR não custa nada em regime — medido pareado no mesmo
+/// processo (compila, assenta 2 s, mede, libera com um `shaderFree` experimental
+/// no host, assenta, mede; 48 pares):
+/// −1,0% em n = 4000 e −0,1% em n = 8000. O "+5–14% por um pipeline extra
+/// nunca despachado" medido antes era o transitório da COMPILAÇÃO: o host fica
+/// ~1 s sem submeter, a placa (que roda esta carga em P8, 420–600 MHz) muda de
+/// estado de energia, e o passo fica 8–24% mais lento por ~1,5 s. Um laço de CPU
+/// de 1 s sem compilar nada reproduz o mesmo efeito, e 3 s depois ele some.
+/// Por isso o bench denso aquece 3 s antes de medir.
+///
+/// O que a cena com máscara paga em regime é o TRABALHO do filtro (duas leituras
+/// do `world` por candidato): +7,6% e +7,3% por passo em n = 4000 e 8000 com a
+/// variante forçada numa cena sem máscara, igual aos +6,7% e +6,8% da cena com
+/// máscara de verdade (48 pares cada).
 /// Devolve 0 se o WGSL não compilar (o `gpu.shader` já imprime o erro); o
 /// `rbKick` então não despacha, porque simular sem o filtro seria física errada
 /// em silêncio.
