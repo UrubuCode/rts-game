@@ -16,11 +16,13 @@ import {
   MAT_BODY_REC,
   LAYER_DEFAULT,
   MASK_ALL,
+  WORLD_PARAM_ANY_MASK,
   matBytesFor,
   matFillDefaults,
   matWriteBody,
   matWriteStatic,
 } from "@engine/rigid/materials";
+import { rbInit } from "@engine/rigid/gpurigid";
 import { GameObject } from "@engine/core/gameobject";
 import { Transform } from "@engine/core/transform";
 import { Rigidbody } from "@scripts/rigidbody";
@@ -130,6 +132,11 @@ check("Recusa de versao de layout invalida (999.0 -> 0)", recusou === 0);
 stepWorld[4] = PHYSICS_LAYOUT_VERSION * 1.0;
 const aceitou = rigid.step(pos, vel, ext, stepWorld);
 check("Aceite de versao de layout valida (1.0 -> 1)", aceitou === 1);
+
+// 5. Teste de recusa e aceite de versão de layout no rbInit (GPU)
+check("WORLD_PARAM_ANY_MASK === 5", WORLD_PARAM_ANY_MASK === 5);
+check("rbInit recusa versao de layout invalida (999 -> 0)", rbInit(1, 999) === 0);
+check("rbInit aceita versao de layout valida (1 -> 1)", rbInit(1, 1) === 1);
 
 if (falhas === 0) {
   io.print("[PASSOU] Layout de memoria, offsets e versao de layout (" + totalChecks + "/" + totalChecks + ")");

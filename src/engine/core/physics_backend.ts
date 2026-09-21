@@ -684,11 +684,19 @@ export function rigidFlush(): void {
     let k = 0;
     while (k < m) {
       const t: Transform = pbObjs[k].transform;
-      const x = rbX(k); const y = rbY(k); const z = rbZ(k);
-      t.px = x; t.py = y; t.pz = z;
-      t.vx = rbVelX(k); t.vy = rbVelY(k); t.vz = rbVelZ(k);
-      pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+      const intocado = (t.px === pbLX[k] && t.py === pbLY[k] && t.pz === pbLZ[k]) ? 1 : 0;
+      if (intocado !== 0 && pbHold[k] === 0) {
+        const x = rbX(k); const y = rbY(k); const z = rbZ(k);
+        t.px = x; t.py = y; t.pz = z;
+        pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+      }
+      if (intocado === 0 && bodyTypeOf(pbObjs[k]) === BODY_DYNAMIC) {
+        t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+      } else {
+        t.vx = rbVelX(k); t.vy = rbVelY(k); t.vz = rbVelZ(k);
+      }
       pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+      pbHold[k] = 0;
       k = k + 1;
     }
     rbCancel();

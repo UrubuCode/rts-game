@@ -46,7 +46,7 @@ import { MAT_AT, MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor, mat
          matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
          WORLD_HEADER_FLOATS, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
          WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
-         STATIC_RECORD_FLOATS,
+         WORLD_PARAM_ANY_MASK, STATIC_RECORD_FLOATS,
          BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
@@ -54,6 +54,7 @@ export const CR_MAX_STATICS = MAT_MAX_STATICS;
 export const CR_DT: f64 = 1.0 / 60.0;
 
 let crN = 0;
+let crAnyMask = 0;
 let crPos: Float32Array = new Float32Array(4);
 let crVel: Float32Array = new Float32Array(4);
 let crExt: Float32Array = new Float32Array(4);
@@ -117,6 +118,7 @@ export function crVelZ(i: number): f64 { return crVel[i * 4 + 2]; }
 /// `rbInit`, que pode falhar por não haver GPU; aqui não há como falhar.
 export function crInit(n: number): number {
   crN = n;
+  crAnyMask = 0;
   crPos = new Float32Array(n * 4);
   crVel = new Float32Array(n * 4);
   crExt = new Float32Array(n * 4);
@@ -169,6 +171,7 @@ export function crSetShape(i: number, shape: number): void {
 /// integrador e do `Transform` — ver `materials.ts`, que é onde a regra mora.
 export function crSetMaterial(i: number, o: GameObject, t: Transform): void {
   matWriteBody(crWorld, MAT_AT, i, o, t, crWorldU32);
+  if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) crAnyMask = 1;
 }
 
 /// Escreve velocidade e ACORDA o corpo, como o `rbSetVel`.
@@ -210,7 +213,7 @@ function crWriteWorld(substeps: number): void {
   crWorld[WORLD_PARAM_CELL_SIZE] = crMaxHalf > 0.0 ? crMaxHalf * 2.0 : 1.0;
   crWorld[WORLD_PARAM_SUBSTEPS] = substeps * 1.0;
   crWorld[WORLD_PARAM_LAYOUT_VERSION] = PHYSICS_LAYOUT_VERSION * 1.0;
-  crWorld[5] = 0.0;
+  crWorld[WORLD_PARAM_ANY_MASK] = crAnyMask > 0 ? 1.0 : 0.0;
   crWorld[6] = 0.0;
   crWorld[7] = 0.0;
 }
@@ -247,6 +250,7 @@ export function crSyncStatics(sc: Scene): void {
     // exclusão é declarada: `rigidNeedsFallback` manda a cena inteira para a
     // CPU antes de chegar aqui.
     if (o.collideFlag !== 0 && o.active !== 0 && o.stationary !== 0 && shapeOf(o) < 2) {
+      if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) crAnyMask = 1;
       const t: Transform = trs[i];
       const base = WORLD_HEADER_FLOATS + m * STATIC_RECORD_FLOATS;
       crWorld[base] = centerWorldX(o, t);

@@ -58,6 +58,7 @@ import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
          matFillDefaults, matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
          WORLD_HEADER_FLOATS, WORLD_HEADER_VEC4S, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
          WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
+         WORLD_PARAM_ANY_MASK,
          STATIC_RECORD_FLOATS, STATIC_RECORD_VEC4S,
          BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 import { Transform } from "../core/transform";
@@ -110,6 +111,7 @@ const RB_WORLD_HEAD = RB_MAT_AT + MAT_MAX_STATICS * MAT_STATIC_REC;
 const RB_CLEAR_GROUPS = RB_NCELLS_N / 64;
 
 let rbN = 0;
+let rbAnyMask = 0;
 let rbPipe: i64 = 0;
 let rbPipeGrid: i64 = 0;    // constrói o grid — os ÚNICOS atomics daqui
 let rbPipeClear: i64 = 0;   // zera as contagens entre sub-passos
@@ -142,12 +144,13 @@ export function rbVelZ(i: number): f64 { return buffer.read_f32(rbVelBuf, (i * 4
 /// Id do buffer de posições (render instanciado futuro / inspeção).
 export function rbPosBufferId(): i64 { return rbGPos; }
 
-export function rbInit(n: number): number {
+export function rbInit(n: number, expectedLayoutVersion: number = PHYSICS_LAYOUT_VERSION): number {
   if (gpu.available() === 0) return 0;
-  if (PHYSICS_LAYOUT_VERSION !== 1) {
-    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + PHYSICS_LAYOUT_VERSION + " != 1)");
+  if (expectedLayoutVersion !== 1) {
+    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + expectedLayoutVersion + " != 1)");
     return 0;
   }
+  rbAnyMask = 0;
   rbN = n;
   rbGroups = ((n + 63) / 64) | 0;
   // Uma leitura em voo pertence aos buffers ANTIGOS: entregue nos novos, ela
@@ -335,6 +338,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let dt = worldAt(${WORLD_PARAM_DT}u);
   let m = u32(worldAt(${WORLD_PARAM_NUM_STATICS}u));
   let cs = max(worldAt(${WORLD_PARAM_CELL_SIZE}u), 0.001);
+  let anyMask = worldAt(${WORLD_PARAM_ANY_MASK}u) > 0.5;
   var p = pos[id.x].xyz;
   var slp = pos[id.x].w;
   var v = vel[id.x].xyz;
@@ -374,7 +378,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + s));
         if (j == id.x) { continue; }
         let outro = materialDoCorpo(j);
-        if ((meu.mask & outro.layer) == 0u || (outro.mask & meu.layer) == 0u) { continue; }
+        if (anyMask && ((meu.mask & outro.layer) == 0u || (outro.mask & meu.layer) == 0u)) { continue; }
         let vj = vel[j].xyz;
         if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
           let c = contato(p, h, forma, pos[j].xyz, ext[j].xyz, vel[j].w);
@@ -411,7 +415,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   // ── ESTÁTICOS (AABBs do world): expulsa pelo eixo mais raso, absorve ─────
   for (var k: u32 = 0u; k < m; k = k + 1u) {
     let dele = materialDoEstatico(k);
-    if ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u) { continue; }
+    if (anyMask && ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u)) { continue; }
     let base = ${WORLD_HEADER_VEC4S}u + k * ${STATIC_RECORD_VEC4S}u;
     let sc = world[base].xyz;
     let sh = world[base + 1u].xyz;
@@ -461,7 +465,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + sl));
     if (j == id.x) { continue; }
     let dele = materialDoCorpo(j);
-    if ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u) { continue; }
+    if (anyMask && ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u)) { continue; }
     let pj = pos[j].xyz;
     let hj = ext[j].xyz;
     let c = contato(p, h, forma, pj, hj, vel[j].w);
@@ -637,7 +641,7 @@ function rbWriteWorld(): void {
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_CELL_SIZE * 4, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_SUBSTEPS * 4, 1.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4, PHYSICS_LAYOUT_VERSION * 1.0);
-  buffer.write_f32(rbWorldBuf, 20, 0.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_ANY_MASK * 4, rbAnyMask > 0 ? 1.0 : 0.0);
   buffer.write_f32(rbWorldBuf, 24, 0.0);
   buffer.write_f32(rbWorldBuf, 28, 0.0);
   gpu.write(rbGWorld, rbWorldBuf, (2 + rbStatics * 2) * 16);
@@ -730,6 +734,7 @@ export function rbSyncStatics(sc: Scene): void {
     // enviado, então tudo o atravessava em silêncio. Casca (2) continua fora, e
     // `rigidNeedsFallback` manda a cena para a CPU antes de chegar aqui.
     if (o.collideFlag !== 0 && shapeOf(o) < 2 && o.active !== 0 && o.stationary !== 0) {
+      if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) rbAnyMask = 1;
       const t: Transform = trs[i];
       const base = WORLD_HEADER_FLOATS + m * STATIC_RECORD_FLOATS;
       buffer.write_f32(rbWorldBuf, (base) * 4, centerWorldX(o, t));
@@ -756,6 +761,7 @@ export function rbSyncStatics(sc: Scene): void {
 /// Escreve só o espelho: `rbUpload` sobe a região inteira de uma vez.
 export function rbSetMaterial(i: number, o: GameObject, t: Transform): void {
   matWriteBody(rbMatBuf, 0, i, o, t, rbMatBufU32);
+  if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) rbAnyMask = 1;
 }
 
 /// Sobe a região de materiais para a cauda do `world`, por `write_at`: entre o
@@ -816,6 +822,11 @@ export function rbPull(): void {
 /// KICK: submete `substeps` passos novos SEM esperar.
 export function rbKick(substeps: number): void {
   if (rbPipe === 0) return;
+  const ver = buffer.read_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4);
+  if (ver !== 1.0) {
+    io.print("[rigid] GPU recusou: versao de layout incompativel (" + ver + " != 1)");
+    return;
+  }
   let s = 0;
   while (s < substeps) {
     // Três dispatches por sub-passo, e a ordem é obrigatória: o grid descreve as

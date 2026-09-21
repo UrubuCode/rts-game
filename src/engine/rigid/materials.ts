@@ -52,6 +52,7 @@ export const WORLD_PARAM_NUM_STATICS = 1;
 export const WORLD_PARAM_CELL_SIZE = 2;
 export const WORLD_PARAM_SUBSTEPS = 3;
 export const WORLD_PARAM_LAYOUT_VERSION = 4;
+export const WORLD_PARAM_ANY_MASK = 5;
 
 /// Registro de estático no world (pos/round: 4 floats, half/pad: 4 floats = 8 floats / 2 vec4s)
 export const STATIC_RECORD_FLOATS = 8;
