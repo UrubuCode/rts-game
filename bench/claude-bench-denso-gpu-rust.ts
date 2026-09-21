@@ -49,7 +49,8 @@ import io from "@compat/io.ts";
 import math from "@compat/math.ts";
 import { scene } from "@editor/control/session";
 import { GameObject } from "@engine/core/gameobject";
-import { rbAvailable, rbInit, rbSetBody, rbUpload, rbSyncStatics, rbService,
+import { Rigidbody } from "@scripts/rigidbody";
+import { rbAvailable, rbInit, rbSetBody, rbSetMaterial, rbUpload, rbSyncStatics, rbService,
          rbStep, rbY } from "@engine/rigid/gpurigid";
 import { crInit, crSetBody, crSyncStatics, crStep, crThreads, crY } from "@engine/rigid/cpurigid";
 
@@ -81,14 +82,26 @@ function pz(i: number, lado: number): f64 { return (((i / lado) | 0) % lado) * P
 
 function ladoDe(n: number): number { return Math.ceil(math.pow(n * 1.0, 1.0 / 3.0)) | 0; }
 
-/// ms por PASSO SIMULADO no backend GPU, e quantos passos ele deu.
+// O molde da coluna COM MÁSCARA: layer/mask fora do padrão, mas compatíveis
+// com tudo (layer 1 colide com mask 1, e o chão tem mask cheia). Liga a
+// variante do kernel com filtro sem mudar um par sequer — a física é a mesma
+// da coluna ao lado, só o caminho no kernel muda.
+const MOLDE = new GameObject("MoldeMascara");
+MOLDE.setMesh(1, 100, 100, 100);
+MOLDE.layer = 1; MOLDE.mask = 1;
+const RB_MOLDE = new Rigidbody(-9.8, 0.0); RB_MOLDE.floorY = -1.0e9;
+MOLDE.addBehavior(RB_MOLDE);
+
+/// ms por PASSO SIMULADO no backend GPU, e quantos passos ele deu. Com
+/// `mascara` = 1, todo corpo leva o material do `MOLDE`.
 let gpuPassos = 0;
-function gpu(n: number): f64 {
+function gpu(n: number, mascara: number): f64 {
   const lado = ladoDe(n);
   rbInit(n);
   let i = 0;
   while (i < n) {
     rbSetBody(i, px(i, lado), py(i, lado), pz(i, lado), MEIA, MEIA, MEIA, 1.0);
+    if (mascara !== 0) rbSetMaterial(i, MOLDE, MOLDE.transform);
     i = i + 1;
   }
   rbUpload();
@@ -147,12 +160,34 @@ function rust(n: number): f64 {
 
 scene.clear(); montaChao(); scene.computeWorld();
 
+// AQUECIMENTO GLOBAL, antes da primeira linha. Não é cerimônia: sem ele a
+// primeira linha medida (e a coluna com máscara) media outra coisa.
+//
+// Compilar um kernel bloqueia o host por ~1 s (0,9 s os três do `rbInit`, 1,0 s
+// a variante com filtro, medido numa RTX 2080 Ti) e a GPU fica ociosa esse
+// tempo. Esta carga é leve o bastante para a placa rodar em P8 (420–600 MHz),
+// e a ociosidade mexe no estado de energia: nos ~1,5 s seguintes o passo fica
+// 8–24% mais lento. Um laço de CPU de 1 s SEM compilar nada reproduz o mesmo
+// efeito (+10/+16% em n = 4000/8000), e 3 s depois ele some. Com os DOIS
+// pipelines já existindo, pareado no mesmo processo, a diferença é −1,0% e
+// −0,1% (48 pares). Foi esse transitório que já pareceu "o custo de um
+// segundo pipeline" (issue #5): ele não existe em regime.
+//
+// Então: compila as duas variantes aqui (a com filtro nasce no primeiro kick
+// com máscara) e deixa a GPU 3 s sob a carga do bench antes de medir.
+gpu(250, 0);
+gpu(250, 1);
+{
+  const t0 = Date.now();
+  while (Date.now() - t0 < 3000) { rbService(1); }
+}
+
 io.print("[denso] GPU x RUST, ms por PASSO SIMULADO (nao por frame)");
 io.print("  threads do rust: " + crThreads());
 io.print("  espacamento " + PASSO + " sobre meia-extensao " + MEIA + " = todo vizinho e contato");
 io.print("");
-io.print("   n   | GPU pipe/passo | GPU sync/passo | RUST /passo | passos gpu | y_gpu  y_rust");
-io.print("-------+----------------+----------------+-------------+------------+--------------");
+io.print("   n   | GPU pipe/passo | GPU sync/passo | RUST /passo | passos gpu | y_gpu  y_rust | GPU pipe mascara  y_masc");
+io.print("-------+----------------+----------------+-------------+------------+---------------+-------------------------");
 
 // Até 32000 e NÃO além, e o teto é medido e não escolhido:
 // `crates/rts-physics/examples/audit_denso.rs` mostra que em n=64000 o bucket
@@ -163,15 +198,19 @@ const NS: number[] = [250, 1000, 2000, 4000, 8000, 16000, 32000];
 let k = 0;
 while (k < NS.length) {
   const n = NS[k];
-  const g = gpu(n);
+  const g = gpu(n, 0);
   const yg = rbY(0);
+  const gpuPassosSem = gpuPassos;
+  const gm = gpu(n, 1);
+  const ygm = rbY(0);
   const gs = gpuSync(n);
   const r = rust(n);
   const yr = crY(0);
   io.print("  " + (n + "").padEnd(5) + "|" + g.toFixed(3).padStart(15) +
            " |" + gs.toFixed(3).padStart(15) + " |" + r.toFixed(3).padStart(12) +
-           " |" + (gpuPassos + "/" + framesDe(n)).padStart(11) +
-           " | " + yg.toFixed(2) + "  " + yr.toFixed(2));
+           " |" + (gpuPassosSem + "/" + framesDe(n)).padStart(11) +
+           " | " + yg.toFixed(2) + "  " + yr.toFixed(2) + "  |" + gm.toFixed(3).padStart(16) +
+           "  y " + ygm.toFixed(2));
   k = k + 1;
 }
 
