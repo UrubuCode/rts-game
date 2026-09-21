@@ -164,6 +164,51 @@ if (rbAvailable() !== 0) {
   check("GPU: C2 ignora chão e cai através dele (y < 0)", rbY(1) < 0.0);
 }
 
+// ── 4. GPU, CORPO × CORPO ──
+// O caso acima só exercita o filtro contra um ESTÁTICO. Com duas variantes do
+// kernel (com e sem filtro, escolhidas pelo any_mask no rbKick), o filtro entre
+// dois corpos precisa de prova própria: um corpo B cai sobre um corpo A imóvel
+// (massa 0 e sem integrador, então não cai nem cede), sem nenhum estático na
+// cena. Compatíveis, B assenta em cima de A; incompatíveis, B o atravessa. As
+// máscaras são não-default nos dois casos, então é a variante COM filtro que
+// roda — e o segundo caso reusa o pipeline dela com buffers novos.
+function corpoSobreCorpo(layerA: number, maskA: number, layerB: number, maskB: number): f64 {
+  const sc = new Scene();
+  const a = new GameObject("A_Base");
+  a.setMesh(1, 100, 100, 100);
+  a.transform.setPosition(0, 0, 0);
+  a.layer = layerA; a.mask = maskA;
+  const b = new GameObject("B_Cai");
+  b.setMesh(1, 100, 100, 100);
+  b.transform.setPosition(0, 3, 0);
+  b.layer = layerB; b.mask = maskB;
+  const rb = new Rigidbody(-9.8, 0.0);
+  rb.floorY = -100.0;
+  b.addBehavior(rb);
+  sc.computeWorld();
+
+  rbInit(2);
+  rbSetBody(0, 0, 0, 0, 0.5, 0.5, 0.5, 0.0);
+  rbSetMaterial(0, a, a.transform);
+  rbSetBody(1, 0, 3, 0, 0.5, 0.5, 0.5, 1.0);
+  rbSetMaterial(1, b, b.transform);
+  rbSyncStatics(sc);
+  rbUpload();
+  for (let s = 0; s < 120; s = s + 1) {
+    rbStep(2);
+  }
+  io.print("  GPU corpo×corpo (A " + layerA + "/" + maskA + ", B " + layerB + "/" + maskB +
+           "): a.y = " + rbY(0) + ", b.y = " + rbY(1));
+  return rbY(1);
+}
+
+if (rbAvailable() !== 0) {
+  const yCompat = corpoSobreCorpo(1, 1, 1, 1);
+  check("GPU: corpo×corpo compatível — B assenta sobre A (y ~ 1.0)", Math.abs(yCompat - 1.0) < 0.2);
+  const yIncompat = corpoSobreCorpo(2, 2, 1, 1);
+  check("GPU: corpo×corpo incompatível — B atravessa A (y < -1)", yIncompat < -1.0);
+}
+
 if (falhas === 0) {
   io.print("[PASSOU] Filtragem por Layer/Mask em CPU, Rust e GPU (" + totalChecks + "/" + totalChecks + ")");
 } else {
