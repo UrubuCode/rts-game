@@ -16,7 +16,7 @@ import { FIXED_DT } from "@engine/core/fixedstep";
 import { Rigidbody } from "@scripts/rigidbody";
 import { Collider, SHAPE_SPHERE, SHAPE_BOX } from "@engine/core/collider";
 import { triggerCount, triggerA, triggerB } from "@engine/core/scene";
-import { rigidSetMode, rigidStep, rigidBackendName } from "@engine/core/physics_backend";
+import { rigidSetMode, rigidStep, rigidBackendName, rigidFlush } from "@engine/core/physics_backend";
 
 let ok = 0;
 let fail = 0;
@@ -33,6 +33,7 @@ function passos(sc: Scene, n: number): void {
     if (rigidStep(sc, 0) === 0) sc.resolveCollisions();
     i = i + 1;
   }
+  rigidFlush();
   sc.computeWorld();
 }
 

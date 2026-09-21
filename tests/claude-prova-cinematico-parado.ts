@@ -7,7 +7,7 @@ import { scene } from "@editor/control/session";
 import { GameObject } from "@engine/core/gameobject";
 import { Rigidbody } from "@scripts/rigidbody";
 import { BODY_KINEMATIC } from "@engine/rigid/materials";
-import { rigidStep, rigidSetMode, rigidBackendName } from "@engine/core/physics_backend";
+import { rigidStep, rigidSetMode, rigidBackendName, rigidFlush } from "@engine/core/physics_backend";
 import { FIXED_DT } from "@engine/core/fixedstep";
 
 let falhas = 0;
@@ -45,6 +45,7 @@ function roda(modo: number, declarado: number): void {
     if (tomou === 0) scene.update(FIXED_DT);
     s = s + 1;
   }
+  rigidFlush();
   const desc = (declarado !== 0 ? "declarado" : "inferido") + " " + rigidBackendName();
   io.print("  " + desc + "  x=" + plat.transform.px + "  y=" + plat.transform.py);
   check(desc + ": x avancou ~6.0 apos ordem", Math.abs(plat.transform.px - 6.0) < 0.25);

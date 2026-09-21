@@ -47,7 +47,7 @@ import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocal
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
-         rbCount } from "../rigid/gpurigid";
+         rbCount, rbKick } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
 import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
@@ -670,6 +670,29 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
   // a CPU rodar a varredura de pares por cima — duas físicas sobre o mesmo
   // estado, que é pior que um frame repetido.
   return 1;
+}
+
+/// Drena passos pendentes e força sincronização imediata com a GPU (para testes e transições síncronas).
+export function rigidFlush(): void {
+  if (pbDono === 1) {
+    if (pbDevidos > 0) {
+      rbKick(PB_SUBSTEPS * pbDevidos);
+      pbDevidos = 0;
+    }
+    rbReadState();
+    const m = pbObjs.length;
+    let k = 0;
+    while (k < m) {
+      const t: Transform = pbObjs[k].transform;
+      const x = rbX(k); const y = rbY(k); const z = rbZ(k);
+      t.px = x; t.py = y; t.pz = z;
+      t.vx = rbVelX(k); t.vy = rbVelY(k); t.vz = rbVelZ(k);
+      pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+      pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+      k = k + 1;
+    }
+    rbCancel();
+  }
 }
 
 /// Imprime o PERFIL e a decisão (debug/telemetria).

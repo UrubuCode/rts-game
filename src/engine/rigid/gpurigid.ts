@@ -144,6 +144,10 @@ export function rbPosBufferId(): i64 { return rbGPos; }
 
 export function rbInit(n: number): number {
   if (gpu.available() === 0) return 0;
+  if (PHYSICS_LAYOUT_VERSION !== 1) {
+    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + PHYSICS_LAYOUT_VERSION + " != 1)");
+    return 0;
+  }
   rbN = n;
   rbGroups = ((n + 63) / 64) | 0;
   // Uma leitura em voo pertence aos buffers ANTIGOS: entregue nos novos, ela
@@ -177,7 +181,7 @@ ${hashFn}
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let n = arrayLength(&pos);
   if (id.x >= n) { return; }
-  let cs = max(bitcast<f32>(atomicLoad(&world[2])), 0.001);
+  let cs = max(bitcast<f32>(atomicLoad(&world[${WORLD_PARAM_CELL_SIZE}])), 0.001);
   let p = pos[id.x].xyz;
   let c = cellHash(i32(floor(p.x / cs)), i32(floor(p.y / cs)), i32(floor(p.z / cs)));
   let s = atomicAdd(&world[${RB_GRID_I32_N}u + c], 1);
@@ -327,10 +331,10 @@ fn perdaPorAtrito(forca: f32, a: f32, b: f32) -> f32 {
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let n = arrayLength(&pos);
   if (id.x >= n) { return; }
-  if (world[1].x != ${PHYSICS_LAYOUT_VERSION.toFixed(1)}) { return; }
-  let dt = world[0].x;
-  let m = u32(world[0].y);
-  let cs = max(world[0].z, 0.001);
+  if (worldAt(${WORLD_PARAM_LAYOUT_VERSION}u) != ${PHYSICS_LAYOUT_VERSION.toFixed(1)}) { return; }
+  let dt = worldAt(${WORLD_PARAM_DT}u);
+  let m = u32(worldAt(${WORLD_PARAM_NUM_STATICS}u));
+  let cs = max(worldAt(${WORLD_PARAM_CELL_SIZE}u), 0.001);
   var p = pos[id.x].xyz;
   var slp = pos[id.x].w;
   var v = vel[id.x].xyz;
@@ -408,14 +412,15 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   for (var k: u32 = 0u; k < m; k = k + 1u) {
     let dele = materialDoEstatico(k);
     if ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u) { continue; }
-    let sc = world[2u + k * 2u].xyz;
-    let sh = world[3u + k * 2u].xyz;
+    let base = ${WORLD_HEADER_VEC4S}u + k * ${STATIC_RECORD_VEC4S}u;
+    let sc = world[base].xyz;
+    let sh = world[base + 1u].xyz;
     // A REDONDEZA do estático vive no w do centro: 1 = esfera. Invertido em
     // relação à forma de um corpo de propósito — todo escritor anterior a este
     // campo deixava 0 ali e queria dizer CAIXA. Antes a forma era ignorada e um
     // chão marcado como esfera colidia como caixa; pior, rbSyncStatics nem o
     // enviava, então tudo o atravessava.
-    let formaEst = select(1.0, 0.0, world[2u + k * 2u].w > 0.5);
+    let formaEst = select(1.0, 0.0, world[base].w > 0.5);
     let c = contato(p, h, forma, sc, sh, formaEst);
     if (c.w > 0.0) {
       apoiado = true;
@@ -811,10 +816,6 @@ export function rbPull(): void {
 /// KICK: submete `substeps` passos novos SEM esperar.
 export function rbKick(substeps: number): void {
   if (rbPipe === 0) return;
-  if (PHYSICS_LAYOUT_VERSION !== 1) {
-    io.print("[rigid] GPU recusou: versao de layout incompativel (" + PHYSICS_LAYOUT_VERSION + " != 1)");
-    return;
-  }
   let s = 0;
   while (s < substeps) {
     // Três dispatches por sub-passo, e a ordem é obrigatória: o grid descreve as
