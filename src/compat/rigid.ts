@@ -18,6 +18,10 @@ import * as rtsRigid from "rts:rigid";
 export default {
   step,
   threads,
+  supports(need: number): number {
+    const fn = (rtsRigid as any).supports;
+    return typeof fn === "function" ? fn(need) : 0;
+  },
   overflows(): number {
     const fn = (rtsRigid as any).overflows;
     return typeof fn === "function" ? fn() : 0;

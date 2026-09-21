@@ -56,7 +56,8 @@ import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt
 import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
 import { profBest, profGpuMs, profRustMs, profRange,
-         PROF_GPU, PROF_RUST, PROF_DESCONHECIDO } from "./backend_profile";
+         PROF_GPU, PROF_RUST, PROF_DESCONHECIDO,
+         PHYSICS_LEVEL_SIMPLES, PHYSICS_LEVEL_ORIENTADA, PHYSICS_LEVEL_COMPLETA } from "./backend_profile";
 import { bodyTypeOf, BODY_DYNAMIC, BODY_KINEMATIC } from "../rigid/materials";
 
 /// Constantes nomeadas de modo de backend.
@@ -521,6 +522,19 @@ function pbContaOffsets(sc: Scene): number {
 /// Se sim, cai para a CPU (Scene).
 export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets > 0) ? 1 : 0; }
 
+let pbNivel = PHYSICS_LEVEL_SIMPLES;
+
+/// Define o nível de simulação da física pedido (Fase 1, §7.1.1).
+/// 0 = simples (default), 1 = orientada, 2 = completa.
+export function rigidSetLevel(nivel: number): void {
+  pbNivel = nivel;
+}
+
+/// Nível de simulação da física atualmente pedido.
+export function rigidLevel(): number {
+  return pbNivel;
+}
+
 /// Quantas cascas a última varredura viu. Diagnóstico.
 export function rigidHullCount(): number { return pbCascas; }
 export function rigidOffsetCount(): number { return pbOffsets; }
@@ -531,9 +545,10 @@ export function pbDecideAuto(
   threads: number,
   curAtivo: number,
   candidate: number,
-  streak: number
+  streak: number,
+  nivel: number = PHYSICS_LEVEL_SIMPLES,
 ): { nextAtivo: number; nextCandidate: number; nextStreak: number } {
-  const quem = profBest(n, threads);
+  const quem = profBest(n, threads, nivel);
   const novoCandidato = quem === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST;
   if (curAtivo === 0) {
     return { nextAtivo: novoCandidato, nextCandidate: novoCandidato, nextStreak: 0 };
@@ -541,8 +556,8 @@ export function pbDecideAuto(
   if (novoCandidato === curAtivo) {
     return { nextAtivo: curAtivo, nextCandidate: curAtivo, nextStreak: 0 };
   }
-  const curMs = curAtivo === PB_MODO_GPU ? profGpuMs(n) : profRustMs(n, threads);
-  const candMs = novoCandidato === PB_MODO_GPU ? profGpuMs(n) : profRustMs(n, threads);
+  const curMs = curAtivo === PB_MODO_GPU ? profGpuMs(n, nivel) : profRustMs(n, threads, nivel);
+  const candMs = novoCandidato === PB_MODO_GPU ? profGpuMs(n, nivel) : profRustMs(n, threads, nivel);
   // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
   if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
     if (novoCandidato === candidate) {
@@ -562,6 +577,13 @@ export function pbDecideAuto(
 /// retorno para a CPU, e a decisão espalhada em cinco `return 0` era cinco
 /// lugares para esquecer disso.
 function pbAlvo(): number {
+  if (pbNivel !== PHYSICS_LEVEL_SIMPLES) {
+    if (pbMotivo !== "nivel de fisica alem do simples") {
+      pbMotivo = "nivel de fisica alem do simples";
+      io.print("[rigid] nivel de fisica " + pbNivel + " pedido — apenas a Scene CPU resolve alem do nivel simples hoje, entao a fisica cai para a CPU.");
+    }
+    return PB_MODO_CPU;
+  }
   if (pbCascas > 0) {
     if (pbMotivo !== "cascas na cena") {
       pbMotivo = "cascas na cena";
@@ -589,7 +611,7 @@ function pbAlvo(): number {
       modo = PB_MODO_RUST;
     } else {
       const threads = crThreads();
-      const dec = pbDecideAuto(pbBodies, threads, pbAutoAtivo, pbAutoCandidate, pbAutoStreak);
+      const dec = pbDecideAuto(pbBodies, threads, pbAutoAtivo, pbAutoCandidate, pbAutoStreak, pbNivel);
       pbAutoAtivo = dec.nextAtivo;
       pbAutoCandidate = dec.nextCandidate;
       pbAutoStreak = dec.nextStreak;

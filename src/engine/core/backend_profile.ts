@@ -33,6 +33,11 @@ export const PROF_GPU = 1;
 export const PROF_RUST = 2;
 export const PROF_DESCONHECIDO = 0 - 1;
 
+/// Níveis de simulação da física (Fase 1, §7.1.1).
+export const PHYSICS_LEVEL_SIMPLES = 0;
+export const PHYSICS_LEVEL_ORIENTADA = 1;
+export const PHYSICS_LEVEL_COMPLETA = 2;
+
 /// Dispositivo da medição de fábrica (padrão de referência).
 export const PROF_FACTORY_DEVICE = "NVIDIA GeForce RTX 2080 Ti";
 
@@ -126,21 +131,25 @@ function profEm(vals: f64[], n: number): f64 {
   return vals[ultimo];
 }
 
-/// ms por passo simulado da GPU a `n` corpos. `-1` = fora da faixa medida.
-/// `nivel` reservado para complexidade de cena/colisores (Lote B/C).
-export function profGpuMs(n: number, nivel: number = 0): f64 {
+/// ms por passo simulado da GPU a `n` corpos. `-1` = fora da faixa medida ou nível não suportado.
+/// Apenas `PHYSICS_LEVEL_SIMPLES` é implementado hoje na GPU.
+export function profGpuMs(n: number, nivel: number = PHYSICS_LEVEL_SIMPLES): f64 {
+  if (nivel !== PHYSICS_LEVEL_SIMPLES) return 0.0 - 1.0;
   return profEm(profGpuMsArr, n);
 }
 
 /// ms por passo simulado do Rust a `n` corpos com `threads` threads.
-/// `-1` = fora da faixa medida.
-/// `nivel` reservado para complexidade de cena/colisores (Lote B/C).
-export function profRustMs(n: number, threads: number, nivel: number = 0): f64 {
+/// `-1` = fora da faixa medida ou nível não suportado.
+/// Apenas `PHYSICS_LEVEL_SIMPLES` é implementado hoje no Rust.
+export function profRustMs(n: number, threads: number, nivel: number = PHYSICS_LEVEL_SIMPLES): f64 {
+  if (nivel !== PHYSICS_LEVEL_SIMPLES) return 0.0 - 1.0;
   return profEm(profRustMsArr[profLinha(threads)], n);
 }
 
 /// Quem vence em `(n, threads)`: `PROF_GPU`, `PROF_RUST` ou `PROF_DESCONHECIDO`.
-/// `nivel` reservado para complexidade de cena/colisores (Lote B/C).
+///
+/// Nível diferente de `PHYSICS_LEVEL_SIMPLES` recusa (`PROF_DESCONHECIDO`),
+/// pois níveis mais complexos (Orientada/Completa) ainda não foram implementados.
 ///
 /// ACIMA da faixa recusa, porque lá a medição mede um backend quebrado (ver o
 /// cabeçalho). ABAIXO dela grampeia no menor n medido, e isso não é
@@ -149,7 +158,8 @@ export function profRustMs(n: number, threads: number, nivel: number = 0): f64 {
 ///
 /// No empate o RUST ganha — ele é determinístico bit a bit e não custa um frame
 /// de latência, então empate de desempenho não é empate de propriedades.
-export function profBest(n: number, threads: number, nivel: number = 0): number {
+export function profBest(n: number, threads: number, nivel: number = PHYSICS_LEVEL_SIMPLES): number {
+  if (nivel !== PHYSICS_LEVEL_SIMPLES) return PROF_DESCONHECIDO;
   const g = profGpuMs(n, nivel);
   const r = profRustMs(n, threads, nivel);
   if (g < 0.0 || r < 0.0) return PROF_DESCONHECIDO;
