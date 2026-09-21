@@ -31,6 +31,7 @@ import {
   RaycastHit,
   OverlapHit,
 } from "../src/engine/core/spatial_queries";
+import { buildObject } from "../src/editor/sceneio";
 
 let falhas = 0;
 
@@ -327,8 +328,23 @@ check("Zero alocacoes: 1.000 chamadas rodaram estaveis",
       temposMs[0] >= 0.0 && temposMs[1] >= 0.0 && temposMs[2] >= 0.0,
       "tempos: " + temposMs[0].toFixed(2) + " ms, " + temposMs[1].toFixed(2) + " ms, " + temposMs[2].toFixed(2) + " ms");
 
-io.print("  [INFO] Tempos por 1.000 chamadas (2.000 queries): " +
-         temposMs[0].toFixed(2) + " ms, " + temposMs[1].toFixed(2) + " ms, " + temposMs[2].toFixed(2) + " ms");
+// ── 8. Resolução de Colisões de bodyId no SceneIO (Item 5) ─────────────────
+const scIo = new Scene("CollisionTestScene");
+const existingObj = new GameObject("Existing");
+existingObj.id = 42;
+scIo.add(existingObj);
+
+// Tenta construir objeto com ID conflitante (42) na mesma cena
+const objDesc1 = { name: "Clone1", id: 42, mesh: 1, color: [255, 0, 0], pos: [0, 0, 0], rot: [0, 0, 0], scale: 1.0 };
+const built1 = buildObject(objDesc1, scIo);
+check("SceneIO: conflito de bodyId detectado e remapeado", built1.id !== 42, "id=" + built1.id);
+check("SceneIO: novo bodyId e estritamente maior (monotonico)", built1.id > 42, "id=" + built1.id);
+scIo.add(built1);
+
+// Tenta construir um segundo objeto com ID conflitante (42)
+const objDesc2 = { name: "Clone2", id: 42, mesh: 1, color: [255, 0, 0], pos: [0, 0, 0], rot: [0, 0, 0], scale: 1.0 };
+const built2 = buildObject(objDesc2, scIo);
+check("SceneIO: multiplos conflitos remapeados monotonicamente", built2.id > built1.id, "id1=" + built1.id + " id2=" + built2.id);
 
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
