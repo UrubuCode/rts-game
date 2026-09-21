@@ -95,6 +95,10 @@ let sMinY: f64[] = [];
 let sMaxY: f64[] = [];
 let sMinZ: f64[] = [];
 let sMaxZ: f64[] = [];
+let sSceneMinX = 0.0;
+let sSceneMaxX = 0.0;
+let sSceneMinZ = 0.0;
+let sSceneMaxZ = 0.0;
 
 let sCellSize = 2.0;
 let sInvCellSize = 0.5;
@@ -160,6 +164,11 @@ export function spatialRebuildIndex(sc?: Scene): void {
   sMinZ = [];
   sMaxZ = [];
 
+  sSceneMinX = 1e30;
+  sSceneMaxX = -1e30;
+  sSceneMinZ = 1e30;
+  sSceneMaxZ = -1e30;
+
   const allObjs = targetScene.objects;
   const n = allObjs.length;
   let maxHalfExtent: f64 = 0.5;
@@ -180,16 +189,28 @@ export function spatialRebuildIndex(sc?: Scene): void {
       if (hy > maxHalfExtent) maxHalfExtent = hy;
       if (hz > maxHalfExtent) maxHalfExtent = hz;
 
+      const minX = cx - hx; const maxX = cx + hx;
+      const minZ = cz - hz; const maxZ = cz + hz;
+      if (minX < sSceneMinX) sSceneMinX = minX;
+      if (maxX > sSceneMaxX) sSceneMaxX = maxX;
+      if (minZ < sSceneMinZ) sSceneMinZ = minZ;
+      if (maxZ > sSceneMaxZ) sSceneMaxZ = maxZ;
+
       sObjs.push(o);
       sTrs.push(t);
-      sMinX.push(cx - hx);
-      sMaxX.push(cx + hx);
+      sMinX.push(minX);
+      sMaxX.push(maxX);
       sMinY.push(cy - hy);
       sMaxY.push(cy + hy);
-      sMinZ.push(cz - hz);
-      sMaxZ.push(cz + hz);
+      sMinZ.push(minZ);
+      sMaxZ.push(maxZ);
     }
     i = i + 1;
+  }
+
+  if (sObjs.length === 0) {
+    sSceneMinX = 0.0; sSceneMaxX = 0.0;
+    sSceneMinZ = 0.0; sSceneMaxZ = 0.0;
   }
 
   // Célula dimensionada dinamicamente para 2 * maiorMeiaExtensão (§5.1)
@@ -561,7 +582,10 @@ export function raycastNonAlloc(
   sQueryStamp = sQueryStamp + 1;
   const stamp = sQueryStamp;
 
-  // Determina AABB do raio para consulta no grid
+  const cell = sCellSize;
+  const invCell = sInvCellSize;
+
+  // Descarte rápido se o raio não cruza a AABB geral da cena
   const endX = ox + ndx * maxDistance;
   const endZ = oz + ndz * maxDistance;
   const minRx = ox < endX ? ox : endX;
@@ -569,50 +593,87 @@ export function raycastNonAlloc(
   const minRz = oz < endZ ? oz : endZ;
   const maxRz = oz > endZ ? oz : endZ;
 
-  const minGx = mfloor(minRx * sInvCellSize);
-  const maxGx = mfloor(maxRx * sInvCellSize);
-  const minGz = mfloor(minRz * sInvCellSize);
-  const maxGz = mfloor(maxRz * sInvCellSize);
+  if (sObjs.length === 0 || maxRx < sSceneMinX || minRx > sSceneMaxX || maxRz < sSceneMinZ || minRz > sSceneMaxZ) {
+    outHit.hit = false;
+    return false;
+  }
 
   let closestDist = maxDistance + 1.0;
   let found = false;
 
-  let gx = minGx;
-  while (gx <= maxGx) {
-    let gz = minGz;
-    while (gz <= maxGz) {
-      const bucket = sHash(gx, gz);
-      let entry = sHead[bucket];
-      while (entry !== -1) {
-        const k = sEntriesObj[entry];
-        if (sVisitedStamp[k] !== stamp) {
-          sVisitedStamp[k] = stamp;
-          const go = sObjs[k];
-          if (passesFilter(mask, layer, includeTriggers, go)) {
-            const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers);
-            if (hit) {
-              if (sTempRayHit.distance < closestDist) {
-                closestDist = sTempRayHit.distance;
-                outHit.hit = true;
-                outHit.bodyId = sTempRayHit.bodyId;
-                outHit.point[0] = sTempRayHit.point[0];
-                outHit.point[1] = sTempRayHit.point[1];
-                outHit.point[2] = sTempRayHit.point[2];
-                outHit.normal[0] = sTempRayHit.normal[0];
-                outHit.normal[1] = sTempRayHit.normal[1];
-                outHit.normal[2] = sTempRayHit.normal[2];
-                outHit.distance = sTempRayHit.distance;
-                outHit.stepId = sTempRayHit.stepId;
-                found = true;
-              }
+  // DDA 2D (Amanatides–Woo) no plano XZ
+  let gx = mfloor(ox * invCell);
+  let gz = mfloor(oz * invCell);
+
+  let stepX = 0;
+  let tDeltaX = 1e30;
+  let tMaxX = 1e30;
+  if (ndx > 0.000000001) {
+    stepX = 1;
+    tDeltaX = cell / ndx;
+    tMaxX = ((gx + 1) * cell - ox) / ndx;
+  } else if (ndx < -0.000000001) {
+    stepX = -1;
+    tDeltaX = (0.0 - cell) / ndx;
+    tMaxX = (gx * cell - ox) / ndx;
+  }
+
+  let stepZ = 0;
+  let tDeltaZ = 1e30;
+  let tMaxZ = 1e30;
+  if (ndz > 0.000000001) {
+    stepZ = 1;
+    tDeltaZ = cell / ndz;
+    tMaxZ = ((gz + 1) * cell - oz) / ndz;
+  } else if (ndz < -0.000000001) {
+    stepZ = -1;
+    tDeltaZ = (0.0 - cell) / ndz;
+    tMaxZ = (gz * cell - oz) / ndz;
+  }
+
+  let tCurrent = 0.0;
+
+  while (tCurrent <= closestDist && tCurrent <= maxDistance) {
+    const bucket = sHash(gx, gz);
+    let entry = sHead[bucket];
+    while (entry !== -1) {
+      const k = sEntriesObj[entry];
+      if (sVisitedStamp[k] !== stamp) {
+        sVisitedStamp[k] = stamp;
+        const go = sObjs[k];
+        if (passesFilter(mask, layer, includeTriggers, go)) {
+          const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers);
+          if (hit) {
+            if (sTempRayHit.distance < closestDist) {
+              closestDist = sTempRayHit.distance;
+              outHit.hit = true;
+              outHit.bodyId = sTempRayHit.bodyId;
+              outHit.point[0] = sTempRayHit.point[0];
+              outHit.point[1] = sTempRayHit.point[1];
+              outHit.point[2] = sTempRayHit.point[2];
+              outHit.normal[0] = sTempRayHit.normal[0];
+              outHit.normal[1] = sTempRayHit.normal[1];
+              outHit.normal[2] = sTempRayHit.normal[2];
+              outHit.distance = sTempRayHit.distance;
+              outHit.stepId = sTempRayHit.stepId;
+              found = true;
             }
           }
         }
-        entry = sEntriesNext[entry];
       }
-      gz = gz + 1;
+      entry = sEntriesNext[entry];
     }
-    gx = gx + 1;
+
+    // Avança para a próxima célula pelo menor tMax
+    if (tMaxX < tMaxZ) {
+      tCurrent = tMaxX;
+      gx = gx + stepX;
+      tMaxX = tMaxX + tDeltaX;
+    } else {
+      tCurrent = tMaxZ;
+      gz = gz + stepZ;
+      tMaxZ = tMaxZ + tDeltaZ;
+    }
   }
 
   if (!found) {
