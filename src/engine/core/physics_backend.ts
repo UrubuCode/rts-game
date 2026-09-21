@@ -55,7 +55,8 @@ import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt
          crCount, crThreads } from "../rigid/cpurigid";
 import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
-import { profBest, profGpuMs, profRustMs, profRange,
+import rigid, { needForLevel } from "../../compat/rigid";
+import { profBest, profGpuMs, profRustMs, profRange, gpuSupportsLevel,
          PROF_GPU, PROF_RUST, PROF_DESCONHECIDO,
          PHYSICS_LEVEL_SIMPLES, PHYSICS_LEVEL_ORIENTADA, PHYSICS_LEVEL_COMPLETA } from "./backend_profile";
 import { bodyTypeOf, BODY_DYNAMIC, BODY_KINEMATIC } from "../rigid/materials";
@@ -524,10 +525,23 @@ export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets
 
 let pbNivel = PHYSICS_LEVEL_SIMPLES;
 
+/// Verifica se algum backend implementa o nível de simulação pedido.
+export function anyBackendSupportsLevel(nivel: number): number {
+  if (gpuSupportsLevel(nivel) !== 0) return 1;
+  if (rigid.supports(needForLevel(nivel)) !== 0) return 1;
+  return 0;
+}
+
 /// Define o nível de simulação da física pedido (Fase 1, §7.1.1).
 /// 0 = simples (default), 1 = orientada, 2 = completa.
-export function rigidSetLevel(nivel: number): void {
+/// Retorna 1 se aceito, ou 0 se recusado (mantendo o nível anterior).
+export function rigidSetLevel(nivel: number): number {
+  if (anyBackendSupportsLevel(nivel) === 0) {
+    io.print("[rigid] nivel " + nivel + " nao implementado em nenhum backend.");
+    return 0;
+  }
   pbNivel = nivel;
+  return 1;
 }
 
 /// Nível de simulação da física atualmente pedido.
@@ -578,11 +592,13 @@ export function pbDecideAuto(
 /// lugares para esquecer disso.
 function pbAlvo(): number {
   if (pbNivel !== PHYSICS_LEVEL_SIMPLES) {
-    if (pbMotivo !== "nivel de fisica alem do simples") {
-      pbMotivo = "nivel de fisica alem do simples";
-      io.print("[rigid] nivel de fisica " + pbNivel + " pedido — apenas a Scene CPU resolve alem do nivel simples hoje, entao a fisica cai para a CPU.");
+    if (anyBackendSupportsLevel(pbNivel) === 0) {
+      if (pbMotivo !== "nivel de fisica nao implementado") {
+        pbMotivo = "nivel de fisica nao implementado";
+        io.print("[rigid] nivel de fisica " + pbNivel + " nao implementado em nenhum backend.");
+      }
+      return PB_MODO_CPU;
     }
-    return PB_MODO_CPU;
   }
   if (pbCascas > 0) {
     if (pbMotivo !== "cascas na cena") {
