@@ -115,12 +115,12 @@ export class Scene {
     this.compVersion = sceneVersionSeq;
   }
 
-  add(go: GameObject): GameObject {
+  add(go: GameObject, mount: boolean = true): GameObject {
     go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
     this.markCollidersDirty();
-    go.mount();
+    if (mount) go.mount();
     return go;
   }
 

@@ -2,6 +2,7 @@
 export class Session {
   camX: f64; camY: f64; camZ: f64; camYaw: f64; camPitch: f64;
   selected: number; playing: number;
+  simulating: number; // sessao Play ativa, inclusive quando pausada
   /// Primeira linha visível da hierarquia + quantas cabem. Vivem aqui, e não só
   /// no main.ts, para que o controle por WebSocket possa INSPECIONAR e mover o
   /// scroll — é como se verifica que ele funciona sem tirar screenshot.
@@ -17,7 +18,7 @@ export class Session {
   constructor() {
     this.camX = 0.0; this.camY = 11.0; this.camZ = -15.0;
     this.camYaw = 0.0; this.camPitch = 0 - 0.5;
-    this.selected = 0; this.playing = 1;
+    this.selected = 0; this.playing = 0; this.simulating = 0;
     this.hierScroll = 0; this.hierVis = 0;
     this.selection = [];
     this.wsServer = 0; this.wsClient = 0;

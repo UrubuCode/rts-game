@@ -18,6 +18,9 @@ import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { Patrol } from "../scripts/patrol";
+import { Animator } from "../scripts/animator";
+import { AudioSource } from "../scripts/audiosource";
+import { PhysicsMaterial } from "../scripts/physicsmaterial";
 import { Collider, SHAPE_BOX } from "../engine/core/collider";
 import { hullForMesh } from "../engine/core/hullmesh";
 import { setLight, setAmbient } from "../engine/render/mesh";
@@ -43,6 +46,23 @@ export function recreateBehavior(sd: any): Behavior {
   if (t === "pulse") return new Pulse(sd.amp, sd.freq, sd.base);
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
   if (t === "patrol") return new Patrol(sd.range, sd.speed);
+  if (t === "animator") {
+    const animator = new Animator(sd.channel, sd.ease);
+    animator.loop = sd.loop; animator.speed = sd.speed;
+    let keyIndex = 0;
+    while (keyIndex < sd.kt.length) { animator.key(sd.kt[keyIndex], sd.kv[keyIndex]); keyIndex = keyIndex + 1; }
+    return animator;
+  }
+  if (t === "audiosource") {
+    const audio = new AudioSource(sd.kind, sd.freq, sd.dur, sd.gain);
+    audio.every = sd.every;
+    return audio;
+  }
+  if (t === "physicsmaterial") {
+    const physical = new PhysicsMaterial(sd.preset);
+    physical.density = sd.density; physical.restitution = sd.restitution; physical.friction = sd.friction;
+    return physical;
+  }
   if (t === "sceneRef") return new SceneRef(sd.scenePath);
   // COLLIDER. A forma que colide, incluindo a que ACOMPANHA a geometria.
   //
@@ -159,6 +179,8 @@ export function sceneFromJSON(s: string): void {
 
 /// SALVA a cena inteira num arquivo JSON — fecha o loop com loadSceneFrom.
 export function saveScene(path: string): number {
+  // A simulacao e descartavel; nunca sobrescreva o arquivo de autoria com ela.
+  if (S.simulating !== 0) return 0 - 1;
   fs.write(path, sceneToJSON());
   return scene.objects.length;
 }

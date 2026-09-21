@@ -9,17 +9,24 @@
 
 import { GameObject } from "../core/gameobject";
 import { KIND_UI } from "../core/behavior";
+import { Scene } from "../core/scene";
 
 export class UIScene {
   panels: GameObject[];
+  scene: Scene;
 
   constructor() {
-    this.panels = [];
+    this.scene = new Scene("UI");
+    this.panels = this.scene.objects;
   }
 
   /// Anexa um GameObject de UI à cena.
   add(go: GameObject): void {
-    this.panels.push(go);
+    this.scene.add(go);
+  }
+
+  createGameObject(name: string, parentIdx: number = 0 - 1): GameObject {
+    return this.scene.createGameObject(name, 0, 0, 0, 0, parentIdx);
   }
 
   /// Desenha todos os elementos de UI (chama drawUI de cada component kind UI).
@@ -30,7 +37,7 @@ export class UIScene {
     while (i < this.panels.length) {
       const g = this.panels[i];
       const k = g.componentIdx(KIND_UI);
-      if (k >= 0) g.behaviors[k].drawUI(win, w, h);
+      if (g.active !== 0 && k >= 0 && g.behaviors[k].enabled !== 0) g.behaviors[k].drawUI(win, w, h);
       i = i + 1;
     }
   }
