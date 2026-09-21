@@ -60,10 +60,40 @@ let crWorld: Float32Array = new Float32Array(MAT_AT + matBytesFor(0));
 let crMaxHalf: f64 = 0.0;
 let crStatics = 0;
 
-/// Este backend existe sempre — não depende de placa, que é o ponto dele.
-/// Presente para que um chamador escrito contra `rbAvailable` não precise de
-/// uma forma diferente.
-export function crAvailable(): number { return 1; }
+/// 0 = ainda não sondado, 1 = respondeu, 2 = recusou.
+let crSondado = 0;
+
+/// O solver nativo está ali E RESPONDE?
+///
+/// Devolvia `1` fixo, e isso era uma afirmação e não uma medida. O solver é a
+/// feature `physics` do `rts-host` e usa rayon, que é thread de SO — não existe
+/// em wasm. Um `1` constante faz o decisor escolher um backend que pode não
+/// estar presente.
+///
+/// A sondagem é um passo real sobre UM corpo: `rigid.step` devolve quantos
+/// corpos moveu e `0` é a recusa documentada da superfície, então um `1` aqui
+/// prova a travessia inteira — módulo carregado, buffers aceitos, solver rodou.
+/// Cacheada: a resposta não muda durante o processo.
+///
+/// LIMITE DECLARADO: se o módulo `rts:rigid` não existir no build, o programa
+/// falha no CARREGAMENTO (o import de `@compat/rigid.ts` é de topo), não aqui.
+/// Isso é erro de configuração de build e aparece como tal.
+export function crAvailable(): number {
+  if (crSondado !== 0) return crSondado === 1 ? 1 : 0;
+  const pos = new Float32Array(4);
+  const vel = new Float32Array(4);
+  const ext = new Float32Array(4);
+  // um corpo em queda livre, sem estáticos, um sub-passo
+  ext[3] = 1.0;                      // invMass
+  const world = new Float32Array(MAT_AT + matBytesFor(1));
+  world[0] = CR_DT;
+  world[2] = 1.0;                    // tamanho de célula
+  world[3] = 1.0;                    // sub-passos
+  matFillDefaults(world, MAT_AT, 1);
+  const moveu = rigid.step(pos, vel, ext, world);
+  crSondado = moveu > 0 ? 1 : 2;
+  return crSondado === 1 ? 1 : 0;
+}
 export function crCount(): number { return crN; }
 export function crThreads(): number { return rigid.threads(); }
 

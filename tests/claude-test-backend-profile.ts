@@ -55,6 +55,12 @@ const faixa = profRange();
 io.print("  faixa medida: n = " + faixa[0] + " .. " + faixa[1]);
 check("a faixa e 250..8000", faixa[0] === 250 && faixa[1] === 8000 ? 1 : 0);
 
+// ── 7) a disponibilidade do backend Rust e SONDADA, nao afirmada ──────────
+import { crAvailable, crThreads } from "@engine/rigid/cpurigid";
+check("o backend Rust responde a sondagem", crAvailable() === 1 ? 1 : 0);
+check("e a sondagem e idempotente", crAvailable() === 1 ? 1 : 0);
+check("threads > 0 quando disponivel", crThreads() > 0 ? 1 : 0);
+
 io.print("[resultado] " + ok + " ok, " + fail + " falhas");
 if (fail === 0) {
   io.print("[PASSOU]");
