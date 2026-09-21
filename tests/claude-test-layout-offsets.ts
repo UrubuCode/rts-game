@@ -17,6 +17,10 @@ import {
   LAYER_DEFAULT,
   MASK_ALL,
   WORLD_PARAM_ANY_MASK,
+  WORLD_PARAM_DT,
+  WORLD_PARAM_CELL_SIZE,
+  WORLD_PARAM_SUBSTEPS,
+  WORLD_PARAM_LAYOUT_VERSION,
   matBytesFor,
   matFillDefaults,
   matWriteBody,
@@ -43,7 +47,10 @@ function check(nome: string, cond: boolean, detalhe?: string): void {
 io.print("=== Teste de Layout de Memória e Offsets (Lote A) ===");
 
 // 1. Constantes de layout e tipos
-check("PHYSICS_LAYOUT_VERSION === 1", PHYSICS_LAYOUT_VERSION === 1);
+// A versão NÃO é fixada num número aqui: quem a sobe é quem muda o layout, e o
+// que importa é que todo leitor compare com a constante (seções 4 e 5).
+check("PHYSICS_LAYOUT_VERSION inteiro positivo",
+      PHYSICS_LAYOUT_VERSION > 0 && Math.floor(PHYSICS_LAYOUT_VERSION) === PHYSICS_LAYOUT_VERSION);
 check("BODY_UNASSIGNED === 0", BODY_UNASSIGNED === 0);
 check("BODY_STATIC === 1", BODY_STATIC === 1);
 check("BODY_KINEMATIC === 2", BODY_KINEMATIC === 2);
@@ -118,25 +125,30 @@ const ext = new Float32Array(4);
 ext[3] = 1.0; // invMass > 0
 const stepWorld = new Float32Array(MAT_AT + matBytesFor(1));
 const stepWorldU32 = new Uint32Array(stepWorld.buffer);
-stepWorld[0] = 0.016; // dt
-stepWorld[2] = 1.0;   // cellSize
-stepWorld[3] = 1.0;   // substeps
+stepWorld[WORLD_PARAM_DT] = 0.016;
+stepWorld[WORLD_PARAM_CELL_SIZE] = 1.0;
+stepWorld[WORLD_PARAM_SUBSTEPS] = 1.0;
 matFillDefaults(stepWorld, MAT_AT, 1, stepWorldU32);
 
 // Versão inválida (999.0) -> rts:rigid.step deve recusar e devolver 0
-stepWorld[4] = 999.0;
+stepWorld[WORLD_PARAM_LAYOUT_VERSION] = 999.0;
 const recusou = rigid.step(pos, vel, ext, stepWorld);
 check("Recusa de versao de layout invalida (999.0 -> 0)", recusou === 0);
 
-// Versão válida (PHYSICS_LAYOUT_VERSION = 1.0) -> rts:rigid.step deve aceitar e mover 1 corpo
-stepWorld[4] = PHYSICS_LAYOUT_VERSION * 1.0;
+// Versão válida (PHYSICS_LAYOUT_VERSION) -> rts:rigid.step deve aceitar e mover 1 corpo
+stepWorld[WORLD_PARAM_LAYOUT_VERSION] = PHYSICS_LAYOUT_VERSION * 1.0;
 const aceitou = rigid.step(pos, vel, ext, stepWorld);
-check("Aceite de versao de layout valida (1.0 -> 1)", aceitou === 1);
+check("Aceite de versao de layout valida (PHYSICS_LAYOUT_VERSION -> 1)", aceitou === 1);
 
 // 5. Teste de recusa e aceite de versão de layout no rbInit (GPU)
 check("WORLD_PARAM_ANY_MASK === 5", WORLD_PARAM_ANY_MASK === 5);
+// A checagem acompanha a CONSTANTE: a versão vizinha é recusada e a própria é
+// aceita. Com o literal antigo (`!== 1`), subir a constante inverteria os dois.
 check("rbInit recusa versao de layout invalida (999 -> 0)", rbInit(1, 999) === 0);
-check("rbInit aceita versao de layout valida (1 -> 1)", rbInit(1, 1) === 1);
+check("rbInit recusa PHYSICS_LAYOUT_VERSION + 1", rbInit(1, PHYSICS_LAYOUT_VERSION + 1) === 0);
+check("rbInit recusa PHYSICS_LAYOUT_VERSION - 1", rbInit(1, PHYSICS_LAYOUT_VERSION - 1) === 0);
+check("rbInit aceita PHYSICS_LAYOUT_VERSION", rbInit(1, PHYSICS_LAYOUT_VERSION) === 1);
+check("rbInit aceita o default (PHYSICS_LAYOUT_VERSION)", rbInit(1) === 1);
 
 if (falhas === 0) {
   io.print("[PASSOU] Layout de memoria, offsets e versao de layout (" + totalChecks + "/" + totalChecks + ")");

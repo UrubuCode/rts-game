@@ -146,8 +146,10 @@ export function rbPosBufferId(): i64 { return rbGPos; }
 
 export function rbInit(n: number, expectedLayoutVersion: number = PHYSICS_LAYOUT_VERSION): number {
   if (gpu.available() === 0) return 0;
-  if (expectedLayoutVersion !== 1) {
-    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + expectedLayoutVersion + " != 1)");
+  // Compara com a CONSTANTE, nunca com o número: com o literal, subir
+  // PHYSICS_LAYOUT_VERSION faria a GPU recusar o próprio layout que escreve.
+  if (expectedLayoutVersion !== PHYSICS_LAYOUT_VERSION) {
+    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + expectedLayoutVersion + " != " + PHYSICS_LAYOUT_VERSION + ")");
     return 0;
   }
   rbAnyMask = 0;
@@ -823,8 +825,9 @@ export function rbPull(): void {
 export function rbKick(substeps: number): void {
   if (rbPipe === 0) return;
   const ver = buffer.read_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4);
-  if (ver !== 1.0) {
-    io.print("[rigid] GPU recusou: versao de layout incompativel (" + ver + " != 1)");
+  // Mesma regra do rbInit: o slot é comparado com a constante que o escreveu.
+  if (ver !== PHYSICS_LAYOUT_VERSION * 1.0) {
+    io.print("[rigid] GPU recusou: versao de layout incompativel (" + ver + " != " + PHYSICS_LAYOUT_VERSION + ")");
     return;
   }
   let s = 0;
