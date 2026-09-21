@@ -26,6 +26,7 @@ import { hullAt } from "./hullreg";
 import { hullContactLocal, Contact } from "./hullpack";
 import { stepCount } from "./fixedstep";
 import { pbActiveBackend, pbGpuLastReadbackStep } from "./physics_backend";
+import { LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 
 export const COL_SPHERE = SHAPE_SPHERE;
 export const COL_BOX = SHAPE_BOX;
@@ -106,7 +107,7 @@ let sLastRebuildStep = -1;
 let sLastSceneVersion = -1;
 
 let sQueryStamp = 0;
-let sVisitedStamp: number[] = [];
+let sVisitedStamp: number[] = new Array(4096).fill(0);
 
 // Instância única reusada para testes de casca sem alocação
 const sHullContactOut: Contact = new Contact();
@@ -144,8 +145,6 @@ export function spatialRebuildIndex(sc?: Scene): void {
   const targetScene = sc !== undefined ? sc : sActiveScene;
   if (targetScene === null) return;
 
-  targetScene.computeWorld();
-
   // Limpa buckets anteriormente utilizados
   let b = 0;
   while (b < sUsedBucketsCount) {
@@ -155,14 +154,14 @@ export function spatialRebuildIndex(sc?: Scene): void {
   sUsedBucketsCount = 0;
   sEntriesCount = 0;
 
-  sObjs = [];
-  sTrs = [];
-  sMinX = [];
-  sMaxX = [];
-  sMinY = [];
-  sMaxY = [];
-  sMinZ = [];
-  sMaxZ = [];
+  sObjs.length = 0;
+  sTrs.length = 0;
+  sMinX.length = 0;
+  sMaxX.length = 0;
+  sMinY.length = 0;
+  sMaxY.length = 0;
+  sMinZ.length = 0;
+  sMaxZ.length = 0;
 
   sSceneMinX = 1e30;
   sSceneMaxX = -1e30;
@@ -219,6 +218,10 @@ export function spatialRebuildIndex(sc?: Scene): void {
   sInvCellSize = 1.0 / sCellSize;
 
   const m = sObjs.length;
+  while (sVisitedStamp.length < m) {
+    sVisitedStamp.push(0);
+  }
+
   let k = 0;
   while (k < m) {
     const minGx = mfloor(sMinX[k] * sInvCellSize);
@@ -264,9 +267,9 @@ function ensureIndex(sc?: Scene): Scene | null {
 
 /// Mede o custo de reconstrução do índice espacial do executor no host (Aceite 8).
 export function spatialGridRebuildCost(sc: Scene): { timeMs: f64; cellCount: number; objCount: number } {
-  const t0 = time.now_ms();
+  const t0 = performance.now();
   spatialRebuildIndex(sc);
-  const timeMs = time.now_ms() - t0;
+  const timeMs = performance.now() - t0;
   return {
     timeMs: timeMs,
     cellCount: sUsedBucketsCount,
@@ -564,8 +567,8 @@ export function raycastNonAlloc(
   dx: number, dy: number, dz: number,
   maxDistance: number,
   outHit: RaycastHit,
-  mask: number = 0xFFFFFFFF,
-  layer: number = 1,
+  mask: number = MASK_ALL,
+  layer: number = LAYER_DEFAULT,
   includeTriggers: boolean = false,
   sc?: Scene,
 ): boolean {
@@ -690,8 +693,8 @@ export function raycast(
   sc?: Scene,
 ): RaycastHit | null {
   const hit = createRaycastHit();
-  const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : 0xFFFFFFFF;
-  const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : 1;
+  const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : MASK_ALL;
+  const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : LAYER_DEFAULT;
   const includeTriggers = filter !== undefined && filter.includeTriggers !== undefined ? filter.includeTriggers : false;
 
   if (raycastNonAlloc(ox, oy, oz, dx, dy, dz, maxDistance, hit, mask, layer, includeTriggers, sc)) {
@@ -891,8 +894,8 @@ export function overlapSphereNonAlloc(
   radius: number,
   outHits: OverlapHit[],
   maxHits: number,
-  mask: number = 0xFFFFFFFF,
-  layer: number = 1,
+  mask: number = MASK_ALL,
+  layer: number = LAYER_DEFAULT,
   includeTriggers: boolean = false,
   sc?: Scene,
 ): number {
@@ -946,8 +949,8 @@ export function overlapSphere(
   filter?: SpatialFilter,
   sc?: Scene,
 ): OverlapHit[] {
-  const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : 0xFFFFFFFF;
-  const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : 1;
+  const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : MASK_ALL;
+  const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : LAYER_DEFAULT;
   const includeTriggers = filter !== undefined && filter.includeTriggers !== undefined ? filter.includeTriggers : false;
 
   // Aloca buffer temporário para receber os resultados
@@ -1159,8 +1162,8 @@ export function overlapBoxNonAlloc(
   hx: number, hy: number, hz: number,
   outHits: OverlapHit[],
   maxHits: number,
-  mask: number = 0xFFFFFFFF,
-  layer: number = 1,
+  mask: number = MASK_ALL,
+  layer: number = LAYER_DEFAULT,
   includeTriggers: boolean = false,
   sc?: Scene,
 ): number {
@@ -1214,8 +1217,8 @@ export function overlapBox(
   filter?: SpatialFilter,
   sc?: Scene,
 ): OverlapHit[] {
-  const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : 0xFFFFFFFF;
-  const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : 1;
+  const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : MASK_ALL;
+  const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : LAYER_DEFAULT;
   const includeTriggers = filter !== undefined && filter.includeTriggers !== undefined ? filter.includeTriggers : false;
 
   const buf: OverlapHit[] = [];

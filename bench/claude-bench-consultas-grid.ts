@@ -59,11 +59,11 @@ io.print("Aquecendo por 3 segundos...");
 // Aquecimento de 3 segundos
 const scWarm = criarCena(500);
 setSpatialScene(scWarm);
-const tWarmStart = time.now_ms();
+const tWarmStart = performance.now();
 const dummyRay = createRaycastHit();
 const dummyOverlaps: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOverlapHit(), createOverlapHit()];
 
-while (time.now_ms() - tWarmStart < 3000.0) {
+while (performance.now() - tWarmStart < 3000.0) {
   spatialRebuildIndex(scWarm);
   raycastNonAlloc(0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 100.0, dummyRay, 0xFFFFFFFF, 1, false, scWarm);
   overlapSphereNonAlloc(5.0, 5.0, 5.0, 4.0, dummyOverlaps, 4, 0xFFFFFFFF, 1, false, scWarm);
@@ -127,22 +127,22 @@ const temposOverlap1k: f64[] = [];
 let r2 = 0;
 while (r2 < RODADAS) {
   // 1.000 Raycasts
-  const t0Ray = time.now_ms();
+  const t0Ray = performance.now();
   let k = 0;
   while (k < 1000) {
     raycastNonAlloc(0.0, 0.0, 0.0, 1.0, 0.5, 0.5, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc2k);
     k = k + 1;
   }
-  temposRaycast1k.push(time.now_ms() - t0Ray);
+  temposRaycast1k.push(performance.now() - t0Ray);
 
   // 1.000 OverlapSphere (raio 3.0 cobrindo múltiplos corpos)
-  const t0Over = time.now_ms();
+  const t0Over = performance.now();
   k = 0;
   while (k < 1000) {
     overlapSphereNonAlloc(10.0, 10.0, 10.0, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc2k);
     k = k + 1;
   }
-  temposOverlap1k.push(time.now_ms() - t0Over);
+  temposOverlap1k.push(performance.now() - t0Over);
 
   r2 = r2 + 1;
 }

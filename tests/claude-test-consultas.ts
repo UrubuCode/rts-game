@@ -60,6 +60,7 @@ boxObj.setMesh(1, 0, 255, 0); // cubo
 boxObj.transform.setPosition(10.0, 0.0, 0.0);
 boxObj.transform.setScale(2.0); // meia-extensão 1.0
 sc.add(boxObj);
+sc.computeWorld();
 
 spatialRebuildIndex(sc);
 
@@ -121,6 +122,7 @@ const oC = new GameObject("OverlapC");
 oC.setMesh(4, 255, 255, 255);
 oC.transform.setPosition(0.0, 0.0, 1.0);
 scOverlap.add(oC);
+scOverlap.computeWorld();
 
 spatialRebuildIndex(scOverlap);
 
@@ -152,6 +154,7 @@ targetBody.layer = 2;       // Camada 2
 targetBody.mask = 1;        // Aceita colidir com camada 1
 targetBody.transform.setPosition(0.0, 0.0, 5.0);
 scFilter.add(targetBody);
+scFilter.computeWorld();
 
 spatialRebuildIndex(scFilter);
 
@@ -178,6 +181,7 @@ colTrigger.hx = 1.0; colTrigger.hy = 1.0; colTrigger.hz = 1.0;
 triggerObj.addBehavior(colTrigger);
 triggerObj.transform.setPosition(0.0, 0.0, 5.0);
 scTrigger.add(triggerObj);
+scTrigger.computeWorld();
 
 spatialRebuildIndex(scTrigger);
 
@@ -229,14 +233,14 @@ let rodada = 0;
 let temposMs: f64[] = [];
 
 while (rodada < 3) {
-  const t0 = time.now_ms();
+  const t0 = performance.now();
   let iter = 0;
   while (iter < 1000) {
     raycastNonAlloc(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 10.0, outRay, 0xFFFFFFFF, 1, true, sc);
     overlapSphereNonAlloc(0.0, 0.0, 0.0, 3.0, outOverlaps, 16, 0xFFFFFFFF, 1, true, scOverlap);
     iter = iter + 1;
   }
-  const elapsed = time.now_ms() - t0;
+  const elapsed = performance.now() - t0;
   temposMs.push(elapsed);
   rodada = rodada + 1;
 }
