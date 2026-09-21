@@ -113,7 +113,18 @@ const RB_CLEAR_GROUPS = RB_NCELLS_N / 64;
 
 let rbN = 0;
 let rbAnyMask = 0;
+// DUAS variantes do kernel de corpos, geradas da mesma string (ver
+// `rbKernelSrc`): `rbPipe` sem o filtro layer/mask e `rbPipeFiltro` com ele. O
+// `rbKick` escolhe pela flag `rbAnyMask`. É o equivalente WGSL do `const FILTRO:
+// bool` do solver em Rust: um `if (anyMask && …)` por candidato é ramo em tempo
+// de execução, e layer/mask do próprio corpo eram lidos sempre — a cena sem
+// máscara, o caso comum, pagava isso sem usar (~3% de tempo de GPU do kernel em
+// n = 8000, medido com passos em lote).
 let rbPipe: i64 = 0;
+// Compilada só na PRIMEIRA vez que uma cena com máscara chega ao `rbKick`
+// (ver `rbPipeComFiltro`): a cena sem máscara nunca a cria.
+let rbPipeFiltro: i64 = 0;
+let rbPipeFiltroFalhou = 0;   // não recompila (nem repete o erro) a cada kick
 let rbPipeGrid: i64 = 0;    // constrói o grid — os ÚNICOS atomics daqui
 let rbPipeClear: i64 = 0;   // zera as contagens entre sub-passos
 // Meia-extensão MÁXIMA vista: é ela que dimensiona a célula (ver rbWriteWorld).
@@ -145,86 +156,33 @@ export function rbVelZ(i: number): f64 { return buffer.read_f32(rbVelBuf, (i * 4
 /// Id do buffer de posições (render instanciado futuro / inspeção).
 export function rbPosBufferId(): i64 { return rbGPos; }
 
-export function rbInit(n: number, expectedLayoutVersion: number = PHYSICS_LAYOUT_VERSION): number {
-  if (gpu.available() === 0) return 0;
-  // Compara com a CONSTANTE, nunca com o número: com o literal, subir
-  // PHYSICS_LAYOUT_VERSION faria a GPU recusar o próprio layout que escreve.
-  if (expectedLayoutVersion !== PHYSICS_LAYOUT_VERSION) {
-    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + expectedLayoutVersion + " != " + PHYSICS_LAYOUT_VERSION + ")");
-    return 0;
-  }
-  rbAnyMask = 0;
-  rbN = n;
-  rbGroups = ((n + 63) / 64) | 0;
-  // Uma leitura em voo pertence aos buffers ANTIGOS: entregue nos novos, ela
-  // poria o estado de outra contagem de corpos no espelho recém-escrito.
-  rbCancel();
-  if (rbPipe !== 0 && rbPipeGrid !== 0 && rbPipeClear !== 0) {
-    // Os três pipelines NÃO dependem de `n` (o kernel usa `arrayLength`), então
-    // uma mudança de contagem só troca os buffers. Recompilar três shaders a
-    // cada spawn era um engasgo por objeto criado, e os buffers antigos ficavam
-    // na VRAM para sempre.
-    gpu.bufferFree(rbGPos); gpu.bufferFree(rbGVel);
-    gpu.bufferFree(rbGExt); gpu.bufferFree(rbGWorld);
-    return rbAlloc(n);
-  }
-
-  // O MESMO hash 3D do fluido (gpufluid.ts:105) e do buildSceneGrid da CPU.
-  const hashFn = `
+// O MESMO hash 3D do fluido (gpufluid.ts:105) e do buildSceneGrid da CPU.
+const RB_HASH_FN = `
 fn cellHash(gx: i32, gy: i32, gz: i32) -> u32 {
   return u32((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & 8191u;
 }
 `;
 
-  // CONSTRUÇÃO do grid: um corpo, um bucket. Note que quem indexa é o CENTRO —
-  // um corpo cabe em mais de uma célula, e o que garante que o par não escapa é
-  // a célula ser >= o maior DIÂMETRO (ver rbWriteWorld), não o corpo caber nela.
-  const gridSrc = `
-@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> world: array<atomic<i32>>;
-${hashFn}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let n = arrayLength(&pos);
-  if (id.x >= n) { return; }
-  let cs = max(bitcast<f32>(atomicLoad(&world[${WORLD_PARAM_CELL_SIZE}])), 0.001);
-  let p = pos[id.x].xyz;
-  let c = cellHash(i32(floor(p.x / cs)), i32(floor(p.y / cs)), i32(floor(p.z / cs)));
-  let s = atomicAdd(&world[${RB_GRID_I32_N}u + c], 1);
-  if (s < ${RB_SLOT_N}) {
-    atomicStore(&world[${RB_GRID_I32_N + RB_NCELLS_N}u + c * ${RB_SLOT_N}u + u32(s)], i32(id.x));
-  } else {
-    atomicAdd(&world[${RB_GRID_OVERFLOW_I32}u], 1);
+/// O WGSL do kernel de corpos. `filtro` = 1 gera a variante que aplica
+/// layer/mask (corpo×corpo, corpo×estático e a varredura de acordar); 0 gera a
+/// variante sem nenhuma leitura nem teste de máscara. As linhas do filtro são
+/// as ÚNICAS diferenças entre as duas — o resto é o mesmo texto, para que as
+/// variantes não possam divergir na física.
+function rbKernelSrc(filtro: number): string {
+  let minhaMascara = "";
+  let filtroCorpo = "";
+  let filtroEstatico = "";
+  if (filtro !== 0) {
+    minhaMascara = "  let minhaMascara = mascaraDoCorpo(id.x);\n";
+    filtroCorpo = "    if (filtrado(minhaMascara, mascaraDoCorpo(j))) { continue; }\n";
+    filtroEstatico = "    if (filtrado(minhaMascara, mascaraDoEstatico(k))) { continue; }\n";
   }
-}
-`;
-
-  // Zera SÓ as contagens (as vagas viram lixo inalcançável, como no fluido).
-  //
-  // Um kernel em vez do `gpu.write` de zeros que o fluido usa: lá o buffer de
-  // grid é próprio e o upload é de 32 KB; aqui o zero teria de cair no MEIO do
-  // `world`, o que exige `writeAt` — e `writeAt` mudou de forma na superfície
-  // nova (passou a receber objeto de opções) enquanto o shim ainda o chama
-  // posicional. Um dispatch não depende disso e não paga travessia por
-  // sub-passo, que é tráfego que o caminho quente não tem por que pagar.
-  const clearSrc = `
-@group(0) @binding(0) var<storage, read_write> world: array<atomic<i32>>;
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  if (id.x == 0u) {
-    atomicStore(&world[${RB_GRID_OVERFLOW_I32}u], 0);
-  }
-  if (id.x >= ${RB_NCELLS_N}u) { return; }
-  atomicStore(&world[${RB_GRID_I32_N}u + id.x], 0);
-}
-`;
-
-  const src = `
+  return `
 @group(0) @binding(0) var<storage, read_write> pos: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read_write> vel: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> ext: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> world: array<vec4<f32>>;
-${hashFn}
+${RB_HASH_FN}
 
 // penetração por eixo entre os AABBs (a, ha) e (b, hb); negativa = separados
 fn pen(a: vec3<f32>, ha: vec3<f32>, b: vec3<f32>, hb: vec3<f32>) -> vec3<f32> {
@@ -298,33 +256,32 @@ fn worldAt(k: u32) -> f32 {
   return world[k / 4u][k % 4u];
 }
 
-// O material de um CORPO: gravidade, quique, arrasto, atrito, chão do centro, tipo, layer, mask.
+// O material de um CORPO: gravidade, quique, arrasto, atrito, chão do centro, tipo.
 // O formato é o de engine/rigid/materials.ts, que é o mesmo que o solver em
 // Rust lê — uma segunda descrição dele aqui seria a forma de os dois backends
 // discordarem sobre qual número é o atrito.
-struct Material { g: f32, quique: f32, arrasto: f32, atrito: f32, chao: f32, tipo: f32, layer: u32, mask: u32 }
+// layer/mask ficam FORA: só a variante com filtro os lê, por mascaraDoCorpo.
+struct Material { g: f32, quique: f32, arrasto: f32, atrito: f32, chao: f32, tipo: f32 }
 
 fn materialDoCorpo(i: u32) -> Material {
   let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
   return Material(worldAt(at), worldAt(at + 1u), worldAt(at + 2u),
-                  worldAt(at + 3u), worldAt(at + 4u), worldAt(at + 5u),
-                  bitcast<u32>(worldAt(at + ${MAT_BODY_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_BODY_MASK}u)));
+                  worldAt(at + 3u), worldAt(at + 4u), worldAt(at + 5u));
 }
 
 // Só (layer, mask) de um corpo VIZINHO: é tudo que o filtro precisa ANTES do
 // teste de contato. O material inteiro são oito leituras do world e na cena
 // densa havia uma por candidato; agora ele só é lido depois que o contato
-// existe, e estas duas só quando a cena tem alguma máscara (any_mask).
+// existe, e estas duas só na variante com filtro (a cena tem alguma máscara).
 fn mascaraDoCorpo(i: u32) -> vec2<u32> {
   let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
   return vec2<u32>(bitcast<u32>(worldAt(at + ${MAT_BODY_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_BODY_MASK}u)));
 }
 
-// O de um ESTÁTICO: só quique, atrito, layer, mask. Ele não cai, não arrasta e é o chão.
+// O de um ESTÁTICO: só quique e atrito. Ele não cai, não arrasta e é o chão.
 fn materialDoEstatico(k: u32) -> Material {
   let at = ${RB_MAT_AT}u + k * ${MAT_STATIC_REC}u;
-  return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30, 1.0,
-                  bitcast<u32>(worldAt(at + ${MAT_STATIC_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_STATIC_MASK}u)));
+  return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30, 1.0);
 }
 
 // O mesmo que mascaraDoCorpo, para um estático.
@@ -362,7 +319,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let dt = worldAt(${WORLD_PARAM_DT}u);
   let m = u32(worldAt(${WORLD_PARAM_NUM_STATICS}u));
   let cs = max(worldAt(${WORLD_PARAM_CELL_SIZE}u), 0.001);
-  let anyMask = worldAt(${WORLD_PARAM_ANY_MASK}u) > 0.5;
   var p = pos[id.x].xyz;
   var slp = pos[id.x].w;
   var v = vel[id.x].xyz;
@@ -370,8 +326,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let h = ext[id.x].xyz;
   let im = ext[id.x].w;
   let meu = materialDoCorpo(id.x);
-  let minhaMascara = vec2<u32>(meu.layer, meu.mask);
-
+${minhaMascara}
   // ── TIPOS DE CORPO: 1 = estático, 2 = cinemático, 3 (ou 0 default) = dinâmico ──
   if (meu.tipo == ${BODY_STATIC.toFixed(1)}) {
     pos[id.x] = vec4<f32>(p, ${RB_SLEEP_FRAMES});
@@ -403,9 +358,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + s));
         if (j == id.x) { continue; }
         // Aqui o material do vizinho nem é preciso: acordar só depende de haver
-        // contato. Com filtro ligado, basta layer/mask.
-        if (anyMask && filtrado(minhaMascara, mascaraDoCorpo(j))) { continue; }
-        let vj = vel[j].xyz;
+        // contato. Com filtro, basta layer/mask.
+${filtroCorpo}        let vj = vel[j].xyz;
         if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
           let c = contato(p, h, forma, pos[j].xyz, ext[j].xyz, vel[j].w);
           if (c.w > 0.0) { acordar = true; }
@@ -440,8 +394,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
   // ── ESTÁTICOS (AABBs do world): expulsa pelo eixo mais raso, absorve ─────
   for (var k: u32 = 0u; k < m; k = k + 1u) {
-    if (anyMask && filtrado(minhaMascara, mascaraDoEstatico(k))) { continue; }
-    let base = ${WORLD_HEADER_VEC4S}u + k * ${STATIC_RECORD_VEC4S}u;
+${filtroEstatico}    let base = ${WORLD_HEADER_VEC4S}u + k * ${STATIC_RECORD_VEC4S}u;
     let sc = world[base].xyz;
     let sh = world[base + 1u].xyz;
     // A REDONDEZA do estático vive no w do centro: 1 = esfera. Invertido em
@@ -491,8 +444,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var sl: u32 = 0u; sl < cnt; sl = sl + 1u) {
     let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + sl));
     if (j == id.x) { continue; }
-    if (anyMask && filtrado(minhaMascara, mascaraDoCorpo(j))) { continue; }
-    let pj = pos[j].xyz;
+${filtroCorpo}    let pj = pos[j].xyz;
     let hj = ext[j].xyz;
     let c = contato(p, h, forma, pj, hj, vel[j].w);
     if (c.w <= 0.0) { continue; }
@@ -568,13 +520,107 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   vel[id.x] = vec4<f32>(v, forma);   // a forma sobrevive ao passo
 }
 `;
-  rbPipe = gpu.shader(src);
+}
+
+export function rbInit(n: number, expectedLayoutVersion: number = PHYSICS_LAYOUT_VERSION): number {
+  if (gpu.available() === 0) return 0;
+  // Compara com a CONSTANTE, nunca com o número: com o literal, subir
+  // PHYSICS_LAYOUT_VERSION faria a GPU recusar o próprio layout que escreve.
+  if (expectedLayoutVersion !== PHYSICS_LAYOUT_VERSION) {
+    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + expectedLayoutVersion + " != " + PHYSICS_LAYOUT_VERSION + ")");
+    return 0;
+  }
+  rbAnyMask = 0;
+  rbN = n;
+  rbGroups = ((n + 63) / 64) | 0;
+  // Uma leitura em voo pertence aos buffers ANTIGOS: entregue nos novos, ela
+  // poria o estado de outra contagem de corpos no espelho recém-escrito.
+  rbCancel();
+  if (rbPipe !== 0 && rbPipeGrid !== 0 && rbPipeClear !== 0) {
+    // Os três pipelines NÃO dependem de `n` (o kernel usa `arrayLength`), então
+    // uma mudança de contagem só troca os buffers. Recompilar três shaders a
+    // cada spawn era um engasgo por objeto criado, e os buffers antigos ficavam
+    // na VRAM para sempre.
+    gpu.bufferFree(rbGPos); gpu.bufferFree(rbGVel);
+    gpu.bufferFree(rbGExt); gpu.bufferFree(rbGWorld);
+    return rbAlloc(n);
+  }
+
+  // CONSTRUÇÃO do grid: um corpo, um bucket. Note que quem indexa é o CENTRO —
+  // um corpo cabe em mais de uma célula, e o que garante que o par não escapa é
+  // a célula ser >= o maior DIÂMETRO (ver rbWriteWorld), não o corpo caber nela.
+  const gridSrc = `
+@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> world: array<atomic<i32>>;
+${RB_HASH_FN}
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let n = arrayLength(&pos);
+  if (id.x >= n) { return; }
+  let cs = max(bitcast<f32>(atomicLoad(&world[${WORLD_PARAM_CELL_SIZE}])), 0.001);
+  let p = pos[id.x].xyz;
+  let c = cellHash(i32(floor(p.x / cs)), i32(floor(p.y / cs)), i32(floor(p.z / cs)));
+  let s = atomicAdd(&world[${RB_GRID_I32_N}u + c], 1);
+  if (s < ${RB_SLOT_N}) {
+    atomicStore(&world[${RB_GRID_I32_N + RB_NCELLS_N}u + c * ${RB_SLOT_N}u + u32(s)], i32(id.x));
+  } else {
+    atomicAdd(&world[${RB_GRID_OVERFLOW_I32}u], 1);
+  }
+}
+`;
+
+  // Zera SÓ as contagens (as vagas viram lixo inalcançável, como no fluido).
+  //
+  // Um kernel em vez do `gpu.write` de zeros que o fluido usa: lá o buffer de
+  // grid é próprio e o upload é de 32 KB; aqui o zero teria de cair no MEIO do
+  // `world`, o que exige `writeAt` — e `writeAt` mudou de forma na superfície
+  // nova (passou a receber objeto de opções) enquanto o shim ainda o chama
+  // posicional. Um dispatch não depende disso e não paga travessia por
+  // sub-passo, que é tráfego que o caminho quente não tem por que pagar.
+  const clearSrc = `
+@group(0) @binding(0) var<storage, read_write> world: array<atomic<i32>>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  if (id.x == 0u) {
+    atomicStore(&world[${RB_GRID_OVERFLOW_I32}u], 0);
+  }
+  if (id.x >= ${RB_NCELLS_N}u) { return; }
+  atomicStore(&world[${RB_GRID_I32_N}u + id.x], 0);
+}
+`;
+
+  rbPipe = gpu.shader(rbKernelSrc(0));
   if (rbPipe === 0) return 0;
   rbPipeGrid = gpu.shader(gridSrc);
   if (rbPipeGrid === 0) return 0;
   rbPipeClear = gpu.shader(clearSrc);
   if (rbPipeClear === 0) return 0;
   return rbAlloc(n);
+}
+
+/// Liga os buffers ATUAIS à variante com filtro. Separado de `rbAlloc` porque
+/// ela pode nascer depois da alocação (ver `rbPipeComFiltro`).
+function rbBindFiltro(): void {
+  gpu.bind_buffer(rbPipeFiltro, 0, rbGPos);
+  gpu.bind_buffer(rbPipeFiltro, 1, rbGVel);
+  gpu.bind_buffer(rbPipeFiltro, 2, rbGExt);
+  gpu.bind_buffer(rbPipeFiltro, 3, rbGWorld);
+}
+
+/// A variante com filtro, compilada sob demanda. Sob demanda e não no `rbInit`
+/// porque MEDIU pior: com o segundo pipeline criado já no `rbInit`, a cena sem
+/// máscara — que nunca o despacha — ficou 3–6% mais lenta por passo em modo
+/// pipelined (n = 4000–8000), enquanto o tempo de GPU do kernel não mudou; sem
+/// ele, a diferença sumiu. O porquê está no host/driver e não foi isolado.
+/// Devolve 0 se o WGSL não compilar (o `gpu.shader` já imprime o erro); o
+/// `rbKick` então não despacha, porque simular sem o filtro seria física errada
+/// em silêncio.
+function rbPipeComFiltro(): i64 {
+  if (rbPipeFiltro === 0 && rbPipeFiltroFalhou === 0) {
+    rbPipeFiltro = gpu.shader(rbKernelSrc(1));
+    if (rbPipeFiltro !== 0) rbBindFiltro(); else rbPipeFiltroFalhou = 1;
+  }
+  return rbPipeFiltro;
 }
 
 /// Aloca os buffers de `n` corpos e os liga aos pipelines já compilados.
@@ -601,6 +647,7 @@ function rbAlloc(n: number): number {
   gpu.bind_buffer(rbPipe, 1, rbGVel);
   gpu.bind_buffer(rbPipe, 2, rbGExt);
   gpu.bind_buffer(rbPipe, 3, rbGWorld);
+  if (rbPipeFiltro !== 0) rbBindFiltro();
   gpu.bind_buffer(rbPipeGrid, 0, rbGPos);
   gpu.bind_buffer(rbPipeGrid, 1, rbGWorld);
   gpu.bind_buffer(rbPipeClear, 0, rbGWorld);
@@ -670,6 +717,9 @@ function rbWriteWorld(): void {
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_CELL_SIZE * 4, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_SUBSTEPS * 4, 1.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4, PHYSICS_LAYOUT_VERSION * 1.0);
+  // O kernel WGSL não lê mais este slot — a escolha é de VARIANTE, no rbKick
+  // (ver rbPipeFiltro). Ele continua escrito porque é o mesmo cabeçalho que o
+  // solver em Rust lê, e um slot com significado não fica com lixo.
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_ANY_MASK * 4, rbAnyMask > 0 ? 1.0 : 0.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_RESERVED_A * 4, 0.0);
   buffer.write_f32(rbWorldBuf, WORLD_PARAM_RESERVED_B * 4, 0.0);
@@ -857,6 +907,9 @@ export function rbKick(substeps: number): void {
     io.print("[rigid] GPU recusou: versao de layout incompativel (" + ver + " != " + PHYSICS_LAYOUT_VERSION + ")");
     return;
   }
+  // A variante com filtro só quando alguma máscara existe (ver rbPipeFiltro).
+  const pipe = rbAnyMask > 0 ? rbPipeComFiltro() : rbPipe;
+  if (pipe === 0) return;
   let s = 0;
   while (s < substeps) {
     // Três dispatches por sub-passo, e a ordem é obrigatória: o grid descreve as
@@ -865,7 +918,7 @@ export function rbKick(substeps: number): void {
     // (`gpufluid.ts:524`), com o zero feito por kernel em vez de upload.
     gpu.dispatch(rbPipeClear, RB_CLEAR_GROUPS, 1, 1);
     gpu.dispatch(rbPipeGrid, rbGroups, 1, 1);
-    gpu.dispatch(rbPipe, rbGroups, 1, 1);
+    gpu.dispatch(pipe, rbGroups, 1, 1);
     s = s + 1;
   }
 }
