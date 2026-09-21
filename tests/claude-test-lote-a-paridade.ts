@@ -8,6 +8,7 @@ import { scene } from "@editor/control/session";
 import { GameObject, COL_SPHERE, COL_BOX } from "@engine/core/gameobject";
 import { boxCollider, centerWorldX, centerWorldY, centerWorldZ } from "@engine/core/collider";
 import { Transform } from "@engine/core/transform";
+import { Rigidbody } from "@scripts/rigidbody";
 import { rbAvailable, rbInit, rbSetBody, rbSetShape, rbUpload, rbSyncStatics,
          rbStep, rbX, rbY, rbZ } from "@engine/rigid/gpurigid";
 import { crInit, crSetBody, crSetShape, crSyncStatics, crStep,
@@ -175,6 +176,7 @@ io.print("=== TESTE LOTE A: PARIDADE DE ESTÁTICOS COM OFFSET E CINEMÁTICOS ===
   dyn.transform.mass = 1.0; // Dinâmico!
   dyn.stationary = 0;
   dyn.collideFlag = 1;
+  dyn.addBehavior(new Rigidbody(-9.8, 0.0));
   scene.add(dyn);
 
   scene.computeWorld();
