@@ -186,7 +186,7 @@ export interface SpatialFilter {
 - **Serialização Obrigatória:** O `bodyId` deve ser **salvo na cena** (`SceneIO` / JSON da cena). Sem a persistência do id, ao salvar e recarregar uma cena a ordenação determinística de `overlap` e a correspondência em replays seriam corrompidas.
 
 ### 5.5 Zero Alocação por Consulta (`NonAlloc`) com Parâmetros Escalares
-No runtime do motor (QuickJS / JIT), passar vetores como tuplas `[x, y, z]` aloca arrays no heap a cada chamada. Para consultas de alta frequência, a API deve operar exclusivamente com **parâmetros escalares**:
+No runtime do motor (`rts`, que compila TypeScript via Cranelift), passar vetores como tuplas `[x, y, z]` aloca arrays no heap a cada chamada. Para consultas de alta frequência, a API deve operar exclusivamente com **parâmetros escalares**:
 
 ```typescript
 // Reutiliza objeto outHit pré-alocado pelo chamador (zero alocações no heap)
@@ -252,5 +252,5 @@ O Lote B será dividido em dois PRs (1º Consultas, 2º Eventos). Os critérios 
 4. `GameObject` possuir `bodyId` estável serializado na cena (`SceneIO`), preservado após save/load;
 5. `overlap` devolver resultados estritamente ordenados por `bodyId` crescente;
 6. Filtros com regra simétrica `layer`/`mask` e `includeTriggers` passarem em testes unitários dedicados;
-7. **Como medir zero alocações:** Em um teste dedicado, executar um loop de 1.000 chamadas consecutivas de `raycastNonAlloc` e `overlapSphereNonAlloc` monitorando o consumo de heap através de `app.memory()` (ou delta de memória do runtime), comprovando **0 bytes alocados no heap** e **0 coletas de GC** durante as execuções;
+7. **Como medir zero alocações:** Inspeção de código garantindo que o caminho quente não aloca no heap (passagem de parâmetros escalares, buffers pré-alocados pelo chamador), acompanhada de teste medindo a estabilidade de RSS (`process.memoryUsage().rss`) e tempo estável por chamada em várias rodadas de 1.000 chamadas consecutivas de `raycastNonAlloc` e `overlapSphereNonAlloc`;
 8. O custo de reconstrução do índice espacial do executor no host ser medido e reportado no benchmark do Lote B.
