@@ -144,5 +144,51 @@ check("auto escolhe rust ou gpu, nunca vazio", nomeAuto.length > 2 ? 1 : 0);
 check("com muitas threads e cena pequena, auto = rust",
       crThreads() < 4 || nomeAuto.indexOf("rust") === 0 ? 1 : 0);
 
+// ── 6) Histerese no modo AUTO (margem >= 20% sustentada por 10 passos) ────
+import { rigidAutoHysteresis } from "@engine/core/physics_backend";
+import { profSetTable, profResetFactoryDefaults } from "@engine/core/backend_profile";
+
+rigidSetMode(3); // AUTO
+rigidStep(sc, 0);
+const h0 = rigidAutoHysteresis();
+check("histerese inicializada com backend ativo", h0.ativo === 1 || h0.ativo === 2 ? 1 : 0);
+
+// Força uma tabela onde o outro backend é 10% melhor (margem < 20%):
+const ativoOriginal = h0.ativo;
+if (ativoOriginal === 2) {
+  profSetTable([24], [0.90], [1], [[1.00]]);
+} else {
+  profSetTable([24], [1.00], [1], [[0.90]]);
+}
+
+for (let s = 0; s < 15; s = s + 1) {
+  rigidStep(sc, 0);
+}
+const h1 = rigidAutoHysteresis();
+check("margem < 20%: nao troca de backend e streak = 0", h1.ativo === ativoOriginal && h1.streak === 0 ? 1 : 0);
+
+// Agora força o candidato a ser 30% mais rápido (margem >= 20%):
+if (ativoOriginal === 2) {
+  profSetTable([24], [0.70], [1], [[1.00]]);
+} else {
+  profSetTable([24], [1.00], [1], [[0.70]]);
+}
+
+// 5 passos: streak deve subir para 5, mas ativo NÃO troca ainda
+for (let s = 0; s < 5; s = s + 1) {
+  rigidStep(sc, 0);
+}
+const h2 = rigidAutoHysteresis();
+check("margem >= 20%: streak avança e ativo mantido", h2.ativo === ativoOriginal && h2.streak === 5 ? 1 : 0);
+
+// Mais 5 passos (total 10): deve trocar o ativo!
+for (let s = 0; s < 5; s = s + 1) {
+  rigidStep(sc, 0);
+}
+const h3 = rigidAutoHysteresis();
+check("apos 10 passos sustentados: troca de backend concretizada", h3.ativo !== ativoOriginal ? 1 : 0);
+
+profResetFactoryDefaults();
+
 io.print("[resultado] " + ok + " ok, " + fail + " falhas");
 io.print(fail === 0 ? "[PASSOU]" : "[FALHOU]");

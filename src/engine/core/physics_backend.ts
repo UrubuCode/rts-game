@@ -50,7 +50,7 @@ import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbS
          rbCount } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
-import { crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
+import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
          crSyncStatics, crStep, crX, crY, crZ, crVelX, crVelY, crVelZ,
          crCount, crThreads } from "../rigid/cpurigid";
 import { FIXED_DT } from "./fixedstep";
@@ -58,7 +58,7 @@ import { Behavior } from "./behavior";
 import { profBest, profGpuMs, profRustMs, profRange,
          PROF_GPU, PROF_RUST, PROF_DESCONHECIDO } from "./backend_profile";
 
-// /// Sub-passos que o backend GPU submete por frame.
+/// Sub-passos que o backend GPU submete por frame.
 export const PB_SUBSTEPS = 2;
 
 /// 0 = não perguntado, 1 = há placa, 2 = não há.
@@ -104,23 +104,38 @@ let pbGpuMorta = 0;
 /// Último motivo de queda, para o `dbg` dizer POR QUE está na CPU.
 let pbMotivo = "";
 
+/// Histerese do modo AUTO:
+/// Alterna entre Rust e GPU somente com margem >= 20% sustentada por 10 passos.
+let pbAutoAtivo = 0;        // 1 = GPU, 2 = Rust, 0 = inicial
+let pbAutoCandidate = 0;    // candidato proposto
+let pbAutoStreak = 0;       // passos consecutivos sustentados
+
 /// Pede o backend. `1` = GPU, `2` = RUST, `3` = AUTO, `0` = CPU.
 export function rigidSetMode(modo: number): void {
   pbModo = modo === 1 ? 1 : (modo === 2 ? 2 : (modo === 3 ? 3 : 0));
   if (pbModo === 0) pbMotivo = "";
+  pbAutoAtivo = 0;
+  pbAutoCandidate = 0;
+  pbAutoStreak = 0;
 }
 
 export function rigidMode(): number { return pbModo; }
+
+/// Estado interno da histerese do modo AUTO (para testes e diagnóstico).
+export function rigidAutoHysteresis(): { ativo: number, candidate: number, streak: number } {
+  return { ativo: pbAutoAtivo, candidate: pbAutoCandidate, streak: pbAutoStreak };
+}
 
 /// O nome do que está REALMENTE ativo — é isto que o `dbg` reporta, e não
 /// `rigidMode`, porque pedir GPU e estar na CPU é exatamente o estado que
 /// alguém medindo precisa enxergar.
 export function rigidBackendName(): string {
   if (pbModo === 3) {
-    const quem = profBest(pbBodies, crThreads());
-    if (quem === PROF_RUST || quem === PROF_DESCONHECIDO) {
+    const threads = crThreads();
+    const ativo = pbAutoAtivo !== 0 ? pbAutoAtivo : (profBest(pbBodies, threads) === PROF_GPU ? 1 : 2);
+    if (ativo === 2) {
       if (pbBodies === 0) return "rust (auto, aguardando corpos)";
-      return "rust (auto, " + crThreads() + " threads)";
+      return "rust (auto, " + threads + " threads)";
     }
     return "gpu (auto)";
   }
@@ -503,16 +518,45 @@ function pbAlvo(): number {
     }
     return 0;
   }
-  // AUTO: a medição escolhe. `pbBodies` é a contagem do último sync; no
-  // primeiro frame ela é 0 e a escolha cai no Rust pelo desempate — que é o
-  // certo, porque uma cena vazia não tem por que pagar um round-trip.
+  // AUTO: a medição escolhe, com histerese (margem >= 20% por 10 passos).
   let modo = pbModo;
   if (modo === 3) {
-    if (crAvailable() === 0) modo = pbGpuPresente() !== 0 ? 1 : 0;
-    else {
-      const quem = profBest(pbBodies, crThreads());
-      modo = quem === PROF_RUST || quem === PROF_DESCONHECIDO ? 2 : 1;
-      if (modo === 1 && pbGpuPresente() === 0) modo = 2;
+    if (crAvailable() === 0) {
+      modo = pbGpuPresente() !== 0 ? 1 : 0;
+    } else if (pbGpuPresente() === 0) {
+      modo = 2;
+    } else {
+      const threads = crThreads();
+      const quem = profBest(pbBodies, threads);
+      const candidato = quem === PROF_GPU ? 1 : 2;
+      if (pbAutoAtivo === 0) {
+        pbAutoAtivo = candidato;
+        pbAutoCandidate = candidato;
+        pbAutoStreak = 0;
+      } else if (candidato !== pbAutoAtivo) {
+        const curMs = pbAutoAtivo === 1 ? profGpuMs(pbBodies) : profRustMs(pbBodies, threads);
+        const candMs = candidato === 1 ? profGpuMs(pbBodies) : profRustMs(pbBodies, threads);
+        // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
+        if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
+          if (candidato === pbAutoCandidate) {
+            pbAutoStreak = pbAutoStreak + 1;
+            if (pbAutoStreak >= 10) {
+              pbAutoAtivo = candidato;
+              pbAutoStreak = 0;
+            }
+          } else {
+            pbAutoCandidate = candidato;
+            pbAutoStreak = 1;
+          }
+        } else {
+          pbAutoCandidate = pbAutoAtivo;
+          pbAutoStreak = 0;
+        }
+      } else {
+        pbAutoCandidate = pbAutoAtivo;
+        pbAutoStreak = 0;
+      }
+      modo = pbAutoAtivo;
     }
   }
   // RUST: sem calibração e sem portão — não há placa que possa faltar.
