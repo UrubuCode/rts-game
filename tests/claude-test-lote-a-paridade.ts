@@ -54,45 +54,63 @@ io.print("=== TESTE LOTE A: PARIDADE DE ESTÁTICOS COM OFFSET E CINEMÁTICOS ===
   check("Com Collider (yaw=90): centerWorldZ rotacionado", math.abs(centerWorldZ(g, g.transform) - 3.0) < 0.01 ? 1 : 0);
 }
 
-// ── 2. TESTE DE PARIDADE GPU × RUST COM ESTÁTICO DESLOCADO ────────────────
+// ── 2. TESTE DE PARIDADE SCENE × GPU × RUST COM ESTÁTICO DESLOCADO ────────
 {
   scene.clear();
   
-  // Cria um estático com colisor deslocado em X por +4.0
+  // Cria um estático com colisor deslocado em X por +10.0 e meia-extensão 2.0.
+  // O chão cobre X em [8.0, 12.0] (topo em Y = 0.5).
+  // Sem a correção (centro em 0), ele cobriria [-2.0, 2.0].
   const chao = new GameObject("ChaoOffset");
   chao.setMesh(1, 100, 100, 100);
   chao.transform.setPosition(0.0, 0.0, 0.0);
-  chao.transform.sx = 10.0; chao.transform.sy = 1.0; chao.transform.sz = 10.0;
+  chao.transform.sx = 1.0; chao.transform.sy = 1.0; chao.transform.sz = 1.0;
   chao.stationary = 1;
   chao.collideFlag = 1;
-  const cChao = boxCollider(5.0, 0.5, 5.0);
-  cChao.cx = 4.0; // deslocado 4 unidades para a direita (em mundo: 4 * 10 = 40 se escalado, ou local sem escala?)
-  // Lembrete: cChao.cx é local sem escala, multiplicado por sx na montagem.
-  // Vamos usar sx = 1.0 para que cx = 4.0 signifique exatamente +4.0 em mundo.
-  chao.transform.sx = 1.0; chao.transform.sy = 1.0; chao.transform.sz = 1.0;
+  const cChao = boxCollider(2.0, 0.5, 2.0);
+  cChao.cx = 10.0;
   chao.addBehavior(cChao);
   scene.add(chao);
-  scene.computeWorld();
 
-  // Corpo 0: cai onde o pivô está (x=0), mas NÃO deve bater no colisor deslocado
-  // Corpo 1: cai onde o colisor deslocado está (x=4), e DEVE apoiar no colisor
+  // Corpo 0: cai onde o pivô está (x=0). Fora de [8, 12] -> NÃO apoia, cai no vazio (y < 0)
+  // Corpo 1: cai onde o colisor está (x=10). Dentro de [8, 12] -> DEVE apoiar (y ~ 1.0)
   const c0 = new GameObject("C0");
   c0.setMesh(1, 200, 50, 50);
   c0.transform.setPosition(0.0, 5.0, 0.0);
   c0.transform.sx = 1.0; c0.transform.sy = 1.0; c0.transform.sz = 1.0;
   c0.collideFlag = 1;
+  scene.add(c0);
 
   const c1 = new GameObject("C1");
   c1.setMesh(1, 50, 200, 50);
-  c1.transform.setPosition(4.0, 5.0, 0.0);
+  c1.transform.setPosition(10.0, 5.0, 0.0);
   c1.transform.sx = 1.0; c1.transform.sy = 1.0; c1.transform.sz = 1.0;
   c1.collideFlag = 1;
+  scene.add(c1);
 
-  // Testar Rust (CPU paralela)
+  scene.computeWorld();
+
+  // 2.1 ORÁCULO: Solver CPU da Scene (scene.resolveCollisions)
+  for (let s = 0; s < 300; s = s + 1) {
+    c0.transform.vy = c0.transform.vy - 9.8 * (1.0 / 60.0);
+    c0.transform.py = c0.transform.py + c0.transform.vy * (1.0 / 60.0);
+    c1.transform.vy = c1.transform.vy - 9.8 * (1.0 / 60.0);
+    c1.transform.py = c1.transform.py + c1.transform.vy * (1.0 / 60.0);
+    scene.computeWorld();
+    scene.resolveCollisions();
+  }
+
+  const sceneY0 = c0.transform.py;
+  const sceneY1 = c1.transform.py;
+
+  check("Scene CPU (Oráculo): C1 assentou sobre estático deslocado (y ~ 1.0)", math.abs(sceneY1 - 1.0) < 0.15 ? 1 : 0);
+  check("Scene CPU (Oráculo): C0 caiu no vazio (y < 0)", sceneY0 < 0.0 ? 1 : 0);
+
+  // 2.2 Testar Rust (CPU paralela)
   crInit(2);
   crSetBody(0, 0.0, 5.0, 0.0, 0.5, 0.5, 0.5, 1.0);
   crSetShape(0, COL_BOX);
-  crSetBody(1, 4.0, 5.0, 0.0, 0.5, 0.5, 0.5, 1.0);
+  crSetBody(1, 10.0, 5.0, 0.0, 0.5, 0.5, 0.5, 1.0);
   crSetShape(1, COL_BOX);
   crSyncStatics(scene);
 
@@ -103,15 +121,16 @@ io.print("=== TESTE LOTE A: PARIDADE DE ESTÁTICOS COM OFFSET E CINEMÁTICOS ===
   const rustY0 = crY(0);
   const rustY1 = crY(1);
 
-  // Corpo 1 deve ter assentado sobre o colisor estático (y ~ 1.0 = topo do chao em 0.5 + meia altura 0.5)
   check("Rust: C1 assentou sobre estático deslocado (y ~ 1.0)", math.abs(rustY1 - 1.0) < 0.15 ? 1 : 0);
+  check("Rust: C0 caiu no vazio (y < 0)", rustY0 < 0.0 ? 1 : 0);
+  check("Paridade Scene CPU × Rust no estático deslocado (C1)", math.abs(sceneY1 - rustY1) < 0.15 ? 1 : 0);
 
-  // Testar GPU se disponível
+  // 2.3 Testar GPU se disponível
   if (rbAvailable() !== 0) {
     rbInit(2);
     rbSetBody(0, 0.0, 5.0, 0.0, 0.5, 0.5, 0.5, 1.0);
     rbSetShape(0, COL_BOX);
-    rbSetBody(1, 4.0, 5.0, 0.0, 0.5, 0.5, 0.5, 1.0);
+    rbSetBody(1, 10.0, 5.0, 0.0, 0.5, 0.5, 0.5, 1.0);
     rbSetShape(1, COL_BOX);
     rbUpload();
     rbSyncStatics(scene);
@@ -124,52 +143,54 @@ io.print("=== TESTE LOTE A: PARIDADE DE ESTÁTICOS COM OFFSET E CINEMÁTICOS ===
     const gpuY1 = rbY(1);
 
     check("GPU: C1 assentou sobre estático deslocado (y ~ 1.0)", math.abs(gpuY1 - 1.0) < 0.15 ? 1 : 0);
-    check("Paridade Rust × GPU no estático deslocado", math.abs(rustY1 - gpuY1) < 0.15 ? 1 : 0);
+    check("GPU: C0 caiu no vazio (y < 0)", gpuY0 < 0.0 ? 1 : 0);
+    check("Paridade Scene CPU × GPU no estático deslocado (C1)", math.abs(sceneY1 - gpuY1) < 0.15 ? 1 : 0);
+    check("Paridade Rust × GPU no estático deslocado (C1)", math.abs(rustY1 - gpuY1) < 0.15 ? 1 : 0);
   } else {
     io.print("  [skip] GPU não disponível para teste de paridade");
   }
 }
 
-// ── 3. TESTE DE PRESERVAÇÃO DE VELOCIDADE CINEMÁTICA VIA RIGIDSTEP ────────
+// ── 3. TESTE DE CORPOS CINEMÁTICOS E TRANSPORTE DE DINÂMICOS ──────────────
 {
   scene.clear();
   rigidSetMode(2); // Força Rust para teste determinístico
 
-  const dyn = new GameObject("Dinamico");
+  // Plataforma cinemática em movimento horizontal (vx = 3.0)
+  const plat = new GameObject("PlatCinematica");
+  plat.setMesh(1, 100, 100, 100);
+  plat.transform.setPosition(0.0, 0.0, 0.0);
+  plat.transform.sx = 10.0; plat.transform.sy = 1.0; plat.transform.sz = 10.0;
+  plat.transform.mass = 0.0; // Cinemático!
+  plat.transform.vx = 3.0;
+  plat.stationary = 0;
+  plat.collideFlag = 1;
+  scene.add(plat);
+
+  // Corpo dinâmico apoiado sobre a plataforma (y = 1.0)
+  const dyn = new GameObject("DinamicoApoiado");
   dyn.setMesh(1, 100, 100, 100);
-  dyn.transform.setPosition(0.0, 10.0, 0.0);
-  dyn.transform.mass = 1.0;
-  dyn.transform.vx = 5.0;
+  dyn.transform.setPosition(0.0, 1.0, 0.0);
+  dyn.transform.sx = 1.0; dyn.transform.sy = 1.0; dyn.transform.sz = 1.0;
+  dyn.transform.mass = 1.0; // Dinâmico!
   dyn.stationary = 0;
   dyn.collideFlag = 1;
   scene.add(dyn);
 
-  const kin = new GameObject("Cinematico");
-  kin.setMesh(1, 100, 100, 100);
-  kin.transform.setPosition(20.0, 10.0, 0.0);
-  kin.transform.mass = 0.0; // Cinemático!
-  kin.transform.vx = 5.0;
-  kin.stationary = 0;
-  kin.collideFlag = 1;
-  scene.add(kin);
-
   scene.computeWorld();
 
-  // 1º passo: inicializa e sincroniza no backend Rust
-  rigidStep(scene, 1);
+  // Executa passos pelo rigidStep
+  for (let s = 0; s < 120; s = s + 1) {
+    rigidStep(scene, 0);
+  }
 
-  // Agora movemos ambos externamente (teleporte / script de navegação)
-  dyn.transform.px = 1.0;
-  dyn.transform.vx = 12.0; // Script tenta dar velocidade
+  // A plataforma cinemática deve ter se movido com vx = 3.0
+  check("Plataforma cinemática preservou vx e avançou (x ~ 6.0)", math.abs(plat.transform.px - 6.0) < 0.2 ? 1 : 0);
+  check("Plataforma cinemática manteve vx intacto (vx = 3.0)", math.abs(plat.transform.vx - 3.0) < 0.01 ? 1 : 0);
 
-  kin.transform.px = 21.0;
-  kin.transform.vx = 12.0; // Script dá velocidade ao cinemático
-
-  // 2º passo: pbEmpurraTeleportes deve zerar o dinâmico e preservar o cinemático
-  rigidStep(scene, 0);
-
-  check("Cinemático preservou vx ao mover externamente", math.abs(kin.transform.vx - 12.0) < 0.01 ? 1 : 0);
-  check("Dinâmico teve vx resetado no teleporte", math.abs(dyn.transform.vx) < 0.01 ? 1 : 0);
+  // O corpo dinâmico apoiado deve ter sido carregado pela plataforma
+  check("Corpo dinâmico foi carregado pela plataforma (x > 4.0)", dyn.transform.px > 4.0 ? 1 : 0);
+  check("Corpo dinâmico permaneceu sobre a plataforma (y ~ 1.0)", math.abs(dyn.transform.py - 1.0) < 0.25 ? 1 : 0);
 }
 
 io.print("Resultado: " + ok + " passaram, " + fail + " falharam.");
