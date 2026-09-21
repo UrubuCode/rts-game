@@ -889,6 +889,18 @@ function sortHitsInPlace(hits: OverlapHit[], count: number): void {
   }
 }
 
+const sCandidateOverlapHit: OverlapHit = createOverlapHit();
+
+function copyOverlapHit(dst: OverlapHit, src: OverlapHit): void {
+  dst.hit = src.hit;
+  dst.bodyId = src.bodyId;
+  dst.depth = src.depth;
+  dst.normal[0] = src.normal[0];
+  dst.normal[1] = src.normal[1];
+  dst.normal[2] = src.normal[2];
+  dst.stepId = src.stepId;
+}
+
 export function overlapSphereNonAlloc(
   cx: number, cy: number, cz: number,
   radius: number,
@@ -910,22 +922,40 @@ export function overlapSphereNonAlloc(
   const minGz = mfloor((cz - radius) * sInvCellSize);
   const maxGz = mfloor((cz + radius) * sInvCellSize);
 
-  let count = 0;
+  let storedCount = 0;
+  let totalFound = 0;
 
   let gx = minGx;
-  while (gx <= maxGx && count < maxHits) {
+  while (gx <= maxGx) {
     let gz = minGz;
-    while (gz <= maxGz && count < maxHits) {
+    while (gz <= maxGz) {
       const bucket = sHash(gx, gz);
       let entry = sHead[bucket];
-      while (entry !== -1 && count < maxHits) {
+      while (entry !== -1) {
         const k = sEntriesObj[entry];
         if (sVisitedStamp[k] !== stamp) {
           sVisitedStamp[k] = stamp;
           const go = sObjs[k];
           if (passesFilter(mask, layer, includeTriggers, go)) {
-            if (overlapSphereObject(k, cx, cy, cz, radius, outHits[count], includeTriggers)) {
-              count = count + 1;
+            if (overlapSphereObject(k, cx, cy, cz, radius, sCandidateOverlapHit, includeTriggers)) {
+              totalFound = totalFound + 1;
+              const candId = sCandidateOverlapHit.bodyId;
+              if (storedCount < maxHits) {
+                let pos = storedCount;
+                while (pos > 0 && outHits[pos - 1].bodyId > candId) {
+                  copyOverlapHit(outHits[pos], outHits[pos - 1]);
+                  pos = pos - 1;
+                }
+                copyOverlapHit(outHits[pos], sCandidateOverlapHit);
+                storedCount = storedCount + 1;
+              } else if (candId < outHits[maxHits - 1].bodyId) {
+                let pos = maxHits - 1;
+                while (pos > 0 && outHits[pos - 1].bodyId > candId) {
+                  copyOverlapHit(outHits[pos], outHits[pos - 1]);
+                  pos = pos - 1;
+                }
+                copyOverlapHit(outHits[pos], sCandidateOverlapHit);
+              }
             }
           }
         }
@@ -936,11 +966,7 @@ export function overlapSphereNonAlloc(
     gx = gx + 1;
   }
 
-  // Ordenação determinística estrita por bodyId crescente (§5.3)
-  if (count > 1) {
-    sortHitsInPlace(outHits, count);
-  }
-  return count;
+  return totalFound;
 }
 
 export function overlapSphere(
@@ -949,30 +975,50 @@ export function overlapSphere(
   filter?: SpatialFilter,
   sc?: Scene,
 ): OverlapHit[] {
+  const targetScene = ensureIndex(sc);
+  if (targetScene === null) return [];
+
   const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : MASK_ALL;
   const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : LAYER_DEFAULT;
   const includeTriggers = filter !== undefined && filter.includeTriggers !== undefined ? filter.includeTriggers : false;
 
-  // Aloca buffer temporário para receber os resultados
-  const buf: OverlapHit[] = [];
-  let i = 0;
-  while (i < 64) {
-    buf.push(createOverlapHit());
-    i = i + 1;
+  sQueryStamp = sQueryStamp + 1;
+  const stamp = sQueryStamp;
+
+  const minGx = mfloor((cx - radius) * sInvCellSize);
+  const maxGx = mfloor((cx + radius) * sInvCellSize);
+  const minGz = mfloor((cz - radius) * sInvCellSize);
+  const maxGz = mfloor((cz + radius) * sInvCellSize);
+
+  const result: OverlapHit[] = [];
+
+  let gx = minGx;
+  while (gx <= maxGx) {
+    let gz = minGz;
+    while (gz <= maxGz) {
+      const bucket = sHash(gx, gz);
+      let entry = sHead[bucket];
+      while (entry !== -1) {
+        const k = sEntriesObj[entry];
+        if (sVisitedStamp[k] !== stamp) {
+          sVisitedStamp[k] = stamp;
+          const go = sObjs[k];
+          if (passesFilter(mask, layer, includeTriggers, go)) {
+            const hit = createOverlapHit();
+            if (overlapSphereObject(k, cx, cy, cz, radius, hit, includeTriggers)) {
+              result.push(hit);
+            }
+          }
+        }
+        entry = sEntriesNext[entry];
+      }
+      gz = gz + 1;
+    }
+    gx = gx + 1;
   }
 
-  const count = overlapSphereNonAlloc(cx, cy, cz, radius, buf, 64, mask, layer, includeTriggers, sc);
-  const result: OverlapHit[] = [];
-  let j = 0;
-  while (j < count) {
-    result.push({
-      hit: buf[j].hit,
-      bodyId: buf[j].bodyId,
-      depth: buf[j].depth,
-      normal: [buf[j].normal[0], buf[j].normal[1], buf[j].normal[2]],
-      stepId: buf[j].stepId,
-    });
-    j = j + 1;
+  if (result.length > 1) {
+    sortHitsInPlace(result, result.length);
   }
   return result;
 }
@@ -1178,22 +1224,40 @@ export function overlapBoxNonAlloc(
   const minGz = mfloor((cz - hz) * sInvCellSize);
   const maxGz = mfloor((cz + hz) * sInvCellSize);
 
-  let count = 0;
+  let storedCount = 0;
+  let totalFound = 0;
 
   let gx = minGx;
-  while (gx <= maxGx && count < maxHits) {
+  while (gx <= maxGx) {
     let gz = minGz;
-    while (gz <= maxGz && count < maxHits) {
+    while (gz <= maxGz) {
       const bucket = sHash(gx, gz);
       let entry = sHead[bucket];
-      while (entry !== -1 && count < maxHits) {
+      while (entry !== -1) {
         const k = sEntriesObj[entry];
         if (sVisitedStamp[k] !== stamp) {
           sVisitedStamp[k] = stamp;
           const go = sObjs[k];
           if (passesFilter(mask, layer, includeTriggers, go)) {
-            if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, outHits[count], includeTriggers)) {
-              count = count + 1;
+            if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, sCandidateOverlapHit, includeTriggers)) {
+              totalFound = totalFound + 1;
+              const candId = sCandidateOverlapHit.bodyId;
+              if (storedCount < maxHits) {
+                let pos = storedCount;
+                while (pos > 0 && outHits[pos - 1].bodyId > candId) {
+                  copyOverlapHit(outHits[pos], outHits[pos - 1]);
+                  pos = pos - 1;
+                }
+                copyOverlapHit(outHits[pos], sCandidateOverlapHit);
+                storedCount = storedCount + 1;
+              } else if (candId < outHits[maxHits - 1].bodyId) {
+                let pos = maxHits - 1;
+                while (pos > 0 && outHits[pos - 1].bodyId > candId) {
+                  copyOverlapHit(outHits[pos], outHits[pos - 1]);
+                  pos = pos - 1;
+                }
+                copyOverlapHit(outHits[pos], sCandidateOverlapHit);
+              }
             }
           }
         }
@@ -1204,11 +1268,7 @@ export function overlapBoxNonAlloc(
     gx = gx + 1;
   }
 
-  // Ordenação determinística estrita por bodyId crescente (§5.3)
-  if (count > 1) {
-    sortHitsInPlace(outHits, count);
-  }
-  return count;
+  return totalFound;
 }
 
 export function overlapBox(
@@ -1217,29 +1277,50 @@ export function overlapBox(
   filter?: SpatialFilter,
   sc?: Scene,
 ): OverlapHit[] {
+  const targetScene = ensureIndex(sc);
+  if (targetScene === null) return [];
+
   const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : MASK_ALL;
   const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : LAYER_DEFAULT;
   const includeTriggers = filter !== undefined && filter.includeTriggers !== undefined ? filter.includeTriggers : false;
 
-  const buf: OverlapHit[] = [];
-  let i = 0;
-  while (i < 64) {
-    buf.push(createOverlapHit());
-    i = i + 1;
+  sQueryStamp = sQueryStamp + 1;
+  const stamp = sQueryStamp;
+
+  const minGx = mfloor((cx - hx) * sInvCellSize);
+  const maxGx = mfloor((cx + hx) * sInvCellSize);
+  const minGz = mfloor((cz - hz) * sInvCellSize);
+  const maxGz = mfloor((cz + hz) * sInvCellSize);
+
+  const result: OverlapHit[] = [];
+
+  let gx = minGx;
+  while (gx <= maxGx) {
+    let gz = minGz;
+    while (gz <= maxGz) {
+      const bucket = sHash(gx, gz);
+      let entry = sHead[bucket];
+      while (entry !== -1) {
+        const k = sEntriesObj[entry];
+        if (sVisitedStamp[k] !== stamp) {
+          sVisitedStamp[k] = stamp;
+          const go = sObjs[k];
+          if (passesFilter(mask, layer, includeTriggers, go)) {
+            const hit = createOverlapHit();
+            if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, hit, includeTriggers)) {
+              result.push(hit);
+            }
+          }
+        }
+        entry = sEntriesNext[entry];
+      }
+      gz = gz + 1;
+    }
+    gx = gx + 1;
   }
 
-  const count = overlapBoxNonAlloc(cx, cy, cz, hx, hy, hz, buf, 64, mask, layer, includeTriggers, sc);
-  const result: OverlapHit[] = [];
-  let j = 0;
-  while (j < count) {
-    result.push({
-      hit: buf[j].hit,
-      bodyId: buf[j].bodyId,
-      depth: buf[j].depth,
-      normal: [buf[j].normal[0], buf[j].normal[1], buf[j].normal[2]],
-      stepId: buf[j].stepId,
-    });
-    j = j + 1;
+  if (result.length > 1) {
+    sortHitsInPlace(result, result.length);
   }
   return result;
 }

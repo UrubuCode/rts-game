@@ -144,6 +144,38 @@ if (boxHits.length === 3) {
         "ids = " + boxHits[0].bodyId + ", " + boxHits[1].bodyId + ", " + boxHits[2].bodyId);
 }
 
+// Teste de overlap truncado (Item 4): maxHits < totalFound mantém os menores bodyIds e devolve contagem total
+const truncBuf: OverlapHit[] = [createOverlapHit(), createOverlapHit()];
+const totalSphereNonAlloc = overlapSphereNonAlloc(0.0, 0.0, 0.0, 3.0, truncBuf, 2, undefined, undefined, false, scOverlap);
+check("overlap truncado: retorna contagem total encontrada (3)", totalSphereNonAlloc === 3, "total=" + totalSphereNonAlloc);
+check("overlap truncado: mantem os 2 menores bodyIds ordenados",
+      truncBuf[0].bodyId < truncBuf[1].bodyId && truncBuf[1].bodyId < sphereHits[2].bodyId,
+      "ids = " + truncBuf[0].bodyId + ", " + truncBuf[1].bodyId);
+
+// Teste de versão alocada sem teto em 64 (Item 4): cena com 70 objetos
+const scMany = new Scene("ManyOverlapScene");
+setSpatialScene(scMany);
+let mi = 0;
+while (mi < 70) {
+  const mo = new GameObject("Many_" + mi);
+  mo.setMesh(4, 255, 255, 255);
+  mo.transform.setPosition(0.0, 0.0, 0.0);
+  scMany.add(mo);
+  mi = mi + 1;
+}
+scMany.computeWorld();
+spatialRebuildIndex(scMany);
+
+const manySphereHits = overlapSphere(0.0, 0.0, 0.0, 5.0, undefined, scMany);
+check("overlapSphere alocado: nao corta em 64, encontra todos os 70", manySphereHits.length === 70, "count=" + manySphereHits.length);
+let manySorted = true;
+let sj = 1;
+while (sj < manySphereHits.length) {
+  if (manySphereHits[sj - 1].bodyId >= manySphereHits[sj].bodyId) { manySorted = false; break; }
+  sj = sj + 1;
+}
+check("overlapSphere alocado: 70 objetos estritamente ordenados por bodyId crescente", manySorted);
+
 // ── 4. Filtro Simétrico de layer/mask (§5.2) ─────────────────────────────────
 const scFilter = new Scene("FilterScene");
 setSpatialScene(scFilter);
