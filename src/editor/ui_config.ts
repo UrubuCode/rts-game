@@ -22,10 +22,6 @@ export const UI_SCROLL_THUMB_MIN_H = 24;
 export const UI_COMPONENT_ROW_H = 22;
 export const UI_COMPONENT_HEADER_STEP = 26;
 export const UI_COMPONENT_FIELD_STEP = 23;
-export const UI_NUMERIC = {
-  height: 20, axisWidth: 16, padding: 6, textY: 3, font: 12,
-  charWidth: 7, labelFraction: 0.44, labelGap: 8,
-};
 export const UI_COMPONENT_PICKER = {
   margin: 14, padding: 10, gap: 6, titleH: 30, searchH: 20,
   breadcrumbH: 28, rowH: 30, detailH: 72, maxRows: 7,
