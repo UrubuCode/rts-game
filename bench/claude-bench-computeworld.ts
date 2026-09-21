@@ -4,11 +4,9 @@
 //
 // ── POR QUE ESTA MEDIDA VEM ANTES DE QUALQUER OTIMIZAÇÃO ────────────────────
 //
-// `computeWorld` estoura os 8 ms/frame sozinho entre 2000 e 4000 corpos, e a
-// 8000 custa 14 ms — quase o dobro do orçamento inteiro. Isso está medido. O que
-// NÃO está medido é em que ele gasta, e a campanha que produziu este número teve
-// cinco premissas mortas sobre onde o custo estava — quatro delas dentro de
-// instrumentos. Adivinhar aqui seria o sexto.
+// `computeWorld` custava 14 ms a 8000 objetos quando esta bancada foi escrita.
+// Medido 2026-09-20: 0,57 ms parados, 0,81 ms movendo. A bancada continua
+// valendo — o que ela mede é ONDE o custo está, e isso não depende do total.
 //
 // ── A HIPÓTESE A MATAR ─────────────────────────────────────────────────────
 //
