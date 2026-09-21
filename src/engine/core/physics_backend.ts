@@ -57,6 +57,7 @@ import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
 import { profBest, profGpuMs, profRustMs, profRange,
          PROF_GPU, PROF_RUST, PROF_DESCONHECIDO } from "./backend_profile";
+import { bodyTypeOf, BODY_DYNAMIC, BODY_KINEMATIC } from "../rigid/materials";
 
 /// Constantes nomeadas de modo de backend.
 export const PB_MODO_CPU = 0;
@@ -313,7 +314,7 @@ function pbSoltar(): void {
       if (intocado !== 0) { t.px = crX(k); t.py = crY(k); t.pz = crZ(k); }
       t.vx = crVelX(k); t.vy = crVelY(k); t.vz = crVelZ(k);
     }
-    if (intocado === 0 && pbObjs[k].stationary === 0 && t.mass > 0.0) {
+    if (intocado === 0 && bodyTypeOf(pbObjs[k]) === BODY_DYNAMIC) {
       t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
     }
     pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
@@ -429,8 +430,8 @@ function pbEmpurraTeleportes(): void {
       if (pbDono === 1) { rbSetPos(k, t.px, t.py, t.pz); pbHold[k] = 1; }
       else crSetPos(k, t.px, t.py, t.pz);
       // SÓ zera velocidade de corpos dinâmicos livres teleportados.
-      // Corpos cinemáticos (mass <= 0) preservam sua velocidade calculada por script ou navegação.
-      if (t.mass > 0.0) {
+      // Corpos cinemáticos preservam sua velocidade calculada por script ou navegação.
+      if (bodyTypeOf(ob) === BODY_DYNAMIC) {
         t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
       } else {
         if (pbDono === 1) { rbSetVel(k, t.vx, t.vy, t.vz); rbPoke(k); }

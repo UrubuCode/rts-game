@@ -25,11 +25,13 @@ export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
   enabled: number;
   collapsed: number; // foldout do inspector: 1 = recolhido (esconde os campos)
+  bodyType: number;  // 0 = unassigned, 1 = static, 2 = kinematic, 3 = dynamic
 
   constructor() {
     this.host = new Transform();
     this.enabled = 1;
     this.collapsed = 0;
+    this.bodyType = 0;
   }
 
   /// Liga o script ao transform do GameObject dono.

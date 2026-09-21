@@ -49,12 +49,16 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import gpu from "@compat/gpu.ts";
 import buffer from "@compat/buffer.ts";
+import io from "@compat/io.ts";
 
 import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
          matFillDefaults, matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
+         WORLD_HEADER_FLOATS, WORLD_HEADER_VEC4S, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
+         WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
+         STATIC_RECORD_FLOATS, STATIC_RECORD_VEC4S,
          BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 import { Transform } from "../core/transform";
 
@@ -547,7 +551,7 @@ function rbAlloc(n: number): number {
   rbPosBuf = buffer.alloc(n * 16);
   rbVelBuf = buffer.alloc(n * 16);
   rbExtBuf = buffer.alloc(n * 16);
-  rbWorldBuf = buffer.alloc((2 + RB_MAX_STATICS * 2) * 16);
+  rbWorldBuf = buffer.alloc((WORLD_HEADER_VEC4S + RB_MAX_STATICS * STATIC_RECORD_VEC4S) * 16);
   // A região de materiais tem espelho PRÓPRIO, e sobe por `write_at` no offset
   // dela. O espelho do cabeçalho não pode crescer até lá: entre um e outro há
   // 1 MB de grid que só a GPU escreve, e subir isso por sincronização seria
@@ -623,11 +627,11 @@ export function rbSetDt(dt: f64): void { rbDt = dt > 0.0 ? dt : RB_DT; }
 
 function rbWriteWorld(): void {
   if (rbPipe === 0) return;
-  buffer.write_f32(rbWorldBuf, 0, rbDt);
-  buffer.write_f32(rbWorldBuf, 4, rbStatics * 1.0);
-  buffer.write_f32(rbWorldBuf, 8, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
-  buffer.write_f32(rbWorldBuf, 12, 1.0);
-  buffer.write_f32(rbWorldBuf, 16, PHYSICS_LAYOUT_VERSION * 1.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_DT * 4, rbDt);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_NUM_STATICS * 4, rbStatics * 1.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_CELL_SIZE * 4, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_SUBSTEPS * 4, 1.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4, PHYSICS_LAYOUT_VERSION * 1.0);
   buffer.write_f32(rbWorldBuf, 20, 0.0);
   buffer.write_f32(rbWorldBuf, 24, 0.0);
   buffer.write_f32(rbWorldBuf, 28, 0.0);
@@ -722,7 +726,7 @@ export function rbSyncStatics(sc: Scene): void {
     // `rigidNeedsFallback` manda a cena para a CPU antes de chegar aqui.
     if (o.collideFlag !== 0 && shapeOf(o) < 2 && o.active !== 0 && o.stationary !== 0) {
       const t: Transform = trs[i];
-      const base = 8 + m * 8;
+      const base = WORLD_HEADER_FLOATS + m * STATIC_RECORD_FLOATS;
       buffer.write_f32(rbWorldBuf, (base) * 4, centerWorldX(o, t));
       buffer.write_f32(rbWorldBuf, (base + 1) * 4, centerWorldY(o, t));
       buffer.write_f32(rbWorldBuf, (base + 2) * 4, centerWorldZ(o, t));
@@ -807,6 +811,10 @@ export function rbPull(): void {
 /// KICK: submete `substeps` passos novos SEM esperar.
 export function rbKick(substeps: number): void {
   if (rbPipe === 0) return;
+  if (PHYSICS_LAYOUT_VERSION !== 1) {
+    io.print("[rigid] GPU recusou: versao de layout incompativel (" + PHYSICS_LAYOUT_VERSION + " != 1)");
+    return;
+  }
   let s = 0;
   while (s < substeps) {
     // Três dispatches por sub-passo, e a ordem é obrigatória: o grid descreve as

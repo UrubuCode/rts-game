@@ -44,6 +44,9 @@ import { Transform } from "../core/transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_AT, MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor, matFillDefaults,
          matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
+         WORLD_HEADER_FLOATS, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
+         WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
+         STATIC_RECORD_FLOATS,
          BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
@@ -65,7 +68,7 @@ let crStatics = 0;
 /// 0 = ainda não sondado, 1 = respondeu, 2 = recusou.
 let crSondado = 0;
 
-/// O solver nativo está ali E RESPONDE?
+/// O backend Rust está presente no binário e funciona?
 ///
 /// Devolvia `1` fixo, e isso era uma afirmação e não uma medida. O solver é a
 /// feature `physics` do `rts-host` e usa rayon, que é thread de SO — não existe
@@ -89,10 +92,10 @@ export function crAvailable(): number {
   ext[3] = 1.0;                      // invMass
   const world = new Float32Array(MAT_AT + matBytesFor(1));
   const worldU32 = new Uint32Array(world.buffer);
-  world[0] = CR_DT;
-  world[2] = 1.0;                    // tamanho de célula
-  world[3] = 1.0;                    // sub-passos
-  world[4] = PHYSICS_LAYOUT_VERSION * 1.0;
+  world[WORLD_PARAM_DT] = CR_DT;
+  world[WORLD_PARAM_CELL_SIZE] = 1.0;                    // tamanho de célula
+  world[WORLD_PARAM_SUBSTEPS] = 1.0;                    // sub-passos
+  world[WORLD_PARAM_LAYOUT_VERSION] = PHYSICS_LAYOUT_VERSION * 1.0;
   matFillDefaults(world, MAT_AT, 1, worldU32);
   const moveu = rigid.step(pos, vel, ext, world);
   crSondado = moveu > 0 ? 1 : 2;
@@ -202,11 +205,11 @@ export function crSetDt(dt: f64): void { crDt = dt > 0.0 ? dt : CR_DT; }
 /// este campo e não deriva um próprio, justamente para que não existam duas
 /// respostas para o tamanho da célula neste projeto.
 function crWriteWorld(substeps: number): void {
-  crWorld[0] = crDt;
-  crWorld[1] = crStatics * 1.0;
-  crWorld[2] = crMaxHalf > 0.0 ? crMaxHalf * 2.0 : 1.0;
-  crWorld[3] = substeps * 1.0;
-  crWorld[4] = PHYSICS_LAYOUT_VERSION * 1.0;
+  crWorld[WORLD_PARAM_DT] = crDt;
+  crWorld[WORLD_PARAM_NUM_STATICS] = crStatics * 1.0;
+  crWorld[WORLD_PARAM_CELL_SIZE] = crMaxHalf > 0.0 ? crMaxHalf * 2.0 : 1.0;
+  crWorld[WORLD_PARAM_SUBSTEPS] = substeps * 1.0;
+  crWorld[WORLD_PARAM_LAYOUT_VERSION] = PHYSICS_LAYOUT_VERSION * 1.0;
   crWorld[5] = 0.0;
   crWorld[6] = 0.0;
   crWorld[7] = 0.0;
@@ -245,7 +248,7 @@ export function crSyncStatics(sc: Scene): void {
     // CPU antes de chegar aqui.
     if (o.collideFlag !== 0 && o.active !== 0 && o.stationary !== 0 && shapeOf(o) < 2) {
       const t: Transform = trs[i];
-      const base = 8 + m * 8;
+      const base = WORLD_HEADER_FLOATS + m * STATIC_RECORD_FLOATS;
       crWorld[base] = centerWorldX(o, t);
       crWorld[base + 1] = centerWorldY(o, t);
       crWorld[base + 2] = centerWorldZ(o, t);

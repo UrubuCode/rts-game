@@ -44,13 +44,26 @@
 import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 
+/// Layout do cabeçalho do buffer world (8 floats / 2 vec4s)
+export const WORLD_HEADER_FLOATS = 8;
+export const WORLD_HEADER_VEC4S = 2;
+export const WORLD_PARAM_DT = 0;
+export const WORLD_PARAM_NUM_STATICS = 1;
+export const WORLD_PARAM_CELL_SIZE = 2;
+export const WORLD_PARAM_SUBSTEPS = 3;
+export const WORLD_PARAM_LAYOUT_VERSION = 4;
+
+/// Registro de estático no world (pos/round: 4 floats, half/pad: 4 floats = 8 floats / 2 vec4s)
+export const STATIC_RECORD_FLOATS = 8;
+export const STATIC_RECORD_VEC4S = 2;
+
 /// Tetos do bloco de estáticos — o mesmo dos dois backends e do lado Rust.
 export const MAT_MAX_STATICS = 256;
 /// Onde a região começa, em índices de f32: depois do cabeçalho (8 floats) e da
 /// CAPACIDADE inteira de estáticos (256 * 8 floats = 2048), não depois dos
 /// estáticos em uso. Offset fixo de propósito: escrever um material não pode
 /// depender de quantos estáticos a cena tem neste frame.
-export const MAT_AT = 8 + MAT_MAX_STATICS * 8;
+export const MAT_AT = WORLD_HEADER_FLOATS + MAT_MAX_STATICS * STATIC_RECORD_FLOATS;
 /// Um estático: restituição, atrito, dois livres.
 export const MAT_STATIC_REC = 4;
 /// Um corpo: gravidade, restituição, arrasto, atrito, chão, três livres.
@@ -87,8 +100,7 @@ export function bodyTypeOf(o: GameObject): number {
   while (i < bs.length) {
     const b = bs[i];
     if (b.bodyIntegrates() !== 0) {
-      const bt = (b as any).bodyType;
-      if (bt !== undefined && bt !== 0) return bt;
+      if (b.bodyType !== 0) return b.bodyType;
       return BODY_DYNAMIC;
     }
     i = i + 1;
