@@ -20,8 +20,28 @@ export class GameObject {
   active: number;
   parent: number;      // índice do pai em scene.objects (-1 = raiz)
   stationary: number;  // 1 = estático (a colisão não o empurra) — tipo static/kinematic
-  layer: number;       // bitmask de camada (default: 1)
-  mask: number;        // bitmask de colisão (default: 0xFFFFFFFF)
+  /// Bitmask de camada (default: 1 = `LAYER_DEFAULT`). Dois corpos colidem só se
+  /// cada um aceita a camada do outro: `(a.mask & b.layer) != 0` E
+  /// `(b.mask & a.layer) != 0`.
+  ///
+  /// MUDAR `layer`/`mask` DURANTE O PLAY: o solver da CPU (`Scene`) lê os
+  /// campos a cada par e vê a mudança no mesmo passo. Os backends externos
+  /// (GPU e Rust) NÃO: eles copiam layer/mask para a região de materiais do
+  /// `world` só na sincronização de composição (`pbSync`/`pbSyncRust` em
+  /// `physics_backend.ts`, disparada por `Scene.compVersion` ou por
+  /// `rigidInvalidate()`). Até lá o filtro antigo continua valendo; quem muda a
+  /// máscara por script e precisa do efeito no passo seguinte chama
+  /// `rigidInvalidate()`.
+  ///
+  /// A flag `any_mask` do cabeçalho do `world` é CONSERVADORA: liga quando algum
+  /// corpo ou estático sincronizado tem layer/mask fora do default e só volta a
+  /// zero no próximo `rbInit`/`crInit` — que só acontece quando a contagem de
+  /// corpos muda. Devolver todas as máscaras ao default não a desliga: o
+  /// resultado continua correto, só se paga o filtro por candidato até lá.
+  layer: number;
+  /// Bitmask de colisão: quais camadas este corpo aceita (default: 0xFFFFFFFF =
+  /// `MASK_ALL`). Mesmas regras de propagação de `layer`, acima.
+  mask: number;
   emissive: number;    // 1 = brilha (não sombreado) — ex.: o Sol
   tex: number;         // textura procedural: 0 = nenhuma, 1 = xadrez (chão)
   textureId: number;   // (legado) id de textura de IMAGEM; 0 = sem. Preferir o component Material.
