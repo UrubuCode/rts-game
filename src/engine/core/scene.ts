@@ -1168,10 +1168,16 @@ function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]):
   // extra: esperado ~12, veio 2"), que é exatamente o caso que a passada de
   // zerar existia para tornar distinguível.
   //
-  // Medido: `computeWorld` custa 14,20 ms a 8000 objetos numa cena onde NADA se
-  // move, e metade disso é a VISITA. Uma passada O(n) cujo único trabalho é
-  // preparar outra passada O(n) é a parte da visita que sai sem nenhuma decisão
-  // de política — 14,20 para 12,98 ms, medido.
+  // Medido 2026-09-20 (release): `computeWorld` custa 0,57 ms a 8000 objetos
+  // numa cena onde NADA se move, e 0,81 ms com tudo movendo. O carimbo de frame
+  // é parte de como chegou aqui.
+  //
+  // ESTE COMENTÁRIO DIZIA 14,20 ms, e era verdade quando foi escrito. As
+  // otimizações que vieram depois — função livre tipada, espelho `trs`, o
+  // carimbo, o fast path de raiz — o derrubaram ~17x e o texto não acompanhou.
+  // Uma análise inteira de arquitetura foi construída em cima do número velho
+  // antes de uma medição o desmentir. Se você mudar o custo aqui, mude o
+  // número na mesma passada.
   cwSelo = cwSelo + 1;
   const selo = cwSelo;
 
