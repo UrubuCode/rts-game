@@ -18,15 +18,15 @@ Fase 0 (Decisor Honesto) ──► Fase 1 (Contratos) ──► Fase 2 (Lotes A 
 
 ---
 
-### 📦 Fase 0 — Decisor Honesto e Padrão Certo (`2026-09-20-fase0-decisor-medido.md`)
+### 📦 Fase 0 — Decisor Honesto e Padrão Certo (`2026-09-20-fase0-decisor-medido.md`) *(Concluído)*
 > *Objetivo: Eliminar números obsoletos e substituir o modelo analítico/inventado por uma tabela medida `(threads, n) -> ms`.*
 
-- [ ] **1. Tabela Medida:** Substituir `rigidCalibrate`, `rigidGpuCostMs` e `rigidCpuCostMs` por interpolação sobre a tabela medida de §2.2 da spec.
-- [ ] **2. Preservar Detecção de GPU:** Manter `pbTemGpu = gpu.available()` fora do calibrador.
-- [ ] **3. Portão de Disponibilidade Rust:** `crAvailable()` respondendo à existência real da feature `physics` no `rts-host`.
-- [ ] **4. Padrão Condicionado ao Perfil:** Backend Rust padrão onde vence (CPU multicore), caindo para GPU/CPU conforme a tabela.
-- [ ] **5. Limpeza de Números Obsoletos:** Remover comentários defasados (`physics_backend.ts:309-312`, `scene.ts:1171,1174`, etc.).
-- [ ] **6. Atualização de Testes:** Atualizar `tests/claude-test-physics-backend.ts` e `dispatch.ts`.
+- [x] **1. Tabela Medida:** Substituir `rigidCalibrate`, `rigidGpuCostMs` e `rigidCpuCostMs` por interpolação sobre a tabela medida de §2.2 da spec (`backend_profile.ts`).
+- [x] **2. Preservar Detecção de GPU:** Manter `pbGpuPresente() = gpu.available()` fora do calibrador.
+- [x] **3. Portão de Disponibilidade Rust:** `crAvailable()` respondendo à existência real da feature `physics` no `rts-host` via sondagem.
+- [x] **4. Padrão Condicionado ao Perfil:** Modo `AUTO` (`pbModo = 3`) que consulta o perfil medido por (n, threads).
+- [x] **5. Limpeza de Números Obsoletos:** Remover comentários defasados (`physics_backend.ts`, `scene.ts:1171,1174`, `claude-bench-computeworld.ts`).
+- [x] **6. Atualização de Testes:** Atualizar `tests/claude-test-physics-backend.ts` e `dispatch.ts`.
 
 ---
 
