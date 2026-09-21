@@ -12,7 +12,7 @@ import { scene } from "@editor/control/session";
 import { GameObject } from "@engine/core/gameobject";
 import { Rigidbody } from "@scripts/rigidbody";
 import { rbAvailable } from "@engine/rigid/gpurigid";
-import { rigidStep, rigidSetMode, rigidBackendName } from "@engine/core/physics_backend";
+import { rigidStep, rigidSetMode, rigidBackendName, rigidFlush } from "@engine/core/physics_backend";
 
 function queda(k: number): f64 {
   scene.clear();
@@ -45,6 +45,9 @@ function queda(k: number): f64 {
     rigidStep(scene, 0);
     s = s + 1;
   }
+  // A GPU é pipelined: sem drenar, o y lido é o de 1–N passos atrás, e quanto
+  // atrás depende do relógio — o teste media o atraso, não o upload.
+  rigidFlush();
   io.print("  K=" + k + " backend=" + rigidBackendName() + "  y final do dinamico = " + dyn.transform.py);
   return dyn.transform.py;
 }
