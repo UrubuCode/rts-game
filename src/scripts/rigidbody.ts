@@ -52,7 +52,6 @@ export class Rigidbody extends Behavior {
     // publica o material físico no Transform, que é o que a colisão lê
     this.host.mass = this.mass;
     this.host.restitution = this.bounce;
-    this.host.bodyType = this.bodyType;
   }
 
   update(dt: f64): void {
@@ -74,7 +73,6 @@ export class Rigidbody extends Behavior {
     // mantém em dia se o usuário editar pelo inspector
     t.mass = this.mass;
     t.restitution = this.bounce;
-    t.bodyType = this.bodyType;
     t.vy = t.vy + this.g * dt;
     // TETO DE VELOCIDADE (anti-tunneling). Um corpo rápido o bastante percorre
     // mais que a espessura do colisor num único frame e o ATRAVESSA — e, uma vez
@@ -138,6 +136,6 @@ export class Rigidbody extends Behavior {
     else if (i === 2) { this.mass = v; this.host.mass = v; }
     else if (i === 3) this.drag = v;
     else if (i === 4) this.floorY = v;
-    else { this.bodyType = v | 0; this.host.bodyType = this.bodyType; }
+    else { this.bodyType = v | 0; }
   }
 }

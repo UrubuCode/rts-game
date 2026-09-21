@@ -8,6 +8,7 @@ import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL,
          centerLocalX, centerLocalY, centerLocalZ, triggerOf } from "./collider";
 import { Hull, Contact, hullContactLocal } from "./hullpack";
 import { hullAt } from "./hullreg";
+import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 import math from "@compat/math.ts";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
@@ -983,8 +984,8 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   // Massa 0 = INFINITA (inverso 0), que é o chão e a parede. Com os dois
   // inversos em zero ninguém se move, que é o par estático × estático já
   // descartado acima.
-  const kinA = (ta.bodyType === 2 || a.bodyType === 2 || (ta.bodyType === 0 && a.bodyType === 0 && a.stationary === 0 && ta.mass <= 0.0 && (ta.vx !== 0.0 || ta.vy !== 0.0 || ta.vz !== 0.0)));
-  const kinB = (tb.bodyType === 2 || b.bodyType === 2 || (tb.bodyType === 0 && b.bodyType === 0 && b.stationary === 0 && tb.mass <= 0.0 && (tb.vx !== 0.0 || tb.vy !== 0.0 || tb.vz !== 0.0)));
+  const kinA = csTipo[ia] === BODY_KINEMATIC;
+  const kinB = csTipo[ib] === BODY_KINEMATIC;
   const iA: f64 = a.stationary !== 0 || kinA || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
   const iB: f64 = b.stationary !== 0 || kinB || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
   const iSum: f64 = iA + iB;
@@ -1268,15 +1269,14 @@ function updateAll(objs: GameObject[], dt: f64): void {
           const b: Behavior = bs[j];
           if (b.enabled !== 0) {
             b.update(dt);
-            if (b.bodyIntegrates !== undefined && b.bodyIntegrates() !== 0) hasIntegrator = 1;
+            if (b.bodyIntegrates() !== 0) hasIntegrator = 1;
           }
           j = j + 1;
         }
       }
       if (hasIntegrator === 0) {
         const t = o.transform;
-        const isKinematic = (t.bodyType === 2 || o.bodyType === 2 ||
-          (t.bodyType === 0 && o.bodyType === 0 && o.stationary === 0 && t.mass <= 0.0 && (t.vx !== 0.0 || t.vy !== 0.0 || t.vz !== 0.0)));
+        const isKinematic = bodyTypeOf(o) === BODY_KINEMATIC;
         if (isKinematic) {
           t.px = t.px + t.vx * dt;
           t.py = t.py + t.vy * dt;
@@ -1338,6 +1338,7 @@ const csOff: number[] = [];
 /// 1 = detecta e não empurra. Resolvido na varredura, como a forma, pelo mesmo
 /// motivo: perguntar ao component por par é O(pares) contra O(n).
 const csTrigger: number[] = [];
+const csTipo: number[] = [];
 
 function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
                           outStatic: number[], outBig: number[]): void {
@@ -1352,6 +1353,7 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
     csHX.push(0.5); csHY.push(0.5); csHZ.push(0.5);
     csCX.push(0.0); csCY.push(0.0); csCZ.push(0.0);
     csOff.push(0); csTrigger.push(0);
+    csTipo.push(BODY_DYNAMIC);
   }
   let maxR: f64 = 0.0001;
   let i = 0;
@@ -1370,6 +1372,7 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
       csCX[i] = cx; csCY[i] = cy; csCZ[i] = cz;
       csOff[i] = (cx !== 0.0 || cy !== 0.0 || cz !== 0.0) ? 1 : 0;
       csTrigger[i] = triggerOf(o);
+      csTipo[i] = bodyTypeOf(o);
       // ESTÁTICO sai do grid, para a lista direta (ver `sIdx`): um chão de 90
       // de largura dimensionava a célula em 180 e punha a cena inteira num
       // único bucket — colisão O(n²), fortaleza de 392 blocos a ~6 fps.

@@ -45,7 +45,7 @@ import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocalY, centerLocalZ } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
-         rbUpload, rbSyncStatics, rbUploadPosVel, rbGridOverflow,
+         rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
          rbCount } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
@@ -57,6 +57,16 @@ import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
 import { profBest, profGpuMs, profRustMs, profRange,
          PROF_GPU, PROF_RUST, PROF_DESCONHECIDO } from "./backend_profile";
+
+/// Constantes nomeadas de modo de backend.
+export const PB_MODO_CPU = 0;
+export const PB_MODO_GPU = 1;
+export const PB_MODO_RUST = 2;
+export const PB_MODO_AUTO = 3;
+
+export const PB_HIST_ESTAVEL = 0;
+export const PB_HIST_SUBINDO = 1;
+export const PB_HIST_DESCENDO = 2;
 
 /// Sub-passos que o backend GPU submete por frame.
 export const PB_SUBSTEPS = 2;
@@ -98,7 +108,7 @@ function pbGpuPresente(): number {
 /// Fora da faixa o perfil devolve `PROF_DESCONHECIDO` e a escolha cai no RUST:
 /// ele é determinístico bit a bit e não custa um frame de latência. Na ausência
 /// de medição, a propriedade decide.
-let pbModo = 3;
+let pbModo = PB_MODO_AUTO;
 /// 1 = a GPU foi pedida e FALHOU em ligar; não se tenta de novo neste processo.
 let pbGpuMorta = 0;
 /// Último motivo de queda, para o `dbg` dizer POR QUE está na CPU.
@@ -112,8 +122,8 @@ let pbAutoStreak = 0;       // passos consecutivos sustentados
 
 /// Pede o backend. `1` = GPU, `2` = RUST, `3` = AUTO, `0` = CPU.
 export function rigidSetMode(modo: number): void {
-  pbModo = modo === 1 ? 1 : (modo === 2 ? 2 : (modo === 3 ? 3 : 0));
-  if (pbModo === 0) pbMotivo = "";
+  pbModo = modo === PB_MODO_GPU ? PB_MODO_GPU : (modo === PB_MODO_RUST ? PB_MODO_RUST : (modo === PB_MODO_AUTO ? PB_MODO_AUTO : PB_MODO_CPU));
+  if (pbModo === PB_MODO_CPU) pbMotivo = "";
   pbAutoAtivo = 0;
   pbAutoCandidate = 0;
   pbAutoStreak = 0;
@@ -130,20 +140,20 @@ export function rigidAutoHysteresis(): { ativo: number, candidate: number, strea
 /// `rigidMode`, porque pedir GPU e estar na CPU é exatamente o estado que
 /// alguém medindo precisa enxergar.
 export function rigidBackendName(): string {
-  if (pbModo === 3) {
+  if (pbModo === PB_MODO_AUTO) {
     const threads = crThreads();
-    const ativo = pbAutoAtivo !== 0 ? pbAutoAtivo : (profBest(pbBodies, threads) === PROF_GPU ? 1 : 2);
-    if (ativo === 2) {
+    const ativo = pbAutoAtivo !== 0 ? pbAutoAtivo : (profBest(pbBodies, threads) === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST);
+    if (ativo === PB_MODO_RUST) {
       if (pbBodies === 0) return "rust (auto, aguardando corpos)";
       return "rust (auto, " + threads + " threads)";
     }
     return "gpu (auto)";
   }
-  if (pbModo === 0) return "cpu";
+  if (pbModo === PB_MODO_CPU) return "cpu";
   // O backend Rust não tem um estado "caiu": ele não depende de placa, e é
   // justamente por isso que ele existe. Um nome que sugerisse queda seria uma
   // condição que não pode acontecer.
-  if (pbModo === 2) {
+  if (pbModo === PB_MODO_RUST) {
     if (pbBodies === 0) return "rust (aguardando corpos)";
     return "rust (" + crThreads() + " threads)";
   }
@@ -199,6 +209,12 @@ let pbObjs: GameObject[] = [];
 let pbLX: f64[] = [];
 let pbLY: f64[] = [];
 let pbLZ: f64[] = [];
+/// A última velocidade que ESTE arquivo escreveu (ou leu) em cada corpo.
+/// Permite detectar quando um script alterou apenas a velocidade (ex.: elevador
+/// ou unidade que começa parada e recebe velocidade depois).
+let pbLVX: f64[] = [];
+let pbLVY: f64[] = [];
+let pbLVZ: f64[] = [];
 /// Resultados a IGNORAR para o corpo k. A leitura pipelined da GPU que já
 /// estava em voo na hora de um teleporte descreve o lugar antigo.
 let pbHold: number[] = [];
@@ -254,7 +270,11 @@ function pbCollect(sc: Scene): number {
     i = i + 1;
   }
   const m = pbMap.length;
-  while (pbLX.length < m) { pbLX.push(0.0); pbLY.push(0.0); pbLZ.push(0.0); pbHold.push(0); }
+  while (pbLX.length < m) {
+    pbLX.push(0.0); pbLY.push(0.0); pbLZ.push(0.0);
+    pbLVX.push(0.0); pbLVY.push(0.0); pbLVZ.push(0.0);
+    pbHold.push(0);
+  }
   return m;
 }
 
@@ -296,6 +316,7 @@ function pbSoltar(): void {
     if (intocado === 0 && pbObjs[k].stationary === 0 && t.mass > 0.0) {
       t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
     }
+    pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
     // Quem decide o sono daqui em diante é o próximo dono; acordado é o estado
     // que nunca está errado, só mais caro por dez passos.
     t.asleep = 0; t.quiet = 0;
@@ -334,7 +355,9 @@ function pbSyncRust(sc: Scene): number {
     crSetShape(k, shapeOf(ob));
     crSetVel(k, t.vx, t.vy, t.vz);
     crSetMaterial(k, ob, t);
-    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz; pbHold[k] = 0;
+    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
+    pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+    pbHold[k] = 0;
     k = k + 1;
   }
   crSyncStatics(sc);
@@ -378,7 +401,9 @@ function pbSync(sc: Scene): number {
     rbSetShape(k, shapeOf(ob));
     rbSetVel(k, t.vx, t.vy, t.vz);
     rbSetMaterial(k, ob, t);
-    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz; pbHold[k] = 0;
+    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
+    pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+    pbHold[k] = 0;
     k = k + 1;
   }
   rbUpload();
@@ -395,12 +420,12 @@ function pbSync(sc: Scene): number {
 function pbEmpurraTeleportes(): void {
   const m = pbObjs.length;
   let k = 0;
-  let movedCount = 0;
   while (k < m) {
     const ob: GameObject = pbObjs[k];
     const t: Transform = ob.transform;
-    if (t.px !== pbLX[k] || t.py !== pbLY[k] || t.pz !== pbLZ[k]) {
-      movedCount = movedCount + 1;
+    const posMudou = t.px !== pbLX[k] || t.py !== pbLY[k] || t.pz !== pbLZ[k];
+    const velMudou = t.vx !== pbLVX[k] || t.vy !== pbLVY[k] || t.vz !== pbLVZ[k];
+    if (posMudou) {
       if (pbDono === 1) { rbSetPos(k, t.px, t.py, t.pz); pbHold[k] = 1; }
       else crSetPos(k, t.px, t.py, t.pz);
       // SÓ zera velocidade de corpos dinâmicos livres teleportados.
@@ -412,6 +437,11 @@ function pbEmpurraTeleportes(): void {
         else crSetVel(k, t.vx, t.vy, t.vz);
       }
       pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
+      pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+    } else if (velMudou) {
+      if (pbDono === 1) { rbSetVel(k, t.vx, t.vy, t.vz); rbPoke(k); }
+      else crSetVel(k, t.vx, t.vy, t.vz);
+      pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
     }
     k = k + 1;
   }
@@ -431,9 +461,11 @@ function pbApplyRust(): void {
   while (k < m) {
     const t: Transform = pbObjs[k].transform;
     const x = crX(k); const y = crY(k); const z = crZ(k);
+    const vx = crVelX(k); const vy = crVelY(k); const vz = crVelZ(k);
     t.px = x; t.py = y; t.pz = z;
-    t.vx = crVelX(k); t.vy = crVelY(k); t.vz = crVelZ(k);
+    t.vx = vx; t.vy = vy; t.vz = vz;
     pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+    pbLVX[k] = vx; pbLVY[k] = vy; pbLVZ[k] = vz;
     k = k + 1;
   }
 }
@@ -492,6 +524,38 @@ export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets
 export function rigidHullCount(): number { return pbCascas; }
 export function rigidOffsetCount(): number { return pbOffsets; }
 
+/// Decisão pura de modo AUTO com histerese (20% de margem sustentada por 10 passos).
+export function pbDecideAuto(
+  n: number,
+  threads: number,
+  curAtivo: number,
+  candidate: number,
+  streak: number
+): { nextAtivo: number; nextCandidate: number; nextStreak: number } {
+  const quem = profBest(n, threads);
+  const novoCandidato = quem === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST;
+  if (curAtivo === 0) {
+    return { nextAtivo: novoCandidato, nextCandidate: novoCandidato, nextStreak: 0 };
+  }
+  if (novoCandidato === curAtivo) {
+    return { nextAtivo: curAtivo, nextCandidate: curAtivo, nextStreak: 0 };
+  }
+  const curMs = curAtivo === PB_MODO_GPU ? profGpuMs(n) : profRustMs(n, threads);
+  const candMs = novoCandidato === PB_MODO_GPU ? profGpuMs(n) : profRustMs(n, threads);
+  // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
+  if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
+    if (novoCandidato === candidate) {
+      const nextStreak = streak + 1;
+      if (nextStreak >= 10) {
+        return { nextAtivo: novoCandidato, nextCandidate: novoCandidato, nextStreak: 0 };
+      }
+      return { nextAtivo: curAtivo, nextCandidate: novoCandidato, nextStreak: nextStreak };
+    }
+    return { nextAtivo: curAtivo, nextCandidate: novoCandidato, nextStreak: 1 };
+  }
+  return { nextAtivo: curAtivo, nextCandidate: curAtivo, nextStreak: 0 };
+}
+
 /// Qual backend DEVE rodar este passo: 0 = CPU, 1 = GPU, 2 = Rust. Separado do
 /// passo porque a posse (`pbDono`) tem de ser devolvida ANTES de qualquer
 /// retorno para a CPU, e a decisão espalhada em cinco `return 0` era cinco
@@ -504,7 +568,7 @@ function pbAlvo(): number {
                "nem o solver em Rust resolvem casca, entao a fisica cai para a CPU. " +
                "Sem isto a forma seria ignorada em silencio.");
     }
-    return 0;
+    return PB_MODO_CPU;
   }
   if (pbOffsets > 0) {
     if (pbMotivo !== "corpos dinamicos com colisor com offset") {
@@ -513,58 +577,33 @@ function pbAlvo(): number {
                "apenas a Scene CPU resolve corpos dinamicos com centro deslocado ate o Lote C (OBB), " +
                "entao a fisica cai para a CPU.");
     }
-    return 0;
+    return PB_MODO_CPU;
   }
   // AUTO: a medição escolhe, com histerese (margem >= 20% por 10 passos).
   let modo = pbModo;
-  if (modo === 3) {
+  if (modo === PB_MODO_AUTO) {
     if (crAvailable() === 0) {
-      modo = pbGpuPresente() !== 0 ? 1 : 0;
+      modo = pbGpuPresente() !== 0 ? PB_MODO_GPU : PB_MODO_CPU;
     } else if (pbGpuPresente() === 0) {
-      modo = 2;
+      modo = PB_MODO_RUST;
     } else {
       const threads = crThreads();
-      const quem = profBest(pbBodies, threads);
-      const candidato = quem === PROF_GPU ? 1 : 2;
-      if (pbAutoAtivo === 0) {
-        pbAutoAtivo = candidato;
-        pbAutoCandidate = candidato;
-        pbAutoStreak = 0;
-      } else if (candidato !== pbAutoAtivo) {
-        const curMs = pbAutoAtivo === 1 ? profGpuMs(pbBodies) : profRustMs(pbBodies, threads);
-        const candMs = candidato === 1 ? profGpuMs(pbBodies) : profRustMs(pbBodies, threads);
-        // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
-        if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
-          if (candidato === pbAutoCandidate) {
-            pbAutoStreak = pbAutoStreak + 1;
-            if (pbAutoStreak >= 10) {
-              pbAutoAtivo = candidato;
-              pbAutoStreak = 0;
-            }
-          } else {
-            pbAutoCandidate = candidato;
-            pbAutoStreak = 1;
-          }
-        } else {
-          pbAutoCandidate = pbAutoAtivo;
-          pbAutoStreak = 0;
-        }
-      } else {
-        pbAutoCandidate = pbAutoAtivo;
-        pbAutoStreak = 0;
-      }
+      const dec = pbDecideAuto(pbBodies, threads, pbAutoAtivo, pbAutoCandidate, pbAutoStreak);
+      pbAutoAtivo = dec.nextAtivo;
+      pbAutoCandidate = dec.nextCandidate;
+      pbAutoStreak = dec.nextStreak;
       modo = pbAutoAtivo;
     }
   }
   // RUST: sem calibração e sem portão — não há placa que possa faltar.
-  if (modo === 2) return 2;
-  if (modo !== 1) return 0;
+  if (modo === PB_MODO_RUST) return PB_MODO_RUST;
+  if (modo !== PB_MODO_GPU) return PB_MODO_CPU;
   if (pbGpuPresente() === 0) {
     if (pbGpuMorta === 0) { pbGpuMorta = 1; pbMotivo = "gpu.available()=0"; }
-    return 0;
+    return PB_MODO_CPU;
   }
-  if (pbGpuMorta !== 0) return 0;
-  return 1;
+  if (pbGpuMorta !== 0) return PB_MODO_CPU;
+  return PB_MODO_GPU;
 }
 
 /// UM PASSO FIXO de física num backend externo. Devolve 1 se o backend assumiu

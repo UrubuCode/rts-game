@@ -20,7 +20,6 @@ export class GameObject {
   active: number;
   parent: number;      // índice do pai em scene.objects (-1 = raiz)
   stationary: number;  // 1 = estático (a colisão não o empurra) — tipo static/kinematic
-  bodyType: number;    // 0 = unassigned, 1 = static, 2 = kinematic, 3 = dynamic
   layer: number;       // bitmask de camada (default: 1)
   mask: number;        // bitmask de colisão (default: 0xFFFFFFFF)
   emissive: number;    // 1 = brilha (não sombreado) — ex.: o Sol
@@ -66,7 +65,6 @@ export class GameObject {
     this.active = 1;
     this.parent = 0 - 1;
     this.stationary = 0;
-    this.bodyType = 0;
     this.layer = 1;
     this.mask = 0xFFFFFFFF;
     this.emissive = 0;
@@ -152,16 +150,12 @@ export class GameObject {
     g.meshPath = this.meshPath;
     g.meshPart = this.meshPart;
     g.stationary = this.stationary;
-    g.bodyType = this.bodyType;
     g.layer = this.layer;
     g.mask = this.mask;
     const t = this.transform;
     g.transform.px = t.px; g.transform.py = t.py; g.transform.pz = t.pz;
     g.transform.rx = t.rx; g.transform.ry = t.ry; g.transform.rz = t.rz;
     g.transform.sx = t.sx; g.transform.sy = t.sy; g.transform.sz = t.sz;
-    g.transform.bodyType = t.bodyType;
-    g.transform.layer = t.layer;
-    g.transform.mask = t.mask;
     return g;
   }
 

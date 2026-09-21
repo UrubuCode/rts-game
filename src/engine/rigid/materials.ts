@@ -46,11 +46,11 @@ import { Transform } from "../core/transform";
 
 /// Tetos do bloco de estáticos — o mesmo dos dois backends e do lado Rust.
 export const MAT_MAX_STATICS = 256;
-/// Onde a região começa, em índices de f32: depois do cabeçalho e da CAPACIDADE
-/// inteira de estáticos, não depois dos estáticos em uso. Offset fixo de
-/// propósito: escrever um material não pode depender de quantos estáticos a cena
-/// tem neste frame.
-export const MAT_AT = 4 + MAT_MAX_STATICS * 8;
+/// Onde a região começa, em índices de f32: depois do cabeçalho (8 floats) e da
+/// CAPACIDADE inteira de estáticos (256 * 8 floats = 2048), não depois dos
+/// estáticos em uso. Offset fixo de propósito: escrever um material não pode
+/// depender de quantos estáticos a cena tem neste frame.
+export const MAT_AT = 8 + MAT_MAX_STATICS * 8;
 /// Um estático: restituição, atrito, dois livres.
 export const MAT_STATIC_REC = 4;
 /// Um corpo: gravidade, restituição, arrasto, atrito, chão, três livres.
@@ -75,6 +75,27 @@ export const BODY_UNASSIGNED = 0;
 export const BODY_STATIC = 1;
 export const BODY_KINEMATIC = 2;
 export const BODY_DYNAMIC = 3;
+export const LAYER_DEFAULT = 1;
+export const MASK_ALL = 0xFFFFFFFF;
+
+/// Resolução canônica do tipo de corpo para qualquer GameObject.
+/// 1 = BODY_STATIC, 2 = BODY_KINEMATIC, 3 = BODY_DYNAMIC.
+export function bodyTypeOf(o: GameObject): number {
+  if (o.stationary !== 0) return BODY_STATIC;
+  const bs = o.behaviors;
+  let i = 0;
+  while (i < bs.length) {
+    const b = bs[i];
+    if (b.bodyIntegrates() !== 0) {
+      const bt = (b as any).bodyType;
+      if (bt !== undefined && bt !== 0) return bt;
+      return BODY_DYNAMIC;
+    }
+    i = i + 1;
+  }
+  if (o.transform.mass <= 0.0) return BODY_KINEMATIC;
+  return BODY_DYNAMIC;
+}
 
 /// Preenche a região INTEIRA com os valores de ontem.
 ///
@@ -87,15 +108,15 @@ export const BODY_DYNAMIC = 3;
 /// O atrito default é 0,35 e não zero porque é o valor com que as duas
 /// constantes de atrito dos solvers foram aferidas: `friction_loss` divide por
 /// ele, então 0,35 contra 0,35 devolve a constante intacta.
-export function matFillDefaults(w: Float32Array, at: number, n: number): void {
-  const wU32 = new Uint32Array(w.buffer, w.byteOffset, w.length);
+export function matFillDefaults(w: Float32Array, at: number, n: number, wU32?: Uint32Array): void {
+  const u32 = wU32 !== undefined ? wU32 : new Uint32Array(w.buffer, w.byteOffset, w.length);
   let k = 0;
   while (k < MAT_MAX_STATICS) {
     const base = at + k * MAT_STATIC_REC;
     w[base] = 0.0;
     w[base + 1] = MAT_DEF_FRICTION;
-    wU32[base + 2] = 1;          // default layer = 1
-    wU32[base + 3] = 0xFFFFFFFF; // default mask = all
+    u32[base + 2] = LAYER_DEFAULT;
+    u32[base + 3] = MASK_ALL;
     k = k + 1;
   }
   const bodies = at + MAT_MAX_STATICS * MAT_STATIC_REC;
@@ -108,8 +129,8 @@ export function matFillDefaults(w: Float32Array, at: number, n: number): void {
     w[base + 3] = MAT_DEF_FRICTION;
     w[base + 4] = 0.0 - 1.0e30;
     w[base + 5] = BODY_DYNAMIC;  // 3.0 = dynamic por default
-    wU32[base + 6] = 1;          // default layer = 1
-    wU32[base + 7] = 0xFFFFFFFF; // default mask = all
+    u32[base + 6] = LAYER_DEFAULT;
+    u32[base + 7] = MASK_ALL;
     k = k + 1;
   }
 }
@@ -122,7 +143,7 @@ export function matFillDefaults(w: Float32Array, at: number, n: number): void {
 /// o solver da CPU lê por par; gravidade, arrasto e chão moram no integrador,
 /// porque um corpo sem integrador não tem nenhum dos três.
 export function matWriteBody(w: Float32Array, at: number, k: number,
-                             o: GameObject, t: Transform): void {
+                             o: GameObject, t: Transform, wU32?: Uint32Array): void {
   const base = at + MAT_MAX_STATICS * MAT_STATIC_REC + k * MAT_BODY_REC;
   // O integrador responde por gravidade/arrasto/chão; sem um, o corpo não cai —
   // que é exatamente o que ele faz no caminho da CPU.
@@ -155,25 +176,19 @@ export function matWriteBody(w: Float32Array, at: number, k: number,
   // (`floorY + t.sy*0.5`) — aqui ela acontece uma vez por sincronização em vez
   // de uma vez por frame.
   w[base + 4] = floor > MAT_NO_FLOOR ? floor + t.sy * 0.5 : floor;
-  // Tipo de corpo: 1 = static, 2 = kinematic, 3 = dynamic (0 = unassigned => dynamic)
-  let tipo: f64 = BODY_DYNAMIC;
-  if (t.bodyType !== BODY_UNASSIGNED) tipo = t.bodyType;
-  else if (o.bodyType !== BODY_UNASSIGNED) tipo = o.bodyType;
-  else if (o.stationary !== 0) tipo = BODY_STATIC;
-  else if (t.mass <= 0.0 && (t.vx !== 0.0 || t.vy !== 0.0 || t.vz !== 0.0)) tipo = BODY_KINEMATIC;
-  w[base + 5] = tipo;
+  w[base + 5] = bodyTypeOf(o);
 
-  const wU32 = new Uint32Array(w.buffer, w.byteOffset, w.length);
-  wU32[base + 6] = o.layer !== undefined ? o.layer : 1;
-  wU32[base + 7] = o.mask !== undefined ? o.mask : 0xFFFFFFFF;
+  const u32 = wU32 !== undefined ? wU32 : new Uint32Array(w.buffer, w.byteOffset, w.length);
+  u32[base + 6] = o.layer;
+  u32[base + 7] = o.mask;
 }
 
 /// Escreve o material do estático `k` em `w` (ver `matWriteBody` sobre `at`).
-export function matWriteStatic(w: Float32Array, at: number, k: number, t: Transform, o?: GameObject): void {
+export function matWriteStatic(w: Float32Array, at: number, k: number, t: Transform, o?: GameObject, wU32?: Uint32Array): void {
   const base = at + k * MAT_STATIC_REC;
   w[base] = t.restitution;
   w[base + 1] = t.friction;
-  const wU32 = new Uint32Array(w.buffer, w.byteOffset, w.length);
-  wU32[base + 2] = (o !== undefined && o.layer !== undefined) ? o.layer : (t.layer !== undefined ? t.layer : 1);
-  wU32[base + 3] = (o !== undefined && o.mask !== undefined) ? o.mask : (t.mask !== undefined ? t.mask : 0xFFFFFFFF);
+  const u32 = wU32 !== undefined ? wU32 : new Uint32Array(w.buffer, w.byteOffset, w.length);
+  u32[base + 2] = o !== undefined ? o.layer : LAYER_DEFAULT;
+  u32[base + 3] = o !== undefined ? o.mask : MASK_ALL;
 }

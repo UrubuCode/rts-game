@@ -55,7 +55,7 @@ import { GameObject } from "../core/gameobject";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
          matFillDefaults, matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
-         BODY_STATIC, BODY_DYNAMIC } from "./materials";
+         BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 import { Transform } from "../core/transform";
 
 export const RB_MAX_STATICS = MAT_MAX_STATICS;
@@ -73,7 +73,7 @@ const RB_SLEEP_SPEED2 = "0.2025";   // 0.45 u/s ao quadrado
 // seriam piores que o O(n²) que isto remove.
 const RB_NCELLS_N = 8192;
 const RB_SLOT_N = 32;
-const RB_GRID_OVERFLOW_I32 = 2051;
+const RB_GRID_OVERFLOW_I32 = 2055;
 
 // ONDE o grid mora: na CAUDA do buffer `world`, e não num buffer próprio.
 //
@@ -88,10 +88,11 @@ const RB_GRID_OVERFLOW_I32 = 2051;
 // o tipo é por PIPELINE, o buffer é o mesmo. Por isso o lado que lê faz
 // `bitcast`: os bits guardados ali são de i32.
 //
-//   [0]           params: dt, nEstaticos, tamanhoDaCélula, -
-//   [1 .. 513)    estáticos (centro, meia-extensão)
-//   513*4 = 2052  ← daqui, em i32: 8192 contagens, depois 8192*32 vagas
-const RB_GRID_I32_N = 2052;
+//   [0]           params: dt, nEstaticos, tamanhoDaCélula, substeps
+//   [1]           layout_version, 0, 0, 0
+//   [2 .. 514)    estáticos (centro, meia-extensão)
+//   514*4 = 2056  ← daqui, em i32: 8192 contagens, depois 8192*32 vagas
+const RB_GRID_I32_N = 2056;
 /// Onde a REGIÃO DE MATERIAIS mora AQUI: depois do grid, e não em `MAT_AT` como
 /// no backend Rust. Não é uma segunda resposta para a mesma pergunta — é a
 /// mesma região, num buffer que tem uma coisa a mais no meio: `MAT_AT` cai
@@ -122,6 +123,7 @@ let rbGroups = 0;
 let rbStatics = 0;
 /// Espelho da região de materiais (ver `RB_MAT_AT`).
 let rbMatBuf: Float32Array = new Float32Array(matBytesFor(0));
+let rbMatBufU32: Uint32Array = new Uint32Array(rbMatBuf.buffer);
 
 export function rbAvailable(): number { return gpu.available(); }
 export function rbCount(): number { return rbN; }
@@ -321,6 +323,7 @@ fn perdaPorAtrito(forca: f32, a: f32, b: f32) -> f32 {
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let n = arrayLength(&pos);
   if (id.x >= n) { return; }
+  if (world[1].x != ${PHYSICS_LAYOUT_VERSION.toFixed(1)}) { return; }
   let dt = world[0].x;
   let m = u32(world[0].y);
   let cs = max(world[0].z, 0.001);
@@ -333,12 +336,12 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let meu = materialDoCorpo(id.x);
 
   // ── TIPOS DE CORPO: 1 = estático, 2 = cinemático, 3 (ou 0 default) = dinâmico ──
-  if (meu.tipo == 1.0) {
+  if (meu.tipo == ${BODY_STATIC.toFixed(1)}) {
     pos[id.x] = vec4<f32>(p, ${RB_SLEEP_FRAMES});
     vel[id.x] = vec4<f32>(0.0, 0.0, 0.0, forma);
     return;
   }
-  if (meu.tipo == 2.0) {
+  if (meu.tipo == ${BODY_KINEMATIC.toFixed(1)}) {
     p = p + v * dt;
     pos[id.x] = vec4<f32>(p, 0.0);
     vel[id.x] = vec4<f32>(v, forma);
@@ -401,14 +404,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   for (var k: u32 = 0u; k < m; k = k + 1u) {
     let dele = materialDoEstatico(k);
     if ((meu.mask & dele.layer) == 0u || (dele.mask & meu.layer) == 0u) { continue; }
-    let sc = world[1u + k * 2u].xyz;
-    let sh = world[2u + k * 2u].xyz;
+    let sc = world[2u + k * 2u].xyz;
+    let sh = world[3u + k * 2u].xyz;
     // A REDONDEZA do estático vive no w do centro: 1 = esfera. Invertido em
     // relação à forma de um corpo de propósito — todo escritor anterior a este
     // campo deixava 0 ali e queria dizer CAIXA. Antes a forma era ignorada e um
     // chão marcado como esfera colidia como caixa; pior, rbSyncStatics nem o
     // enviava, então tudo o atravessava.
-    let formaEst = select(1.0, 0.0, world[1u + k * 2u].w > 0.5);
+    let formaEst = select(1.0, 0.0, world[2u + k * 2u].w > 0.5);
     let c = contato(p, h, forma, sc, sh, formaEst);
     if (c.w > 0.0) {
       apoiado = true;
@@ -544,13 +547,14 @@ function rbAlloc(n: number): number {
   rbPosBuf = buffer.alloc(n * 16);
   rbVelBuf = buffer.alloc(n * 16);
   rbExtBuf = buffer.alloc(n * 16);
-  rbWorldBuf = buffer.alloc((1 + RB_MAX_STATICS * 2) * 16);
+  rbWorldBuf = buffer.alloc((2 + RB_MAX_STATICS * 2) * 16);
   // A região de materiais tem espelho PRÓPRIO, e sobe por `write_at` no offset
   // dela. O espelho do cabeçalho não pode crescer até lá: entre um e outro há
   // 1 MB de grid que só a GPU escreve, e subir isso por sincronização seria
   // pagar o grid inteiro na travessia para escrever 8 KB de material.
   rbMatBuf = new Float32Array(matBytesFor(n));
-  matFillDefaults(rbMatBuf, 0, n);
+  rbMatBufU32 = new Uint32Array(rbMatBuf.buffer);
+  matFillDefaults(rbMatBuf, 0, n, rbMatBufU32);
   gpu.bind_buffer(rbPipe, 0, rbGPos);
   gpu.bind_buffer(rbPipe, 1, rbGVel);
   gpu.bind_buffer(rbPipe, 2, rbGExt);
@@ -587,23 +591,11 @@ export function rbSetBody(i: number, x: f64, y: f64, z: f64,
   buffer.write_f32(rbExtBuf, (i * 4 + 1) * 4, hy);
   buffer.write_f32(rbExtBuf, (i * 4 + 2) * 4, hz);
   buffer.write_f32(rbExtBuf, (i * 4 + 3) * 4, mass > 0.0 ? 1.0 / mass : 0.0);
-  const baseMat = MAT_MAX_STATICS * MAT_STATIC_REC + i * MAT_BODY_REC;
-  if (baseMat + 5 < rbMatBuf.length) {
-    rbMatBuf[baseMat + 5] = mass <= 0.0 ? BODY_STATIC : BODY_DYNAMIC;
-  }
   // A célula é dimensionada pelo MAIOR corpo (ver rbWriteWorld); acompanhar
   // aqui é o único lugar que vê todas as extensões sem varrer nada de novo.
   if (hx > rbMaxHalf) rbMaxHalf = hx;
   if (hy > rbMaxHalf) rbMaxHalf = hy;
   if (hz > rbMaxHalf) rbMaxHalf = hz;
-}
-
-/// Sobe posições para a GPU em lote (usado quando muitos corpos se movem).
-/// NUNCA sobe velocidade aqui durante ownership da GPU para não sobrescrever
-/// velocidades correntes da GPU com valores velhos ou zerados do host.
-export function rbUploadPosVel(): void {
-  if (rbPipe === 0) return;
-  gpu.write(rbGPos, rbPosBuf, rbN * 16);
 }
 
 /// Retorna o contador de overflow de células do grid espacial na GPU.
@@ -634,8 +626,12 @@ function rbWriteWorld(): void {
   buffer.write_f32(rbWorldBuf, 0, rbDt);
   buffer.write_f32(rbWorldBuf, 4, rbStatics * 1.0);
   buffer.write_f32(rbWorldBuf, 8, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
-  buffer.write_f32(rbWorldBuf, 12, PHYSICS_LAYOUT_VERSION * 1.0);
-  gpu.write(rbGWorld, rbWorldBuf, (1 + rbStatics * 2) * 16);
+  buffer.write_f32(rbWorldBuf, 12, 1.0);
+  buffer.write_f32(rbWorldBuf, 16, PHYSICS_LAYOUT_VERSION * 1.0);
+  buffer.write_f32(rbWorldBuf, 20, 0.0);
+  buffer.write_f32(rbWorldBuf, 24, 0.0);
+  buffer.write_f32(rbWorldBuf, 28, 0.0);
+  gpu.write(rbGWorld, rbWorldBuf, (2 + rbStatics * 2) * 16);
 }
 
 /// A FORMA do colisor: `COL_SPHERE` (0) ou `COL_BOX` (1) de `gameobject.ts`.
@@ -726,7 +722,7 @@ export function rbSyncStatics(sc: Scene): void {
     // `rigidNeedsFallback` manda a cena para a CPU antes de chegar aqui.
     if (o.collideFlag !== 0 && shapeOf(o) < 2 && o.active !== 0 && o.stationary !== 0) {
       const t: Transform = trs[i];
-      const base = 4 + m * 8;
+      const base = 8 + m * 8;
       buffer.write_f32(rbWorldBuf, (base) * 4, centerWorldX(o, t));
       buffer.write_f32(rbWorldBuf, (base + 1) * 4, centerWorldY(o, t));
       buffer.write_f32(rbWorldBuf, (base + 2) * 4, centerWorldZ(o, t));
@@ -736,7 +732,7 @@ export function rbSyncStatics(sc: Scene): void {
       buffer.write_f32(rbWorldBuf, (base + 5) * 4, halfYOf(o, t));
       buffer.write_f32(rbWorldBuf, (base + 6) * 4, halfZOf(o, t));
       buffer.write_f32(rbWorldBuf, (base + 7) * 4, 0.0);
-      matWriteStatic(rbMatBuf, 0, m, t, o);
+      matWriteStatic(rbMatBuf, 0, m, t, o, rbMatBufU32);
       m = m + 1;
     }
     i = i + 1;
@@ -750,7 +746,7 @@ export function rbSyncStatics(sc: Scene): void {
 /// integrador e do `Transform`; ver `materials.ts`, que é onde a regra mora.
 /// Escreve só o espelho: `rbUpload` sobe a região inteira de uma vez.
 export function rbSetMaterial(i: number, o: GameObject, t: Transform): void {
-  matWriteBody(rbMatBuf, 0, i, o, t);
+  matWriteBody(rbMatBuf, 0, i, o, t, rbMatBufU32);
 }
 
 /// Sobe a região de materiais para a cauda do `world`, por `write_at`: entre o

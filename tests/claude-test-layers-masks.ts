@@ -11,11 +11,13 @@ import { crInit, crSetBody, crSetMaterial, crSyncStatics, crStep, crY, crAvailab
 import { rbInit, rbSetBody, rbSetMaterial, rbSyncStatics, rbUpload, rbStep, rbY, rbAvailable } from "@engine/rigid/gpurigid";
 
 let falhas = 0;
+let totalChecks = 0;
 function check(nome: string, cond: boolean): void {
+  totalChecks = totalChecks + 1;
   if (cond) {
-    io.print("  [PASSOU] " + nome);
+    io.print("  [OK] " + nome);
   } else {
-    io.print("  [FALHOU] " + nome);
+    io.print("  [FALHA] " + nome);
     falhas = falhas + 1;
   }
 }
@@ -163,7 +165,7 @@ if (rbAvailable() !== 0) {
 }
 
 if (falhas === 0) {
-  io.print("[RESULTADO] Todos os testes de Layer/Mask passaram com sucesso!");
+  io.print("[PASSOU] Filtragem por Layer/Mask em CPU, Rust e GPU (" + totalChecks + "/" + totalChecks + ")");
 } else {
-  io.print("[RESULTADO] " + falhas + " falhas detectadas no teste de Layer/Mask!");
+  io.print("[FALHA] Total de falhas: " + falhas + "/" + totalChecks);
 }

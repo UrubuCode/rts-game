@@ -43,7 +43,8 @@ import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
 import { MAT_AT, MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor, matFillDefaults,
-         matWriteBody, matWriteStatic, BODY_STATIC, BODY_DYNAMIC } from "./materials";
+         matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
+         BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
 export const CR_MAX_STATICS = MAT_MAX_STATICS;
@@ -56,6 +57,7 @@ let crExt: Float32Array = new Float32Array(4);
 /// `world` = cabeçalho + estáticos + a REGIÃO DE MATERIAIS (ver `materials.ts`).
 /// Cresce com a contagem de corpos, em `crInit`.
 let crWorld: Float32Array = new Float32Array(MAT_AT + matBytesFor(0));
+let crWorldU32: Uint32Array = new Uint32Array(crWorld.buffer);
 /// Meia-extensão MÁXIMA vista: é ela que dimensiona a célula do grid.
 let crMaxHalf: f64 = 0.0;
 let crStatics = 0;
@@ -86,10 +88,12 @@ export function crAvailable(): number {
   // um corpo em queda livre, sem estáticos, um sub-passo
   ext[3] = 1.0;                      // invMass
   const world = new Float32Array(MAT_AT + matBytesFor(1));
+  const worldU32 = new Uint32Array(world.buffer);
   world[0] = CR_DT;
   world[2] = 1.0;                    // tamanho de célula
   world[3] = 1.0;                    // sub-passos
-  matFillDefaults(world, MAT_AT, 1);
+  world[4] = PHYSICS_LAYOUT_VERSION * 1.0;
+  matFillDefaults(world, MAT_AT, 1, worldU32);
   const moveu = rigid.step(pos, vel, ext, world);
   crSondado = moveu > 0 ? 1 : 2;
   return crSondado === 1 ? 1 : 0;
@@ -117,7 +121,8 @@ export function crInit(n: number): number {
   // inteira: um `world` curto demais responde os defaults legados para todo
   // mundo, em vez de dar material a uns e não a outros.
   crWorld = new Float32Array(MAT_AT + matBytesFor(n));
-  matFillDefaults(crWorld, MAT_AT, n);
+  crWorldU32 = new Uint32Array(crWorld.buffer);
+  matFillDefaults(crWorld, MAT_AT, n, crWorldU32);
   crMaxHalf = 0.0;
   crStatics = 0;
   return 1;
@@ -146,10 +151,6 @@ export function crSetBody(i: number, x: f64, y: f64, z: f64,
   crExt[i * 4 + 1] = hy;
   crExt[i * 4 + 2] = hz;
   crExt[i * 4 + 3] = mass > 0.0 ? 1.0 / mass : 0.0;
-  const baseMat = MAT_AT + MAT_MAX_STATICS * MAT_STATIC_REC + i * MAT_BODY_REC;
-  if (baseMat + 5 < crWorld.length) {
-    crWorld[baseMat + 5] = mass <= 0.0 ? BODY_STATIC : BODY_DYNAMIC;
-  }
   if (hx > crMaxHalf) crMaxHalf = hx;
   if (hy > crMaxHalf) crMaxHalf = hy;
   if (hz > crMaxHalf) crMaxHalf = hz;
@@ -164,7 +165,7 @@ export function crSetShape(i: number, shape: number): void {
 /// O MATERIAL do corpo `i`: gravidade, quique, arrasto, atrito e chão. Sai do
 /// integrador e do `Transform` — ver `materials.ts`, que é onde a regra mora.
 export function crSetMaterial(i: number, o: GameObject, t: Transform): void {
-  matWriteBody(crWorld, MAT_AT, i, o, t);
+  matWriteBody(crWorld, MAT_AT, i, o, t, crWorldU32);
 }
 
 /// Escreve velocidade e ACORDA o corpo, como o `rbSetVel`.
@@ -205,6 +206,10 @@ function crWriteWorld(substeps: number): void {
   crWorld[1] = crStatics * 1.0;
   crWorld[2] = crMaxHalf > 0.0 ? crMaxHalf * 2.0 : 1.0;
   crWorld[3] = substeps * 1.0;
+  crWorld[4] = PHYSICS_LAYOUT_VERSION * 1.0;
+  crWorld[5] = 0.0;
+  crWorld[6] = 0.0;
+  crWorld[7] = 0.0;
 }
 
 /// Compat com o `rbUpload`: aqui os espelhos SÃO o estado, então não há o que
@@ -240,7 +245,7 @@ export function crSyncStatics(sc: Scene): void {
     // CPU antes de chegar aqui.
     if (o.collideFlag !== 0 && o.active !== 0 && o.stationary !== 0 && shapeOf(o) < 2) {
       const t: Transform = trs[i];
-      const base = 4 + m * 8;
+      const base = 8 + m * 8;
       crWorld[base] = centerWorldX(o, t);
       crWorld[base + 1] = centerWorldY(o, t);
       crWorld[base + 2] = centerWorldZ(o, t);
@@ -253,7 +258,7 @@ export function crSyncStatics(sc: Scene): void {
       crWorld[base + 5] = halfYOf(o, t);
       crWorld[base + 6] = halfZOf(o, t);
       crWorld[base + 7] = 0.0;
-      matWriteStatic(crWorld, MAT_AT, m, t, o);
+      matWriteStatic(crWorld, MAT_AT, m, t, o, crWorldU32);
       m = m + 1;
     }
     i = i + 1;

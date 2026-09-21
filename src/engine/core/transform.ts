@@ -55,9 +55,6 @@ export class Transform {
   /// sem tocar em behaviors — mas por PAR em contato, não por objeto da cena.
   restitution: f64;
   friction: f64;
-  bodyType: number;  // 0 = unassigned, 1 = static, 2 = kinematic, 3 = dynamic
-  layer: number;     // bitmask de camada (default: 1)
-  mask: number;      // bitmask de colisão (default: 0xFFFFFFFF)
 
   constructor() {
     this.px = 0.0; this.py = 0.0; this.pz = 0.0;
@@ -71,9 +68,6 @@ export class Transform {
     this.quiet = 0;
     this.restitution = 0.0;
     this.friction = 0.35;
-    this.bodyType = 0;
-    this.layer = 1;
-    this.mask = 0xFFFFFFFF;
     this.wx = 0.0; this.wy = 0.0; this.wz = 0.0;
     this.wrx = 0.0; this.wry = 0.0;
   }
