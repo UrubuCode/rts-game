@@ -871,6 +871,7 @@ let rbTicketAge = 0;
 let rbKickou = 0;
 let rbKickedStep = 0;
 let rbLastReadbackStep = 0;
+let rbDeliveredSteps = 0;
 
 /// Retorna o passo exato da simulação do último readback concluído da GPU.
 export function rbGpuLastReadbackStep(): number {
@@ -880,6 +881,13 @@ export function rbGpuLastReadbackStep(): number {
 /// Define manualmente o passo do último readback (para sincronizações síncronas / rigidFlush).
 export function rbSetLastReadbackStep(step: number): void {
   rbLastReadbackStep = step;
+}
+
+/// Reinicia o rastreamento de passos entregues à GPU para alinhar com o stepCount inicial.
+export function rbResetStepTracking(initialStep: number): void {
+  rbDeliveredSteps = initialStep;
+  rbLastReadbackStep = initialStep;
+  rbKickedStep = initialStep;
 }
 
 /// Abandona a leitura em voo. Para quem reescreve os corpos (ressincronização):
@@ -899,13 +907,14 @@ export function rbKicked(): number { return rbKickou; }
 /// passo anterior CHEGOU, aplica nos espelhos, despacha o próximo passo e
 /// agenda a próxima leitura; senão, devolve 0 e o jogo desenha o estado
 /// antigo. Devolve 1 quando os espelhos têm estado novo.
-export function rbService(substeps: number): number {
+export function rbService(substeps: number, steps: number = 1): number {
   rbKickou = 0;
   if (rbPipe === 0) return 0;
   if (rbTicket === 0) {
     rbKickou = 1;
     rbKick(substeps);
-    rbKickedStep = stepCount();
+    rbDeliveredSteps = rbDeliveredSteps + steps;
+    rbKickedStep = rbDeliveredSteps;
     rbTicket = gpu.read_begin(rbGPos, rbN * 16);
     return 0;
   }
@@ -923,7 +932,8 @@ export function rbService(substeps: number): number {
   rbLastReadbackStep = rbKickedStep;
   rbKickou = 1;
   rbKick(substeps);
-  rbKickedStep = stepCount();
+  rbDeliveredSteps = rbDeliveredSteps + steps;
+  rbKickedStep = rbDeliveredSteps;
   rbTicket = gpu.read_begin(rbGPos, rbN * 16);
   return 1;
 }
@@ -932,7 +942,7 @@ export function rbService(substeps: number): number {
 export function rbPull(): void {
   if (rbPipe === 0) return;
   gpu.read(rbGPos, rbPosBuf, rbN * 16);
-  rbLastReadbackStep = stepCount();
+  rbLastReadbackStep = rbDeliveredSteps;
 }
 /// KICK: submete `substeps` passos novos SEM esperar.
 export function rbKick(substeps: number): void {

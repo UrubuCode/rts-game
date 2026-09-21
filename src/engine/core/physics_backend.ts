@@ -47,13 +47,13 @@ import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocal
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
-         rbCount, rbKick, rbGpuLastReadbackStep, rbSetLastReadbackStep } from "../rigid/gpurigid";
+         rbCount, rbKick, rbGpuLastReadbackStep, rbSetLastReadbackStep, rbResetStepTracking } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
 import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
          crSyncStatics, crStep, crGridOverflow, crX, crY, crZ, crVelX, crVelY, crVelZ,
          crCount, crThreads } from "../rigid/cpurigid";
-import { FIXED_DT, stepCount } from "./fixedstep";
+import { FIXED_DT, stepCount, stepsLastFrame } from "./fixedstep";
 import { Behavior } from "./behavior";
 import rigid, { needForLevel } from "../../compat/rigid";
 import { profBest, profGpuMs, profRustMs, profRange, gpuSupportsLevel,
@@ -411,6 +411,8 @@ function pbSync(sc: Scene): number {
   }
   rbUpload();
   rbSyncStatics(sc);
+  const prevStep = stepCount() - stepsLastFrame();
+  rbResetStepTracking(prevStep >= 0 ? prevStep : 0);
   pbBodies = m;
   pbDono = 1;
   pbAvisaPosse(1);
@@ -698,7 +700,7 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
   }
 
   if (pbDevidos < PB_MAX_DEVIDOS) pbDevidos = pbDevidos + 1;
-  const novo = rbService(PB_SUBSTEPS * pbDevidos);
+  const novo = rbService(PB_SUBSTEPS * pbDevidos, pbDevidos);
   if (rbKicked() !== 0) pbDevidos = 0;
   if (novo !== 0) {
     pbFresh = pbFresh + 1;

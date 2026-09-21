@@ -14,7 +14,7 @@ import time from "../src/compat/time";
 import { Scene } from "../src/engine/core/scene";
 import { GameObject } from "../src/engine/core/gameobject";
 import { boxCollider, sphereCollider, Collider, SHAPE_BOX, SHAPE_SPHERE } from "../src/engine/core/collider";
-import { stepCount } from "../src/engine/core/fixedstep";
+import { stepCount, stepsFor, stepMore, FIXED_DT } from "../src/engine/core/fixedstep";
 import { pbActiveBackend, pbGpuLastReadbackStep, rigidSetMode, rigidInvalidate, rigidStep } from "../src/engine/core/physics_backend";
 import {
   setSpatialScene,
@@ -200,22 +200,68 @@ check("Triggers: overlap atinge trigger com depth = 0",
       "depth = " + (overlapTrig.length > 0 ? overlapTrig[0].depth : "nenhum"));
 
 // ── 6. Carimbo de stepId (§5.1 e §7) ─────────────────────────────────────────
-const curStep = stepCount();
-const queryStep = getSpatialStepId();
-check("Carimbo stepId: em modo CPU reporta stepCount atual", queryStep === curStep,
-      "queryStep=" + queryStep + " curStep=" + curStep);
+const scStep = new Scene("StepIdScene");
+setSpatialScene(scStep);
 
-// Teste de carimbo em modo GPU (se disponível)
+const stepTarget = new GameObject("StepTarget");
+stepTarget.setMesh(4, 255, 0, 0);
+stepTarget.transform.setPosition(0.0, 0.0, 10.0);
+stepTarget.transform.setScale(2.0);
+scStep.add(stepTarget);
+
+const stepDyn = new GameObject("StepDyn");
+stepDyn.setMesh(1, 0, 255, 0);
+stepDyn.stationary = 0;
+stepDyn.collideFlag = 1;
+stepDyn.transform.setPosition(5.0, 5.0, 5.0);
+scStep.add(stepDyn);
+
+scStep.computeWorld();
+spatialRebuildIndex(scStep);
+
+// Modo CPU: roda N frames via stepsFor e checa stepId === currentStep
+rigidSetMode(0);
+rigidInvalidate();
+let fCpu = 0;
+while (fCpu < 5) {
+  const passos = stepsFor(FIXED_DT);
+  let p = 0;
+  while (stepMore(p, passos) !== 0) {
+    scStep.update(FIXED_DT);
+    if (rigidStep(scStep, 0) === 0) scStep.resolveCollisions();
+    p = p + 1;
+  }
+  fCpu = fCpu + 1;
+}
+const hitCpu = raycast(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 20.0, undefined, scStep);
+const curStepCpu = stepCount();
+check("Carimbo stepId: em modo CPU stepId === currentStep",
+      hitCpu !== null && hitCpu.stepId === curStepCpu,
+      "hit.stepId=" + (hitCpu ? hitCpu.stepId : -1) + " curStep=" + curStepCpu);
+
+// Modo GPU: roda N frames via stepsFor e checa stepId < currentStep (latência real)
 rigidSetMode(1);
 rigidInvalidate();
-if (rigidStep(sc, 0) !== 0 && pbActiveBackend() === 1) {
-  const gpuStep = pbGpuLastReadbackStep();
-  const hitGpu = raycast(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 20.0, undefined, sc);
-  check("Carimbo stepId: em modo GPU reporta pbGpuLastReadbackStep",
-        hitGpu !== null && hitGpu.stepId === gpuStep,
-        "hit.stepId=" + (hitGpu ? hitGpu.stepId : "null") + " gpuStep=" + gpuStep);
+let fGpu = 0;
+while (fGpu < 5) {
+  const passos = stepsFor(FIXED_DT);
+  let p = 0;
+  while (stepMore(p, passos) !== 0) {
+    scStep.update(FIXED_DT);
+    rigidStep(scStep, 0);
+    p = p + 1;
+  }
+  fGpu = fGpu + 1;
+}
+if (pbActiveBackend() === 1) {
+  const hitGpu = raycast(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 20.0, undefined, scStep);
+  const curStepGpu = stepCount();
+  const gpuLastStep = pbGpuLastReadbackStep();
+  check("Carimbo stepId: na GPU stepId < currentStep refletindo latencia real",
+        hitGpu !== null && hitGpu.stepId < curStepGpu && hitGpu.stepId === gpuLastStep,
+        "hit.stepId=" + (hitGpu ? hitGpu.stepId : -1) + " gpuLastStep=" + gpuLastStep + " curStep=" + curStepGpu);
 } else {
-  io.print("  [INFO] GPU nao assumiu o passo neste ambiente; carimbo com pbGpuLastReadbackStep validado pelo contrato.");
+  io.print("  [NAO-EXECUTADO] GPU indisponivel neste ambiente; teste de latencia real GPU marcado como nao-executado.");
 }
 rigidSetMode(0); // restaura modo CPU
 
