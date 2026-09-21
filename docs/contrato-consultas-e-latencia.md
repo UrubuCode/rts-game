@@ -1,37 +1,38 @@
-# Contrato de Consultas Espaciais e Latência (Fase 1, §6)
+# Contrato de Consultas Espaciais, Latência e Eventos (Fase 1, §6 e Lote B)
 
 > **Documento Normativo de Contrato**  
-> Referência: `docs/superpowers/specs/2026-09-20-paralelismo-e-fundacao-design.md` (§6, itens 7 e 8; §7.2, Lote B).  
+> Referência: `docs/superpowers/specs/2026-09-20-paralelismo-e-fundacao-design.md` (§6, itens 7 e 8; §7.1; §7.2, Lote B).  
 > Branch de revisão: `docs/fisica-contrato-consultas` (PR exclusivo de especificação antes de código).
 
 ---
 
-## 1. Contexto e Motivação
+## 1. Contexto e Enquadramento
 
-Até a Fase 0, o motor de física não implementava consultas espaciais (`raycast`, `overlap`, `shapeCast`). Uma busca por `raycast` em `src/engine/` retornava zero ocorrências. No entanto, em um jogo de estratégia em tempo real (RTS), consultas espaciais são a espinha dorsal de quase toda interação de gameplay:
-- Clique de seleção de unidades do jogador (raio da câmera contra colisores de unidade);
-- Validação de ordens de movimento e construção (overlap de footprint no terreno/grid);
-- Campo de visão, visibilidade de projéteis e verificação de linha de tiro (line-of-sight raycast);
-- Sensores de proximidade e áreas de efeito (overlap esférico/caixa).
+O motor de física é projetado para **uso geral** (§7.1): deve atender desde jogos com multidões de agentes cinemáticos e estáticos (como RTS ou RPGs de ação) até simulações densas de corpos rígidos em contato contínuo (empilhamentos, tombamentos, destruição).
 
-Com a introdução do contrato de posse e múltiplos backends paralelos (CPU, Rust, GPU), a premissa ingênua de que "uma consulta espacial lê o estado atual instantaneamente na memória da CPU sem custo" foi quebrada.
+Em qualquer um desses perfis, consultas espaciais (`raycast`, `overlap`, `shapeCast`) são indispensáveis ao gameplay e à simulação:
+- Seleção de entidades pela câmera e interação com o mouse;
+- Validação espacial de movimentação, encaixe e footprint no cenário;
+- Sensores de proximidade, áreas de efeito e volumes de trigger;
+- Linha de tiro (LOS) e detecção de obstáculos para navegação.
 
-Este documento estabelece as regras formais e definitivas de:
+Com múltiplos backends de aceleração física (CPU, Rust, GPU), a suposição ingênua de que toda consulta ocorre instantaneamente na memória local da CPU com atraso zero é falsa. Este contrato estabelece:
 1. Onde reside a verdade do estado físico sob cada backend;
-2. Qual é a latência de consultas (`raycast` e `overlap`) em cada backend;
-3. Qual é o payload obrigatório de resposta das consultas (incluindo `stepId`);
-4. Qual é o comportamento quando um backend não suporta a consulta solicitada.
+2. A decisão arquitetural de **quem executa** as consultas espaciais;
+3. A latência real (medida em **passos**) e o carimbo obrigatório de `stepId`;
+4. O payload das consultas, incluindo filtros `layer`/`mask`, suporte a triggers, listas determinísticas e variantes sem alocação (`NonAlloc`);
+5. O ciclo de vida e a ordenação determinística dos eventos de contato.
 
 ---
 
 ## 2. Posse e Onde Reside a Verdade
 
-O motor opera sob o modelo de **posse de estado** (`pbDono` em `src/engine/core/physics_backend.ts`):
+O motor opera sob o modelo de **posse de estado** (`pbDono` em `src/engine/core/physics_backend.ts`). O layout físico versionado compõe-se dos quatro buffers canônicos: **`pos`**, **`vel`**, **`ext`** e **`world`**.
 
 ```
                        ┌─────────────────────────────────────────┐
                        │           Scene CPU (Host)              │
-                       │   GameObjects, Transforms, Colliders    │
+                       │    GameObjects, Transforms, Colisores   │
                        └──────────────────┬──────────────────────┘
                                           │
                   ┌───────────────────────┼───────────────────────┐
@@ -40,136 +41,194 @@ O motor opera sob o modelo de **posse de estado** (`pbDono` em `src/engine/core/
        ┌──────────────────────┐┌──────────────────────┐┌──────────────────────┐
        │   Scene CPU Solver   ││  Rust rts:rigid      ││   GPU gpurigid       │
        │                      ││  (Rayon Workers)     ││   (WGSL Compute)     │
-       │  Verdade: Memória    ││  Verdade: Buffers    ││  Verdade: VRAM       │
-       │  do Host (RAM)       ││  do Host (RAM)       ││  (Storage Buffers)   │
+       │  Verdade: RAM Host   ││  Verdade: Buffers    ││  Verdade: VRAM       │
+       │  (Scene / Objetos)   ││  do Host (RAM)       ││  (pos, vel, ext, wrd)│
        │                      ││                      ││                      │
-       │  Latência: 0         ││  Latência: 0         ││  Espelho Host:       │
-       │  Velocidade: Sim     ││  Velocidade: Sim     ││  Latência: 1 frame   │
+       │  Atraso: 0 passos    ││  Atraso: 0 passos    ││  Espelho Host:       │
+       │  Velocidade: Sim     ││  Velocidade: Sim     ││  Atraso: 1 a 6 passos│
        │                      ││                      ││  Velocidade: NÃO     │
        └──────────────────────┘└──────────────────────┘└──────────────────────┘
 ```
 
 ### 2.1 Backend CPU (`pbDono === PB_MODO_CPU`)
-- **Onde está a verdade:** Na memória RAM do processo, nas estruturas da `Scene` e nos componentes `Transform`/`Rigidbody` dos `GameObjects`.
-- **Sincronia:** Imediata. Toda alteração feita pelo solver reflete-se diretamente no mesmo tick.
+- **Onde está a verdade:** Na memória RAM do host, nas estruturas da `Scene` e componentes dos `GameObjects`.
+- **Atraso:** **0 passos**. As alterações do solver são imediatas.
 
 ### 2.2 Backend Rust (`pbDono === PB_MODO_RUST`)
-- **Onde está a verdade:** Nos buffers compartilhados de corpo do host (`Float32Array`: `pos`, `vel`, `ext`, `world`).
-- **Sincronia:** O solver em Rust roda síncrono na thread JS principal (distribuindo o cálculo via `rayon` nos núcleos de CPU) e atualiza diretamente as fatias de memória dos buffers do host. Ao retornar da chamada `rigid.step()`, os buffers do host contêm o estado atualizado do frame atual.
+- **Onde está a verdade:** Nos buffers compartilhados de corpos do host (`pos`, `vel`, `ext`, `world`).
+- **Atraso:** **0 passos**. O solver Rust executa síncrono na thread JS (distribuindo o cálculo via `rayon` pelos núcleos de CPU) sobre as fatias de memória do host. Ao retornar de `rigid.step()`, os buffers do host já contêm o estado do passo atual.
 
 ### 2.3 Backend GPU (`pbDono === PB_MODO_GPU`)
-- **Onde está a verdade:** **Na VRAM da GPU**, nos storage buffers `pose`, `motion` e `world`.
-- **O estado do espelho no host (CPU):**
-  - O host (CPU) só recebe as posições atualizadas após o despacho do compute shader e a conclusão da transferência assíncrona (`readBuffer` / `stagingBuffer` via `rigidFlush`).
-  - **O espelho da CPU tem 1 frame de atraso ($N-1$).** Quando o código TypeScript executa no frame $N$, os transforms dos `GameObjects` refletem a posição calculada no frame $N-1$.
-  - **O espelho da CPU NÃO possui velocidade.** O procedimento `pbApply()` copia `pos.xyz` para os `Transforms`, mas intencionalmente **não lê nem sincroniza `vel`** para a CPU por restrições de largura de banda e throughput de cópia.
-  - **Conclusão normativa:** Quando a GPU detém a posse (`pbDono === PB_MODO_GPU`), a CPU **não possui a verdade do frame corrente**, possuindo apenas uma aproximação atrasada e desprovida de velocidade.
+- **Onde está a verdade:** **Na VRAM da GPU**, nos storage buffers `pos`, `vel`, `ext` e `world`.
+- **Como o espelho chega no host:**
+  - Em regime normal de jogo, o espelho é atualizado via pipeline assíncrono: `rbService` → `read_begin` / `read_poll` com passos devidos (`pbDevidos`).
+  - `rigidFlush()` é uma drenagem **síncrona**, reservada exclusivamente para suítes de teste ou momentos de transição de posse.
+- **Atraso real em passos:**
+  - O atraso da leitura da GPU **não é "1 frame"**: medições instrumentadas na issue #5 revelam atraso variável de **1 a 6 passos de simulação** na mesma cena sob regime pipelined.
+  - A unidade de tempo do motor de física é o **passo** (`step`), e nunca o frame de renderização (que varia com VSync e taxa de atualização).
+- **Limitação de velocidade:**
+  - O espelho da CPU **não possui velocidade**. O procedimento `pbApply()` copia apenas as posições (`pos.xyz`) para os `Transforms` dos `GameObjects`, intencionalmente **não lendo nem sincronizando `vel`** para economizar largura de banda de transferência PCI-e.
+- **Requisito normativo do Lote B:**
+  - O backend GPU deve **carimbar cada leitura assíncrona** com o `stepCount` do kick exato que a produziu (`pbGpuLastReadbackStep`). Sem este carimbo, qualquer resposta de consulta espacial no modo GPU seria temporalmente cega.
 
 ---
 
-## 3. Latência de Raycast e Overlap por Backend
+## 3. Decisão Central: QUEM Executa a Consulta?
 
-A tabela a seguir define formalmente a latência garantida de consultas espaciais:
+O motor adota formalmente o modelo de **Executor Único no Host**:
 
-| Backend | Método de Execução da Consulta | Latência (Frames) | Velocidade Disponível? | Custo / Impacto |
-|---|---|:---:|:---:|---|
-| **CPU (`Scene`)** | Síncrono no grafo de cena / BVH local | **0** | Sim | Custo em CPU proporcional ao número de corpos. |
-| **Rust (`rts:rigid`)** | Síncrono via buffers do host / acelerador nativo | **0** | Sim | Paralelizável em Rayon, sem stall de GPU. |
-| **GPU (Espelho CPU)** | Síncrono na CPU consultando o espelho atrasado | **1** ($N-1$) | **Não** | Imediato na CPU, mas lê a posição do frame anterior. |
-| **GPU (Compute)** | Assíncrono via shader de query na VRAM | **1** ($N+1$) | Sim (na VRAM) | Despachado no frame $N$, resposta disponível via readback no frame $N+1$. |
-| **GPU (Bloqueante)** | Forçar stall de pipeline (`device.poll` síncrono) | **0** | Sim | **PROIBIDO PELO CONTRATO.** Destrói o paralelismo CPU-GPU e causa stutter visível. |
-
-### 3.1 Regras de Latência para o Gameplay
-1. **Consultas de Seleção de UI / Clique do Usuário:**
-   - Podem tolerar latência de 1 frame ($N-1$). O clique do jogador ocorre na escala de dezenas de milissegundos; uma defasagem de 16,6 ms (1 frame a 60 FPS) é imperceptível na seleção visual.
-2. **Consultas de Lógica de Jogo / Balística / Evasão Física:**
-   - Se a cena rodar em modo GPU e exigir resolução de contato com velocidade no frame presente, a consulta **deve declarar a defasagem** ou o decisor deve direcionar o frame para backend capaz de latência 0 (CPU ou Rust).
-3. **Proibição de Bloqueio Síncrono da GPU:**
-   - É terminantemente proibido inserir esperas bloqueantes (`await readBuffer` ou loop de polling síncrono) dentro do frame de renderização para obter raycast com latência 0 da GPU.
+1. **Separação de Papéis:**
+   - Os solvers de simulação (`Scene`, `GatherBackend` em Rust, kernel WGSL na GPU) têm como responsabilidade exclusiva **avançar o estado dos corpos** sob forças e contatos.
+   - `GatherBackend::supports(raycast)` e `supports(overlap)` permanecem respondendo `false`. O solver nativo não deve ser inflado com lógica de consultas pontuais.
+2. **Um Único Executor de Consultas:**
+   - As consultas espaciais são executadas por um **subsistema dedicado no host**, operando sobre o estado autoritativo disponível na CPU (`pos`, `ext`, formas, estáticos).
+   - O acelerador espacial no host utiliza a estrutura de **grid espacial** (a mesma que organiza a broad-phase da `Scene`, e não BVH).
+3. **Consistência e Zero Divergência:**
+   - Como a geometria e os algoritmos de intersecção (raio×esfera, raio×AABB, raio×malha) rodam no mesmo código no host, **não existe divergência algorítmica** entre backends.
+   - O que muda entre os modos é estritamente o carimbo temporal (`stepId`):
+     - Em modo CPU ou Rust: consulta lê o passo corrente (`atraso = 0`).
+     - Em modo GPU: consulta lê o espelho sincronizado (`atraso = currentStep - pbGpuLastReadbackStep`).
+4. **Consultas na VRAM com Gatilho:**
+   - Uma implementação de raycast executada diretamente na VRAM via compute shader fica classificada como **otimização de desempenho com gatilho** (§7.3) para quando houver milhares de raios gerados na própria GPU (ex.: GPU-driven particles ou sensors). Ela **não faz parte do Lote B**.
 
 ---
 
-## 4. Payload de Resposta do Contrato
+## 4. Latência de Consultas por Modo de Simulação
 
-Toda consulta espacial (`raycast`, `overlap`) deve retornar uma estrutura padronizada contendo obrigatoriamente os metadados temporais.
+| Modo Ativo | Onde a Consulta Executa | Atraso da Consulta | `stepId` Reportado | Velocidade no Ponto? | Comportamento sob Carga |
+|---|---|:---:|:---:|:---:|---|
+| **`PB_MODO_CPU`** | Grid do Host (CPU) | **0 passos** | `currentStep` | Sim | Síncrono no mesmo tick de lógica. |
+| **`PB_MODO_RUST`** | Grid do Host (CPU) | **0 passos** | `currentStep` | Sim | Síncrono imediatamente após `rigid.step()`. |
+| **`PB_MODO_GPU`** | Grid do Host (Espelho) | **1 a 6 passos** | `pbGpuLastReadbackStep` | **Não** | Lê o espelho trazido por `rbService`. |
+| **GPU Bloqueante** | `rigidFlush()` no frame | 0 passos | `currentStep` | Sim | **PROIBIDO EM JOGO.** Causa stall de pipeline e stutter severo. |
 
-### 4.1 Definição de Tipos (TypeScript / Rust)
+---
+
+## 5. Payload, Filtros e Interface de Consultas
+
+Toda consulta espacial (`raycast`, `overlap`) retorna uma estrutura estrita contendo metadados de impacto, filtragem e tempo.
+
+### 5.1 Definição de Tipos e Interfaces
 
 ```typescript
 export interface RaycastHit {
   /** Se houve intersecção válida. */
   hit: boolean;
 
-  /** Identificador do corpo rígido ou índice do GameObject atingido (-1 se nenhum). */
+  /**
+   * Identificador estável do corpo/objeto atingido (-1 se nenhum).
+   * Persiste através de ressincronizações completas do mundo.
+   */
   bodyId: number;
 
-  /** Ponto de impacto em coordenadas de mundo (xyz). */
+  /** Ponto de impacto em coordenadas globais (xyz). */
   point: [number, number, number];
 
-  /** Normal da superfície no ponto de impacto, apontando para fora do corpo (xyz normalizado). */
+  /** Normal da superfície no ponto de impacto (xyz normalizado, aponta para fora). */
   normal: [number, number, number];
 
   /** Distância da origem do raio até o ponto de impacto. */
   distance: number;
 
   /**
-   * Identificador monotônico do passo físico (stepId) no qual esta consulta foi calculada.
-   * OBRIGATÓRIO: Permite ao chamador distinguir respostas do frame atual daquelas do espelho atrasado.
+   * Passo exato de física (stepCount) a que correspondem as poses desta resposta.
+   * Modos CPU/Rust: stepId === currentStep.
+   * Modo GPU: stepId === pbGpuLastReadbackStep (defasado em 1 a 6 passos).
    */
   stepId: number;
 }
 
 export interface OverlapHit {
-  /** Se houve sobreposição. */
-  hit: boolean;
-
-  /** Identificador do corpo rígido sobreposto. */
+  /** Identificador estável do corpo rígido sobreposto. */
   bodyId: number;
 
-  /** Profundidade máxima de penetração. */
+  /** Profundidade máxima de penetração ao longo da normal. */
   depth: number;
 
-  /** Vetor normal de separação sugerido (aponta de A para B). */
+  /** Normal de separação (aponta do volume de busca para o corpo atingido). */
   normal: [number, number, number];
 
-  /** Identificador monotônico do passo físico em que o overlap foi avaliado. */
+  /** Passo exato de física da simulação a que este contato corresponde. */
   stepId: number;
+}
+
+export interface SpatialFilter {
+  /** Camada a que o agente da consulta pertence (padrão: 1). */
+  layer?: number;
+
+  /** Máscara de bits dos alvos aceitos (padrão: 0xFFFF_FFFF). */
+  mask?: number;
+
+  /** Se deve atingir volumes marcados como trigger (padrão: false). */
+  includeTriggers?: boolean;
 }
 ```
 
-### 4.2 Por que `stepId` é Obrigatório e Indispensável?
-1. **Descarte de acumulador em `stepsFor`:** O sistema de passo fixo descarta o tempo que excede o orçamento do frame para evitar a espiral da morte (`docs/superpowers/specs/2026-09-20-paralelismo-e-fundacao-design.md`, §6 item 10). Portanto, o tempo decorrido em segundos (`dt`) não é correlacionável de forma determinística com os passos simulados. O contador monotônico de passos (`stepCount()`) é o único relógio válido da física.
-2. **Identificação de respostas atrasadas:** Ao receber um `RaycastHit`, o sistema consumidor verifica:
+### 5.2 Regras de Filtragem (`layer`, `mask`, `triggers`)
+1. **Regra de Máscara:** Um corpo `B` é elegível para a consulta se a máscara da consulta concordar com a camada do alvo:
    ```typescript
-   if (hit.stepId < currentPhysicsStepId) {
-     // A resposta veio do espelho do frame anterior (modo GPU).
-   }
+   (filter.mask & B.layer) !== 0
    ```
-3. **Consistência em Replays e Lockstep:** Gravações de replay e verificações de integridade registram as ações de seleção do jogador indexadas ao `stepId`. Sem esse campo, uma consulta reexecutada em um replay divergirá dependendo do backend em que for executada.
+2. **Triggers:**
+   - Volumes colisionais marcados com a flag `trigger` são ignorados por padrão (`includeTriggers = false`).
+   - Quando `includeTriggers = true`, são reportados com `depth = 0` em overlap ou no ponto de entrada em raycast.
+
+### 5.3 `overlap` Devolve uma Lista Determinística
+- Diferente de `raycast` (que devolve o primeiro impacto ao longo do raio), `overlap` pode atingir $N$ corpos simultaneamente.
+- **Ordem Determinística Obrigatória:** A lista de `OverlapHit` devolvida deve ser **estritamente ordenada por `bodyId` crescente**.
+- Sem essa ordenação, iterações de gameplay (como aplicar dano em área ou selecionar unidades) produziriam ordens de processamento distintas dependendo da organização interna das células do grid, quebrando replays determinísticos.
+
+### 5.4 Identificador Estável (`bodyId`)
+- Os índices de corpos nos arrays de `physics_backend` (`pbMap`, `Scene.gameObjects`) podem ser reordenados ou compactados durante ressincronizações completas (`crInit`, recriação de buffers em mapas com spawn contínuo).
+- O campo `bodyId` reportado deve ser o identificador único estável atribuído ao corpo no momento de sua criação no motor, imutável até sua destruição.
+
+### 5.5 Zero Alocação por Consulta (`NonAlloc`)
+Em jogos em tempo real com centenas de consultas por frame, instanciar novos objetos `{ hit, point, normal }` gera sobrecarga intolerável de Garbage Collection (GC). O motor deve disponibilizar variantes `NonAlloc`:
+
+```typescript
+// Reutiliza objeto outHit pré-alocado pelo chamador (zero alocações no heap)
+function raycastNonAlloc(
+  origin: [number, number, number],
+  direction: [number, number, number],
+  maxDistance: number,
+  outHit: RaycastHit,
+  filter?: SpatialFilter,
+): boolean;
+
+// Preenche o buffer outHits até maxHits e devolve a contagem real de colisões encontradas
+function overlapSphereNonAlloc(
+  center: [number, number, number],
+  radius: number,
+  outHits: OverlapHit[],
+  maxHits: number,
+  filter?: SpatialFilter,
+): number;
+```
 
 ---
 
-## 5. Comportamento Quando o Backend Não Suporta
+## 6. Ciclo de Vida dos Eventos de Contato (Lote B)
 
-Em estrita conformidade com a **Regra 9 do crate** (`rts-physics` README) e as diretrizes do motor:
-> *"Um backend que não sabe recusa pelo nome (`Backend::supports`). Uma recusa explícita é um recurso; uma aproximação em silêncio é um defeito grave."*
+Além de consultas ativas, o Lote B implementa a notificação reativa de contatos (`contactBegin`, `contactPersist`, `contactEnd`, `triggerEnter`, `triggerExit`).
 
-### 5.1 Protocolo de Recusa
-1. **Declaração Formal via `Needs`:**
-   - O campo `needs.raycast = true` ou `needs.overlap = true` é submetido ao backend.
-   - O método `supports(&Needs)` do backend responde `false` se o backend não dispuser de aceleração nativa para a consulta (hoje, tanto o `GatherBackend` do Rust quanto o kernel atual da GPU recusam e respondem `false`).
-2. **Recusa na Fronteira Nativa:**
-   - Se uma chamada de query for dirigida a um backend nativo que não a suporta, o retorno deve ser um erro explícito (`StepOutcome::Unsupported` em Rust, ou retorno com código de erro específico no shim TS), **nunca** um resultado vazio `hit: false` fictício. Um resultado falso faria o jogo acreditar que o caminho está livre quando na verdade a query nem sequer foi executada.
-3. **Tratamento no Decisor (`physics_backend.ts`):**
-   - **Caminho A (Fallback de Simulação):** Se a cena declarar que depende criticamente de consultas suportadas apenas pela CPU (ex.: `scene.needsRaycast = true`), o decisor rebaixa a simulação da cena para `PB_MODO_CPU`, emitindo aviso diagnóstico com a razão explícita.
-   - **Caminho B (Roteamento de Consulta para a CPU com Aviso de Defasagem):** Se a simulação permanecer em GPU/Rust acelerado por razões de performance e uma consulta pontual for solicitada via API de conveniência, a consulta é resolvida pelas estruturas da CPU contra o espelho disponível, marcando obrigatoriamente no resultado `stepId = pbLastStepId` (evidenciando a latência de 1 frame quando a GPU tem a posse).
+1. **Momento da Emissão:**
+   - Os eventos de contato são gerados e despachados **estritamente após a conclusão do passo físico** (`postStep`), após a integração de posições e velocidades.
+   - **Nenhum callback tem permissão para alterar o mundo** (criar corpos, destruir objetos, aplicar forças) durante a execução interna do solver.
+2. **Ordenação Determinística da Fila de Eventos:**
+   - Todos os eventos gerados em um passo são enfileirados e ordenados por:
+     1. `stepId` (passo em que ocorreu o contato);
+     2. Par canônico ordenado `(min(bodyIdA, bodyIdB), max(bodyIdA, bodyIdB))`.
+3. **Determinismo:**
+   - A garantia de ordenação pelo par canônico impede que variações de agendamento de threads no solver alterem a ordem em que os listeners de gameplay recebem os eventos.
 
 ---
 
-## 6. Critérios de Aceite para o Lote B
+## 7. Critérios de Aceite para o Lote B
 
-Este contrato é a base normativa para o **Lote B (Consultas e Eventos)** (§7.2 do documento de design). O Lote B só poderá ser considerado concluído quando:
-1. As interfaces `RaycastHit` e `OverlapHit` incluírem formalmente `stepId`;
-2. Testes automatizados comprovarem que consultas executadas com posse na GPU declaram explicitamente a defasagem temporal (`stepId === currentStep - 1`);
-3. Backends que não implementam aceleração espacial recusarem expressamente requisições diretas via `supports(need)`, sem degradação silenciosa;
-4. Nenhuma consulta síncrona bloqueie a pipeline da GPU.
+O Lote B só será aprovado quando:
+1. O backend GPU carimbar cada readback com o `stepCount` exato que o produziu (`pbGpuLastReadbackStep`);
+2. Consultas em modo GPU reportarem `hit.stepId === pbGpuLastReadbackStep` comprovando o atraso real medido (1 a 6 passos);
+3. Consultas em modos CPU e Rust reportarem `hit.stepId === currentStep`;
+4. `overlap` devolver resultados ordenados deterministicamente por `bodyId`;
+5. Filtros por `layer`, `mask` e `includeTriggers` passarem em testes unitários dedicados;
+6. A API `NonAlloc` demonstrar zero alocações de memória heap sob medição durante loop de 1.000 consultas consecutivas.
