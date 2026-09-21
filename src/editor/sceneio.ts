@@ -5,7 +5,7 @@
 import fs from "../compat/fs.ts";
 
 import { scene, S } from "./control/session";
-import { GameObject } from "../engine/core/gameobject";
+import { GameObject, getNextGameObjectId, setNextGameObjectId } from "../engine/core/gameobject";
 import { Behavior } from "../engine/core/behavior";
 import { Material } from "../engine/core/material";
 import { MeshRenderer } from "../engine/core/meshrenderer";
@@ -111,6 +111,7 @@ export function objectToData(go: GameObject): any {
   }
   const t = go.transform;
   return {
+    id: go.id,
     name: go.name,
     mesh: go.meshKind,
     color: [go.cr, go.cg, go.cb],
@@ -166,6 +167,12 @@ export function saveScene(path: string): number {
 /// Constrói 1 GameObject a partir de um descritor JSON.
 export function buildObject(od: any): GameObject {
   const go = new GameObject(od.name);
+  if (od.id !== undefined) {
+    go.id = od.id;
+    if (od.id >= getNextGameObjectId()) {
+      setNextGameObjectId(od.id + 1);
+    }
+  }
   if (od.parent !== undefined) go.parent = od.parent;
   if (od.stationary !== undefined) go.stationary = od.stationary;
   if (od.layer !== undefined) go.layer = od.layer;

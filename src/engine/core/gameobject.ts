@@ -10,8 +10,22 @@ import { Material } from "./material";
 export const COL_SPHERE = 0;
 export const COL_BOX = 1;
 
+let nextGameObjectId: number = 1;
+
+/// Define o próximo ID a ser atribuído a um GameObject.
+export function setNextGameObjectId(next: number): void {
+  nextGameObjectId = next;
+}
+
+/// Retorna o próximo ID a ser atribuído a um GameObject.
+export function getNextGameObjectId(): number {
+  return nextGameObjectId;
+}
+
 // meshKind: 0 = vazio (só nó), 1 = cubo. (grid/luz/câmera entram depois)
 export class GameObject {
+  /// Identificador estável e monotônico do corpo na cena (Lote B, §5.4).
+  id: number;
   name: string;
   transform: Transform;
   behaviors: Behavior[];
@@ -77,6 +91,8 @@ export class GameObject {
   colIdx: number;
 
   constructor(name: string) {
+    this.id = nextGameObjectId;
+    nextGameObjectId = nextGameObjectId + 1;
     this.name = name;
     this.transform = new Transform();
     this.behaviors = [];
