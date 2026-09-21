@@ -5,6 +5,8 @@ import { UI_C, UI_COMPONENT_PICKER as P, UI_PICKER_KEYS as K } from "./ui_config
 export class ComponentPicker {
   browser: ComponentBrowser = new ComponentBrowser();
   closed: boolean = false;
+  mouseX: number = 0 - 1;
+  mouseY: number = 0 - 1;
 
   begin(app: any): void {
     this.closed = false;
@@ -23,6 +25,9 @@ export class ComponentPicker {
     const visible = Math.max(1, Math.min(P.maxRows, ((bottom - top - chromeH) / P.rowH) | 0));
     const height = chromeH + visible * P.rowH;
     const y = bottom - height;
+    const pointerMoved = mx !== this.mouseX || my !== this.mouseY;
+    this.mouseX = mx;
+    this.mouseY = my;
     const inside = mx >= x && mx < x + width && my >= y && my < bottom;
     if (app.keyPressed(K.escape) !== 0 || (pressed !== 0 && !inside)) {
       this.closed = true;
@@ -38,8 +43,8 @@ export class ComponentPicker {
     const previous = this.browser.query;
     this.browser.query = app.textField(P.searchId, x + P.padding, searchY, width - P.padding * 2, previous, true);
     if (previous !== this.browser.query) this.browser.refresh();
-    if (this.browser.query.length === 0 && !app.isFocused(P.searchId)) {
-      app.text(x + P.padding + P.gap, searchY + P.border, P.searchHint, UI_C.hint, P.smallFont);
+    if (this.browser.query.length === 0) {
+      app.text(x + P.padding + P.gap * 2, searchY + P.border, this.fit(P.searchHint, width - P.padding * 2 - P.gap * 2), UI_C.hint, P.smallFont);
     }
     const crumbY = searchY + P.searchH + P.gap;
     const root = this.browser.isRoot();
@@ -47,7 +52,7 @@ export class ComponentPicker {
     const crumb = searching ? "Resultados (" + this.browser.rows.length + ")" : root ? P.root : "< " + this.browser.category;
     app.text(x + P.padding, crumbY + P.textY, crumb, UI_C.primaryText, P.smallFont);
     if ((!root && app.clickable(P.closeId, x, crumbY, width, P.breadcrumbH) === 3) ||
-        (!root && !app.isFocused(P.searchId) && app.keyPressed(K.left) !== 0)) {
+        (!root && !searching && app.keyPressed(K.left) !== 0)) {
       this.browser.reset();
       app.setFocus(P.searchId);
       return "";
@@ -72,13 +77,13 @@ export class ComponentPicker {
       const index = this.browser.rows[row];
       const rowY = listY + (row - this.browser.scroll) * P.rowH;
       const status = app.clickable(P.rowId + row, x + P.border, rowY, width - P.border * 2, P.rowH);
-      if (status !== 0 || row === this.browser.selected) {
+      if (status !== 0 && (pointerMoved || status === 3)) this.browser.selected = row;
+      if (row === this.browser.selected) {
         app.box(x + P.border, rowY, width - P.border * 2, P.rowH, UI_C.popupHover, 0, 0, 0);
       }
       const label = root ? COMPONENT_CATEGORIES[index] : COMPONENT_CATALOG[index].name;
       app.text(x + P.padding, rowY + P.textY, this.fit(label, width - P.padding * 2 - P.rowH), UI_C.popupText, P.font);
       app.text(x + width - P.padding - P.charW, rowY + P.textY, root ? ">" : "+", UI_C.hint, P.font);
-      if (status !== 0) this.browser.selected = row;
       if (status === 3) {
         const clicked = this.browser.activate();
         app.setFocus(P.searchId);

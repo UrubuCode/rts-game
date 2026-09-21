@@ -52,7 +52,7 @@ import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbS
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
 import { crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
          crSyncStatics, crStep, crX, crY, crZ, crVelX, crVelY, crVelZ,
-         crCount, crThreads } from "../rigid/cpurigid";
+         crCount, crThreads, crAvailable } from "../rigid/cpurigid";
 import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
 import { profBest, profGpuMs, profRustMs, profRange,

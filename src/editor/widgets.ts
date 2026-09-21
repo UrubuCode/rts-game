@@ -7,7 +7,7 @@
 import render from "../compat/render.ts";
 import math from "../compat/math.ts";
 import input from "rts:input";
-import { UI_C } from "./ui_config";
+import { UI_C, UI_NUMERIC as N } from "./ui_config";
 
 // ── cores do tema (Unity dark) ───────────────────────────────────────────────
 export const PANEL = UI_C.panel;
@@ -122,8 +122,11 @@ export function assetField(win: i64, x: number, y: number, w: number, h: number,
 export function numField(win: i64, id: number, x: number, y: number, w: number,
                          lbl: string, tab: number, value: f64,
                          mx: f64, my: f64, mDown: number, mPressed: number): f64 {
-  const overTab = mx >= x && mx < x + 16 && my >= y && my < y + 20;
-  const overVal = mx >= x + 16 && mx < x + w && my >= y && my < y + 20;
+  const tabWidth = lbl.length === 0 ? 0 : N.axisWidth;
+  const valueX = x + tabWidth;
+  const valueWidth = w - tabWidth;
+  const overTab = mx >= x && mx < valueX && my >= y && my < y + N.height;
+  const overVal = mx >= valueX && mx < x + w && my >= y && my < y + N.height;
   let v = value;
 
   // clicar no VALOR → entra em edição de texto (semente = valor atual)
@@ -146,9 +149,11 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
   }
 
   // ── desenho ──
-  render.rect(win, x, y, w, 20, FIELD, 1, BORDER, 3);
-  render.rect(win, x, y, 16, 20, tab, 0, 0, 3);       // aba colorida (scrub)
-  render.text(win, x + 4, y + 3, lbl, UI_C.axisLabelText, 12, 0);
+  render.rect(win, x, y, w, N.height, FIELD, 1, BORDER, 3);
+  if (tabWidth > 0) {
+    render.rect(win, x, y, tabWidth, N.height, tab, 0, 0, 3);
+    render.text(win, x + 4, y + N.textY, lbl, UI_C.axisLabelText, N.font, 0);
+  }
 
   if (nfEditId === id) {
     // modo digitação: acumula texto, backspace (tecla 4), Enter (tecla 1) confirma
@@ -159,9 +164,12 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
       nfEditText = nfSelectAll !== 0 || nfEditText.length === 0 ? "" : subStr(nfEditText, 0, nfEditText.length - 1);
       nfSelectAll = 0;
     }
-    render.rect(win, x + 16, y, w - 16, 20, UI_C.numberEditor, 1, UI_C.numberEditorBorder, 3);
-    if (nfSelectAll !== 0) render.rect(win, x + 19, y + 2, w - 22, 16, UI_C.fieldSelection, 0, 0, 1);
-    render.text(win, x + 22, y + 3, nfEditText + "|", UI_C.white, 12, 0);
+    render.rect(win, valueX, y, valueWidth, N.height, UI_C.numberEditor, 1, UI_C.numberEditorBorder, 3);
+    if (nfSelectAll !== 0) render.rect(win, valueX + N.textY, y + 2, valueWidth - N.padding, N.height - 4, UI_C.fieldSelection, 0, 0, 1);
+    const editChars = math.max(1, ((valueWidth - N.padding * 2) / N.charWidth) | 0);
+    const editingText = nfEditText;
+    render.text(win, valueX + N.padding, y + N.textY,
+      subStr(editingText, math.max(0, editingText.length - editChars), editingText.length) + "|", UI_C.white, N.font, 0);
     if (input.key(win, 2, 1)) { nfCancel(); return value; }
     if (input.key(win, 1, 1)) {
       const parsed = parseFloat(nfEditText);
@@ -171,8 +179,24 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
     }
     return value;   // enquanto digita, mantém o valor até confirmar
   }
-  render.text(win, x + 22, y + 3, "" + r2(v), UI_C.popupText, 12, 0);
+  const valueChars = math.max(1, ((valueWidth - N.padding * 2) / N.charWidth) | 0);
+  let valueText = "" + r2(v);
+  if (valueText.length > valueChars) valueText = subStr(valueText, 0, valueChars - 1) + "…";
+  render.text(win, valueX + N.padding, y + N.textY, valueText, UI_C.popupText, N.font, 0);
   return v;
+}
+
+// Propriedades de componentes: rotulo legivel em uma coluna, valor na outra.
+// Reusa a edicao numerica sem a aba de eixo, que so comporta X/Y/Z.
+export function propertyField(win: i64, id: number, x: number, y: number, w: number,
+                              lbl: string, value: f64, mx: f64, my: f64,
+                              mDown: number, mPressed: number): f64 {
+  const labelWidth = (w * N.labelFraction) | 0;
+  const chars = math.max(1, ((labelWidth - N.labelGap) / N.charWidth) | 0);
+  let labelText = lbl;
+  if (labelText.length > chars) labelText = subStr(labelText, 0, chars - 1) + "…";
+  render.text(win, x, y + N.textY, labelText, TEXT, N.font, 0);
+  return numField(win, id, x + labelWidth, y, w - labelWidth, "", FIELD, value, mx, my, mDown, mPressed);
 }
 
 /// Checkbox. Recebe 0/1, devolve o novo estado (alterna ao clicar).

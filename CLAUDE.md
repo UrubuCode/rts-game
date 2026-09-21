@@ -9,6 +9,8 @@
 - Valores de estado que o usuário pode modificar (largura dos painéis, ferramenta selecionada, filtro) continuam mutáveis no editor; seus padrões e limites ficam na configuração.
 - Constantes de matemática, física e renderização 3D não pertencem ao tema visual; mantenha-as próximas do sistema correspondente, também com nomes quando não forem óbvias.
 - Ao alterar a UI, verifique a compilação e, quando possível, o comportamento visual e de interação na janela do editor.
+- O seletor de componentes usa `src/editor/component_catalog.ts` como fonte única de nomes, categorias, descrições e termos de busca. Novos componentes precisam também de fábrica em `components.ts`; não mantenha listas paralelas no desenho da UI.
+- Widgets de seleção devolvem a escolha; a mutação da cena e o snapshot de Desfazer/Refazer ficam no editor. Cubra busca, categorias, navegação e estado vazio com testes sem janela.
 
 ## Criação de objetos
 

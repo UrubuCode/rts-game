@@ -21,8 +21,9 @@ import { GameObject } from "@engine/core/gameobject";
 import { Scene } from "@engine/core/scene";
 import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
 import { Transform } from "@engine/core/transform";
-import { numField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing, nfCancel } from "@editor/widgets";
-import { COMPONENT_NAMES, createComponent } from "@editor/components";
+import { numField, propertyField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing, nfCancel } from "@editor/widgets";
+import { createComponent } from "@editor/components";
+import { ComponentPicker } from "@editor/component_picker";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
 import { scene, S } from "@editor/control/session";
@@ -65,7 +66,7 @@ import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_
          UI_HIER_HEADER_H, UI_HIER_SEARCH_H, UI_HIER_ROW_H, UI_HIER_INDENT,
          UI_HIER_SCROLL_STEP, UI_HIER_DROP_EDGE, UI_SCROLL_THUMB_MIN_H,
          UI_COMPONENT_ROW_H, UI_COMPONENT_HEADER_STEP, UI_COMPONENT_FIELD_STEP,
-         UI_COMPONENT_POPUP_ROW_H, UI_INSPECTOR_FOOTER_H, UI_INSPECTOR_COMPONENT_TOP,
+         UI_COMPONENT_PICKER, UI_INSPECTOR_FOOTER_H, UI_INSPECTOR_COMPONENT_TOP,
          UI_INSPECTOR_SCROLL_STEP, UI_CONTEXT_W, UI_CONTEXT_ROW_H,
          UI_MENU_W, UI_MENU_ROW_H, UI_MENU_PADDING, UI_MENU_START_X, UI_MENU_GAP,
          UI_SCENE_HEADER_H, UI_TOOL_X, UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H,
@@ -141,8 +142,7 @@ let dragging = 0;
 let gizmoAxis = 0 - 1;   // eixo do gizmo que está sendo arrastado (-1 = nenhum)
 let prevF = 0;           // estado anterior da tecla F (edge-detection do focus)
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
-let addFilter = "";    // texto de busca do dropdown (filtra a lista)
-let addScroll = 0;
+const componentPicker = new ComponentPicker();
 
 // conversão rad↔graus + wrap [0,360) pra rotação no inspector
 const RAD2DEG: f64 = 57.2957795;
@@ -259,7 +259,7 @@ function fmt1(v: f64): string {
 function hierRowAt(sy: f64): number {
   const rel = sy - HIER_LIST_TOP;
   if (rel < 0.0) return 0 - 1;
-  const row = ((rel / 26.0) | 0) + hierScroll;
+  const row = ((rel / UI_HIER_ROW_H) | 0) + hierScroll;
   if (hierFilter.length > 0) {
     if (row >= hierShown.length) return 0 - 1;
     return hierShown[row];
@@ -424,7 +424,7 @@ function frame(): void {
   // ── input de câmera (fly): WASD move, setas olham, espaço sobe ────────────
   const textEditing = app.isFocused(950) || app.isFocused(951) || app.isFocused(952);
   const ctrlHeld = input.modCtrl(WIN);
-  const flyInput = textEditing || ctrlHeld ? 0 : 1;
+  const flyInput = textEditing || ctrlHeld || addMenuOpen !== 0 ? 0 : 1;
   const kW = flyInput !== 0 ? app.keyDown(122) : 0;
   const kS = flyInput !== 0 ? app.keyDown(118) : 0;
   const kA = flyInput !== 0 ? app.keyDown(100) : 0;
@@ -1181,6 +1181,7 @@ function frame(): void {
     inspectorScroll = 0;
     inspectorSelection = S.selected;
     addMenuOpen = 0;
+    if (app.isFocused(UI_COMPONENT_PICKER.searchId)) app.setFocus(0 - 1);
     nfCancel();
   }
   if (S.selected < 0 || S.selected >= scene.objects.length) {
@@ -1194,7 +1195,7 @@ function frame(): void {
   // faixa do nome do objeto
   app.box(ix + 6, BAR_H + 30, INSP_W - 12, 22, UI_C.controlIdle, 0, 0, 3);
   // nome EDITÁVEL (clicar pra digitar) — estilo campo de nome do Inspector Unity
-  sel.name = app.textField(951, ix + 14, BAR_H + 28, INSP_W - 28, sel.name, menuOpen === 0 && helpOpen === 0);
+  sel.name = app.textField(951, ix + 14, BAR_H + 28, INSP_W - 28, sel.name, addMenuOpen === 0 && menuOpen === 0 && helpOpen === 0);
   // pai + desaninhar
   if (sel.parent >= 0 && sel.parent < scene.objects.length) {
     app.text(ix + 14, BAR_H + 62, "Pai: " + scene.objects[sel.parent].name, UI_C.parentText, 12);
@@ -1296,7 +1297,7 @@ function frame(): void {
       while (fi < nf) {
         const id = 600 + bc * 20 + fi;
         if (cyc >= compTop && cyc + 20 <= compBottom) {
-          const nv = numField(WIN, id, ix + 24, cyc, INSP_W - 52, sel.behaviors[bc].fieldLabel(fi), UI_C.componentEnabled,
+          const nv = propertyField(WIN, id, ix + 24, cyc, INSP_W - 52, sel.behaviors[bc].fieldLabel(fi),
             sel.behaviors[bc].fieldGet(fi), mx, my, addMenuOpen === 0 ? mDownNow : 0, addMenuOpen === 0 ? mPressed : 0);
           sel.behaviors[bc].fieldSet(fi, nv);
         }
@@ -1312,7 +1313,7 @@ function frame(): void {
     cyc = cyc + UI_COMPONENT_ROW_H;
   }
   // remove após o loop (não mexe no array durante a iteração)
-  if (removeIdx >= 0) sel.removeBehavior(removeIdx);
+  if (removeIdx >= 0) { history.snapshot(); sel.removeBehavior(removeIdx); scene.markCollidersDirty(); }
 
   // ── ADD COMPONENT: botão que abre um DROPDOWN com CAMPO DE BUSCA + lista ─────
   let maxInspectorScroll = cyc + inspectorScroll + 8 - compBottom;
@@ -1322,7 +1323,7 @@ function frame(): void {
     const trackH = compBottom - compTop;
     let thumbH = (trackH * trackH / (trackH + maxInspectorScroll)) | 0;
     if (thumbH < UI_SCROLL_THUMB_MIN_H) thumbH = UI_SCROLL_THUMB_MIN_H;
-    if (mPressed !== 0 && mx >= W - 13 && mx < W && my >= compTop && my < compBottom) inspectorBarDrag = 1;
+    if (addMenuOpen === 0 && mPressed !== 0 && mx >= W - 13 && mx < W && my >= compTop && my < compBottom) inspectorBarDrag = 1;
     if (mDownNow === 0) inspectorBarDrag = 0;
     if (inspectorBarDrag !== 0) {
       const span = trackH - thumbH;
@@ -1337,57 +1338,36 @@ function frame(): void {
   }
   app.box(ix, H - UI_INSPECTOR_FOOTER_H, INSP_W, UI_INSPECTOR_FOOTER_H, UI_C.panelHeader, 0, 0, 0);
   app.line(ix, H - UI_INSPECTOR_FOOTER_H, W, H - UI_INSPECTOR_FOOTER_H, 1, UI_C.border);
-  const bAddC = app.button(ix + 14, H - 34, INSP_W - 28, 24, "+ Adicionar componente");
+  const addButtonY = H - UI_INSPECTOR_FOOTER_H + (UI_INSPECTOR_FOOTER_H - UI_COMPONENT_PICKER.buttonH) / 2;
+  const bAddC = app.button(ix + UI_COMPONENT_PICKER.margin, addButtonY,
+    INSP_W - UI_COMPONENT_PICKER.margin * 2, UI_COMPONENT_PICKER.buttonH, "+ " + UI_COMPONENT_PICKER.title);
   if (bAddC) {
-    if (addMenuOpen === 0) { addMenuOpen = 1; addFilter = ""; addScroll = 0; app.setFocus(950); }
+    if (addMenuOpen === 0) { addMenuOpen = 1; componentPicker.begin(app); nfCancel(); }
     else { addMenuOpen = 0; app.setFocus(0 - 1); }
   }
   if (addMenuOpen !== 0) {
-    let popupRows = ((H - BAR_H - 110) / UI_COMPONENT_POPUP_ROW_H) | 0;
-    if (popupRows > COMPONENT_NAMES.length) popupRows = COMPONENT_NAMES.length;
-    if (popupRows < 3) popupRows = 3;
-    const popupY = H - UI_INSPECTOR_FOOTER_H - 2 - (popupRows * UI_COMPONENT_POPUP_ROW_H + 34);
-    // campo de busca (digitar filtra a lista); Backspace (tecla 4) apaga
-    const oldAddFilter = addFilter;
-    addFilter = app.textField(950, ix + 14, popupY, INSP_W - 28, addFilter, menuOpen === 0 && helpOpen === 0);
-    if (addFilter !== oldAddFilter) addScroll = 0;
-    const listY = popupY + 28;
-    // lista filtrada
-    app.box(ix + 14, listY, INSP_W - 28, popupRows * UI_COMPONENT_POPUP_ROW_H + 4, UI_C.popupDark, 1, UI_C.popupDarkBorder, 4);
-    let matches = 0;
-    let mi = 0;
-    while (mi < COMPONENT_NAMES.length) {
-      if (containsCI(COMPONENT_NAMES[mi], addFilter)) matches = matches + 1;
-      mi = mi + 1;
-    }
-    let maxAddScroll = matches - popupRows;
-    if (maxAddScroll < 0) maxAddScroll = 0;
-    if (mx > ix && my >= listY && my < listY + popupRows * UI_COMPONENT_POPUP_ROW_H) {
-      const wheel: f64 = input.wheel(WIN);
-      if (wheel > 0.5) addScroll = addScroll - 1;
-      else if (wheel < 0.0 - 0.5) addScroll = addScroll + 1;
-    }
-    if (addScroll > maxAddScroll) addScroll = maxAddScroll;
-    if (addScroll < 0) addScroll = 0;
-    let ci = 0;
-    let shown = 0;
-    while (ci < COMPONENT_NAMES.length) {
-      const nm = COMPONENT_NAMES[ci];
-      if (containsCI(nm, addFilter)) {
-        if (shown >= addScroll && shown < addScroll + popupRows) {
-          const rowy = listY + 2 + (shown - addScroll) * UI_COMPONENT_POPUP_ROW_H;
-          const over = mx >= ix + 16 && mx < ix + INSP_W - 14 && my >= rowy && my < rowy + 23;
-          if (over) app.box(ix + 16, rowy, INSP_W - 32, 23, UI_C.popupHover, 0, 0, 3);
-          app.text(ix + 24, rowy + 4, nm, UI_C.popupText, 13);
-          if (over && mPressed !== 0) { sel.addBehavior(createComponent(nm)); addMenuOpen = 0; app.setFocus(0 - 1); }
-        }
-        shown = shown + 1;
+    if (menuOpen !== 0 || helpOpen !== 0) { addMenuOpen = 0; app.setFocus(0 - 1); }
+    else {
+      const chosen = componentPicker.draw(app, ix + UI_COMPONENT_PICKER.margin,
+        H - UI_INSPECTOR_FOOTER_H - UI_COMPONENT_PICKER.gap, INSP_W - UI_COMPONENT_PICKER.margin * 2,
+        BAR_H + UI_HIER_HEADER_H, mx, my,
+        bAddC || (mx >= ix && my >= H - UI_INSPECTOR_FOOTER_H) ? 0 : mPressed, input.wheel(WIN));
+      if (chosen.length > 0) {
+        history.snapshot();
+        const component = createComponent(chosen);
+        sel.addBehavior(component);
+        component.mount();
+        // Igual ao fluxo de adicionar fisica pelo controle do editor: um
+        // integrador novo nao pode ficar preso na lista de objetos estaticos.
+        if (component.bodyIntegrates() !== 0) { sel.stationary = 0; sel.refreshCollide(); }
+        scene.markCollidersDirty();
+        // Mostra os campos do novo componente, mesmo se a lista ja estiver longa.
+        const added = sel.behaviors[sel.behaviors.length - 1];
+        inspectorScroll = Math.max(0, cyc + inspectorScroll + UI_COMPONENT_HEADER_STEP +
+          added.fieldCount() * UI_COMPONENT_FIELD_STEP + UI_COMPONENT_PICKER.padding - compBottom);
       }
-      ci = ci + 1;
+      if (chosen.length > 0 || componentPicker.closed) { addMenuOpen = 0; app.setFocus(0 - 1); }
     }
-    if (shown === 0) app.text(ix + 24, listY + 6, "(nenhum)", UI_C.disabledText, 12);
-    if (maxAddScroll > 0) app.text(ix + INSP_W - 44, popupY + 5, (addScroll + 1) + "/" + (maxAddScroll + 1), UI_C.hint, 11);
-    if (app.keyPressed(2) !== 0) { addMenuOpen = 0; app.setFocus(0 - 1); }
   }
 
   }
