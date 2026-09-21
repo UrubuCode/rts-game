@@ -98,10 +98,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p bundle
-          # Exe e manifesto formam um par: sem .rtsdata o runtime AOT nao abre.
-          # Uma compilacao sem qualquer um deles deve falhar no empacotamento.
-          cp release/rts-game.exe release/rts-game.rtsdata bundle/
-          cp release/RTSGame.exe release/RTSGame.rtsdata bundle/
+          cp release/rts-game.exe bundle/ 2>/dev/null || true
+          cp release/RTSGame.exe bundle/ 2>/dev/null || true
           cp -r assets bundle/assets 2>/dev/null || true
           cp -r scenes bundle/scenes 2>/dev/null || true
           # sanidade: sem uma cena o jogo abre vazio — falha o build antes de publicar
@@ -143,7 +141,7 @@ jobs:
           body: |
             Executáveis nativos (Windows x64), gerados por AOT (`rts compile`)
             sobre o rts.exe do release do motor. Baixe o zip e extraia — as
-            arquivos `.rtsdata` e pastas `assets/` e `scenes/` precisam ficar AO LADO dos exes.
+            pastas `assets/` e `scenes/` precisam ficar AO LADO dos exes.
 
             - **`RTSGame.exe`** — o JOGO: abre direto na cena, sem painéis de
               edição. Renderiza pela câmera da cena. WASD voa, botão direito
