@@ -8,6 +8,7 @@ import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL,
          centerLocalX, centerLocalY, centerLocalZ, triggerOf } from "./collider";
 import { Hull, Contact, hullContactLocal } from "./hullpack";
 import { hullAt } from "./hullreg";
+import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 import math from "@compat/math.ts";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
@@ -772,6 +773,7 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   const a: GameObject = objs[ia];
   const b: GameObject = objs[ib];
   if (a.stationary !== 0 && b.stationary !== 0) return;   // nada a mover
+  if (((a.mask & b.layer) === 0) || ((b.mask & a.layer) === 0)) return; // filtro layer/mask
   const ta: Transform = trs[ia];
   const tb: Transform = trs[ib];
 
@@ -982,8 +984,10 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   // Massa 0 = INFINITA (inverso 0), que é o chão e a parede. Com os dois
   // inversos em zero ninguém se move, que é o par estático × estático já
   // descartado acima.
-  const iA: f64 = a.stationary !== 0 || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
-  const iB: f64 = b.stationary !== 0 || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
+  const kinA = csTipo[ia] === BODY_KINEMATIC;
+  const kinB = csTipo[ib] === BODY_KINEMATIC;
+  const iA: f64 = a.stationary !== 0 || kinA || ta.mass <= 0.0 ? 0.0 : 1.0 / ta.mass;
+  const iB: f64 = b.stationary !== 0 || kinB || tb.mass <= 0.0 ? 0.0 : 1.0 / tb.mass;
   const iSum: f64 = iA + iB;
   if (iSum <= 0.0) return;
   const pushA: f64 = corr * (iA / iSum);
@@ -1043,8 +1047,13 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
       // no impulso clássico. O `j` ainda é calculado: é o teto do atrito.
       const resting = (vn > 0.0 - 1.0 && (ny > 0.5 || ny < 0.0 - 0.5)) ? 1 : 0;
       if (resting !== 0) {
-        if (ny > 0.5) tb.vy = ta.vy;        // b está em cima de a
-        else ta.vy = tb.vy;                 // a está em cima de b
+        if (ny > 0.5) {
+          tb.vy = ta.vy;        // b está em cima de a
+          if (kinA) { tb.vx = ta.vx; tb.vz = ta.vz; } // se a é cinemático, carrega b
+        } else {
+          ta.vy = tb.vy;        // a está em cima de b
+          if (kinB) { ta.vx = tb.vx; ta.vz = tb.vz; } // se b é cinemático, carrega a
+        }
       } else {
         ta.vx = ta.vx - nx * j * imA;
         ta.vy = ta.vy - ny * j * imA;
@@ -1168,10 +1177,16 @@ function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]):
   // extra: esperado ~12, veio 2"), que é exatamente o caso que a passada de
   // zerar existia para tornar distinguível.
   //
-  // Medido: `computeWorld` custa 14,20 ms a 8000 objetos numa cena onde NADA se
-  // move, e metade disso é a VISITA. Uma passada O(n) cujo único trabalho é
-  // preparar outra passada O(n) é a parte da visita que sai sem nenhuma decisão
-  // de política — 14,20 para 12,98 ms, medido.
+  // Medido 2026-09-20 (release): `computeWorld` custa 0,57 ms a 8000 objetos
+  // numa cena onde NADA se move, e 0,81 ms com tudo movendo. O carimbo de frame
+  // é parte de como chegou aqui.
+  //
+  // ESTE COMENTÁRIO DIZIA 14,20 ms, e era verdade quando foi escrito. As
+  // otimizações que vieram depois — função livre tipada, espelho `trs`, o
+  // carimbo, o fast path de raiz — o derrubaram ~17x e o texto não acompanhou.
+  // Uma análise inteira de arquitetura foi construída em cima do número velho
+  // antes de uma medição o desmentir. Se você mudar o custo aqui, mude o
+  // número na mesma passada.
   cwSelo = cwSelo + 1;
   const selo = cwSelo;
 
@@ -1247,13 +1262,25 @@ function updateAll(objs: GameObject[], dt: f64): void {
     if (o.active !== 0) {
       const bs: Behavior[] = o.behaviors;
       const nb = bs.length;
-      // a maioria dos objetos de cena não tem script: sai antes de tudo
+      let hasIntegrator = 0;
       if (nb !== 0) {
         let j = 0;
         while (j < nb) {
           const b: Behavior = bs[j];
-          if (b.enabled !== 0) b.update(dt);
+          if (b.enabled !== 0) {
+            b.update(dt);
+            if (b.bodyIntegrates() !== 0) hasIntegrator = 1;
+          }
           j = j + 1;
+        }
+      }
+      if (hasIntegrator === 0) {
+        const t = o.transform;
+        const isKinematic = bodyTypeOf(o) === BODY_KINEMATIC;
+        if (isKinematic) {
+          t.px = t.px + t.vx * dt;
+          t.py = t.py + t.vy * dt;
+          t.pz = t.pz + t.vz * dt;
         }
       }
     }
@@ -1311,6 +1338,7 @@ const csOff: number[] = [];
 /// 1 = detecta e não empurra. Resolvido na varredura, como a forma, pelo mesmo
 /// motivo: perguntar ao component por par é O(pares) contra O(n).
 const csTrigger: number[] = [];
+const csTipo: number[] = [];
 
 function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
                           outStatic: number[], outBig: number[]): void {
@@ -1325,6 +1353,7 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
     csHX.push(0.5); csHY.push(0.5); csHZ.push(0.5);
     csCX.push(0.0); csCY.push(0.0); csCZ.push(0.0);
     csOff.push(0); csTrigger.push(0);
+    csTipo.push(BODY_DYNAMIC);
   }
   let maxR: f64 = 0.0001;
   let i = 0;
@@ -1343,6 +1372,7 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
       csCX[i] = cx; csCY[i] = cy; csCZ[i] = cz;
       csOff[i] = (cx !== 0.0 || cy !== 0.0 || cz !== 0.0) ? 1 : 0;
       csTrigger[i] = triggerOf(o);
+      csTipo[i] = bodyTypeOf(o);
       // ESTÁTICO sai do grid, para a lista direta (ver `sIdx`): um chão de 90
       // de largura dimensionava a célula em 180 e punha a cena inteira num
       // único bucket — colisão O(n²), fortaleza de 392 blocos a ~6 fps.

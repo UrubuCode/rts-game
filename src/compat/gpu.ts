@@ -21,6 +21,7 @@ import {
   available, shader, buffer, write, writeAt, bindBuffer,
   dispatch, read, readBegin, readPoll, bufferFree, adapterName,
 } from "rts:gpu";
+import * as rtsGpu from "rts:gpu";
 
 export default {
   available(): number { return available() ? 1 : 0; },
@@ -78,4 +79,8 @@ export default {
   // ter duas origens para a mesma coisa.
   bufferFree(buf: number): void { bufferFree(buf); },
   adapterName(): string { return adapterName(); },
+  maxStorageBuffers(): number {
+    const fn = (rtsGpu as any).maxStorageBuffers;
+    return typeof fn === "function" ? fn() : 4;
+  },
 };

@@ -13,8 +13,13 @@
 // descrição de corpo e a paridade tem chance de significar algo.
 
 import { step, threads } from "rts:rigid";
+import * as rtsRigid from "rts:rigid";
 
 export default {
   step,
   threads,
+  overflows(): number {
+    const fn = (rtsRigid as any).overflows;
+    return typeof fn === "function" ? fn() : 0;
+  },
 };

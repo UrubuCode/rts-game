@@ -55,6 +55,7 @@
 import { Behavior, KIND_COLLIDER } from "./behavior";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
+import math from "@compat/math.ts";
 
 /// As formas. Os dois primeiros valores são os mesmos de `GameObject.colShape`
 /// DE PROPÓSITO — `COL_SPHERE = 0` e `COL_BOX = 1` lá também — para que o
@@ -251,6 +252,38 @@ export function centerLocalY(o: GameObject): f64 {
 }
 export function centerLocalZ(o: GameObject): f64 {
   const c = colDe(o); return c !== null ? c.cCenterZ() : 0.0;
+}
+
+/// O CENTRO de mundo do colisor, somando o centro local escalado e rotacionado
+/// pelo yaw de mundo `t.wry`. Sem component (ou com centro zero), devolve `t.wx/wy/wz`.
+export function centerWorldX(o: GameObject, t: Transform): f64 {
+  const c = colDe(o);
+  if (c === null) return t.wx;
+  const cx = c.cCenterX(); const cz = c.cCenterZ();
+  if (cx === 0.0 && cz === 0.0) return t.wx;
+  const ox = cx * t.sx; const oz = cz * t.sz;
+  if (t.wry === 0.0) return t.wx + ox;
+  const cs = math.cos(t.wry); const sn = math.sin(t.wry);
+  return t.wx + (ox * cs + oz * sn);
+}
+
+export function centerWorldY(o: GameObject, t: Transform): f64 {
+  const c = colDe(o);
+  if (c === null) return t.wy;
+  const cy = c.cCenterY();
+  if (cy === 0.0) return t.wy;
+  return t.wy + cy * t.sy;
+}
+
+export function centerWorldZ(o: GameObject, t: Transform): f64 {
+  const c = colDe(o);
+  if (c === null) return t.wz;
+  const cx = c.cCenterX(); const cz = c.cCenterZ();
+  if (cx === 0.0 && cz === 0.0) return t.wz;
+  const ox = cx * t.sx; const oz = cz * t.sz;
+  if (t.wry === 0.0) return t.wz + oz;
+  const cs = math.cos(t.wry); const sn = math.sin(t.wry);
+  return t.wz + (0.0 - ox * sn + oz * cs);
 }
 
 /// 1 = detecta contato e não empurra ninguém (o `isTrigger` da Unity).

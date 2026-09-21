@@ -20,57 +20,22 @@
 // faixa e errado fora dela — por isso `rigidBackend` compara os dois custos em
 // cada n em vez de comparar n com um limiar.
 //
-// ── MEDIDA QUE ORIGINOU ESTE ARQUIVO (release, headless, sem render) ────────
+// ── MEDIÇÃO DE REFERÊNCIA (500 corpos em movimento, release 2026-09-20) ─────
 //
-//   500 objetos em movimento = 14,05 ms/frame de física (orçamento 60fps: 16,7)
-//   resolveCollisions 9,55 ms (68%) | update 2,95 | computeWorld 1,55
+//   solver TS 0,24 ms esparso / 6,97 ms denso; backend Rust 16t 0,08 ms denso.
+//   O número antigo desta linha (14,05 ms/frame) é de antes do backend nativo.
 //
-// `rigidReport()` imprime o custo MODELADO ao lado desse número real: um modelo
-// que não bate com a única medição que temos é um modelo a corrigir, e deixá-lo
-// visível é mais barato que descobrir depois que a decisão vinha de ficção.
+// ── O QUE ESTE ARQUIVO FAZ ─────────────────────────────────────────────────
 //
-// ── O QUE ESTE ARQUIVO NÃO FAZ ─────────────────────────────────────────────
+// Escolhe o backend pelo perfil MEDIDO (`backend_profile.ts`). `rigidMode()`
+// nasce em AUTO (3) e consulta a tabela de medições reais de 2026-09-20.
 //
-// Não escolhe o backend por medida. `rigidMode()` nasce em GPU e a queda para a
-// CPU é automática só quando a GPU não LIGA — nunca por custo. `rigidBackendFor`
-// e a faixa calibrada existem e são diagnóstico, não decisão, pela razão do
-// débito registrado abaixo.
+// ── O DÉBITO DA SONDA FOI RESOLVIDO EM 2026-09-20 ──────────────────────────
 //
-// ── UM PARÁGRAFO QUE ESTAVA AQUI E ERA FALSO ───────────────────────────────
-//
-// Ele dizia: "Não liga a GPU por padrão... porque o sleeping do kernel está
-// quebrado neste momento (`test_gpurigid.ts`: 'TUDO dormiu' e 'os escombros
-// re-DORMEM' falham)". As duas metades morreram por caminhos diferentes, e
-// nenhuma delas morreu por alguém editar este texto:
-//
-//   o padrão   `pbModo = 1` desde 2026-08-10 — decisão tomada, "default gpu e
-//              fallback cpu", e o `rigidSetMode` logo abaixo já documentava isso
-//              enquanto este parágrafo dizia o contrário;
-//   o sleeping `test_gpurigid.ts` passa 7 de 7, incluindo os dois casos nomeados.
-//
-// Fica escrito em vez de apagado porque o dano de uma justificativa obsoleta é
-// específico: ela não parece obsoleta. Alguém que lesse "a GPU não é padrão
-// porque o sleeping está quebrado" concluiria que há um bug aberto no kernel e
-// planejaria em cima disso — o texto continua coerente consigo mesmo muito
-// depois de deixar de descrever o programa. Foi o autor do terceiro backend que
-// o encontrou, lendo o arquivo para escrever nele.
-//
-// ── DÉBITO ABERTO: o modelo de custo mede a sonda, não o kernel ─────────────
-//
-// `rigidGpuCostMs` modela n², e o kernel NÃO é n² — ele tem grid de 8192 células
-// com 32 vagas (`gpurigid.ts:70-71`), a mesma vizinhança de 27 células que a CPU
-// e o backend Rust varrem. O que é n² de verdade é a SONDA de `rigidCalibrate`,
-// cujo WGSL varre todos os j; o modelo então compara uma sonda n² com um kernel
-// que tem grid.
-//
-// O próprio `rigidReport` já denuncia isso sem saber, e a linha está impressa
-// hoje: "AVISO: coeficiente n2 da GPU mediu 0 — o topo da faixa NAO e
-// confiavel". O coeficiente mede zero porque o termo não existe no que está
-// sendo medido.
-//
-// NÃO corrigido aqui de propósito: mexer nisso muda QUAL BACKEND RODA numa cena
-// grande, então é rodada própria com medida antes e depois — não conserto de
-// passagem dentro de uma mudança sobre outra coisa.
+// O modelo de custo anterior media uma sonda n² e comparava com o kernel de
+// grid. O coeficiente n² media zero por ruído e o joelho oscilava ±40%.
+// A sonda foi removida e substituída pela tabela de medições reais
+// (`backend_profile.ts`), que interpola na faixa medida e recusa fora dela.
 // ═══════════════════════════════════════════════════════════════════════════
 import gpu from "@compat/gpu.ts";
 import io from "@compat/io.ts";
@@ -78,276 +43,118 @@ import io from "@compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL } from "./collider";
-import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbSetDt, rbSetMaterial,
-         rbUpload, rbSyncStatics,
+import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocalY, centerLocalZ } from "./collider";
+import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
+         rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
-         rbCount } from "../rigid/gpurigid";
+         rbCount, rbKick } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
-import { crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
-         crSyncStatics, crStep, crX, crY, crZ, crVelX, crVelY, crVelZ,
+import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
+         crSyncStatics, crStep, crGridOverflow, crX, crY, crZ, crVelX, crVelY, crVelZ,
          crCount, crThreads } from "../rigid/cpurigid";
 import { FIXED_DT } from "./fixedstep";
 import { Behavior } from "./behavior";
+import { profBest, profGpuMs, profRustMs, profRange,
+         PROF_GPU, PROF_RUST, PROF_DESCONHECIDO } from "./backend_profile";
+import { bodyTypeOf, BODY_DYNAMIC, BODY_KINEMATIC } from "../rigid/materials";
 
-// ── calibração ─────────────────────────────────────────────────────────────
+/// Constantes nomeadas de modo de backend.
+export const PB_MODO_CPU = 0;
+export const PB_MODO_GPU = 1;
+export const PB_MODO_RUST = 2;
+export const PB_MODO_AUTO = 3;
 
-let pbCpuPerPair: f64 = 0.0;    // ms por teste de par no caminho CPU
-let pbGpuPerN2: f64 = 0.0;      // ms por (n²/1e6) no kernel gather
-let pbGpuOverhead: f64 = 0.0;   // ms fixos de submit+read (round-trip)
-let pbCalibrado = 0;
-let pbTemGpu = 0;
+export const PB_HIST_ESTAVEL = 0;
+export const PB_HIST_SUBINDO = 1;
+export const PB_HIST_DESCENDO = 2;
 
-/// Vizinhos que o grid entrega por corpo. NÃO é medido: é o que a broad-phase
-/// da `Scene` deixa passar para a narrow-phase, e depende da densidade da cena,
-/// não da máquina. 12 é o que uma pilha 3D razoavelmente compacta produz (9
-/// células no plano XZ com 1-2 corpos cada). Está aqui como constante nomeada
-/// justamente para ser o primeiro número a questionar quando o modelo divergir
-/// da medida que `rigidReport` imprime ao lado.
-const PB_VIZINHOS: f64 = 12.0;
-/// A `Scene` roda DUAS passadas de resolução (a segunda redistribui a pilha).
-const PB_PASSES: f64 = 2.0;
 /// Sub-passos que o backend GPU submete por frame.
 export const PB_SUBSTEPS = 2;
 
-/// Laço representativo da matemática de UM par box-box do solver: penetração
-/// nos três eixos, escolha do eixo de menor penetração, correção posicional.
-/// Função livre com parâmetros anotados — o mesmo regime do código real, pelo
-/// motivo que `scene.ts` documenta em `computeWorldInto`.
-function pbSondaCpu(px: f64[], py: f64[], pz: f64[], n: number): f64 {
-  let acc: f64 = 0.0;
-  let i = 0;
-  while (i < n) {
-    const ax = px[i]; const ay = py[i]; const az = pz[i];
-    let j = 0;
-    while (j < n) {
-      const dx = 1.3 - (ax - px[j] < 0.0 ? px[j] - ax : ax - px[j]);
-      const dy = 1.3 - (ay - py[j] < 0.0 ? py[j] - ay : ay - py[j]);
-      const dz = 1.3 - (az - pz[j] < 0.0 ? pz[j] - az : az - pz[j]);
-      if (dx > 0.0 && dy > 0.0 && dz > 0.0) {
-        if (dy <= dx && dy <= dz) acc = acc + dy * 0.85;
-        else if (dx <= dz) acc = acc + dx * 0.85;
-        else acc = acc + dz * 0.85;
-      }
-      j = j + 1;
-    }
-    i = i + 1;
-  }
-  return acc;
-}
+/// 0 = não perguntado, 1 = há placa, 2 = não há.
+let pbGpuVisto = 0;
 
-/// Mede os coeficientes UMA vez. Idempotente; ~100 ms na primeira chamada.
-export function rigidCalibrate(): void {
-  if (pbCalibrado !== 0) return;
-  pbCalibrado = 1;
-  pbTemGpu = gpu.available();
-
-  // ── CPU: n=512 → 262k pares; média de 3 rodadas ──────────────────────────
-  const CN = 512;
-  const px: f64[] = [];
-  const py: f64[] = [];
-  const pz: f64[] = [];
-  let s = 77;
-  let i = 0;
-  while (i < CN) {
-    s = (s * 1103515245 + 12345) & 0x7FFFFFFF;
-    px.push((s % 1000) * 0.01);
-    s = (s * 1103515245 + 12345) & 0x7FFFFFFF;
-    py.push((s % 1000) * 0.01);
-    s = (s * 1103515245 + 12345) & 0x7FFFFFFF;
-    pz.push((s % 1000) * 0.01);
-    i = i + 1;
-  }
-  pbSondaCpu(px, py, pz, CN);                  // aquecimento (JIT/cache)
-  const t0 = performance.now();
-  let r = 0;
-  while (r < 3) { pbSondaCpu(px, py, pz, CN); r = r + 1; }
-  const cpuMs = (performance.now() - t0) / 3.0;
-  pbCpuPerPair = cpuMs / (CN * 1.0 * CN);
-
-  if (pbTemGpu === 0) return;
-
-  // ── GPU: o kernel-sonda tem a MESMA forma do gather de `gpurigid` (cada
-  //    thread varre todos os corpos), porque medir um kernel diferente daquele
-  //    que vai rodar é medir outra coisa. Overhead = rodada de 64 threads.
-  const pipe = gpu.shader(`
-@group(0) @binding(0) var<storage, read_write> d: array<vec4<f32>>;
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let n = arrayLength(&d);
-  if (id.x >= n) { return; }
-  let p = d[id.x].xyz;
-  var c: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
-  for (var j: u32 = 0u; j < n; j = j + 1u) {
-    let e = vec3<f32>(1.3, 1.3, 1.3) - abs(p - d[j].xyz);
-    if (e.x > 0.0 && e.y > 0.0 && e.z > 0.0) { c = c + e * 0.3; }
-  }
-  d[id.x] = vec4<f32>(p + c * 0.001, 0.0);
-}
-`);
-  if (pipe === 0) { pbTemGpu = 0; return; }
-  const GN = 2048;
-  const espelho = new Float32Array(GN * 4);
-  i = 0;
-  while (i < GN * 4) { espelho[i] = (i % 97) * 0.1; i = i + 1; }
-  const g = gpu.buffer(GN * 16);
-  gpu.write(g, espelho);
-  gpu.bind_buffer(pipe, 0, g);
-  const mini = new Float32Array(64 * 4);
-  gpu.dispatch(pipe, 1, 1, 1);
-  gpu.read(g, mini);                           // aquecimento
-  let t1 = performance.now();
-  r = 0;
-  while (r < 5) { gpu.dispatch(pipe, 1, 1, 1); gpu.read(g, mini); r = r + 1; }
-  pbGpuOverhead = (performance.now() - t1) / 5.0;
-  t1 = performance.now();
-  r = 0;
-  while (r < 5) { gpu.dispatch(pipe, GN / 64, 1, 1); gpu.read(g, espelho); r = r + 1; }
-  const cheio = (performance.now() - t1) / 5.0;
-  let porN2 = (cheio - pbGpuOverhead) / ((GN * 1.0 * GN) / 1000000.0);
-  if (porN2 < 0.0) porN2 = 0.0;
-  pbGpuPerN2 = porN2;
-  gpu.bufferFree(g);
-}
-
-/// Custo de FRAME estimado no caminho CPU para `n` corpos dinâmicos: grid
-/// espacial, logo ~n × vizinhos × passes, e NÃO n².
-export function rigidCpuCostMs(n: number): f64 {
-  rigidCalibrate();
-  return n * PB_VIZINHOS * PB_PASSES * pbCpuPerPair;
-}
-
-/// Custo de FRAME estimado no backend GPU: um round-trip mais um termo n².
+/// Há GPU utilizável? Perguntado uma vez, e FORA de qualquer calibração.
 ///
-/// # O TERMO n² É PISTA FALSA. Não comece por ele.
-///
-/// Está escrito aqui porque é aqui que a próxima pessoa vem procurar, e nós
-/// gastamos uma campanha inteira para descobrir que não é isto.
-///
-/// O termo é errado por descrição: o kernel de `gpurigid.ts` NÃO é O(n²) desde a
-/// campanha do grid — ele tem 8192 células de 32 vagas e varre 27 vizinhas
-/// (`gpurigid.ts:70-71`), a mesma vizinhança que a CPU e o backend Rust. Quem é
-/// n² de verdade é a SONDA de `rigidCalibrate`, cujo WGSL varre todos os j.
-///
-/// E o coeficiente não é pequeno: ele é RUÍDO. Quatro rodadas seguidas da mesma
-/// sonda, na mesma máquina, mediram `0.0104`, `0`, `0.0498`, `0` — 2048 corpos
-/// custam menos que a variação do próprio round-trip, então o que sobra da
-/// subtração é o erro dela. O custo modelado da GPU é, na prática, a constante
-/// `pbGpuOverhead` com um termo aleatório em cima.
-///
-/// Isso aparece na decisão: nas mesmas quatro rodadas o joelho ficou em 128,
-/// 176, 128 e 208. A fronteira que decide o backend oscila ±40% entre execuções
-/// do mesmo binário na mesma máquina — e um modelo cuja resposta muda sem que
-/// nada mude não está medindo a máquina.
-///
-/// Consertá-lo isoladamente TROCARIA UMA INCOERÊNCIA INOFENSIVA POR UMA
-/// COERÊNCIA FALSA: enquanto a sonda continuar sendo n² contra um kernel que não
-/// é, um coeficiente diferente de zero seria um número com forma de medida e
-/// conteúdo de invenção.
-///
-/// # Onde o erro REALMENTE está
-///
-/// Em `rigidCpuCostMs`, que superestima a passada de colisão em ~3,3x (1,73 ms
-/// modelados contra 0,52 medidos a n=500), e superestimar a CPU é exatamente o
-/// que puxa o joelho para baixo. O modelo liga a GPU em n≈192; o cruzamento
-/// MEDIDO está entre 1000 e 3000 (`tools/claude-bench-gpu-vs-cpu.ts`, colunas
-/// `CPU colisao` e `GPU sync`). `PB_VIZINHOS = 12` é o suspeito nomeado.
-///
-/// Não foi consertado de propósito, e a razão não é falta de tempo: existe um
-/// terceiro backend agora (`rts:rigid`, em `cpurigid.ts`) que ganha dos dois em
-/// todo n medido, e mover esta constante antes de decidir se ele vira padrão
-/// seria movê-la duas vezes.
-export function rigidGpuCostMs(n: number): f64 {
-  rigidCalibrate();
-  if (pbTemGpu === 0) return 999999.0;
-  return pbGpuOverhead + (n * 1.0 * n / 1000000.0) * pbGpuPerN2 * PB_SUBSTEPS;
-}
-
-/// A decisão de CUSTO: 0 = CPU, 1 = GPU. Sem GPU é sempre 0; no empate a CPU
-/// ganha (zero latência de frame e libera a GPU para o render).
-///
-/// Isto é o que a MÁQUINA responderia. O que de fato roda é `rigidBackend()`,
-/// que ainda passa pelo portão do `rigidMode` — ver o cabeçalho.
-export function rigidBackendFor(n: number): number {
-  rigidCalibrate();
-  if (pbTemGpu === 0) return 0;
-  return rigidGpuCostMs(n) < rigidCpuCostMs(n) ? 1 : 0;
-}
-
-/// A FAIXA em que a GPU vence nesta máquina, como dois números num array
-/// `[nMin, nMax]` (`[0, 0]` = nunca vence). Existe porque a faixa é a forma
-/// real da resposta aqui, ao contrário do fluido — ver o cabeçalho.
-export function rigidBand(): number[] {
-  rigidCalibrate();
-  let lo = 0;
-  let hi = 0;
-  let n = 16;
-  while (n < 20000) {
-    if (rigidBackendFor(n) === 1) {
-      if (lo === 0) lo = n;
-      hi = n;
-    }
-    n = n + 16;
-  }
-  return [lo, hi];
+/// Isto morava dentro de `rigidCalibrate` — era a única escrita de `pbTemGpu`
+/// no arquivo inteiro. Apagar o calibrador sem mover isto tiraria a queda para
+/// a CPU que o cabeçalho deste módulo chama de "não opcional".
+function pbGpuPresente(): number {
+  if (pbGpuVisto === 0) pbGpuVisto = gpu.available() !== 0 ? 1 : 2;
+  return pbGpuVisto === 1 ? 1 : 0;
 }
 
 // ── o portão: modo escolhido, e o que de fato está rodando ─────────────────
 
-/// 0 = CPU (o solver da `Scene`), 1 = GPU (PADRÃO), 2 = RUST (`rts:rigid`).
+/// 0 = CPU (o solver da `Scene`), 1 = GPU, 2 = RUST, 3 = AUTO (PADRÃO).
 ///
-/// Esta linha dizia "2 = automático por custo", e era ficção: `rigidSetMode`
-/// sempre mapeou tudo que não é 1 para 0, então pedir 2 caía na CPU em
-/// silêncio. O modo automático nunca foi escrito — `rigidBackendFor` responde a
-/// pergunta, mas nada o consulta no caminho quente. O número 2 passa a ser o
-/// backend Rust porque um número documentado e não implementado é pior que um
-/// número livre: ele parece uma opção.
+/// AUTO consulta o perfil MEDIDO (`backend_profile.ts`) com a contagem de
+/// corpos e de threads desta máquina. Não é o "automático por custo" antigo,
+/// que era ficção: aquele modelava n² contra um kernel com grid e oscilava
+/// ±40% entre execuções. Este lê uma tabela de medições e RECUSA fora dela.
 ///
-/// # Por que a GPU é o padrão, e o que isso custa
+/// # Por que o padrão não é simplesmente "Rust"
 ///
-/// Medido em release, corpos EM MOVIMENTO (o caso em que a física custa):
+/// Porque a vantagem do Rust depende das threads, e isso foi MEDIDO em
+/// 2026-09-20: com 1 thread a GPU já ganha a partir de ~1000 corpos; com 2, a
+/// partir de ~2000; com 4, a partir de ~8000; com 16 ela não ganha na faixa
+/// medida. Fixar o Rust seria correto nesta máquina e errado numa de dois
+/// núcleos — e a primeira versão deste plano cometeu exatamente esse erro,
+/// porque as três análises que convergiram nele liam a mesma tabela de 16
+/// threads.
 ///
-///     n      CPU        GPU      ganho
-///     500    3,50 ms    0,45 ms   7,8x
-///     2000  21,40 ms    0,75 ms  28,5x
-///     4000  57,40 ms    1,90 ms  30,2x
+/// # O desempate, quando a medição não responde
 ///
-/// A GPU vence mesmo com o algoritmo PIOR — o kernel é gather força-bruta,
-/// O(n²), e a CPU tem grid espacial, O(n). Ela compensa com milhares de núcleos.
-///
-/// O QUE MUDAVA DE COMPORTAMENTO — e não muda mais. `pbSync` mandava todo corpo
-/// dinâmico como AABB e uma ESFERA colidia como CAIXA na GPU; a ressalva dizia
-/// "use `fisica cpu` para uma pilha de esferas". Desde 2026-08-11 os dois lados
-/// leem a forma de `collider.ts`, e `claude-test-paridade-formas` mede o que
-/// sobra: pior altura de repouso 0,074 sobre 13 contatos apoiados.
-///
-/// O que NÃO muda: sem GPU disponível, `rigidStep` cai para a CPU sozinho — o
-/// fallback não é opcional e nunca foi.
-let pbModo = 1;
+/// Fora da faixa o perfil devolve `PROF_DESCONHECIDO` e a escolha cai no RUST:
+/// ele é determinístico bit a bit e não custa um frame de latência. Na ausência
+/// de medição, a propriedade decide.
+let pbModo = PB_MODO_AUTO;
 /// 1 = a GPU foi pedida e FALHOU em ligar; não se tenta de novo neste processo.
 let pbGpuMorta = 0;
 /// Último motivo de queda, para o `dbg` dizer POR QUE está na CPU.
 let pbMotivo = "";
 
-/// Pede o backend. `1` = GPU, e é o único jeito de sair da CPU: o padrão é CPU
-/// por decisão, não por falta de GPU (ver o cabeçalho).
+/// Histerese do modo AUTO:
+/// Alterna entre Rust e GPU somente com margem >= 20% sustentada por 10 passos.
+let pbAutoAtivo = 0;        // 1 = GPU, 2 = Rust, 0 = inicial
+let pbAutoCandidate = 0;    // candidato proposto
+let pbAutoStreak = 0;       // passos consecutivos sustentados
+
+/// Pede o backend. `1` = GPU, `2` = RUST, `3` = AUTO, `0` = CPU.
 export function rigidSetMode(modo: number): void {
-  pbModo = modo === 1 ? 1 : (modo === 2 ? 2 : 0);
-  if (pbModo === 0) pbMotivo = "";
+  pbModo = modo === PB_MODO_GPU ? PB_MODO_GPU : (modo === PB_MODO_RUST ? PB_MODO_RUST : (modo === PB_MODO_AUTO ? PB_MODO_AUTO : PB_MODO_CPU));
+  if (pbModo === PB_MODO_CPU) pbMotivo = "";
+  pbAutoAtivo = 0;
+  pbAutoCandidate = 0;
+  pbAutoStreak = 0;
 }
 
 export function rigidMode(): number { return pbModo; }
+
+/// Estado interno da histerese do modo AUTO (para testes e diagnóstico).
+export function rigidAutoHysteresis(): { ativo: number, candidate: number, streak: number } {
+  return { ativo: pbAutoAtivo, candidate: pbAutoCandidate, streak: pbAutoStreak };
+}
 
 /// O nome do que está REALMENTE ativo — é isto que o `dbg` reporta, e não
 /// `rigidMode`, porque pedir GPU e estar na CPU é exatamente o estado que
 /// alguém medindo precisa enxergar.
 export function rigidBackendName(): string {
-  if (pbModo === 0) return "cpu";
+  if (pbModo === PB_MODO_AUTO) {
+    const threads = crThreads();
+    const ativo = pbAutoAtivo !== 0 ? pbAutoAtivo : (profBest(pbBodies, threads) === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST);
+    if (ativo === PB_MODO_RUST) {
+      if (pbBodies === 0) return "rust (auto, aguardando corpos)";
+      return "rust (auto, " + threads + " threads)";
+    }
+    return "gpu (auto)";
+  }
+  if (pbModo === PB_MODO_CPU) return "cpu";
   // O backend Rust não tem um estado "caiu": ele não depende de placa, e é
   // justamente por isso que ele existe. Um nome que sugerisse queda seria uma
   // condição que não pode acontecer.
-  if (pbModo === 2) {
+  if (pbModo === PB_MODO_RUST) {
     if (pbBodies === 0) return "rust (aguardando corpos)";
     return "rust (" + crThreads() + " threads)";
   }
@@ -403,6 +210,12 @@ let pbObjs: GameObject[] = [];
 let pbLX: f64[] = [];
 let pbLY: f64[] = [];
 let pbLZ: f64[] = [];
+/// A última velocidade que ESTE arquivo escreveu (ou leu) em cada corpo.
+/// Permite detectar quando um script alterou apenas a velocidade (ex.: elevador
+/// ou unidade que começa parada e recebe velocidade depois).
+let pbLVX: f64[] = [];
+let pbLVY: f64[] = [];
+let pbLVZ: f64[] = [];
 /// Resultados a IGNORAR para o corpo k. A leitura pipelined da GPU que já
 /// estava em voo na hora de um teleporte descreve o lugar antigo.
 let pbHold: number[] = [];
@@ -458,7 +271,11 @@ function pbCollect(sc: Scene): number {
     i = i + 1;
   }
   const m = pbMap.length;
-  while (pbLX.length < m) { pbLX.push(0.0); pbLY.push(0.0); pbLZ.push(0.0); pbHold.push(0); }
+  while (pbLX.length < m) {
+    pbLX.push(0.0); pbLY.push(0.0); pbLZ.push(0.0);
+    pbLVX.push(0.0); pbLVY.push(0.0); pbLVZ.push(0.0);
+    pbHold.push(0);
+  }
   return m;
 }
 
@@ -497,7 +314,10 @@ function pbSoltar(): void {
       if (intocado !== 0) { t.px = crX(k); t.py = crY(k); t.pz = crZ(k); }
       t.vx = crVelX(k); t.vy = crVelY(k); t.vz = crVelZ(k);
     }
-    if (intocado === 0) { t.vx = 0.0; t.vy = 0.0; t.vz = 0.0; }
+    if (intocado === 0 && bodyTypeOf(pbObjs[k]) === BODY_DYNAMIC) {
+      t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+    }
+    pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
     // Quem decide o sono daqui em diante é o próximo dono; acordado é o estado
     // que nunca está errado, só mais caro por dez passos.
     t.asleep = 0; t.quiet = 0;
@@ -536,7 +356,9 @@ function pbSyncRust(sc: Scene): number {
     crSetShape(k, shapeOf(ob));
     crSetVel(k, t.vx, t.vy, t.vz);
     crSetMaterial(k, ob, t);
-    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz; pbHold[k] = 0;
+    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
+    pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+    pbHold[k] = 0;
     k = k + 1;
   }
   crSyncStatics(sc);
@@ -580,7 +402,9 @@ function pbSync(sc: Scene): number {
     rbSetShape(k, shapeOf(ob));
     rbSetVel(k, t.vx, t.vy, t.vz);
     rbSetMaterial(k, ob, t);
-    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz; pbHold[k] = 0;
+    pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
+    pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+    pbHold[k] = 0;
     k = k + 1;
   }
   rbUpload();
@@ -598,12 +422,27 @@ function pbEmpurraTeleportes(): void {
   const m = pbObjs.length;
   let k = 0;
   while (k < m) {
-    const t: Transform = pbObjs[k].transform;
-    if (t.px !== pbLX[k] || t.py !== pbLY[k] || t.pz !== pbLZ[k]) {
+    const ob: GameObject = pbObjs[k];
+    const t: Transform = ob.transform;
+    const posMudou = t.px !== pbLX[k] || t.py !== pbLY[k] || t.pz !== pbLZ[k];
+    const velMudou = t.vx !== pbLVX[k] || t.vy !== pbLVY[k] || t.vz !== pbLVZ[k];
+    if (posMudou) {
       if (pbDono === 1) { rbSetPos(k, t.px, t.py, t.pz); pbHold[k] = 1; }
       else crSetPos(k, t.px, t.py, t.pz);
-      t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+      // SÓ zera velocidade de corpos dinâmicos livres teleportados.
+      // Corpos cinemáticos preservam sua velocidade calculada por script ou navegação.
+      if (bodyTypeOf(ob) === BODY_DYNAMIC) {
+        t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+      } else {
+        if (pbDono === 1) { rbSetVel(k, t.vx, t.vy, t.vz); rbPoke(k); }
+        else crSetVel(k, t.vx, t.vy, t.vz);
+      }
       pbLX[k] = t.px; pbLY[k] = t.py; pbLZ[k] = t.pz;
+      pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+    } else if (velMudou) {
+      if (pbDono === 1) { rbSetVel(k, t.vx, t.vy, t.vz); rbPoke(k); }
+      else crSetVel(k, t.vx, t.vy, t.vz);
+      pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
     }
     k = k + 1;
   }
@@ -623,9 +462,11 @@ function pbApplyRust(): void {
   while (k < m) {
     const t: Transform = pbObjs[k].transform;
     const x = crX(k); const y = crY(k); const z = crZ(k);
+    const vx = crVelX(k); const vy = crVelY(k); const vz = crVelZ(k);
     t.px = x; t.py = y; t.pz = z;
-    t.vx = crVelX(k); t.vy = crVelY(k); t.vz = crVelZ(k);
+    t.vx = vx; t.vy = vy; t.vz = vz;
     pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+    pbLVX[k] = vx; pbLVY[k] = vy; pbLVZ[k] = vz;
     k = k + 1;
   }
 }
@@ -654,22 +495,67 @@ function pbApply(): void {
 /// Quantos objetos da cena usam colisor de CASCA. Recontado quando a composição
 /// muda, junto com o resto — é a mesma varredura.
 let pbCascas = 0;
+let pbOffsets = 0;
 
-/// A cena precisa de casca, e o backend escolhido não sabe fazer casca?
-///
-/// Só o caminho da CPU resolve casca hoje: `solvePair` chama `hullContact`, e
-/// nem o kernel WGSL nem o solver em Rust foram ensinados. Sem esta pergunta a
-/// GPU rodaria e o colisor de casca seria IGNORADO em silêncio — a pedra
-/// chanfrada colidiria como caixa e nada diria por quê, que é exatamente o modo
-/// de falha que `rts-physics` ganhou `supports()` para recusar.
-///
-/// A resposta é CAIR PARA A CPU, e não recusar o frame: aqui existe um backend
-/// que sabe fazer, então usá-lo é a escolha certa. O motivo fica em `pbMotivo`
-/// para o `dbg` poder dizer por que o jogo está mais lento numa cena com cascas.
-export function rigidNeedsFallback(): number { return pbCascas > 0 ? 1 : 0; }
+/// Conta corpos dinâmicos com colisor com offset (centerLocalX/Y/Z !== 0).
+/// Apenas o solver da CPU (Scene) resolve corpos dinâmicos com centro deslocado
+/// até o Lote C (OBB); os backends GPU e Rust assumem centro alinhado ao transform.
+function pbContaOffsets(sc: Scene): number {
+  const objs: GameObject[] = sc.objects;
+  const n = objs.length;
+  let c = 0;
+  let i = 0;
+  while (i < n) {
+    const o: GameObject = objs[i];
+    if (o.collideFlag !== 0 && o.active !== 0 && o.stationary === 0) {
+      if (centerLocalX(o) !== 0.0 || centerLocalY(o) !== 0.0 || centerLocalZ(o) !== 0.0) {
+        c = c + 1;
+      }
+    }
+    i = i + 1;
+  }
+  return c;
+}
+
+/// A cena precisa de casca ou colisor com offset em corpo dinâmico?
+/// Se sim, cai para a CPU (Scene).
+export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets > 0) ? 1 : 0; }
 
 /// Quantas cascas a última varredura viu. Diagnóstico.
 export function rigidHullCount(): number { return pbCascas; }
+export function rigidOffsetCount(): number { return pbOffsets; }
+
+/// Decisão pura de modo AUTO com histerese (20% de margem sustentada por 10 passos).
+export function pbDecideAuto(
+  n: number,
+  threads: number,
+  curAtivo: number,
+  candidate: number,
+  streak: number
+): { nextAtivo: number; nextCandidate: number; nextStreak: number } {
+  const quem = profBest(n, threads);
+  const novoCandidato = quem === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST;
+  if (curAtivo === 0) {
+    return { nextAtivo: novoCandidato, nextCandidate: novoCandidato, nextStreak: 0 };
+  }
+  if (novoCandidato === curAtivo) {
+    return { nextAtivo: curAtivo, nextCandidate: curAtivo, nextStreak: 0 };
+  }
+  const curMs = curAtivo === PB_MODO_GPU ? profGpuMs(n) : profRustMs(n, threads);
+  const candMs = novoCandidato === PB_MODO_GPU ? profGpuMs(n) : profRustMs(n, threads);
+  // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
+  if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
+    if (novoCandidato === candidate) {
+      const nextStreak = streak + 1;
+      if (nextStreak >= 10) {
+        return { nextAtivo: novoCandidato, nextCandidate: novoCandidato, nextStreak: 0 };
+      }
+      return { nextAtivo: curAtivo, nextCandidate: novoCandidato, nextStreak: nextStreak };
+    }
+    return { nextAtivo: curAtivo, nextCandidate: novoCandidato, nextStreak: 1 };
+  }
+  return { nextAtivo: curAtivo, nextCandidate: curAtivo, nextStreak: 0 };
+}
 
 /// Qual backend DEVE rodar este passo: 0 = CPU, 1 = GPU, 2 = Rust. Separado do
 /// passo porque a posse (`pbDono`) tem de ser devolvida ANTES de qualquer
@@ -683,18 +569,42 @@ function pbAlvo(): number {
                "nem o solver em Rust resolvem casca, entao a fisica cai para a CPU. " +
                "Sem isto a forma seria ignorada em silencio.");
     }
-    return 0;
+    return PB_MODO_CPU;
+  }
+  if (pbOffsets > 0) {
+    if (pbMotivo !== "corpos dinamicos com colisor com offset") {
+      pbMotivo = "corpos dinamicos com colisor com offset";
+      io.print("[rigid] " + pbOffsets + " corpo(s) dinamico(s) com offset no colisor na cena — " +
+               "apenas a Scene CPU resolve corpos dinamicos com centro deslocado ate o Lote C (OBB), " +
+               "entao a fisica cai para a CPU.");
+    }
+    return PB_MODO_CPU;
+  }
+  // AUTO: a medição escolhe, com histerese (margem >= 20% por 10 passos).
+  let modo = pbModo;
+  if (modo === PB_MODO_AUTO) {
+    if (crAvailable() === 0) {
+      modo = pbGpuPresente() !== 0 ? PB_MODO_GPU : PB_MODO_CPU;
+    } else if (pbGpuPresente() === 0) {
+      modo = PB_MODO_RUST;
+    } else {
+      const threads = crThreads();
+      const dec = pbDecideAuto(pbBodies, threads, pbAutoAtivo, pbAutoCandidate, pbAutoStreak);
+      pbAutoAtivo = dec.nextAtivo;
+      pbAutoCandidate = dec.nextCandidate;
+      pbAutoStreak = dec.nextStreak;
+      modo = pbAutoAtivo;
+    }
   }
   // RUST: sem calibração e sem portão — não há placa que possa faltar.
-  if (pbModo === 2) return 2;
-  if (pbModo !== 1) return 0;
-  rigidCalibrate();
-  if (pbTemGpu === 0) {
+  if (modo === PB_MODO_RUST) return PB_MODO_RUST;
+  if (modo !== PB_MODO_GPU) return PB_MODO_CPU;
+  if (pbGpuPresente() === 0) {
     if (pbGpuMorta === 0) { pbGpuMorta = 1; pbMotivo = "gpu.available()=0"; }
-    return 0;
+    return PB_MODO_CPU;
   }
-  if (pbGpuMorta !== 0) return 0;
-  return 1;
+  if (pbGpuMorta !== 0) return PB_MODO_CPU;
+  return PB_MODO_GPU;
 }
 
 /// UM PASSO FIXO de física num backend externo. Devolve 1 se o backend assumiu
@@ -721,7 +631,10 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
   // A CAPACIDADE É PERGUNTADA ANTES, e é o que faz a casca aparecer na tela em
   // vez de ser engolida: com casca na cena o alvo é a CPU. Mais lento e
   // CORRETO, contra rápido e errado.
-  if (pbDirty !== 0) pbCascas = pbContaCascas(sc);
+  if (pbDirty !== 0) {
+    pbCascas = pbContaCascas(sc);
+    pbOffsets = pbContaOffsets(sc);
+  }
   const alvo = pbAlvo();
 
   // SAÍDA antes de tudo: trocar de dono, cair para a CPU ou ressincronizar
@@ -759,41 +672,66 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
   return 1;
 }
 
-/// Imprime a calibração e a decisão (debug/telemetria).
-export function rigidReport(): void {
-  rigidCalibrate();
-  io.print("[rigid] cpu=" + pbCpuPerPair * 1000000.0 + "ns/par  gpu=" +
-           pbGpuPerN2 + "ms/M-par + " + pbGpuOverhead + "ms overhead  temGpu=" + pbTemGpu);
-  const faixa = rigidBand();
-  if (faixa[0] === 0) io.print("[rigid] a GPU NAO vence em nenhum n nesta maquina");
-  else io.print("[rigid] a GPU vence na FAIXA n = " + faixa[0] + " .. " + faixa[1]);
-  // Medido nesta máquina: o coeficiente n² saiu ZERO — 2048 corpos (4,2M pares)
-  // custaram menos que o ruído do próprio round-trip. Isso torna o LIMITE
-  // SUPERIOR da faixa ficção: o modelo passa a dizer que a GPU vence sempre,
-  // porque o termo que a faria perder mede zero. O limite inferior continua
-  // válido (vem do overhead, que é medido de verdade). Dito aqui em vez de
-  // corrigido com um número inventado — a sonda precisa de um n maior.
-  if (pbTemGpu !== 0 && pbGpuPerN2 <= 0.0) {
-    io.print("[rigid] AVISO: coeficiente n2 da GPU mediu 0 — o topo da faixa NAO e confiavel");
+/// Drena passos pendentes e força sincronização imediata com a GPU (para testes e transições síncronas).
+export function rigidFlush(): void {
+  if (pbDono === 1) {
+    if (pbDevidos > 0) {
+      rbKick(PB_SUBSTEPS * pbDevidos);
+      pbDevidos = 0;
+    }
+    rbReadState();
+    const m = pbObjs.length;
+    let k = 0;
+    while (k < m) {
+      const t: Transform = pbObjs[k].transform;
+      const intocado = (t.px === pbLX[k] && t.py === pbLY[k] && t.pz === pbLZ[k]) ? 1 : 0;
+      if (intocado !== 0 && pbHold[k] === 0) {
+        const x = rbX(k); const y = rbY(k); const z = rbZ(k);
+        t.px = x; t.py = y; t.pz = z;
+        pbLX[k] = x; pbLY[k] = y; pbLZ[k] = z;
+      }
+      if (intocado === 0 && bodyTypeOf(pbObjs[k]) === BODY_DYNAMIC) {
+        t.vx = 0.0; t.vy = 0.0; t.vz = 0.0;
+      } else {
+        t.vx = rbVelX(k); t.vy = rbVelY(k); t.vz = rbVelZ(k);
+      }
+      pbLVX[k] = t.vx; pbLVY[k] = t.vy; pbLVZ[k] = t.vz;
+      pbHold[k] = 0;
+      k = k + 1;
+    }
+    rbCancel();
   }
-  // O número real ao lado do modelado — e ele comparava COISAS DIFERENTES.
-  //
-  // A linha media o modelo contra 9,55 ms, que é um FRAME INTEIRO (update +
-  // colisão + computeWorld), enquanto `rigidCpuCostMs` modela só a PASSADA DE
-  // COLISÃO. O resultado é que a checagem que existe para pegar o modelo errado
-  // apontava o SINAL CONTRÁRIO do erro: dizia que o modelo subestimava (1,73
-  // contra 9,55) quando ele SUPERESTIMA a colisão em 3,3x (1,73 contra 0,52).
-  //
-  // Vale escrever que isto é PADRÃO e não coincidência: comparar dois números
-  // medidos sobre recortes diferentes de trabalho é o mesmo erro de denominador
-  // que custou o "195x" desta campanha, e um autocheck é o último lugar onde
-  // alguém procura por ele. Uma checagem que mente é pior que checagem nenhuma.
-  //
-  // 0,52 ms é `scene.resolveCollisions()` sozinho, 500 corpos, cena caindo,
-  // release — a coluna `CPU colisao` de `tools/claude-bench-gpu-vs-cpu.ts`.
-  io.print("[rigid] n=500 COLISAO: cpu " + rigidCpuCostMs(500).toFixed(2) +
-           " ms (modelo) vs 0.52 ms (medido) | gpu " + rigidGpuCostMs(500).toFixed(2) + " ms");
-  io.print("[rigid] o modelo da CPU SUPERESTIMA a colisao ~3.3x, e e isso que liga" +
-           " a GPU cedo demais: joelho em ~192, cruzamento medido entre 1000 e 3000");
-  io.print("[rigid] modo=" + (pbModo === 0 ? "cpu" : "gpu") + " ativo=" + rigidBackendName());
 }
+
+/// Imprime o PERFIL e a decisão (debug/telemetria).
+///
+/// Era um relatório de calibração com números que a medição de 2026-09-20
+/// desmentiu — a tabela "por que a GPU é o padrão" dizia CPU 21,40 ms e GPU
+/// 0,75 ms a 2000 corpos; os valores medidos são 36,92 e 1,95. Agora ele
+/// imprime a tabela medida e o que ela responde para ESTA máquina.
+export function rigidReport(): void {
+  const t = crThreads();
+  const faixa = profRange();
+  io.print("[rigid] perfil medido 2026-09-20 | faixa n = " + faixa[0] + ".." + faixa[1] +
+           " | threads desta maquina = " + t);
+  const ns: number[] = [250, 1000, 2000, 4000, 8000];
+  let i = 0;
+  while (i < ns.length) {
+    const n = ns[i];
+    const g = profGpuMs(n);
+    const r = profRustMs(n, t);
+    io.print("[rigid]   n=" + n + "  gpu=" + g.toFixed(3) + "  rust=" + r.toFixed(3) +
+             "  -> " + (profBest(n, t) === PROF_RUST ? "rust" : "gpu"));
+    i = i + 1;
+  }
+  io.print("[rigid] corpos agora=" + pbBodies + " modo=" + pbModo +
+           " ativo=" + rigidBackendName() + " overflow=" + rigidGridOverflow());
+}
+
+/// Retorna o número de overflows de células no grid espacial (GPU ou Rust).
+export function rigidGridOverflow(): number {
+  if (pbDono === 1) return rbGridOverflow();
+  if (pbDono === 2) return crGridOverflow();
+  return 0;
+}
+

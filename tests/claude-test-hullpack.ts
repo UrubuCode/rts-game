@@ -103,4 +103,8 @@ check("o diretorio comeca depois dos estaticos", HULL_DIR_VEC4 >= 513 ? 1 : 0);
 check("os planos comecam depois do diretorio",
       HULL_PLANES_VEC4 === HULL_DIR_VEC4 + HULL_MAX ? 1 : 0);
 
-io.print("[resultado] " + ok + " ok, " + fail + " falhas");
+if (fail === 0) {
+  io.print("[PASSOU] Empacotamento e teste de casca (hullpack) (" + ok + "/" + ok + ")");
+} else {
+  io.print("[FALHA] hullpack: " + fail + " falhas");
+}

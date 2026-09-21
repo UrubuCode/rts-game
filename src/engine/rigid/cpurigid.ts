@@ -41,29 +41,68 @@ import rigid from "@compat/rigid.ts";
 import { Scene } from "../core/scene";
 import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
-import { shapeOf, halfXOf, halfYOf, halfZOf } from "../core/collider";
-import { MAT_AT, MAT_MAX_STATICS, matBytesFor, matFillDefaults,
-         matWriteBody, matWriteStatic } from "./materials";
+import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
+import { MAT_AT, MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor, matFillDefaults,
+         matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
+         WORLD_HEADER_FLOATS, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
+         WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
+         WORLD_PARAM_ANY_MASK, WORLD_PARAM_RESERVED_A, WORLD_PARAM_RESERVED_B,
+         STATIC_RECORD_FLOATS,
+         BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
 
 /// O mesmo teto do `gpurigid`: o `world` carrega até isto de estáticos.
 export const CR_MAX_STATICS = MAT_MAX_STATICS;
 export const CR_DT: f64 = 1.0 / 60.0;
 
 let crN = 0;
+let crAnyMask = 0;
 let crPos: Float32Array = new Float32Array(4);
 let crVel: Float32Array = new Float32Array(4);
 let crExt: Float32Array = new Float32Array(4);
 /// `world` = cabeçalho + estáticos + a REGIÃO DE MATERIAIS (ver `materials.ts`).
 /// Cresce com a contagem de corpos, em `crInit`.
 let crWorld: Float32Array = new Float32Array(MAT_AT + matBytesFor(0));
+let crWorldU32: Uint32Array = new Uint32Array(crWorld.buffer);
 /// Meia-extensão MÁXIMA vista: é ela que dimensiona a célula do grid.
 let crMaxHalf: f64 = 0.0;
 let crStatics = 0;
 
-/// Este backend existe sempre — não depende de placa, que é o ponto dele.
-/// Presente para que um chamador escrito contra `rbAvailable` não precise de
-/// uma forma diferente.
-export function crAvailable(): number { return 1; }
+/// 0 = ainda não sondado, 1 = respondeu, 2 = recusou.
+let crSondado = 0;
+
+/// O backend Rust está presente no binário e funciona?
+///
+/// Devolvia `1` fixo, e isso era uma afirmação e não uma medida. O solver é a
+/// feature `physics` do `rts-host` e usa rayon, que é thread de SO — não existe
+/// em wasm. Um `1` constante faz o decisor escolher um backend que pode não
+/// estar presente.
+///
+/// A sondagem é um passo real sobre UM corpo: `rigid.step` devolve quantos
+/// corpos moveu e `0` é a recusa documentada da superfície, então um `1` aqui
+/// prova a travessia inteira — módulo carregado, buffers aceitos, solver rodou.
+/// Cacheada: a resposta não muda durante o processo.
+///
+/// LIMITE DECLARADO: se o módulo `rts:rigid` não existir no build, o programa
+/// falha no CARREGAMENTO (o import de `@compat/rigid.ts` é de topo), não aqui.
+/// Isso é erro de configuração de build e aparece como tal.
+export function crAvailable(): number {
+  if (crSondado !== 0) return crSondado === 1 ? 1 : 0;
+  const pos = new Float32Array(4);
+  const vel = new Float32Array(4);
+  const ext = new Float32Array(4);
+  // um corpo em queda livre, sem estáticos, um sub-passo
+  ext[3] = 1.0;                      // invMass
+  const world = new Float32Array(MAT_AT + matBytesFor(1));
+  const worldU32 = new Uint32Array(world.buffer);
+  world[WORLD_PARAM_DT] = CR_DT;
+  world[WORLD_PARAM_CELL_SIZE] = 1.0;                    // tamanho de célula
+  world[WORLD_PARAM_SUBSTEPS] = 1.0;                    // sub-passos
+  world[WORLD_PARAM_LAYOUT_VERSION] = PHYSICS_LAYOUT_VERSION * 1.0;
+  matFillDefaults(world, MAT_AT, 1, worldU32);
+  const moveu = rigid.step(pos, vel, ext, world);
+  crSondado = moveu > 0 ? 1 : 2;
+  return crSondado === 1 ? 1 : 0;
+}
 export function crCount(): number { return crN; }
 export function crThreads(): number { return rigid.threads(); }
 
@@ -80,6 +119,7 @@ export function crVelZ(i: number): f64 { return crVel[i * 4 + 2]; }
 /// `rbInit`, que pode falhar por não haver GPU; aqui não há como falhar.
 export function crInit(n: number): number {
   crN = n;
+  crAnyMask = 0;
   crPos = new Float32Array(n * 4);
   crVel = new Float32Array(n * 4);
   crExt = new Float32Array(n * 4);
@@ -87,7 +127,8 @@ export function crInit(n: number): number {
   // inteira: um `world` curto demais responde os defaults legados para todo
   // mundo, em vez de dar material a uns e não a outros.
   crWorld = new Float32Array(MAT_AT + matBytesFor(n));
-  matFillDefaults(crWorld, MAT_AT, n);
+  crWorldU32 = new Uint32Array(crWorld.buffer);
+  matFillDefaults(crWorld, MAT_AT, n, crWorldU32);
   crMaxHalf = 0.0;
   crStatics = 0;
   return 1;
@@ -130,7 +171,8 @@ export function crSetShape(i: number, shape: number): void {
 /// O MATERIAL do corpo `i`: gravidade, quique, arrasto, atrito e chão. Sai do
 /// integrador e do `Transform` — ver `materials.ts`, que é onde a regra mora.
 export function crSetMaterial(i: number, o: GameObject, t: Transform): void {
-  matWriteBody(crWorld, MAT_AT, i, o, t);
+  matWriteBody(crWorld, MAT_AT, i, o, t, crWorldU32);
+  if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) crAnyMask = 1;
 }
 
 /// Escreve velocidade e ACORDA o corpo, como o `rbSetVel`.
@@ -167,10 +209,14 @@ export function crSetDt(dt: f64): void { crDt = dt > 0.0 ? dt : CR_DT; }
 /// este campo e não deriva um próprio, justamente para que não existam duas
 /// respostas para o tamanho da célula neste projeto.
 function crWriteWorld(substeps: number): void {
-  crWorld[0] = crDt;
-  crWorld[1] = crStatics * 1.0;
-  crWorld[2] = crMaxHalf > 0.0 ? crMaxHalf * 2.0 : 1.0;
-  crWorld[3] = substeps * 1.0;
+  crWorld[WORLD_PARAM_DT] = crDt;
+  crWorld[WORLD_PARAM_NUM_STATICS] = crStatics * 1.0;
+  crWorld[WORLD_PARAM_CELL_SIZE] = crMaxHalf > 0.0 ? crMaxHalf * 2.0 : 1.0;
+  crWorld[WORLD_PARAM_SUBSTEPS] = substeps * 1.0;
+  crWorld[WORLD_PARAM_LAYOUT_VERSION] = PHYSICS_LAYOUT_VERSION * 1.0;
+  crWorld[WORLD_PARAM_ANY_MASK] = crAnyMask > 0 ? 1.0 : 0.0;
+  crWorld[WORLD_PARAM_RESERVED_A] = 0.0;
+  crWorld[WORLD_PARAM_RESERVED_B] = 0.0;
 }
 
 /// Compat com o `rbUpload`: aqui os espelhos SÃO o estado, então não há o que
@@ -187,11 +233,8 @@ export function crUpload(): void {
 /// `pbSync` do decisor já lê para os corpos dinâmicos — a regra existe uma vez
 /// e os backends a leem, que é a condição para terminarem no mesmo lugar.
 ///
-/// DIVERGÊNCIA CONHECIDA, dita aqui em vez de descoberta: o `rbSyncStatics` do
-/// backend GPU NÃO passa por `collider.ts` — ele lê `o.colShape` e `t.sx*0.5`
-/// direto. Para um estático sem component `Collider` os dois dão o mesmo
-/// número (o default `hx=0,5` foi escolhido para isso), e é por isso que o
-/// teste de paridade não vê diferença. Para um estático COM component, veriam.
+/// Estáticos passam por `collider.ts` (meia-extensão e centro de mundo com offset),
+/// alinhados nos três backends (CPU, GPU e Rust).
 export function crSyncStatics(sc: Scene): void {
   const objs: GameObject[] = sc.objects;
   const trs: Transform[] = sc.trs;
@@ -208,11 +251,12 @@ export function crSyncStatics(sc: Scene): void {
     // exclusão é declarada: `rigidNeedsFallback` manda a cena inteira para a
     // CPU antes de chegar aqui.
     if (o.collideFlag !== 0 && o.active !== 0 && o.stationary !== 0 && shapeOf(o) < 2) {
+      if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) crAnyMask = 1;
       const t: Transform = trs[i];
-      const base = 4 + m * 8;
-      crWorld[base] = t.wx;
-      crWorld[base + 1] = t.wy;
-      crWorld[base + 2] = t.wz;
+      const base = WORLD_HEADER_FLOATS + m * STATIC_RECORD_FLOATS;
+      crWorld[base] = centerWorldX(o, t);
+      crWorld[base + 1] = centerWorldY(o, t);
+      crWorld[base + 2] = centerWorldZ(o, t);
       // A REDONDEZA do estático, no `w` do centro: 1 = esfera de raio
       // `min(meia-extensão)`, 0 = caixa. Invertido em relação à forma de um
       // CORPO de propósito — todo escritor anterior a este campo deixava 0 ali
@@ -222,7 +266,7 @@ export function crSyncStatics(sc: Scene): void {
       crWorld[base + 5] = halfYOf(o, t);
       crWorld[base + 6] = halfZOf(o, t);
       crWorld[base + 7] = 0.0;
-      matWriteStatic(crWorld, MAT_AT, m, t);
+      matWriteStatic(crWorld, MAT_AT, m, t, o, crWorldU32);
       m = m + 1;
     }
     i = i + 1;
@@ -241,3 +285,9 @@ export function crStep(substeps: number): number {
   crWriteWorld(substeps);
   return rigid.step(crPos, crVel, crExt, crWorld);
 }
+
+/// Retorna o contador de overflow de células do grid no solver Rust.
+export function crGridOverflow(): number {
+  return rigid.overflows();
+}
+

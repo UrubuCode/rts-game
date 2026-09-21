@@ -28,10 +28,17 @@ import { loadModel } from "../engine/render/model";
 /// → Behavior base (no-op inofensivo). Não trata material/meshRenderer (a aparência
 /// vai pelos campos do GameObject; o SceneRef é marcador e não re-instancia).
 export function recreateBehavior(sd: any): Behavior {
-  const t = sd.type;
+  const t = sd.type !== undefined ? sd.type : sd.t;
   if (t === "spin") return new Spinner(sd.sy, sd.sx);
   if (t === "bob") return new Bobber(sd.amp, sd.freq, sd.base);
-  if (t === "rigidbody") return new Rigidbody(sd.g, sd.bounce);
+  if (t === "rigidbody") {
+    const rb = new Rigidbody(sd.g, sd.bounce);
+    if (sd.mass !== undefined) rb.mass = sd.mass;
+    if (sd.drag !== undefined) rb.drag = sd.drag;
+    if (sd.floorY !== undefined) rb.floorY = sd.floorY;
+    if (sd.bodyType !== undefined) rb.bodyType = sd.bodyType;
+    return rb;
+  }
   if (t === "mover") return new Mover(sd.vx, sd.vy, sd.vz);
   if (t === "pulse") return new Pulse(sd.amp, sd.freq, sd.base);
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
@@ -44,7 +51,7 @@ export function recreateBehavior(sd: any): Behavior {
   // outra malha. O que a cena grava é `hullMesh` — qual malha gerar a casca de —
   // e o registro devolve o id de hoje. Um id num arquivo é um ponteiro salvo em
   // disco, que é a classe de bug que só aparece na segunda cena.
-  if (t === "collider") {
+  if (t === "collider" || t === "Collider") {
     const c = new Collider(sd.shape);
     c.cx = sd.cx; c.cy = sd.cy; c.cz = sd.cz;
     c.hx = sd.hx; c.hy = sd.hy; c.hz = sd.hz;
@@ -112,6 +119,8 @@ export function objectToData(go: GameObject): any {
     scale3: [t.sx, t.sy, t.sz],
     parent: go.parent,
     stationary: go.stationary,
+    layer: go.layer,
+    mask: go.mask,
     emissive: go.emissive,
     tex: go.tex,
     meshPath: go.meshPath,   // modelo do objeto (o id de GPU não serializa; recarrega no load)
@@ -159,6 +168,8 @@ export function buildObject(od: any): GameObject {
   const go = new GameObject(od.name);
   if (od.parent !== undefined) go.parent = od.parent;
   if (od.stationary !== undefined) go.stationary = od.stationary;
+  if (od.layer !== undefined) go.layer = od.layer;
+  if (od.mask !== undefined) go.mask = od.mask;
   if (od.emissive !== undefined) go.emissive = od.emissive;
   if (od.tex !== undefined) go.tex = od.tex;
   // modelo do objeto (.obj/.glb/.gltf): o id de GPU não sobrevive ao JSON —
