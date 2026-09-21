@@ -462,6 +462,13 @@ sistemas declarando ids de buffer, recusa em conflito de escrita (como
   GPU e Rust gravam `t.wx/wy/wz` cru; a cena soma `centerLocal*`. As
   meias-extensões já estão certas (o comentário de `cpurigid.ts:190-194` ficou
   obsoleto). Primeiro item do Lote A, §7.2.
+- **Dívida aceita do Lote A: o solver ficou mais caro por contato** (issue #5).
+  Tipo de corpo e máscara custaram +9–10% no Rust em 4 000–8 000 corpos e +7%
+  na GPU em 8 000, medido A/B contra a base em 2026-09-21, cena sem máscaras.
+  O `any_mask` não resolveu porque o custo é **por contato** (registro de
+  material mais largo lido por par), não do filtro. Aceito pelo dono do projeto
+  para mergear; **tem de ser pago antes do Lote C**, que mexe no mesmo laço — do
+  contrário a regressão do OBB e esta ficam impossíveis de separar.
 - **`crInit(m)` realoca o mundo inteiro** quando a contagem muda, e
   `compVersion` invalida tudo: num mapa com spawn contínuo, cada unidade criada
   paga um resync completo.
