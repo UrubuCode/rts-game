@@ -1025,18 +1025,19 @@ export function raycastNonAlloc(
 
   // 2. Raycast contra dinâmicos
   if (sDynamicCount > 0) {
-    const cell = sCellSize;
-    const invCell = sInvCellSize;
+    const cell = sDynCellSize;
+    const invCell = sDynInvCellSize;
+    const dynH = sDynamicMaxHalfExtent;
 
     const endX = ox + ndx * closestDist;
     const endY = oy + ndy * closestDist;
     const endZ = oz + ndz * closestDist;
-    const minRx = ox < endX ? ox : endX;
-    const maxRx = ox > endX ? ox : endX;
-    const minRy = oy < endY ? oy : endY;
-    const maxRy = oy > endY ? oy : endY;
-    const minRz = oz < endZ ? oz : endZ;
-    const maxRz = oz > endZ ? oz : endZ;
+    const minRx = (ox < endX ? ox : endX) - dynH;
+    const maxRx = (ox > endX ? ox : endX) + dynH;
+    const minRy = (oy < endY ? oy : endY) - dynH;
+    const maxRy = (oy > endY ? oy : endY) + dynH;
+    const minRz = (oz < endZ ? oz : endZ) - dynH;
+    const maxRz = (oz > endZ ? oz : endZ) + dynH;
 
     if (maxRx >= sSceneMinX && minRx <= sSceneMaxX &&
         maxRy >= sSceneMinY && minRy <= sSceneMaxY &&
@@ -1068,32 +1069,70 @@ export function raycastNonAlloc(
 
       let tCurrent = 0.0;
       while (tCurrent <= closestDist && tCurrent <= maxDistance) {
-        const bucket = (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
-        let k = sDynHead[bucket];
-        while (k !== -1) {
-          if (sVisitedStamp[k] !== stamp) {
-            sVisitedStamp[k] = stamp;
-            if (passesFilter(mask, layer, includeTriggers, k)) {
-              const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId);
-              if (hit) {
-                if (sTempRayHit.distance < closestDist) {
-                  closestDist = sTempRayHit.distance;
-                  outHit.hit = true;
-                  outHit.bodyId = sTempRayHit.bodyId;
-                  outHit.point[0] = sTempRayHit.point[0];
-                  outHit.point[1] = sTempRayHit.point[1];
-                  outHit.point[2] = sTempRayHit.point[2];
-                  outHit.normal[0] = sTempRayHit.normal[0];
-                  outHit.normal[1] = sTempRayHit.normal[1];
-                  outHit.normal[2] = sTempRayHit.normal[2];
-                  outHit.distance = sTempRayHit.distance;
-                  outHit.stepId = sTempRayHit.stepId;
-                  found = true;
+        const tNext = tMaxX < tMaxY ? (tMaxX < tMaxZ ? tMaxX : tMaxZ) : (tMaxY < tMaxZ ? tMaxY : tMaxZ);
+        const tEnd = tNext < closestDist ? tNext : closestDist;
+
+        const x0 = ox + ndx * tCurrent;
+        const y0 = oy + ndy * tCurrent;
+        const z0 = oz + ndz * tCurrent;
+        const x1 = ox + ndx * tEnd;
+        const y1 = oy + ndy * tEnd;
+        const z1 = oz + ndz * tEnd;
+
+        const segMinX = (x0 < x1 ? x0 : x1) - dynH;
+        const segMaxX = (x0 > x1 ? x0 : x1) + dynH;
+        const segMinY = (y0 < y1 ? y0 : y1) - dynH;
+        const segMaxY = (y0 > y1 ? y0 : y1) + dynH;
+        const segMinZ = (z0 < z1 ? z0 : z1) - dynH;
+        const segMaxZ = (z0 > z1 ? z0 : z1) + dynH;
+
+        const minNx = mfloor(segMinX * invCell);
+        const maxNx = mfloor(segMaxX * invCell);
+        const minNy = mfloor(segMinY * invCell);
+        const maxNy = mfloor(segMaxY * invCell);
+        const minNz = mfloor(segMinZ * invCell);
+        const maxNz = mfloor(segMaxZ * invCell);
+
+        let nx = minNx;
+        while (nx <= maxNx) {
+          const hashNx = nx * 73856093;
+          let ny = minNy;
+          while (ny <= maxNy) {
+            const hashNxy = hashNx ^ (ny * 19349663);
+            let nz = minNz;
+            while (nz <= maxNz) {
+              const bucket = (hashNxy ^ (nz * 83492791)) & SGRID_MASK;
+              let k = sDynHead[bucket];
+              while (k !== -1) {
+                if (sVisitedStamp[k] !== stamp) {
+                  sVisitedStamp[k] = stamp;
+                  if (passesFilter(mask, layer, includeTriggers, k)) {
+                    const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId);
+                    if (hit) {
+                      if (sTempRayHit.distance < closestDist) {
+                        closestDist = sTempRayHit.distance;
+                        outHit.hit = true;
+                        outHit.bodyId = sTempRayHit.bodyId;
+                        outHit.point[0] = sTempRayHit.point[0];
+                        outHit.point[1] = sTempRayHit.point[1];
+                        outHit.point[2] = sTempRayHit.point[2];
+                        outHit.normal[0] = sTempRayHit.normal[0];
+                        outHit.normal[1] = sTempRayHit.normal[1];
+                        outHit.normal[2] = sTempRayHit.normal[2];
+                        outHit.distance = sTempRayHit.distance;
+                        outHit.stepId = sTempRayHit.stepId;
+                        found = true;
+                      }
+                    }
+                  }
                 }
+                k = sDynNext[k];
               }
+              nz = nz + 1;
             }
+            ny = ny + 1;
           }
-          k = sDynNext[k];
+          nx = nx + 1;
         }
 
         if (tMaxX < tMaxY) {
