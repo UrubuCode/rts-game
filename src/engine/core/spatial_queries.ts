@@ -84,17 +84,33 @@ const SGRID_MASK = 8191;
 
 let sActiveScene: Scene | null = null;
 let sHead: number[] = new Array(SGRID_CAP).fill(-1);
-let sStaticHead: number[] = new Array(SGRID_CAP).fill(-1);
 let sUsedBuckets: number[] = new Array(SGRID_CAP).fill(0);
 let sUsedBucketsCount = 0;
+
+let sStaticHead: number[] = new Array(SGRID_CAP).fill(-1);
 let sStaticUsedBuckets: number[] = new Array(SGRID_CAP).fill(0);
 let sStaticUsedBucketsCount = 0;
+let sStaticEntriesCap = 32768;
+let sStaticEntriesObj: number[] = new Array(sStaticEntriesCap).fill(0);
+let sStaticEntriesNext: number[] = new Array(sStaticEntriesCap).fill(0);
+let sStaticEntriesCount = 0;
+let sStaticCellSize = 2.0;
+let sStaticInvCellSize = 0.5;
+let sStaticMaxHalfExtent = 0.5;
+
+function growStaticEntries(): void {
+  const newCap = sStaticEntriesCap * 2;
+  while (sStaticEntriesObj.length < newCap) {
+    sStaticEntriesObj.push(0);
+    sStaticEntriesNext.push(0);
+  }
+  sStaticEntriesCap = newCap;
+}
 
 let sEntriesCap = 32768;
 let sEntriesObj: number[] = new Array(sEntriesCap).fill(0);
 let sEntriesNext: number[] = new Array(sEntriesCap).fill(0);
 let sEntriesCount = 0;
-let sStaticEntriesCount = 0;
 
 let sObjs: GameObject[] = [];
 let sTrs: Transform[] = [];
@@ -237,7 +253,6 @@ function rebuildDynamicsInto(
   minZArr: f64[], maxZArr: f64[],
   invCellSize: f64,
   head: number[],
-  staticHead: number[],
   usedBuckets: number[],
   startUsedCount: number,
   entriesObj: number[],
@@ -326,35 +341,35 @@ function rebuildDynamicsInto(
       const hxy11 = hx1 ^ hy1;
 
       const b0 = (hxy00 ^ hz0) & mask;
-      if (head[b0] === staticHead[b0]) { usedBuckets[usedCount] = b0; usedCount = usedCount + 1; }
+      if (head[b0] === -1) { usedBuckets[usedCount] = b0; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b0]; head[b0] = entriesCount; entriesCount = entriesCount + 1;
 
       const b1 = (hxy00 ^ hz1) & mask;
-      if (head[b1] === staticHead[b1]) { usedBuckets[usedCount] = b1; usedCount = usedCount + 1; }
+      if (head[b1] === -1) { usedBuckets[usedCount] = b1; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b1]; head[b1] = entriesCount; entriesCount = entriesCount + 1;
 
       const b2 = (hxy01 ^ hz0) & mask;
-      if (head[b2] === staticHead[b2]) { usedBuckets[usedCount] = b2; usedCount = usedCount + 1; }
+      if (head[b2] === -1) { usedBuckets[usedCount] = b2; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b2]; head[b2] = entriesCount; entriesCount = entriesCount + 1;
 
       const b3 = (hxy01 ^ hz1) & mask;
-      if (head[b3] === staticHead[b3]) { usedBuckets[usedCount] = b3; usedCount = usedCount + 1; }
+      if (head[b3] === -1) { usedBuckets[usedCount] = b3; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b3]; head[b3] = entriesCount; entriesCount = entriesCount + 1;
 
       const b4 = (hxy10 ^ hz0) & mask;
-      if (head[b4] === staticHead[b4]) { usedBuckets[usedCount] = b4; usedCount = usedCount + 1; }
+      if (head[b4] === -1) { usedBuckets[usedCount] = b4; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b4]; head[b4] = entriesCount; entriesCount = entriesCount + 1;
 
       const b5 = (hxy10 ^ hz1) & mask;
-      if (head[b5] === staticHead[b5]) { usedBuckets[usedCount] = b5; usedCount = usedCount + 1; }
+      if (head[b5] === -1) { usedBuckets[usedCount] = b5; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b5]; head[b5] = entriesCount; entriesCount = entriesCount + 1;
 
       const b6 = (hxy11 ^ hz0) & mask;
-      if (head[b6] === staticHead[b6]) { usedBuckets[usedCount] = b6; usedCount = usedCount + 1; }
+      if (head[b6] === -1) { usedBuckets[usedCount] = b6; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b6]; head[b6] = entriesCount; entriesCount = entriesCount + 1;
 
       const b7 = (hxy11 ^ hz1) & mask;
-      if (head[b7] === staticHead[b7]) { usedBuckets[usedCount] = b7; usedCount = usedCount + 1; }
+      if (head[b7] === -1) { usedBuckets[usedCount] = b7; usedCount = usedCount + 1; }
       entriesObj[entriesCount] = k; entriesNext[entriesCount] = head[b7]; head[b7] = entriesCount; entriesCount = entriesCount + 1;
     } else {
       let gx = minGx;
@@ -366,7 +381,7 @@ function rebuildDynamicsInto(
           let gz = minGz;
           while (gz <= maxGz) {
             const bucket = (gxy ^ (gz * hzMult)) & mask;
-            if (head[bucket] === staticHead[bucket]) {
+            if (head[bucket] === -1) {
               usedBuckets[usedCount] = bucket;
               usedCount = usedCount + 1;
             }
@@ -418,7 +433,8 @@ export function spatialRebuildIndex(sc?: Scene): void {
     sTrs.length = 0;
     sStaticCount = 0;
     sDynamicCount = 0;
-    let maxHalfExtent: f64 = 0.5;
+    let maxStaticHalfExtent: f64 = 0.5;
+    let maxDynamicHalfExtent: f64 = 0.5;
 
     let i = 0;
     while (i < n) {
@@ -457,9 +473,6 @@ export function spatialRebuildIndex(sc?: Scene): void {
         const hx = lhx * t.sx;
         const hy = lhy * t.sy;
         const hz = lhz * t.sz;
-        if (hx > maxHalfExtent) maxHalfExtent = hx;
-        if (hy > maxHalfExtent) maxHalfExtent = hy;
-        if (hz > maxHalfExtent) maxHalfExtent = hz;
 
         sWorldHx[k] = hx;
         sWorldHy[k] = hy;
@@ -467,9 +480,15 @@ export function spatialRebuildIndex(sc?: Scene): void {
         sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
 
         if (isStat !== 0) {
+          if (hx > maxStaticHalfExtent) maxStaticHalfExtent = hx;
+          if (hy > maxStaticHalfExtent) maxStaticHalfExtent = hy;
+          if (hz > maxStaticHalfExtent) maxStaticHalfExtent = hz;
           sStaticIndices[sStaticCount] = k;
           sStaticCount = sStaticCount + 1;
         } else {
+          if (hx > maxDynamicHalfExtent) maxDynamicHalfExtent = hx;
+          if (hy > maxDynamicHalfExtent) maxDynamicHalfExtent = hy;
+          if (hz > maxDynamicHalfExtent) maxDynamicHalfExtent = hz;
           sDynamicIndices[sDynamicCount] = k;
           sDynamicCount = sDynamicCount + 1;
         }
@@ -477,19 +496,25 @@ export function spatialRebuildIndex(sc?: Scene): void {
       i = i + 1;
     }
 
-    // Célula dimensionada dinamicamente para 2 * maiorMeiaExtensão (§5.1)
-    sCellSize = maxHalfExtent * 2.0;
+    // Célula estática dimensionada dinamicamente para 2 * maiorMeiaExtensãoEstática
+    sStaticMaxHalfExtent = maxStaticHalfExtent;
+    sStaticCellSize = maxStaticHalfExtent * 2.0;
+    if (sStaticCellSize < 2.0) sStaticCellSize = 2.0;
+    sStaticInvCellSize = 1.0 / sStaticCellSize;
+
+    // Célula dinâmica dimensionada para 2 * maiorMeiaExtensão dinâmica
+    sCellSize = maxDynamicHalfExtent * 2.0;
     if (sCellSize < 2.0) sCellSize = 2.0;
     sInvCellSize = 1.0 / sCellSize;
 
-    // Limpa buckets para indexação dos estáticos
+    // Limpa buckets estáticos
     let b = 0;
-    while (b < sUsedBucketsCount) {
-      sHead[sUsedBuckets[b]] = -1;
+    while (b < sStaticUsedBucketsCount) {
+      sStaticHead[sStaticUsedBuckets[b]] = -1;
       b = b + 1;
     }
-    sUsedBucketsCount = 0;
-    sEntriesCount = 0;
+    sStaticUsedBucketsCount = 0;
+    sStaticEntriesCount = 0;
 
     sStaticSceneMinX = 1e30; sStaticSceneMaxX = -1e30;
     sStaticSceneMinY = 1e30; sStaticSceneMaxY = -1e30;
@@ -539,12 +564,12 @@ export function spatialRebuildIndex(sc?: Scene): void {
       if (minZ < sStaticSceneMinZ) sStaticSceneMinZ = minZ;
       if (maxZ > sStaticSceneMaxZ) sStaticSceneMaxZ = maxZ;
 
-      const minGx = mfloor(minX * sInvCellSize);
-      const maxGx = mfloor(maxX * sInvCellSize);
-      const minGy = mfloor(minY * sInvCellSize);
-      const maxGy = mfloor(maxY * sInvCellSize);
-      const minGz = mfloor(minZ * sInvCellSize);
-      const maxGz = mfloor(maxZ * sInvCellSize);
+      const minGx = mfloor(minX * sStaticInvCellSize);
+      const maxGx = mfloor(maxX * sStaticInvCellSize);
+      const minGy = mfloor(minY * sStaticInvCellSize);
+      const maxGy = mfloor(maxY * sStaticInvCellSize);
+      const minGz = mfloor(minZ * sStaticInvCellSize);
+      const maxGz = mfloor(maxZ * sStaticInvCellSize);
 
       let gx = minGx;
       while (gx <= maxGx) {
@@ -555,16 +580,16 @@ export function spatialRebuildIndex(sc?: Scene): void {
           let gz = minGz;
           while (gz <= maxGz) {
             const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
-            if (sHead[bucket] === -1) {
-              sUsedBuckets[sUsedBucketsCount] = bucket;
-              sUsedBucketsCount = sUsedBucketsCount + 1;
+            if (sStaticHead[bucket] === -1) {
+              sStaticUsedBuckets[sStaticUsedBucketsCount] = bucket;
+              sStaticUsedBucketsCount = sStaticUsedBucketsCount + 1;
             }
-            const entryIdx = sEntriesCount;
-            sEntriesCount = sEntriesCount + 1;
-            if (sEntriesCount >= sEntriesCap) growEntries();
-            sEntriesObj[entryIdx] = k;
-            sEntriesNext[entryIdx] = sHead[bucket];
-            sHead[bucket] = entryIdx;
+            const entryIdx = sStaticEntriesCount;
+            sStaticEntriesCount = sStaticEntriesCount + 1;
+            if (sStaticEntriesCount >= sStaticEntriesCap) growStaticEntries();
+            sStaticEntriesObj[entryIdx] = k;
+            sStaticEntriesNext[entryIdx] = sStaticHead[bucket];
+            sStaticHead[bucket] = entryIdx;
             gz = gz + 1;
           }
           gy = gy + 1;
@@ -574,37 +599,20 @@ export function spatialRebuildIndex(sc?: Scene): void {
       si = si + 1;
     }
 
-    // Salva snapshot dos buckets estáticos
-    sStaticEntriesCount = sEntriesCount;
-    sStaticUsedBucketsCount = sUsedBucketsCount;
-    let sb = 0;
-    while (sb < sUsedBucketsCount) {
-      const bucket = sUsedBuckets[sb];
-      sStaticUsedBuckets[sb] = bucket;
-      sStaticHead[bucket] = sHead[bucket];
-      sb = sb + 1;
-    }
-
     sLastSceneVersion = compVer;
   }
 
-  // Restaura estado estático para os buckets usados anteriormente
+  // Limpa apenas os buckets dinâmicos usados no passo anterior
   let b = 0;
   while (b < sUsedBucketsCount) {
-    const bucket = sUsedBuckets[b];
-    sHead[bucket] = sStaticHead[bucket];
+    sHead[sUsedBuckets[b]] = -1;
     b = b + 1;
   }
-  sUsedBucketsCount = sStaticUsedBucketsCount;
-  let sb = 0;
-  while (sb < sStaticUsedBucketsCount) {
-    sUsedBuckets[sb] = sStaticUsedBuckets[sb];
-    sb = sb + 1;
-  }
-  sEntriesCount = sStaticEntriesCount;
+  sUsedBucketsCount = 0;
+  sEntriesCount = 0;
 
   // Garante capacidade antes do laço para não alocar dentro
-  const neededEntries = sStaticEntriesCount + sDynamicCount * 8;
+  const neededEntries = sDynamicCount * 8;
   while (sEntriesCap < neededEntries) {
     growEntries();
   }
@@ -623,7 +631,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
     sLocalCx, sLocalCy, sLocalCz,
     sWorldCx, sWorldCy, sWorldCz,
     sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
-    sInvCellSize, sHead, sStaticHead,
+    sInvCellSize, sHead,
     sUsedBuckets, sUsedBucketsCount,
     sEntriesObj, sEntriesNext, sEntriesCount,
     sRebuildStatsOut,
@@ -954,6 +962,115 @@ function raycastObject(
 
 const sTempRayHit: RaycastHit = createRaycastHit();
 
+function raycastStaticDDA(
+  ox: f64, oy: f64, oz: f64,
+  ndx: f64, ndy: f64, ndz: f64,
+  maxDistance: f64,
+  outHit: RaycastHit,
+  mask: number,
+  layer: number,
+  includeTriggers: boolean,
+  curStepId: number,
+  stamp: number,
+): boolean {
+  if (sStaticCount === 0) return false;
+
+  const cell = sStaticCellSize;
+  const invCell = sStaticInvCellSize;
+
+  const endX = ox + ndx * maxDistance;
+  const endY = oy + ndy * maxDistance;
+  const endZ = oz + ndz * maxDistance;
+  const minRx = ox < endX ? ox : endX;
+  const maxRx = ox > endX ? ox : endX;
+  const minRy = oy < endY ? oy : endY;
+  const maxRy = oy > endY ? oy : endY;
+  const minRz = oz < endZ ? oz : endZ;
+  const maxRz = oz > endZ ? oz : endZ;
+
+  if (maxRx < sStaticSceneMinX || minRx > sStaticSceneMaxX ||
+      maxRy < sStaticSceneMinY || minRy > sStaticSceneMaxY ||
+      maxRz < sStaticSceneMinZ || minRz > sStaticSceneMaxZ) {
+    return false;
+  }
+
+  let closestDist = maxDistance + 1.0;
+  let found = false;
+
+  let gx = mfloor(ox * invCell);
+  let gy = mfloor(oy * invCell);
+  let gz = mfloor(oz * invCell);
+
+  let stepX = 0; let tDeltaX = 1e30; let tMaxX = 1e30;
+  if (ndx > 0.000000001) {
+    stepX = 1; tDeltaX = cell / ndx; tMaxX = ((gx + 1) * cell - ox) / ndx;
+  } else if (ndx < -0.000000001) {
+    stepX = -1; tDeltaX = (0.0 - cell) / ndx; tMaxX = (gx * cell - ox) / ndx;
+  }
+
+  let stepY = 0; let tDeltaY = 1e30; let tMaxY = 1e30;
+  if (ndy > 0.000000001) {
+    stepY = 1; tDeltaY = cell / ndy; tMaxY = ((gy + 1) * cell - oy) / ndy;
+  } else if (ndy < -0.000000001) {
+    stepY = -1; tDeltaY = (0.0 - cell) / ndy; tMaxY = (gy * cell - oy) / ndy;
+  }
+
+  let stepZ = 0; let tDeltaZ = 1e30; let tMaxZ = 1e30;
+  if (ndz > 0.000000001) {
+    stepZ = 1; tDeltaZ = cell / ndz; tMaxZ = ((gz + 1) * cell - oz) / ndz;
+  } else if (ndz < -0.000000001) {
+    stepZ = -1; tDeltaZ = (0.0 - cell) / ndz; tMaxZ = (gz * cell - oz) / ndz;
+  }
+
+  let tCurrent = 0.0;
+  while (tCurrent <= closestDist && tCurrent <= maxDistance) {
+    const bucket = (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
+    let entry = sStaticHead[bucket];
+    while (entry !== -1) {
+      const k = sStaticEntriesObj[entry];
+      if (sVisitedStamp[k] !== stamp) {
+        sVisitedStamp[k] = stamp;
+        if (passesFilter(mask, layer, includeTriggers, k)) {
+          const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId);
+          if (hit) {
+            if (sTempRayHit.distance < closestDist) {
+              closestDist = sTempRayHit.distance;
+              outHit.hit = true;
+              outHit.bodyId = sTempRayHit.bodyId;
+              outHit.point[0] = sTempRayHit.point[0];
+              outHit.point[1] = sTempRayHit.point[1];
+              outHit.point[2] = sTempRayHit.point[2];
+              outHit.normal[0] = sTempRayHit.normal[0];
+              outHit.normal[1] = sTempRayHit.normal[1];
+              outHit.normal[2] = sTempRayHit.normal[2];
+              outHit.distance = sTempRayHit.distance;
+              outHit.stepId = sTempRayHit.stepId;
+              found = true;
+            }
+          }
+        }
+      }
+      entry = sStaticEntriesNext[entry];
+    }
+
+    if (tMaxX < tMaxY) {
+      if (tMaxX < tMaxZ) {
+        tCurrent = tMaxX; gx = gx + stepX; tMaxX = tMaxX + tDeltaX;
+      } else {
+        tCurrent = tMaxZ; gz = gz + stepZ; tMaxZ = tMaxZ + tDeltaZ;
+      }
+    } else {
+      if (tMaxY < tMaxZ) {
+        tCurrent = tMaxY; gy = gy + stepY; tMaxY = tMaxY + tDeltaY;
+      } else {
+        tCurrent = tMaxZ; gz = gz + stepZ; tMaxZ = tMaxZ + tDeltaZ;
+      }
+    }
+  }
+
+  return found;
+}
+
 export function raycastNonAlloc(
   ox: number, oy: number, oz: number,
   dx: number, dy: number, dz: number,
@@ -978,127 +1095,104 @@ export function raycastNonAlloc(
   const stamp = sQueryStamp;
   const curStepId = getSpatialStepId();
 
-  const cell = sCellSize;
-  const invCell = sInvCellSize;
-
-  // Descarte rápido se o raio não cruza a AABB geral da cena
-  const endX = ox + ndx * maxDistance;
-  const endY = oy + ndy * maxDistance;
-  const endZ = oz + ndz * maxDistance;
-  const minRx = ox < endX ? ox : endX;
-  const maxRx = ox > endX ? ox : endX;
-  const minRy = oy < endY ? oy : endY;
-  const maxRy = oy > endY ? oy : endY;
-  const minRz = oz < endZ ? oz : endZ;
-  const maxRz = oz > endZ ? oz : endZ;
-
-  if (sObjs.length === 0 ||
-      maxRx < sSceneMinX || minRx > sSceneMaxX ||
-      maxRy < sSceneMinY || minRy > sSceneMaxY ||
-      maxRz < sSceneMinZ || minRz > sSceneMaxZ) {
-    outHit.hit = false;
-    return false;
-  }
-
-  let closestDist = maxDistance + 1.0;
+  let closestDist = maxDistance;
   let found = false;
 
-  // DDA 3D (Amanatides–Woo)
-  let gx = mfloor(ox * invCell);
-  let gy = mfloor(oy * invCell);
-  let gz = mfloor(oz * invCell);
-
-  let stepX = 0;
-  let tDeltaX = 1e30;
-  let tMaxX = 1e30;
-  if (ndx > 0.000000001) {
-    stepX = 1;
-    tDeltaX = cell / ndx;
-    tMaxX = ((gx + 1) * cell - ox) / ndx;
-  } else if (ndx < -0.000000001) {
-    stepX = -1;
-    tDeltaX = (0.0 - cell) / ndx;
-    tMaxX = (gx * cell - ox) / ndx;
+  // 1. Raycast contra estáticos (DDA exata atual)
+  if (sStaticCount > 0) {
+    if (raycastStaticDDA(ox, oy, oz, ndx, ndy, ndz, closestDist, outHit, mask, layer, includeTriggers, curStepId, stamp)) {
+      closestDist = outHit.distance;
+      found = true;
+    }
   }
 
-  let stepY = 0;
-  let tDeltaY = 1e30;
-  let tMaxY = 1e30;
-  if (ndy > 0.000000001) {
-    stepY = 1;
-    tDeltaY = cell / ndy;
-    tMaxY = ((gy + 1) * cell - oy) / ndy;
-  } else if (ndy < -0.000000001) {
-    stepY = -1;
-    tDeltaY = (0.0 - cell) / ndy;
-    tMaxY = (gy * cell - oy) / ndy;
-  }
+  // 2. Raycast contra dinâmicos
+  if (sDynamicCount > 0) {
+    const cell = sCellSize;
+    const invCell = sInvCellSize;
 
-  let stepZ = 0;
-  let tDeltaZ = 1e30;
-  let tMaxZ = 1e30;
-  if (ndz > 0.000000001) {
-    stepZ = 1;
-    tDeltaZ = cell / ndz;
-    tMaxZ = ((gz + 1) * cell - oz) / ndz;
-  } else if (ndz < -0.000000001) {
-    stepZ = -1;
-    tDeltaZ = (0.0 - cell) / ndz;
-    tMaxZ = (gz * cell - oz) / ndz;
-  }
+    const endX = ox + ndx * closestDist;
+    const endY = oy + ndy * closestDist;
+    const endZ = oz + ndz * closestDist;
+    const minRx = ox < endX ? ox : endX;
+    const maxRx = ox > endX ? ox : endX;
+    const minRy = oy < endY ? oy : endY;
+    const maxRy = oy > endY ? oy : endY;
+    const minRz = oz < endZ ? oz : endZ;
+    const maxRz = oz > endZ ? oz : endZ;
 
-  let tCurrent = 0.0;
+    if (maxRx >= sSceneMinX && minRx <= sSceneMaxX &&
+        maxRy >= sSceneMinY && minRy <= sSceneMaxY &&
+        maxRz >= sSceneMinZ && minRz <= sSceneMaxZ) {
+      let gx = mfloor(ox * invCell);
+      let gy = mfloor(oy * invCell);
+      let gz = mfloor(oz * invCell);
 
-  while (tCurrent <= closestDist && tCurrent <= maxDistance) {
-    const bucket = (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
-    let entry = sHead[bucket];
-    while (entry !== -1) {
-      const k = sEntriesObj[entry];
-      if (sVisitedStamp[k] !== stamp) {
-        sVisitedStamp[k] = stamp;
-        if (passesFilter(mask, layer, includeTriggers, k)) {
-          const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId);
-          if (hit) {
-            if (sTempRayHit.distance < closestDist) {
-              closestDist = sTempRayHit.distance;
-              outHit.hit = true;
-              outHit.bodyId = sTempRayHit.bodyId;
-              outHit.point[0] = sTempRayHit.point[0];
-              outHit.point[1] = sTempRayHit.point[1];
-              outHit.point[2] = sTempRayHit.point[2];
-              outHit.normal[0] = sTempRayHit.normal[0];
-              outHit.normal[1] = sTempRayHit.normal[1];
-              outHit.normal[2] = sTempRayHit.normal[2];
-              outHit.distance = sTempRayHit.distance;
-              outHit.stepId = sTempRayHit.stepId;
-              found = true;
+      let stepX = 0; let tDeltaX = 1e30; let tMaxX = 1e30;
+      if (ndx > 0.000000001) {
+        stepX = 1; tDeltaX = cell / ndx; tMaxX = ((gx + 1) * cell - ox) / ndx;
+      } else if (ndx < -0.000000001) {
+        stepX = -1; tDeltaX = (0.0 - cell) / ndx; tMaxX = (gx * cell - ox) / ndx;
+      }
+
+      let stepY = 0; let tDeltaY = 1e30; let tMaxY = 1e30;
+      if (ndy > 0.000000001) {
+        stepY = 1; tDeltaY = cell / ndy; tMaxY = ((gy + 1) * cell - oy) / ndy;
+      } else if (ndy < -0.000000001) {
+        stepY = -1; tDeltaY = (0.0 - cell) / ndy; tMaxY = (gy * cell - oy) / ndy;
+      }
+
+      let stepZ = 0; let tDeltaZ = 1e30; let tMaxZ = 1e30;
+      if (ndz > 0.000000001) {
+        stepZ = 1; tDeltaZ = cell / ndz; tMaxZ = ((gz + 1) * cell - oz) / ndz;
+      } else if (ndz < -0.000000001) {
+        stepZ = -1; tDeltaZ = (0.0 - cell) / ndz; tMaxZ = (gz * cell - oz) / ndz;
+      }
+
+      let tCurrent = 0.0;
+      while (tCurrent <= closestDist && tCurrent <= maxDistance) {
+        const bucket = (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
+        let entry = sHead[bucket];
+        while (entry !== -1) {
+          const k = sEntriesObj[entry];
+          if (sVisitedStamp[k] !== stamp) {
+            sVisitedStamp[k] = stamp;
+            if (passesFilter(mask, layer, includeTriggers, k)) {
+              const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId);
+              if (hit) {
+                if (sTempRayHit.distance < closestDist) {
+                  closestDist = sTempRayHit.distance;
+                  outHit.hit = true;
+                  outHit.bodyId = sTempRayHit.bodyId;
+                  outHit.point[0] = sTempRayHit.point[0];
+                  outHit.point[1] = sTempRayHit.point[1];
+                  outHit.point[2] = sTempRayHit.point[2];
+                  outHit.normal[0] = sTempRayHit.normal[0];
+                  outHit.normal[1] = sTempRayHit.normal[1];
+                  outHit.normal[2] = sTempRayHit.normal[2];
+                  outHit.distance = sTempRayHit.distance;
+                  outHit.stepId = sTempRayHit.stepId;
+                  found = true;
+                }
+              }
             }
           }
+          entry = sEntriesNext[entry];
         }
-      }
-      entry = sEntriesNext[entry];
-    }
 
-    // Avança no eixo com menor tMax (Amanatides-Woo 3D)
-    if (tMaxX < tMaxY) {
-      if (tMaxX < tMaxZ) {
-        tCurrent = tMaxX;
-        gx = gx + stepX;
-        tMaxX = tMaxX + tDeltaX;
-      } else {
-        tCurrent = tMaxZ;
-        gz = gz + stepZ;
-        tMaxZ = tMaxZ + tDeltaZ;
-      }
-    } else {
-      if (tMaxY < tMaxZ) {
-        tCurrent = tMaxY;
-        gy = gy + stepY;
-        tMaxY = tMaxY + tDeltaY;
-      } else {
-        tCurrent = tMaxZ;
-        gz = gz + stepZ;
-        tMaxZ = tMaxZ + tDeltaZ;
+        if (tMaxX < tMaxY) {
+          if (tMaxX < tMaxZ) {
+            tCurrent = tMaxX; gx = gx + stepX; tMaxX = tMaxX + tDeltaX;
+          } else {
+            tCurrent = tMaxZ; gz = gz + stepZ; tMaxZ = tMaxZ + tDeltaZ;
+          }
+        } else {
+          if (tMaxY < tMaxZ) {
+            tCurrent = tMaxY; gy = gy + stepY; tMaxY = tMaxY + tDeltaY;
+          } else {
+            tCurrent = tMaxZ; gz = gz + stepZ; tMaxZ = tMaxZ + tDeltaZ;
+          }
+        }
       }
     }
   }
@@ -1433,14 +1527,16 @@ function overlapSphereInto(
   minZArr: f64[], maxZArr: f64[],
   bodyIdArr: number[],
   candHit: OverlapHit,
+  startStoredCount: number,
+  startTotalFound: number,
 ): number {
   const gridMask = 8191;
   const hxMult = 73856093;
   const hyMult = 19349663;
   const hzMult = 83492791;
 
-  let storedCount = 0;
-  let totalFound = 0;
+  let storedCount = startStoredCount;
+  let totalFound = startTotalFound;
 
   let gx = minGx;
   while (gx <= maxGx) {
@@ -1540,24 +1636,57 @@ export function overlapSphereNonAlloc(
   const minQz = cz - radius;
   const maxQz = cz + radius;
 
-  const minGx = mfloor(minQx * sInvCellSize);
-  const maxGx = mfloor(maxQx * sInvCellSize);
-  const minGy = mfloor(minQy * sInvCellSize);
-  const maxGy = mfloor(maxQy * sInvCellSize);
-  const minGz = mfloor(minQz * sInvCellSize);
-  const maxGz = mfloor(maxQz * sInvCellSize);
+  let storedCount = 0;
+  let totalFound = 0;
 
-  return overlapSphereInto(
-    cx, cy, cz, radius,
-    minGx, maxGx, minGy, maxGy, minGz, maxGz,
-    minQx, maxQx, minQy, maxQy, minQz, maxQz,
-    outHits, maxHits, mask, layer, includeTriggers, curStepId,
-    sHead, sEntriesObj, sEntriesNext,
-    sVisitedStamp, stamp,
-    sTrigger, sLayer, sMask,
-    sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
-    sBodyId, sCandidateOverlapHit,
-  );
+  // 1. Estáticos
+  if (sStaticCount > 0) {
+    const minGx = mfloor(minQx * sStaticInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticInvCellSize);
+    const minGy = mfloor(minQy * sStaticInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticInvCellSize);
+    const minGz = mfloor(minQz * sStaticInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticInvCellSize);
+
+    totalFound = overlapSphereInto(
+      cx, cy, cz, radius,
+      minGx, maxGx, minGy, maxGy, minGz, maxGz,
+      minQx, maxQx, minQy, maxQy, minQz, maxQz,
+      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
+      sVisitedStamp, stamp,
+      sTrigger, sLayer, sMask,
+      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
+      sBodyId, sCandidateOverlapHit,
+      0, 0,
+    );
+    storedCount = totalFound < maxHits ? totalFound : maxHits;
+  }
+
+  // 2. Dinâmicos
+  if (sDynamicCount > 0) {
+    const minGx = mfloor(minQx * sInvCellSize);
+    const maxGx = mfloor(maxQx * sInvCellSize);
+    const minGy = mfloor(minQy * sInvCellSize);
+    const maxGy = mfloor(maxQy * sInvCellSize);
+    const minGz = mfloor(minQz * sInvCellSize);
+    const maxGz = mfloor(maxQz * sInvCellSize);
+
+    totalFound = overlapSphereInto(
+      cx, cy, cz, radius,
+      minGx, maxGx, minGy, maxGy, minGz, maxGz,
+      minQx, maxQx, minQy, maxQy, minQz, maxQz,
+      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      sHead, sEntriesObj, sEntriesNext,
+      sVisitedStamp, stamp,
+      sTrigger, sLayer, sMask,
+      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
+      sBodyId, sCandidateOverlapHit,
+      storedCount, totalFound,
+    );
+  }
+
+  return totalFound;
 }
 
 export function overlapSphere(
@@ -1584,47 +1713,94 @@ export function overlapSphere(
   const minQz = cz - radius;
   const maxQz = cz + radius;
 
-  const minGx = mfloor(minQx * sInvCellSize);
-  const maxGx = mfloor(maxQx * sInvCellSize);
-  const minGy = mfloor(minQy * sInvCellSize);
-  const maxGy = mfloor(maxQy * sInvCellSize);
-  const minGz = mfloor(minQz * sInvCellSize);
-  const maxGz = mfloor(maxQz * sInvCellSize);
-
   const result: OverlapHit[] = [];
 
-  let gx = minGx;
-  while (gx <= maxGx) {
-    const hashX = gx * 73856093;
-    let gy = minGy;
-    while (gy <= maxGy) {
-      const gxy = hashX ^ (gy * 19349663);
-      let gz = minGz;
-      while (gz <= maxGz) {
-        const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
-        let entry = sHead[bucket];
-        while (entry !== -1) {
-          const k = sEntriesObj[entry];
-          if (sVisitedStamp[k] !== stamp) {
-            sVisitedStamp[k] = stamp;
-            if (passesFilter(mask, layer, includeTriggers, k)) {
-              if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
-                  sMinY[k] <= maxQy && sMaxY[k] >= minQy &&
-                  sMinZ[k] <= maxQz && sMaxZ[k] >= minQz) {
-                const hit = createOverlapHit();
-                if (overlapSphereObject(k, cx, cy, cz, radius, hit, includeTriggers, curStepId)) {
-                  result.push(hit);
+  // 1. Estáticos
+  if (sStaticCount > 0) {
+    const minGx = mfloor(minQx * sStaticInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticInvCellSize);
+    const minGy = mfloor(minQy * sStaticInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticInvCellSize);
+    const minGz = mfloor(minQz * sStaticInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticInvCellSize);
+
+    let gx = minGx;
+    while (gx <= maxGx) {
+      const hashX = gx * 73856093;
+      let gy = minGy;
+      while (gy <= maxGy) {
+        const gxy = hashX ^ (gy * 19349663);
+        let gz = minGz;
+        while (gz <= maxGz) {
+          const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
+          let entry = sStaticHead[bucket];
+          while (entry !== -1) {
+            const k = sStaticEntriesObj[entry];
+            if (sVisitedStamp[k] !== stamp) {
+              sVisitedStamp[k] = stamp;
+              if (passesFilter(mask, layer, includeTriggers, k)) {
+                if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
+                    sMinY[k] <= maxQy && sMaxY[k] >= minQy &&
+                    sMinZ[k] <= maxQz && sMaxZ[k] >= minQz) {
+                  const hit = createOverlapHit();
+                  if (overlapSphereObject(k, cx, cy, cz, radius, hit, includeTriggers, curStepId)) {
+                    result.push(hit);
+                  }
                 }
               }
             }
+            entry = sStaticEntriesNext[entry];
           }
-          entry = sEntriesNext[entry];
+          gz = gz + 1;
         }
-        gz = gz + 1;
+        gy = gy + 1;
       }
-      gy = gy + 1;
+      gx = gx + 1;
     }
-    gx = gx + 1;
+  }
+
+  // 2. Dinâmicos
+  if (sDynamicCount > 0) {
+    const minGx = mfloor(minQx * sInvCellSize);
+    const maxGx = mfloor(maxQx * sInvCellSize);
+    const minGy = mfloor(minQy * sInvCellSize);
+    const maxGy = mfloor(maxQy * sInvCellSize);
+    const minGz = mfloor(minQz * sInvCellSize);
+    const maxGz = mfloor(maxQz * sInvCellSize);
+
+    let gx = minGx;
+    while (gx <= maxGx) {
+      const hashX = gx * 73856093;
+      let gy = minGy;
+      while (gy <= maxGy) {
+        const gxy = hashX ^ (gy * 19349663);
+        let gz = minGz;
+        while (gz <= maxGz) {
+          const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
+          let entry = sHead[bucket];
+          while (entry !== -1) {
+            const k = sEntriesObj[entry];
+            if (sVisitedStamp[k] !== stamp) {
+              sVisitedStamp[k] = stamp;
+              if (passesFilter(mask, layer, includeTriggers, k)) {
+                if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
+                    sMinY[k] <= maxQy && sMaxY[k] >= minQy &&
+                    sMinZ[k] <= maxQz && sMaxZ[k] >= minQz) {
+                  const hit = createOverlapHit();
+                  if (overlapSphereObject(k, cx, cy, cz, radius, hit, includeTriggers, curStepId)) {
+                    result.push(hit);
+                  }
+                }
+              }
+            }
+            entry = sEntriesNext[entry];
+          }
+          gz = gz + 1;
+        }
+        gy = gy + 1;
+      }
+      gx = gx + 1;
+    }
   }
 
   if (result.length > 1) {
@@ -1936,14 +2112,16 @@ function overlapBoxInto(
   minZArr: f64[], maxZArr: f64[],
   bodyIdArr: number[],
   candHit: OverlapHit,
+  startStoredCount: number,
+  startTotalFound: number,
 ): number {
   const gridMask = 8191;
   const hxMult = 73856093;
   const hyMult = 19349663;
   const hzMult = 83492791;
 
-  let storedCount = 0;
-  let totalFound = 0;
+  let storedCount = startStoredCount;
+  let totalFound = startTotalFound;
 
   let gx = minGx;
   while (gx <= maxGx) {
@@ -2037,24 +2215,57 @@ export function overlapBoxNonAlloc(
   const minQz = cz - hz;
   const maxQz = cz + hz;
 
-  const minGx = mfloor(minQx * sInvCellSize);
-  const maxGx = mfloor(maxQx * sInvCellSize);
-  const minGy = mfloor(minQy * sInvCellSize);
-  const maxGy = mfloor(maxQy * sInvCellSize);
-  const minGz = mfloor(minQz * sInvCellSize);
-  const maxGz = mfloor(maxQz * sInvCellSize);
+  let storedCount = 0;
+  let totalFound = 0;
 
-  return overlapBoxInto(
-    cx, cy, cz, hx, hy, hz,
-    minGx, maxGx, minGy, maxGy, minGz, maxGz,
-    minQx, maxQx, minQy, maxQy, minQz, maxQz,
-    outHits, maxHits, mask, layer, includeTriggers, curStepId,
-    sHead, sEntriesObj, sEntriesNext,
-    sVisitedStamp, stamp,
-    sTrigger, sLayer, sMask,
-    sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
-    sBodyId, sCandidateOverlapHit,
-  );
+  // 1. Estáticos
+  if (sStaticCount > 0) {
+    const minGx = mfloor(minQx * sStaticInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticInvCellSize);
+    const minGy = mfloor(minQy * sStaticInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticInvCellSize);
+    const minGz = mfloor(minQz * sStaticInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticInvCellSize);
+
+    totalFound = overlapBoxInto(
+      cx, cy, cz, hx, hy, hz,
+      minGx, maxGx, minGy, maxGy, minGz, maxGz,
+      minQx, maxQx, minQy, maxQy, minQz, maxQz,
+      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
+      sVisitedStamp, stamp,
+      sTrigger, sLayer, sMask,
+      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
+      sBodyId, sCandidateOverlapHit,
+      0, 0,
+    );
+    storedCount = totalFound < maxHits ? totalFound : maxHits;
+  }
+
+  // 2. Dinâmicos
+  if (sDynamicCount > 0) {
+    const minGx = mfloor(minQx * sInvCellSize);
+    const maxGx = mfloor(maxQx * sInvCellSize);
+    const minGy = mfloor(minQy * sInvCellSize);
+    const maxGy = mfloor(maxQy * sInvCellSize);
+    const minGz = mfloor(minQz * sInvCellSize);
+    const maxGz = mfloor(maxQz * sInvCellSize);
+
+    totalFound = overlapBoxInto(
+      cx, cy, cz, hx, hy, hz,
+      minGx, maxGx, minGy, maxGy, minGz, maxGz,
+      minQx, maxQx, minQy, maxQy, minQz, maxQz,
+      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      sHead, sEntriesObj, sEntriesNext,
+      sVisitedStamp, stamp,
+      sTrigger, sLayer, sMask,
+      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
+      sBodyId, sCandidateOverlapHit,
+      storedCount, totalFound,
+    );
+  }
+
+  return totalFound;
 }
 
 export function overlapBox(
@@ -2081,47 +2292,94 @@ export function overlapBox(
   const minQz = cz - hz;
   const maxQz = cz + hz;
 
-  const minGx = mfloor(minQx * sInvCellSize);
-  const maxGx = mfloor(maxQx * sInvCellSize);
-  const minGy = mfloor(minQy * sInvCellSize);
-  const maxGy = mfloor(maxQy * sInvCellSize);
-  const minGz = mfloor(minQz * sInvCellSize);
-  const maxGz = mfloor(maxQz * sInvCellSize);
-
   const result: OverlapHit[] = [];
 
-  let gx = minGx;
-  while (gx <= maxGx) {
-    const hashX = gx * 73856093;
-    let gy = minGy;
-    while (gy <= maxGy) {
-      const gxy = hashX ^ (gy * 19349663);
-      let gz = minGz;
-      while (gz <= maxGz) {
-        const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
-        let entry = sHead[bucket];
-        while (entry !== -1) {
-          const k = sEntriesObj[entry];
-          if (sVisitedStamp[k] !== stamp) {
-            sVisitedStamp[k] = stamp;
-            if (passesFilter(mask, layer, includeTriggers, k)) {
-              if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
-                  sMinY[k] <= maxQy && sMaxY[k] >= minQy &&
-                  sMinZ[k] <= maxQz && sMaxZ[k] >= minQz) {
-                const hit = createOverlapHit();
-                if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, hit, includeTriggers, curStepId)) {
-                  result.push(hit);
+  // 1. Estáticos
+  if (sStaticCount > 0) {
+    const minGx = mfloor(minQx * sStaticInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticInvCellSize);
+    const minGy = mfloor(minQy * sStaticInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticInvCellSize);
+    const minGz = mfloor(minQz * sStaticInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticInvCellSize);
+
+    let gx = minGx;
+    while (gx <= maxGx) {
+      const hashX = gx * 73856093;
+      let gy = minGy;
+      while (gy <= maxGy) {
+        const gxy = hashX ^ (gy * 19349663);
+        let gz = minGz;
+        while (gz <= maxGz) {
+          const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
+          let entry = sStaticHead[bucket];
+          while (entry !== -1) {
+            const k = sStaticEntriesObj[entry];
+            if (sVisitedStamp[k] !== stamp) {
+              sVisitedStamp[k] = stamp;
+              if (passesFilter(mask, layer, includeTriggers, k)) {
+                if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
+                    sMinY[k] <= maxQy && maxYArr[k] >= minQy &&
+                    sMinZ[k] <= maxQz && maxZArr[k] >= minQz) {
+                  const hit = createOverlapHit();
+                  if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, hit, includeTriggers, curStepId)) {
+                    result.push(hit);
+                  }
                 }
               }
             }
+            entry = sStaticEntriesNext[entry];
           }
-          entry = sEntriesNext[entry];
+          gz = gz + 1;
         }
-        gz = gz + 1;
+        gy = gy + 1;
       }
-      gy = gy + 1;
+      gx = gx + 1;
     }
-    gx = gx + 1;
+  }
+
+  // 2. Dinâmicos
+  if (sDynamicCount > 0) {
+    const minGx = mfloor(minQx * sInvCellSize);
+    const maxGx = mfloor(maxQx * sInvCellSize);
+    const minGy = mfloor(minQy * sInvCellSize);
+    const maxGy = mfloor(maxQy * sInvCellSize);
+    const minGz = mfloor(minQz * sInvCellSize);
+    const maxGz = mfloor(maxQz * sInvCellSize);
+
+    let gx = minGx;
+    while (gx <= maxGx) {
+      const hashX = gx * 73856093;
+      let gy = minGy;
+      while (gy <= maxGy) {
+        const gxy = hashX ^ (gy * 19349663);
+        let gz = minGz;
+        while (gz <= maxGz) {
+          const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
+          let entry = sHead[bucket];
+          while (entry !== -1) {
+            const k = sEntriesObj[entry];
+            if (sVisitedStamp[k] !== stamp) {
+              sVisitedStamp[k] = stamp;
+              if (passesFilter(mask, layer, includeTriggers, k)) {
+                if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
+                    sMinY[k] <= maxQy && sMaxY[k] >= minQy &&
+                    sMinZ[k] <= maxQz && sMaxZ[k] >= minQz) {
+                  const hit = createOverlapHit();
+                  if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, hit, includeTriggers, curStepId)) {
+                    result.push(hit);
+                  }
+                }
+              }
+            }
+            entry = sEntriesNext[entry];
+          }
+          gz = gz + 1;
+        }
+        gy = gy + 1;
+      }
+      gx = gx + 1;
+    }
   }
 
   if (result.length > 1) {
