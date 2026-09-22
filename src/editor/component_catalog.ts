@@ -1,20 +1,7 @@
 // Metadados do navegador de componentes, sem dependencias de render ou runtime.
 // O nome e a chave usada pela fabrica e pela serializacao: nao traduza essa chave.
-export const COMPONENT_CATALOG = [
-  { name: "Camera", category: "Renderização", description: "Define a câmera usada pelo jogo.", keywords: "camera visão perspectiva" },
-  { name: "MeshRenderer", category: "Renderização", description: "Desenha a malha do objeto.", keywords: "malha modelo mesh" },
-  { name: "Material", category: "Renderização", description: "Configura a superfície do objeto.", keywords: "cor textura aparência" },
-  { name: "Rigidbody", category: "Física", description: "Aplica gravidade e movimento físico.", keywords: "fisica corpo gravidade" },
-  { name: "PhysicsMaterial", category: "Física", description: "Ajusta atrito e restituição.", keywords: "fisica colisão atrito" },
-  { name: "AudioSource", category: "Áudio", description: "Emite som a partir do objeto.", keywords: "audio som beep" },
-  { name: "Animator", category: "Animação", description: "Anima propriedades com keyframes.", keywords: "animacao keyframe" },
-  { name: "Spinner", category: "Scripts", description: "Gira o objeto continuamente.", keywords: "girar rotação" },
-  { name: "Bobber", category: "Scripts", description: "Move o objeto para cima e baixo.", keywords: "flutuar oscilar" },
-  { name: "Mover", category: "Scripts", description: "Move o objeto em uma direção.", keywords: "mover translação" },
-  { name: "Pulse", category: "Scripts", description: "Varia a escala periodicamente.", keywords: "pulsar escala" },
-  { name: "Orbit", category: "Scripts", description: "Move o objeto em uma órbita.", keywords: "orbita círculo" },
-  { name: "Patrol", category: "Scripts", description: "Move o objeto em ida e volta.", keywords: "patrulha movimento" },
-];
+import { COMPONENT_CATALOG } from "@engine/generated/component_catalog";
+export { COMPONENT_CATALOG } from "@engine/generated/component_catalog";
 
 export const COMPONENT_NAMES: string[] = [];
 export const COMPONENT_CATEGORIES: string[] = [];

@@ -17,7 +17,7 @@ if "%NOME%"=="" set NOME=RTSGame
 
 echo [build] compilando game.ts em build\%NOME%.exe
 if not exist build mkdir build
-.\rts.exe compile game.ts build\%NOME%.exe
+node tools\rts-build.mjs game.ts build\%NOME%.exe
 if errorlevel 1 (
   echo [build] FALHOU na compilacao
   pause

@@ -9,11 +9,16 @@
 
 import { Behavior, KIND_RENDERER } from "./behavior";
 
+/**
+ * @componentCategory Renderização
+ * @componentDescription Desenha a malha do objeto.
+ * @componentKeywords malha modelo mesh
+ */
 export class MeshRenderer extends Behavior {
   meshKind: number;   // 1=cubo 2=pirâmide 3=octaedro 4=esfera (0 = usar customMesh)
   customMesh: number; // id de mesh .obj (>0) — tem prioridade sobre meshKind
 
-  constructor(meshKind: number) {
+  constructor(meshKind: number = 1) {
     super();
     this.meshKind = meshKind;
     this.customMesh = 0;

@@ -21,9 +21,17 @@ import { GameObject } from "@engine/core/gameobject";
 import { Scene } from "@engine/core/scene";
 import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
 import { Transform } from "@engine/core/transform";
-import { numField, propertyField, assetField, AXIS_X, AXIS_Y, AXIS_Z, subStr, nfEditing, nfCancel } from "@editor/widgets";
+import { subStr, nfEditing, nfCancel } from "@editor/widgets";
 import { createComponent } from "@editor/components";
-import { ComponentPicker } from "@editor/component_picker";
+import { Inspector } from "@editor/inspector";
+import { EditorUI } from "@editor/ui_controls";
+import { dropScriptOnObject, scriptDropError } from "@editor/script_drop";
+import { ScriptEditor } from "@editor/script_editor";
+import { UI_SCRIPT_DROP, UI_CODE_EDITOR } from "@editor/ui_config";
+import { PreferencesPanel } from "@editor/preferences_panel";
+import { PlayToolbar } from "@editor/play_toolbar";
+import { playMode } from "@editor/play_mode";
+import { UI_PLAY } from "@editor/ui_config";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
 import { scene, S } from "@editor/control/session";
@@ -65,9 +73,7 @@ import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_
          UI_HIER_MIN, UI_INSP_MIN, UI_PROJECT_MIN, UI_SCENE_MIN_W, UI_SCENE_MIN_H,
          UI_HIER_HEADER_H, UI_HIER_SEARCH_H, UI_HIER_ROW_H, UI_HIER_INDENT,
          UI_HIER_SCROLL_STEP, UI_HIER_DROP_EDGE, UI_SCROLL_THUMB_MIN_H,
-         UI_COMPONENT_ROW_H, UI_COMPONENT_HEADER_STEP, UI_COMPONENT_FIELD_STEP,
-         UI_COMPONENT_PICKER, UI_INSPECTOR_FOOTER_H, UI_INSPECTOR_COMPONENT_TOP,
-         UI_INSPECTOR_SCROLL_STEP, UI_CONTEXT_W, UI_CONTEXT_ROW_H,
+         UI_CONTEXT_W, UI_CONTEXT_ROW_H,
          UI_MENU_W, UI_MENU_ROW_H, UI_MENU_PADDING, UI_MENU_START_X, UI_MENU_GAP,
          UI_SCENE_HEADER_H, UI_TOOL_X, UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H,
          UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H, UI_TOOL_BUTTON_STEP, UI_CONTROL_Y, UI_CONTROL_H,
@@ -142,7 +148,13 @@ let dragging = 0;
 let gizmoAxis = 0 - 1;   // eixo do gizmo que está sendo arrastado (-1 = nenhum)
 let prevF = 0;           // estado anterior da tecla F (edge-detection do focus)
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
-const componentPicker = new ComponentPicker();
+const inspector = new Inspector(app);
+const scriptDropUI = new EditorUI(app, "Editor/ScriptDrop");
+const scriptEditor = new ScriptEditor();
+const preferencesPanel = new PreferencesPanel(app);
+let scriptNotice = "";
+let scriptNoticeFrames = 0;
+const playToolbar = new PlayToolbar(app);
 
 // conversão rad↔graus + wrap [0,360) pra rotação no inspector
 const RAD2DEG: f64 = 57.2957795;
@@ -364,9 +376,6 @@ let lastMy: f64 = 0.0;
 // lidos no handler de drop (que roda depois, no fim do frame).
 let slotTexHot = 0;
 let slotMeshHot = 0;
-let inspectorScroll = 0;
-let inspectorSelection = 0 - 1;
-let inspectorBarDrag = 0;
 // PREVIEW VIVO do drag: o asset arrastado já é instanciado na cena e segue o
 // cursor pelo chão (como na Unity). previewIdx = índice do objeto-preview na
 // cena (-1 = nenhum); previewPay = payload que o gerou, pra não recriar por frame.
@@ -422,7 +431,7 @@ function frame(): void {
   if (ASSET_H < UI_PROJECT_MIN) ASSET_H = UI_PROJECT_MIN;
 
   // ── input de câmera (fly): WASD move, setas olham, espaço sobe ────────────
-  const textEditing = app.isFocused(950) || app.isFocused(951) || app.isFocused(952);
+  const textEditing = app.hasTextFocus();
   const ctrlHeld = input.modCtrl(WIN);
   const flyInput = textEditing || ctrlHeld || addMenuOpen !== 0 ? 0 : 1;
   const kW = flyInput !== 0 ? app.keyDown(122) : 0;
@@ -597,9 +606,18 @@ function frame(): void {
   // nada de selecionar/mover objeto ou pegar eixo de gizmo neste frame.
   const dndOn = assetDragActive();
   const dndPay = assetDragPayload();
+  const dndScript = dndOn !== 0 && dndPay.indexOf("script:") === 0;
+  const scriptPath = dndScript ? subStr(dndPay, dndPay.indexOf(":") + 1, dndPay.length) : "";
   const dndTex = dndOn !== 0 && dndPay.charCodeAt(0) === 116 ? 1 : 0;      // "tex:"
   const dndModel = dndOn !== 0 && dndPay.charCodeAt(0) === 109 ? 1 : 0;    // "model:"
   const cpt2 = math.cos(S.camPitch); const spt2 = math.sin(S.camPitch);
+  let scriptTarget = 0 - 1;
+  if (dndScript && layoutDrag === 0 && helpOpen === 0 && menuOpen === 0 && ctxOn === 0 && addMenuOpen === 0) {
+    if (inViewport) scriptTarget = pickObjectAt(mx, my, cyw, syw, cpt2, spt2);
+    else if (mx >= 0 && mx < HIER_W && my >= HIER_LIST_TOP && my < H - UI_STATUS_H) scriptTarget = hierRowAt(my);
+    else if (mx > W - INSP_W && mx < W && my > BAR_H && my < H - UI_STATUS_H) scriptTarget = S.selected;
+  }
+  const scriptError = dndScript ? scriptDropError(scriptPath, scriptTarget) : "";
 
   // ── PREVIEW VIVO DO DRAG (estilo Unity): assim que o asset arrastado entra no
   // viewport ele é INSTANCIADO de verdade e passa a seguir o cursor pelo chão —
@@ -899,34 +917,22 @@ function frame(): void {
     menuButtonX = menuButtonX + UI_MENU_BUTTON_W[mt] + UI_MENU_GAP;
     mt = mt + 1;
   }
-  app.text(14, 39, "RTS", UI_C.brandText, 16);
+  app.text(14, 39, "RTS • " + scene.name, UI_C.brandText, 16);
 
-  // — play controls CENTRALIZADOS (Play / Pause) —
-  const pcx = W / 2 - 60;
-  const stPlay = app.clickable(900, pcx, UI_CONTROL_Y, 58, UI_CONTROL_H);
-  let fPlay = UI_C.controlIdle;
-  if (S.playing !== 0) fPlay = UI_C.controlActive; else if (stPlay === 1) fPlay = UI_C.controlHover;
-  app.box(pcx, UI_CONTROL_Y, 58, UI_CONTROL_H, fPlay, 1, UI_C.border, 3);
-  app.text(pcx + 10, 39, "Rodar", UI_C.controlText, 12);
-  if (stPlay === 3 && menuOpen === 0 && helpOpen === 0) S.playing = 1;
-  const stPause = app.clickable(901, pcx + 62, UI_CONTROL_Y, 58, UI_CONTROL_H);
-  let fPause = UI_C.controlIdle;
-  if (S.playing === 0) fPause = UI_C.controlActive; else if (stPause === 1) fPause = UI_C.controlHover;
-  app.box(pcx + 62, UI_CONTROL_Y, 58, UI_CONTROL_H, fPause, 1, UI_C.border, 3);
-  app.text(pcx + 70, 39, "Pausar", UI_C.controlText, 12);
-  if (stPause === 3 && menuOpen === 0 && helpOpen === 0) S.playing = 0;
+  playToolbar.render(W, menuOpen !== 0 || helpOpen !== 0 || addMenuOpen !== 0);
 
   // — BUILD: gera o .exe do JOGO (game.ts + assets), não o editor —
   // A compilação leva ~1min e process.wait BLOQUEIA, então dispara em background
   // (cmd /c start) e só reporta; o resultado aparece em build/.
   const bxBuild = W - 260;
-  const stBuild = app.clickable(924, bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H);
+  const stBuild = S.simulating === 0 ? app.clickable(924, bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H) : 0;
   let fBuild = UI_C.buildIdle;                       // verde: é a ação de "publicar"
   if (stBuild === 1) fBuild = UI_C.buildHover;
   if (buildMsgFrames > 0) fBuild = UI_C.controlActive;   // azul enquanto mostra o aviso
+  if (S.simulating !== 0) fBuild = UI_C.controlIdle;
   app.box(bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H, fBuild, 1, UI_C.border, 3);
-  app.text(bxBuild + 8, 39, "Build", UI_C.buildText, 12);
-  if (stBuild === 3 && menuOpen === 0 && helpOpen === 0) {
+  app.text(bxBuild + 8, 39, "Build", S.simulating === 0 ? UI_C.buildText : UI_C.disabledText, 12);
+  if (stBuild === 3 && menuOpen === 0 && helpOpen === 0 && S.simulating === 0) {
     saveScene("assets/scene.json");   // o jogo carrega esta cena: salva antes
     startBuild();
     buildMsgFrames = 420;             // ~7s de aviso na barra de status
@@ -934,10 +940,10 @@ function frame(): void {
 
   // Ações de arquivo e histórico ficam juntas à direita.
   const bxSave = W - 204;
-  const stSave = app.clickable(920, bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H);
+  const stSave = S.simulating === 0 ? app.clickable(920, bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H) : 0;
   app.box(bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H, stSave === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3);
-  app.text(bxSave + 7, 39, "Salvar", UI_C.primaryText, 11);
-  if (stSave === 3 && menuOpen === 0 && helpOpen === 0) saveScene("assets/scene.json");
+  app.text(bxSave + 7, 39, "Salvar", S.simulating === 0 ? UI_C.primaryText : UI_C.disabledText, 11);
+  if (stSave === 3 && menuOpen === 0 && helpOpen === 0 && S.simulating === 0) saveScene("assets/scene.json");
   const bxUndo = W - 152;
   const stUndoB = app.clickable(922, bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H);
   app.box(bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H, stUndoB === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3);
@@ -1088,6 +1094,7 @@ function frame(): void {
     if (hierDrag >= 0 && dropMode === 2 && dropIdx === hi && hi !== hierDrag) fill = UI_C.rowDropTarget; // vira filho
     // arrastando uma TEXTURA do Project sobre esta linha → alvo do drop
     if (dndOn !== 0 && inRow && dndTex !== 0) fill = UI_C.rowDropTarget;
+    if (dndScript && scriptTarget === hi && scriptError.length === 0) fill = UI_C.rowDropTarget;
     app.box(8 + indent, ry0 + 1, HIER_W - 16 - indent, UI_HIER_ROW_H - 2, fill, 0, 0, 5);
     if (depth > 0) app.text(8 + indent - 12, ry0 + 5, "└", UI_C.hierarchyBranch, 14);
     let icon = "[C]";
@@ -1166,226 +1173,28 @@ function frame(): void {
 
   secEnd(P_UI_HIER);
   secBegin(P_UI_INSP);
-  // ── inspector (direita) ─────────────────────────────────────────────────────
-  const ix = W - INSP_W;
-  app.box(ix, BAR_H, INSP_W, H - BAR_H, UI_C.panel, 0, 0, 0);
-  app.line(ix, BAR_H, ix, H, 1, UI_C.border);
-  // header/tab
-  app.box(ix, BAR_H, INSP_W, UI_HIER_HEADER_H, UI_C.panelHeader, 0, 0, 0);
-  app.box(ix + 4, BAR_H + 2, 84, 20, UI_C.panelTab, 0, 0, 3);
-  app.text(ix + 12, BAR_H + 5, "Inspector", UI_C.panelTitle, 12);
-  app.line(ix, BAR_H + UI_HIER_HEADER_H, W, BAR_H + UI_HIER_HEADER_H, 1, UI_C.border);
-  slotTexHot = 0;
-  slotMeshHot = 0;
-  if (S.selected !== inspectorSelection) {
-    inspectorScroll = 0;
-    inspectorSelection = S.selected;
-    addMenuOpen = 0;
-    if (app.isFocused(UI_COMPONENT_PICKER.searchId)) app.setFocus(0 - 1);
-    nfCancel();
-  }
-  if (S.selected < 0 || S.selected >= scene.objects.length) {
-    app.text(ix + 18, BAR_H + 42, "Nenhum objeto selecionado", UI_C.inspectorEmptyTitle, 14);
-    app.text(ix + 18, BAR_H + 68, "Crie ou selecione um objeto", UI_C.inspectorEmptyHint, 12);
-    app.text(ix + 18, BAR_H + 86, "na Hierarquia ou na Cena.", UI_C.inspectorEmptyHint, 12);
-  } else {
-  const sel = scene.objects[S.selected];
-  const inspDown = addMenuOpen === 0 ? mDownNow : 0;
-  const inspPress = addMenuOpen === 0 ? mPressed : 0;
-  // faixa do nome do objeto
-  app.box(ix + 6, BAR_H + 30, INSP_W - 12, 22, UI_C.controlIdle, 0, 0, 3);
-  // nome EDITÁVEL (clicar pra digitar) — estilo campo de nome do Inspector Unity
-  sel.name = app.textField(951, ix + 14, BAR_H + 28, INSP_W - 28, sel.name, addMenuOpen === 0 && menuOpen === 0 && helpOpen === 0);
-  // pai + desaninhar
-  if (sel.parent >= 0 && sel.parent < scene.objects.length) {
-    app.text(ix + 14, BAR_H + 62, "Pai: " + scene.objects[sel.parent].name, UI_C.parentText, 12);
-    const bUn = addMenuOpen === 0 && app.button(ix + INSP_W - 108, BAR_H + 58, 94, 20, "Desaninhar");
-    if (bUn) sel.parent = 0 - 1;
-  } else {
-    app.text(ix + 14, BAR_H + 62, "Pai: (raiz)", UI_C.disabledText, 12);
-  }
-  // ── Transform: campos numéricos X/Y/Z (scrub arrastando), estilo Unity ──────
-  app.text(ix + 10, BAR_H + 74, "Transform", UI_C.sectionTitle, 13);
-  const fx0 = ix + 66; const fw = 60; const g2 = 3;
-  app.text(ix + 10, BAR_H + 96, "Position", UI_C.parentText, 12);
-  sel.transform.px = numField(WIN, 510, fx0, BAR_H + 92, fw, "X", AXIS_X, sel.transform.px, mx, my, inspDown, inspPress);
-  sel.transform.py = numField(WIN, 511, fx0 + fw + g2, BAR_H + 92, fw, "Y", AXIS_Y, sel.transform.py, mx, my, inspDown, inspPress);
-  sel.transform.pz = numField(WIN, 512, fx0 + (fw + g2) * 2, BAR_H + 92, fw, "Z", AXIS_Z, sel.transform.pz, mx, my, inspDown, inspPress);
-  app.text(ix + 10, BAR_H + 122, "Rotation", UI_C.parentText, 12);
-  // Rotação em GRAUS dando a volta 0–360 (interno é radiano e acumula; converte
-  // pra graus + wrap pro display/edição — estilo Unity, não um número que só sobe).
-  let rxD = numField(WIN, 520, fx0, BAR_H + 118, fw, "X", AXIS_X, wrapDeg(sel.transform.rx * RAD2DEG), mx, my, inspDown, inspPress);
-  let ryD = numField(WIN, 521, fx0 + fw + g2, BAR_H + 118, fw, "Y", AXIS_Y, wrapDeg(sel.transform.ry * RAD2DEG), mx, my, inspDown, inspPress);
-  let rzD = numField(WIN, 522, fx0 + (fw + g2) * 2, BAR_H + 118, fw, "Z", AXIS_Z, wrapDeg(sel.transform.rz * RAD2DEG), mx, my, inspDown, inspPress);
-  sel.transform.rx = wrapDeg(rxD) * DEG2RAD;
-  sel.transform.ry = wrapDeg(ryD) * DEG2RAD;
-  sel.transform.rz = wrapDeg(rzD) * DEG2RAD;
-  app.text(ix + 10, BAR_H + 148, "Scale", UI_C.parentText, 12);
-  const nsx = numField(WIN, 530, fx0, BAR_H + 144, fw, "X", AXIS_X, sel.transform.sx, mx, my, inspDown, inspPress);
-  const nsy = numField(WIN, 531, fx0 + fw + g2, BAR_H + 144, fw, "Y", AXIS_Y, sel.transform.sy, mx, my, inspDown, inspPress);
-  const nsz = numField(WIN, 532, fx0 + (fw + g2) * 2, BAR_H + 144, fw, "Z", AXIS_Z, sel.transform.sz, mx, my, inspDown, inspPress);
-  if (sel.transform.sx !== nsx) scene.markCollidersDirty();   // raio de colisão cacheado
-  sel.transform.sx = nsx; sel.transform.sy = nsy; sel.transform.sz = nsz;
-
-  // ── mesh + textura: SLOTS que aceitam DROP do Project (estilo Unity) ─────────
-  // O slot de Mesh mostra o .obj carregado (ou o primitivo); o de Textura mostra
-  // a imagem do Material. Arrastar um asset compatível de baixo acende a borda.
-  let meshName = "Cubo";
-  if (sel.meshKind === 2) meshName = "Piramide";
-  if (sel.meshKind === 3) meshName = "Octaedro";
-  if (sel.meshKind === 4) meshName = "Esfera";
-  let meshShow = meshName;
-  if (sel.customMesh > 0 && sel.meshPath.length > 0) meshShow = sel.meshPath;
-  slotMeshHot = assetField(WIN, ix + 14, BAR_H + 176, INSP_W - 28, 20, "Mesh", meshShow, dndModel, mx, my);
-  // path da textura atual (via Material, com fallback pro campo legado)
-  let texShow = "";
-  if (sel.matIdx >= 0) texShow = sel.behaviors[sel.matIdx].matTexPath();
-  slotTexHot = assetField(WIN, ix + 14, BAR_H + 200, INSP_W - 28, 20, "Textura", texShow, dndTex, mx, my);
-  if (addMenuOpen !== 0) { slotMeshHot = 0; slotTexHot = 0; }
-
-  const bMesh = addMenuOpen === 0 && app.button(ix + 14, BAR_H + 224, 104, 22, "Trocar");
-  if (bMesh) {
-    sel.meshKind = sel.meshKind + 1; if (sel.meshKind > 4) sel.meshKind = 1;
-    sel.customMesh = 0; sel.meshPath = "";   // voltar pro primitivo descarta o .obj
-  }
-  {
-    // Trocar "Estatico" muda quem PODE se mover, e isso é cacheado (Scene.cIdx):
-    // sem invalidar, o objeto continuaria estático (ou móvel) até a próxima
-    // mutação da cena.
-    const wasStat = sel.stationary;
-    if (addMenuOpen === 0) sel.stationary = app.checkbox(ix + 134, BAR_H + 226, sel.stationary, "Estatico");
-    if (sel.stationary !== wasStat) scene.markCollidersDirty();
-  }
-
-  // ── componentes do objeto — cada um com CABEÇALHO + campos de CONFIG editáveis
-  //    + botão remover; e a lista "Add Component" no fim (estilo Inspector Unity)
-  app.text(ix + 14, BAR_H + 242, "COMPONENTES", UI_C.primaryText, 14);
-  const compTop = BAR_H + UI_INSPECTOR_COMPONENT_TOP;
-  const compBottom = H - UI_INSPECTOR_FOOTER_H - 2;
-  if (mx > ix && my >= compTop && my < compBottom && addMenuOpen === 0) {
-    const wheel: f64 = input.wheel(WIN);
-    if (wheel > 0.5) inspectorScroll = inspectorScroll - UI_INSPECTOR_SCROLL_STEP;
-    else if (wheel < 0.0 - 0.5) inspectorScroll = inspectorScroll + UI_INSPECTOR_SCROLL_STEP;
-    if (wheel > 0.5 || wheel < 0.0 - 0.5) nfCancel();
-    if (inspectorScroll < 0) inspectorScroll = 0;
-  }
-  let bc = 0;
-  let cyc = compTop - inspectorScroll;
-  let removeIdx = 0 - 1;
-  while (bc < sel.behaviors.length) {
-    // ── CABEÇALHO estilo foldout Unity: ▼/▶ colapsar + checkbox enabled + nome + X ──
-    const headerVisible = cyc >= compTop && cyc + UI_COMPONENT_ROW_H <= compBottom;
-    if (headerVisible) app.box(ix + 14, cyc, INSP_W - 28, UI_COMPONENT_ROW_H, UI_C.componentHeader, 1, UI_C.border, 4);
-    const collapsed = sel.behaviors[bc].collapsed;
-    // triângulo de colapsar (clicável)
-    const stTri = headerVisible && addMenuOpen === 0 ? app.clickable(560 + bc, ix + 16, cyc, 18, UI_COMPONENT_ROW_H) : 0;
-    if (headerVisible) app.text(ix + 20, cyc + 3, collapsed !== 0 ? ">" : "v", UI_C.componentChevron, 13);
-    if (stTri === 3) sel.behaviors[bc].collapsed = collapsed !== 0 ? 0 : 1;
-    // checkbox enabled
-    const en = sel.behaviors[bc].enabled;
-    const stCk = headerVisible && addMenuOpen === 0 ? app.clickable(580 + bc, ix + 34, cyc + 4, 14, 14) : 0;
-    if (headerVisible) app.box(ix + 34, cyc + 4, 14, 14, en !== 0 ? UI_C.componentEnabled : UI_C.scrollbarTrack, 1, UI_C.border, 2);
-    if (stCk === 3) sel.behaviors[bc].enabled = en !== 0 ? 0 : 1;
-    if (headerVisible) app.text(ix + 54, cyc + 4, sel.behaviors[bc].typeName(), UI_C.inspectorEmptyTitle, 13);
-    const bDel = headerVisible && addMenuOpen === 0 ? app.button(ix + INSP_W - 42, cyc + 2, 20, 18, "x") : false;
-    if (bDel) removeIdx = bc;
-    cyc = cyc + UI_COMPONENT_HEADER_STEP;
-    // campos de config — só quando EXPANDIDO
-    if (sel.behaviors[bc].collapsed === 0) {
-      const nf = sel.behaviors[bc].fieldCount();
-      let fi = 0;
-      while (fi < nf) {
-        const id = 600 + bc * 20 + fi;
-        if (cyc >= compTop && cyc + 20 <= compBottom) {
-          const nv = propertyField(WIN, id, ix + 24, cyc, INSP_W - 52, sel.behaviors[bc].fieldLabel(fi),
-            sel.behaviors[bc].fieldGet(fi), mx, my, addMenuOpen === 0 ? mDownNow : 0, addMenuOpen === 0 ? mPressed : 0);
-          sel.behaviors[bc].fieldSet(fi, nv);
-        }
-        cyc = cyc + UI_COMPONENT_FIELD_STEP;
-        fi = fi + 1;
-      }
-      cyc = cyc + 6;
-    }
-    bc = bc + 1;
-  }
-  if (sel.behaviors.length === 0) {
-    if (cyc >= compTop && cyc < compBottom) app.text(ix + 22, cyc, "(nenhum componente)", UI_C.disabledText, 12);
-    cyc = cyc + UI_COMPONENT_ROW_H;
-  }
-  // remove após o loop (não mexe no array durante a iteração)
-  if (removeIdx >= 0) { history.snapshot(); sel.removeBehavior(removeIdx); scene.markCollidersDirty(); }
-
-  // ── ADD COMPONENT: botão que abre um DROPDOWN com CAMPO DE BUSCA + lista ─────
-  let maxInspectorScroll = cyc + inspectorScroll + 8 - compBottom;
-  if (maxInspectorScroll < 0) maxInspectorScroll = 0;
-  if (inspectorScroll > maxInspectorScroll) inspectorScroll = maxInspectorScroll;
-  if (maxInspectorScroll > 0 && compBottom > compTop + UI_SCROLL_THUMB_MIN_H) {
-    const trackH = compBottom - compTop;
-    let thumbH = (trackH * trackH / (trackH + maxInspectorScroll)) | 0;
-    if (thumbH < UI_SCROLL_THUMB_MIN_H) thumbH = UI_SCROLL_THUMB_MIN_H;
-    if (addMenuOpen === 0 && mPressed !== 0 && mx >= W - 13 && mx < W && my >= compTop && my < compBottom) inspectorBarDrag = 1;
-    if (mDownNow === 0) inspectorBarDrag = 0;
-    if (inspectorBarDrag !== 0) {
-      const span = trackH - thumbH;
-      let f: f64 = span > 0 ? (my - compTop - thumbH * 0.5) / span : 0.0;
-      if (f < 0.0) f = 0.0;
-      if (f > 1.0) f = 1.0;
-      inspectorScroll = (f * maxInspectorScroll) | 0;
-    }
-    const thumbY = compTop + ((trackH - thumbH) * inspectorScroll / maxInspectorScroll);
-    app.box(W - 8, compTop, 5, trackH, UI_C.componentScrollTrack, 0, 0, 2);
-    app.box(W - 8, thumbY, 5, thumbH, UI_C.componentScrollThumb, 0, 0, 2);
-  }
-  app.box(ix, H - UI_INSPECTOR_FOOTER_H, INSP_W, UI_INSPECTOR_FOOTER_H, UI_C.panelHeader, 0, 0, 0);
-  app.line(ix, H - UI_INSPECTOR_FOOTER_H, W, H - UI_INSPECTOR_FOOTER_H, 1, UI_C.border);
-  const addButtonY = H - UI_INSPECTOR_FOOTER_H + (UI_INSPECTOR_FOOTER_H - UI_COMPONENT_PICKER.buttonH) / 2;
-  const bAddC = app.button(ix + UI_COMPONENT_PICKER.margin, addButtonY,
-    INSP_W - UI_COMPONENT_PICKER.margin * 2, UI_COMPONENT_PICKER.buttonH, "+ " + UI_COMPONENT_PICKER.title);
-  if (bAddC) {
-    if (addMenuOpen === 0) { addMenuOpen = 1; componentPicker.begin(app); nfCancel(); }
-    else { addMenuOpen = 0; app.setFocus(0 - 1); }
-  }
-  if (addMenuOpen !== 0) {
-    if (menuOpen !== 0 || helpOpen !== 0) { addMenuOpen = 0; app.setFocus(0 - 1); }
-    else {
-      const chosen = componentPicker.draw(app, ix + UI_COMPONENT_PICKER.margin,
-        H - UI_INSPECTOR_FOOTER_H - UI_COMPONENT_PICKER.gap, INSP_W - UI_COMPONENT_PICKER.margin * 2,
-        BAR_H + UI_HIER_HEADER_H, mx, my,
-        bAddC || (mx >= ix && my >= H - UI_INSPECTOR_FOOTER_H) ? 0 : mPressed, input.wheel(WIN));
-      if (chosen.length > 0) {
-        history.snapshot();
-        const component = createComponent(chosen);
-        sel.addBehavior(component);
-        component.mount();
-        // Igual ao fluxo de adicionar fisica pelo controle do editor: um
-        // integrador novo nao pode ficar preso na lista de objetos estaticos.
-        if (component.bodyIntegrates() !== 0) { sel.stationary = 0; sel.refreshCollide(); }
-        scene.markCollidersDirty();
-        // Mostra os campos do novo componente, mesmo se a lista ja estiver longa.
-        const added = sel.behaviors[sel.behaviors.length - 1];
-        inspectorScroll = Math.max(0, cyc + inspectorScroll + UI_COMPONENT_HEADER_STEP +
-          added.fieldCount() * UI_COMPONENT_FIELD_STEP + UI_COMPONENT_PICKER.padding - compBottom);
-      }
-      if (chosen.length > 0 || componentPicker.closed) { addMenuOpen = 0; app.setFocus(0 - 1); }
-    }
-  }
-
-  }
+  // Inspector: raiz e controles sao GameObjects de uma UIScene do editor.
+  inspector.render(app, W - INSP_W, BAR_H, INSP_W, H - BAR_H, mx, my,
+    mDownNow, mPressed, menuOpen !== 0 || helpOpen !== 0, dndModel, dndTex);
+  addMenuOpen = inspector.opened;
+  slotMeshHot = inspector.meshHot;
+  slotTexHot = inspector.textureHot;
   secEnd(P_UI_INSP);
   // ── barra inferior (status bar estilo Unity) sobre a área do viewport ───────
   const vpx = HIER_W;
   const vpw = W - HIER_W - INSP_W;
   app.box(vpx, H - UI_STATUS_H, vpw, UI_STATUS_H, UI_C.controlIdle, 0, 0, 0);
   app.line(vpx, H - UI_STATUS_H, vpx + vpw, H - UI_STATUS_H, 1, UI_C.border);
-  let modeTxt = "Editando";
-  if (S.playing !== 0) modeTxt = "Simulando";
+  let modeTxt = UI_PLAY.editing;
+  if (S.simulating !== 0) modeTxt = S.playing !== 0 ? UI_PLAY.running : UI_PLAY.paused;
+  if (playMode.error.length > 0) modeTxt = playMode.error;
   app.text(vpx + 10, H - 19, modeTxt + "  •  " + scene.objects.length + " objetos", UI_C.statusText, 12);
   // Barra de status: normalmente a dica de controles; após clicar em Build,
   // o aviso do build por alguns segundos (a compilação roda em outra janela).
   if (buildMsgFrames > 0) {
     buildMsgFrames = buildMsgFrames - 1;
-    if (vpw > 520) app.text(vpx + 185, H - 19, "Build iniciado • saída em build/RTSGame.exe", UI_C.dropMarker, 11);
-  } else if (vpw > 600) {
+    if (vpw > 520 && S.simulating === 0) app.text(vpx + 185, H - 19, "Build iniciado • saída em build/RTSGame.exe", UI_C.dropMarker, 11);
+  } else if (vpw > 600 && S.simulating === 0 && playMode.error.length === 0) {
     app.text(vpx + 185, H - 19, "WASD câmera • F enquadra • arraste assets do Project", UI_C.hint, 11);
   }
 
@@ -1394,7 +1203,7 @@ function frame(): void {
   const apY = H - UI_STATUS_H - ASSET_H;
   const apW = W - HIER_W - INSP_W;
   secBegin(P_UI_PROJ);
-  const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, mPressed, mDownNow, frames);
+  const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, helpOpen === 0 ? mPressed : 0, mDownNow, frames);
   secEnd(P_UI_PROJ);
   const splitLeft = layoutDrag === 1 || (mx >= HIER_W - 5 && mx <= HIER_W + 5 && my > BAR_H);
   const splitRight = layoutDrag === 2 || (mx >= W - INSP_W - 5 && mx <= W - INSP_W + 5 && my > BAR_H);
@@ -1405,7 +1214,10 @@ function frame(): void {
   if (assetAct.length > 0) {
     const path = assetAct.substring(assetAct.indexOf(":") + 1);
     const c0 = assetAct.charCodeAt(0);
-    if (c0 === 115) {                          // "scene:" → recarrega a cena
+    if (assetAct.indexOf("script:") === 0) {
+      scriptEditor.open(path);
+    } else if (c0 === 115) {                          // "scene:" → recarrega a cena
+      playMode.stop();
       loadSceneFrom(path);
       S.selected = 0;
     } else if (c0 === 116) {                   // "tex:" → aplica no obj selecionado
@@ -1434,7 +1246,11 @@ function frame(): void {
     const kind = subStr(pay, 0, cut);
     const dpath = subStr(pay, cut + 1, pay.length);
 
-    if (inViewport) {
+    if (kind === "script") {
+      const error = dropScriptOnObject(dpath, scriptTarget);
+      scriptNotice = error.length > 0 ? error : "Componente adicionado em " + scene.objects[scriptTarget].name;
+      scriptNoticeFrames = UI_SCRIPT_DROP.noticeFrames;
+    } else if (inViewport) {
       if (previewIdx >= 0) {
         // já existe o PREVIEW no lugar certo: soltar apenas o confirma (vira
         // objeto definitivo) — nada de instanciar de novo.
@@ -1472,7 +1288,7 @@ function frame(): void {
 
   // ── OVERLAY DO DRAG & DROP (por último: fica acima de tudo) ────────────────
   if (dndOn !== 0) {
-    if (inViewport) {
+    if (inViewport && !dndScript) {
       // alvo do drop: marca o objeto sob o cursor (textura) ou o ponto do chão
       const prevObj = dndTex !== 0 ? pickObjectAt(mx, my, cyw, syw, cpt2, spt2) : 0 - 1;
       if (prevObj >= 0) {
@@ -1498,6 +1314,26 @@ function frame(): void {
     // dentro do viewport o próprio objeto renderizado já é a prévia.
     if (previewIdx < 0) drawAssetDragGhost(WIN, mx, my);
   }
+
+  // Feedback controls are persistent GameObjects in the editor-only UI scene.
+  scriptDropUI.begin(mx, my, 0, 0);
+  if (scriptEditor.message.length > 0) {
+    scriptNotice = scriptEditor.message; scriptEditor.message = "";
+    scriptNoticeFrames = UI_SCRIPT_DROP.noticeFrames;
+  }
+  if (dndScript || scriptNoticeFrames > 0) {
+    const caption = dndScript ? (scriptError.length > 0 ? scriptError : UI_SCRIPT_DROP.ready + scene.objects[scriptTarget].name) : scriptNotice;
+    const width = Math.min(UI_SCRIPT_DROP.width, W - UI_SCRIPT_DROP.padding * 2);
+    const x = dndScript ? Math.max(UI_SCRIPT_DROP.padding, Math.min(mx + UI_SCRIPT_DROP.cursorX, W - width - UI_SCRIPT_DROP.padding)) : HIER_W + UI_SCRIPT_DROP.noticeX;
+    const y = dndScript ? Math.min(my + UI_SCRIPT_DROP.cursorY, H - UI_SCRIPT_DROP.height - UI_SCRIPT_DROP.padding) : BAR_H + UI_SCENE_HEADER_H + UI_SCRIPT_DROP.noticeY;
+    const panel = scriptDropUI.control("Feedback", "panel", x, y, width, UI_SCRIPT_DROP.height, "", false);
+    panel.fill = UI_C.popupDark; scriptDropUI.draw(panel);
+    const label = scriptDropUI.control("Caption", "label", x + UI_SCRIPT_DROP.padding, y, width - UI_SCRIPT_DROP.padding * 2, UI_SCRIPT_DROP.height, caption, false);
+    label.color = dndScript && scriptError.length > 0 ? UI_C.destructiveText : UI_C.dropMarker;
+    scriptDropUI.draw(label);
+    if (!dndScript) scriptNoticeFrames = scriptNoticeFrames - 1;
+  }
+  scriptDropUI.end();
 
   // ── MENU DE CONTEXTO (por último: fica ACIMA de tudo) ─────────────────────
   // Desenhado no fim do frame de propósito — a UI é imediata, então quem desenha
@@ -1569,7 +1405,7 @@ function frame(): void {
     else if (menuOpen === 2) entries = UI_EDIT_ACTIONS;
     else if (menuOpen === 3) entries = OBJECT_PRESET_LABELS;
     else if (menuOpen === 4) entries = [S.snap !== 0 ? "Grade: ligada" : "Grade: desligada",
-                                       vsyncOn !== 0 ? "VSync: ligado" : "VSync: desligado", "Restaurar layout"];
+                                       vsyncOn !== 0 ? "VSync: ligado" : "VSync: desligado", "Restaurar layout", UI_CODE_EDITOR.title];
     else entries = UI_HELP_ACTIONS;
     const menuW = UI_MENU_W;
     const menuH = UI_MENU_PADDING + entries.length * UI_MENU_ROW_H;
@@ -1591,11 +1427,11 @@ function frame(): void {
       if (activeMenu === 1) {
         if (chosen === 0) { assetsOpenScenes(); ASSET_H = math.max(ASSET_H, UI_PROJECT_DEFAULT + 30); }
         else if (chosen === 1) {
-          history.snapshot(); scene.clear(); scene.name = "Nova cena";
+          playMode.stop(); history.snapshot(); scene.clear(); scene.name = "Nova cena";
           S.selected = 0 - 1; S.selection = []; S.playing = 0;
           hierFilter = ""; hierScroll = 0; S.hierScroll = 0;
         } else if (chosen === 2) saveScene("assets/scene.json");
-        else if (chosen === 3) { saveScene("assets/scene.json"); startBuild(); buildMsgFrames = 420; }
+        else if (chosen === 3 && S.simulating === 0) { saveScene("assets/scene.json"); startBuild(); buildMsgFrames = 420; }
       } else if (activeMenu === 2) {
         if (chosen === 0) history.undo();
         else if (chosen === 1) history.redo();
@@ -1617,13 +1453,15 @@ function frame(): void {
         if (chosen === 0) S.snap = S.snap !== 0 ? 0 : 1;
         else if (chosen === 1) { vsyncOn = vsyncOn !== 0 ? 0 : 1; setVsync(WIN, vsyncOn); }
         else if (chosen === 2) { HIER_W = UI_HIER_DEFAULT; INSP_W = UI_INSP_DEFAULT; ASSET_H = UI_PROJECT_DEFAULT; }
+        else if (chosen === 3) { helpOpen = 2; preferencesPanel.open(); assetDragClear(); }
       } else if (activeMenu === 5) helpOpen = 1;
     }
     const overGlobalMenu = mx >= menuX && mx < menuX + menuW && my >= UI_MENU_H && my < UI_MENU_H + menuH;
     if (mPressed !== 0 && my >= UI_MENU_H && !overGlobalMenu) menuOpen = 0;
   }
 
-  if (helpOpen !== 0) {
+  if (helpOpen === 2 && preferencesPanel.render(W, H, mx, my, mDownNow, mPressed)) helpOpen = 0;
+  if (helpOpen === 1) {
     const hw = math.min(370, W - HIER_W - INSP_W - 30);
     const hx = HIER_W + (W - HIER_W - INSP_W - hw) / 2;
     const hy = BAR_H + 90;

@@ -473,6 +473,7 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
           else if (t === T_SCENE) action = "scene:" + full;
           else if (t === T_PREFAB) action = "prefab:" + full;
           else if (t === T_IMAGE) action = "tex:" + full;   // aplica no obj selecionado
+          else if (t === T_SCRIPT) { action = "script:" + full; assetDragClear(); }
         }
         lastClickIdx = i;
         lastClickMs = agora;

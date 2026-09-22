@@ -25,12 +25,24 @@ import { Collider, SHAPE_BOX } from "../engine/core/collider";
 import { hullForMesh } from "../engine/core/hullmesh";
 import { setLight, setAmbient } from "../engine/render/mesh";
 import { loadModel } from "../engine/render/model";
+import { restoreRegisteredComponent } from "../engine/generated/components";
+import { componentToData } from "../engine/components";
+import { componentMetadata } from "../engine/core/component_metadata";
+import { MissingScript } from "../engine/core/missing_script";
 
 /// Recria 1 Behavior a partir do seu descritor (o que toData() produz). Fábrica
-/// única usada pelo load (buildObject) E pelo clone (cloneObject). Tipo desconhecido
-/// → Behavior base (no-op inofensivo). Não trata material/meshRenderer (a aparência
-/// vai pelos campos do GameObject; o SceneRef é marcador e não re-instancia).
+/// única usada pelo load, clone e Play. Scripts gerados usam seus metadados;
+/// os descritores antigos continuam aceitos. Tipo ausente preserva os dados
+/// num MissingScript, em vez de descarta-los silenciosamente ao salvar.
 export function recreateBehavior(sd: any): Behavior {
+  const component = recreateBehaviorInner(sd);
+  componentMetadata.provider.restoreLegacyFields(component, sd.componentFields);
+  return component;
+}
+
+function recreateBehaviorInner(sd: any): Behavior {
+  const registered = restoreRegisteredComponent(sd);
+  if (registered !== null) return registered;
   const t = sd.type !== undefined ? sd.type : sd.t;
   if (t === "spin") return new Spinner(sd.sy, sd.sx);
   if (t === "bob") return new Bobber(sd.amp, sd.freq, sd.base);
@@ -102,7 +114,7 @@ export function recreateBehavior(sd: any): Behavior {
     r.customMesh = sd.customMesh;
     return r;
   }
-  return new Behavior();
+  return new MissingScript(sd);
 }
 
 /// Clona um GameObject: transform+aparência (cloneShallow) + os SCRIPTS de gameplay
@@ -112,7 +124,7 @@ export function cloneObject(src: GameObject): GameObject {
   const g = src.cloneShallow();
   let i = 0;
   while (i < src.behaviors.length) {
-    const d = src.behaviors[i].toData();   // clona TODOS os componentes que serializam
+    const d = componentToData(src.behaviors[i]);
     if (d !== null) g.addBehavior(recreateBehavior(d));
     i = i + 1;
   }
@@ -125,7 +137,7 @@ export function objectToData(go: GameObject): any {
   const scripts: any[] = [];
   let i = 0;
   while (i < go.behaviors.length) {
-    const d = go.behaviors[i].toData();
+    const d = componentToData(go.behaviors[i]);
     if (d !== null) scripts.push(d);
     i = i + 1;
   }

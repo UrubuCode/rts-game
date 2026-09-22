@@ -29,15 +29,37 @@ export class UIScene {
     return this.scene.createGameObject(name, 0, 0, 0, 0, parentIdx);
   }
 
+  isVisible(index: number): boolean {
+    if (index < 0 || index >= this.panels.length) return false;
+    let current = index;
+    let depth = 0;
+    while (current >= 0 && current < this.panels.length && depth < this.panels.length) {
+      const object = this.panels[current];
+      if (object.active === 0) return false;
+      current = object.parent;
+      depth = depth + 1;
+    }
+    return current < 0; // parentes invalidos/ciclicos nao recebem input nem desenho
+  }
+
+  drawObject(index: number, win: i64, w: f64, h: f64): void {
+    if (!this.isVisible(index)) return;
+    const object = this.panels[index];
+    let component = 0;
+    while (component < object.behaviors.length) {
+      const behavior = object.behaviors[component];
+      if (behavior.kind() === KIND_UI && behavior.enabled !== 0) behavior.drawUI(win, w, h);
+      component = component + 1;
+    }
+  }
+
   /// Desenha todos os elementos de UI (chama drawUI de cada component kind UI).
   /// `w`/`h` = tamanho lógico da janela (pras âncoras). Chamado DENTRO do frame
   /// egui (entre beginFrame e endFrame).
   draw(win: i64, w: f64, h: f64): void {
     let i = 0;
     while (i < this.panels.length) {
-      const g = this.panels[i];
-      const k = g.componentIdx(KIND_UI);
-      if (g.active !== 0 && k >= 0 && g.behaviors[k].enabled !== 0) g.behaviors[k].drawUI(win, w, h);
+      this.drawObject(i, win, w, h);
       i = i + 1;
     }
   }

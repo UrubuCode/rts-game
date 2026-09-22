@@ -40,7 +40,7 @@ There are **60+ commands**, grouped roughly as:
 | appearance | `mesh` `color` `spin` `loadtex` |
 | selection | `select` `selectadd` `selectclear` `rename` `delete` `delsel` `vis` `iso` |
 | camera | `cam` `focus` `frameall` `view` `light` |
-| play | `play` `pause` `clear` |
+| play | `play` `pause` `stop` `clear` |
 | scene files | `loadscene` `savescene` `instscene` (scene-within-scene) |
 | hierarchy | `parent` `movetree` `group` `ungroup` |
 | components | `complist` `comps` `addcomp` `rmcomp` `setfield` |

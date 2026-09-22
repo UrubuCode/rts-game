@@ -5,14 +5,18 @@
 
 import { Behavior } from "../engine/core/behavior";
 
+/**
+ * @componentDescription Move o objeto em ida e volta.
+ * @componentKeywords patrulha movimento
+ */
 export class Patrol extends Behavior {
   range: f64;    // metade da distância percorrida (unidades de mundo)
   speed: f64;    // unidades por segundo
-  baseX: f64;    // centro da patrulha (capturado no mount)
-  dir: f64;      // 1 = indo pro +X, -1 = voltando
-  started: number;
+  private baseX: f64;    // centro da patrulha (capturado no mount)
+  private dir: f64;      // 1 = indo pro +X, -1 = voltando
+  private started: number;
 
-  constructor(range: f64, speed: f64) {
+  constructor(range: f64 = 3.0, speed: f64 = 2.0) {
     super();
     this.range = range;
     this.speed = speed;
@@ -43,19 +47,4 @@ export class Patrol extends Behavior {
     return { type: "patrol", range: this.range, speed: this.speed };
   }
 
-  // ── config editável no inspector (campos numéricos) ───────────────────────
-  typeName(): string { return "Patrol"; }
-  fieldCount(): number { return 2; }
-  fieldLabel(i: number): string {
-    if (i === 0) return "Alcance";
-    return "Veloc";
-  }
-  fieldGet(i: number): f64 {
-    if (i === 0) return this.range;
-    return this.speed;
-  }
-  fieldSet(i: number, v: f64): void {
-    if (i === 0) this.range = v;
-    else this.speed = v;
-  }
 }

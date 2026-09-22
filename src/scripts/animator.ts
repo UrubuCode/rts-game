@@ -34,6 +34,12 @@ export const EASE_SMOOTH = 1;
 /// Degrau: mantém o valor até o próximo key. Para animação de sprite/estado.
 export const EASE_STEP = 2;
 
+/**
+ * @componentCategory Animação
+ * @componentDescription Anima propriedades com keyframes.
+ * @componentKeywords animacao keyframe
+ * @componentFactory createDefault
+ */
 export class Animator extends Behavior {
   channel: f64;      // qual campo do transform (CH_*)
   ease: f64;         // EASE_*
@@ -47,7 +53,7 @@ export class Animator extends Behavior {
   t: f64;            // tempo atual dentro da animação
   dir: f64;          // 1 ou -1 (ping-pong)
 
-  constructor(channel: f64, ease: f64) {
+  constructor(channel: f64 = CH_PY, ease: f64 = EASE_SMOOTH) {
     super();
     this.channel = channel;
     this.ease = ease;
@@ -58,6 +64,14 @@ export class Animator extends Behavior {
     this.kv = [];
     this.t = 0.0;
     this.dir = 1.0;
+  }
+
+  /// Preset do seletor, definido junto da classe em vez de uma fabrica no editor.
+  static createDefault(): Animator {
+    const animator = new Animator();
+    animator.loop = 2.0;
+    animator.key(0.0, 1.0); animator.key(1.0, 3.0);
+    return animator;
   }
 
   /// Acrescenta um keyframe. Mantém a lista ORDENADA por tempo: a interpolação

@@ -8,6 +8,7 @@ function check(condition: boolean, message: string): void {
 const browser = new ComponentBrowser();
 browser.reset();
 check(browser.isRoot() && browser.rows.length === COMPONENT_CATEGORIES.length, "raiz mostra categorias derivadas");
+browser.selected = COMPONENT_CATEGORIES.indexOf("Renderização");
 check(browser.activate() === "" && browser.category === "Renderização", "entrar em categoria nao adiciona componente");
 check(browser.rows.length === 3 && browser.activate() === "Camera", "categoria filtra componentes");
 browser.query = "GRAVIDADE";

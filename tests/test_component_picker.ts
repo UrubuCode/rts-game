@@ -1,9 +1,12 @@
 import io from "@compat/io.ts";
 import { ComponentPicker } from "@editor/component_picker";
+import { UIScene } from "@engine/ui/uiscene";
+import { COMPONENT_CATEGORIES, COMPONENT_CATALOG } from "@editor/component_catalog";
 import { UI_COMPONENT_PICKER as P, UI_PICKER_KEYS as K, UI_INSP_DEFAULT } from "@editor/ui_config";
 
 // Driver de input sem janela: exercita o mesmo draw usado pelo editor.
 class TestApp {
+  _win: number = 0;
   focus: number = 0 - 1;
   key: number = 0;
   typed: string = "";
@@ -40,7 +43,7 @@ draw();
 app.key = K.down;
 draw();
 app.key = K.enter;
-check(draw() === "" && picker.browser.category === "Física", "seta e Enter abrem categoria");
+check(draw() === "" && picker.browser.category === COMPONENT_CATEGORIES[1], "seta e Enter abrem categoria");
 app.key = K.left;
 draw();
 check(picker.browser.isRoot(), "seta esquerda volta mesmo com busca focada");
@@ -65,11 +68,12 @@ draw();
 check(picker.browser.selected === 1, "mouse parado nao desfaz navegacao por teclado");
 app.key = 0;
 app.hoveredRow = 0 - 1;
-app.clickedRow = 4;
+app.clickedRow = COMPONENT_CATEGORIES.indexOf("Scripts");
 draw();
 check(picker.browser.category === "Scripts", "clique abre categoria");
 app.clickedRow = 0;
-check(draw() === "Spinner", "clique devolve componente");
+const expected = COMPONENT_CATALOG[picker.browser.rows[0]].name;
+check(draw() === expected, "clique devolve componente");
 app.clickedRow = 0 - 1;
 app.key = K.escape;
 draw();
@@ -78,4 +82,11 @@ picker.begin(app);
 app.key = 0;
 picker.draw(app, 0, bottom, UI_INSP_DEFAULT, 0, UI_INSP_DEFAULT + P.margin, bottom, 1, 0);
 check(picker.closed, "clique fora fecha");
+const ui = new UIScene();
+const root = ui.createGameObject("Root");
+const pickerObject = ui.createGameObject("Picker", 0);
+pickerObject.addBehavior(picker); picker.sceneIndex = 1;
+picker.result = "Rigidbody"; root.active = 0;
+check(picker.render(ui, app, 0, bottom, UI_INSP_DEFAULT, 0, 0, 0, 0, 0) === "", "picker oculto nao repete ultima escolha");
+check(picker.host.sx === UI_INSP_DEFAULT && picker.host.sy === bottom, "limites do picker vivem no Transform");
 io.print("[PASSOU] Component picker: foco, teclado, mouse, busca e fechamento");

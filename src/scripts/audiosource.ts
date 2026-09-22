@@ -11,6 +11,11 @@
 import { Behavior } from "../engine/core/behavior";
 import { playTone, playSquare, playNoise } from "../engine/audio/audio";
 
+/**
+ * @componentCategory Áudio
+ * @componentDescription Emite som a partir do objeto.
+ * @componentKeywords audio som beep
+ */
 export class AudioSource extends Behavior {
   kind: f64;      // 0 = seno, 1 = quadrada, 2 = ruído
   freq: f64;      // Hz (ignorado no ruído)
@@ -19,7 +24,7 @@ export class AudioSource extends Behavior {
   every: f64;     // 0 = só sob demanda; > 0 = repete a cada N segundos
   t: f64;         // acumulador do intervalo
 
-  constructor(kind: f64, freq: f64, dur: f64, gain: f64) {
+  constructor(kind: f64 = 0.0, freq: f64 = 440.0, dur: f64 = 0.15, gain: f64 = 0.3) {
     super();
     this.kind = kind;
     this.freq = freq;

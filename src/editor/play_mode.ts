@@ -1,4 +1,6 @@
 import { GameObject } from "@engine/core/gameobject";
+import { componentToData } from "@engine/components";
+import { MissingScript } from "@engine/core/missing_script";
 import { KIND_MATERIAL } from "@engine/core/behavior";
 import { scene, S } from "./control/session";
 import { recreateBehavior } from "./sceneio";
@@ -28,10 +30,14 @@ export class PlayMode {
       const copy = source.cloneShallow();
       copy.name = source.name; copy.parent = source.parent; copy.active = source.active;
       copy.colShape = source.colShape; copy.selFlag = source.selFlag;
+      copy.transform.vx = source.transform.vx; copy.transform.vy = source.transform.vy; copy.transform.vz = source.transform.vz;
+      copy.transform.mass = source.transform.mass;
+      copy.transform.restitution = source.transform.restitution; copy.transform.friction = source.transform.friction;
       let behaviorIndex = 0;
       while (behaviorIndex < source.behaviors.length) {
         const original = source.behaviors[behaviorIndex];
-        const data = original.toData();
+        if (original instanceof MissingScript) { this.error = original.typeName(); return false; }
+        const data = componentToData(original);
         if (data === null) { this.error = "Play indisponível: " + original.typeName() + " não suporta cópia."; return false; }
         const cloned = recreateBehavior(data);
         if (cloned.typeName() !== original.typeName()) {

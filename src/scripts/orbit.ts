@@ -1,19 +1,23 @@
 // COMPONENTE CUSTOM DE EXEMPLO — orbita o objeto em torno de um centro no plano
 // XZ, com raio e velocidade configuráveis. Mostra como o dev "importa um script
-// que altera o comportamento": escreve um Behavior aqui e registra 1 linha em
-// editor/components.ts — ele aparece na lista "Add Component" com config completa.
+// que altera o comportamento": exporte um Behavior aqui e recompile. A descoberta
+// de classes e campos publicos e feita pelo gerador, sem registro no editor.
 
 import { Behavior } from "../engine/core/behavior";
 import math from "../compat/math.ts";
 
+/**
+ * @componentDescription Move o objeto em uma órbita.
+ * @componentKeywords orbita círculo
+ */
 export class Orbit extends Behavior {
   radius: f64;
   speed: f64;
   cx: f64;
   cz: f64;
-  t: f64;
+  private t: f64;
 
-  constructor(radius: f64, speed: f64, cx: f64, cz: f64) {
+  constructor(radius: f64 = 4.0, speed: f64 = 1.0, cx: f64 = 0.0, cz: f64 = 0.0) {
     super();
     this.radius = radius;
     this.speed = speed;
@@ -32,25 +36,4 @@ export class Orbit extends Behavior {
     return { type: "orbit", radius: this.radius, speed: this.speed, cx: this.cx, cz: this.cz };
   }
 
-  // ── config no inspector (autodescrição) ──
-  typeName(): string { return "Orbit"; }
-  fieldCount(): number { return 4; }
-  fieldLabel(i: number): string {
-    if (i === 0) return "Raio";
-    if (i === 1) return "Vel";
-    if (i === 2) return "Cx";
-    return "Cz";
-  }
-  fieldGet(i: number): f64 {
-    if (i === 0) return this.radius;
-    if (i === 1) return this.speed;
-    if (i === 2) return this.cx;
-    return this.cz;
-  }
-  fieldSet(i: number, v: f64): void {
-    if (i === 0) this.radius = v;
-    else if (i === 1) this.speed = v;
-    else if (i === 2) this.cx = v;
-    else this.cz = v;
-  }
 }

@@ -12,6 +12,8 @@ import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from 
 import { cmdDoc } from "./commands/doc";
 import { scene, S } from "./session";
 import { history } from "../undo";
+import { cmdStop } from "./commands/scene";
+import { playMode } from "../play_mode";
 import { inFrustum } from "@engine/render/gpu3d";
 import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport, rigidGridOverflow } from "@engine/core/physics_backend";
 import { profReport, profEnable, profReset, profEnabled } from "@engine/core/profiler";
@@ -52,6 +54,7 @@ function execCommandInner(w: number, h: number, line: string): string {
   const cmd = parts[0];
   const np = parts.length;
   // UNDO: snapshot da cena ANTES de qualquer operação mutante.
+  if (cmd === "clear" || cmd === "loadscene") playMode.stop();
   if (isMutating(cmd)) history.snapshot();
   switch (cmd) {
     case "undo": {
@@ -161,6 +164,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "ungroup": return cmdUngroup(parts);
     case "play": return cmdPlay();
     case "pause": return cmdPause();
+    case "stop": return cmdStop();
     case "clear": return cmdClear();
     case "loadscene": return cmdLoad(parts);
     case "savescene": return cmdSaveScene(parts);

@@ -6,6 +6,7 @@ import { Fluid } from "@scripts/fluid";
 import { scene, S } from "../session";
 import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "@editor/sceneio";
 import { GameObject } from "@engine/core/gameobject";
+import { playMode } from "@editor/play_mode";
 
 export function cmdSelect(parts: string[]): string {
   S.selected = parseFloat(parts[1]) | 0;
@@ -262,22 +263,26 @@ export function cmdCam(parts: string[]): string {
   return "[ok] cam";
 }
 
-export function cmdPlay(): string { S.playing = 1; return "[ok] play"; }
-export function cmdPause(): string { S.playing = 0; return "[ok] pause"; }
+export function cmdPlay(): string { return playMode.play() ? "[ok] play" : "[erro] " + playMode.error; }
+export function cmdPause(): string { playMode.pause(); return "[ok] pause"; }
+export function cmdStop(): string { playMode.stop(); return "[ok] stop (cena de edicao restaurada)"; }
 
 export function cmdClear(): string {
+  playMode.stop();
   scene.clear();
   S.selected = 0;
   return "[ok] clear";
 }
 
 export function cmdLoad(parts: string[]): string {
+  playMode.stop();
   loadSceneFrom(parts[1]);
   return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length;
 }
 
 /// savescene <path> — SALVA a cena atual num arquivo JSON (fecha o loop com loadscene).
 export function cmdSaveScene(parts: string[]): string {
+  if (S.simulating !== 0) return "[erro] pare a simulacao antes de salvar";
   if (parts.length < 2) return "[erro] uso: savescene <path>";
   const n = saveScene(parts[1]) | 0;
   return "[ok] savescene " + parts[1] + " <- " + n + " objs";

@@ -35,7 +35,7 @@ export function cmdHelp(): string {
     " | rename <i> <nome> | select <i> | selectadd <i> | selectclear  (multi-seleção) | delete <i> | delsel  (deleta a seleção) | dup [i] | dupn <n> <espaço> [i]  (array)" +
     " | cam <x> <y> <z> <yaw> <pitch> | focus <i> | frameall | view <top|front|side|persp> | light [x y z amb] <top|front|side|persp> | grid  (chão xadrez) | vis [i] | iso [i]  (ocultar/isolar)" +
     " | tool [move|rotate|scale|select]  (gizmo da viewport) | snap [0|1]  (snap-to-grid)" +
-    " | play | pause | clear" +
+    " | play | pause | stop | clear" +
     " | loadscene <path> | savescene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
     " | parent <filho> <pai> | movetree <drag> <before> <newparent> | group | ungroup [i]" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +

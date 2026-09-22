@@ -254,6 +254,7 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
     setFocus(id: number): void { focusId = id; focusSelectAll = 0; },
     focusAll(id: number): void { focusId = id; focusSelectAll = 1; },
     isFocused(id: number): boolean { return focusId === id; },
+    hasTextFocus(): boolean { return focusId >= 0; },
 
     /// `textField(id, x, y, w, texto)` → o texto, possivelmente digitado.
     ///

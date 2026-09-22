@@ -19,9 +19,6 @@ export const UI_HIER_INDENT = 16;
 export const UI_HIER_SCROLL_STEP = 3;
 export const UI_HIER_DROP_EDGE = 8;
 export const UI_SCROLL_THUMB_MIN_H = 24;
-export const UI_COMPONENT_ROW_H = 22;
-export const UI_COMPONENT_HEADER_STEP = 26;
-export const UI_COMPONENT_FIELD_STEP = 23;
 export const UI_NUMERIC = {
   height: 20, axisWidth: 16, padding: 6, textY: 3, font: 12,
   charWidth: 7, labelFraction: 0.44, labelGap: 8,
@@ -40,9 +37,27 @@ export const UI_COMPONENT_PICKER = {
 };
 // Codigos do backend de input usados pelo navegador de componentes.
 export const UI_PICKER_KEYS = { enter: 1, escape: 2, up: 5, down: 6, left: 7, right: 8 };
-export const UI_INSPECTOR_FOOTER_H = 42;
-export const UI_INSPECTOR_COMPONENT_TOP = 266;
 export const UI_INSPECTOR_SCROLL_STEP = 52;
+export const UI_INSPECTOR = {
+  padding: 12, gap: 6, rowH: 26, headerH: 24, objectH: 62,
+  labelW: 62, axisGap: 3, font: 12, titleFont: 13, textY: 5,
+  radius: 3, border: 1, iconW: 22, scrollbarW: 5, scrollbarHitW: 12,
+  minThumbH: 24, footerH: 42, controlId: 4000,
+  nameId: 951, title: "Inspector", transform: "Transform",
+  appearance: "Geometria e material", position: "Posição", rotation: "Rotação", scale: "Escala",
+  empty: "Selecione um objeto", emptyHint: "na Hierarquia ou na Cena.",
+  active: "Ativo", stationary: "Estático", mesh: "Malha", texture: "Textura",
+  changeMesh: "Próxima primitiva", noComponents: "Sem componentes adicionais",
+  parent: "Pai: ", unparent: "Desaninhar", charWidth: 7,
+};
+export const UI_PLAY = {
+  buttonW: 66, gap: 4, textY: 7, radius: 3, id: 5000,
+  labels: ["Rodar", "Pausar", "Parar"],
+  editing: "Editando", running: "Simulando • mudanças temporárias", paused: "Pausado • mudanças temporárias",
+  saveBlocked: "Pare a simulação para salvar ou gerar o jogo.",
+};
+export const UI_MESH_NAMES: string[] = ["Sem malha", "Cubo", "Pirâmide", "Octaedro", "Esfera"];
+export const UI_AXIS_NAMES: string[] = ["X", "Y", "Z"];
 export const UI_CONTEXT_W = 168;
 export const UI_CONTEXT_ROW_H = 24;
 export const UI_PROJECT_HEADER_H = 24;
@@ -98,6 +113,23 @@ export const UI_HELP_ACTIONS: string[] = ["Atalhos e navegação"];
 
 // Paleta compartilhada pelos paineis legados e pelos gizmos. Os nomes descrevem
 // o papel visual; nao codificam RGB nos consumidores.
+export const UI_SCRIPT_DROP = {
+  cursorX: 12, cursorY: 24, width: 510, height: 28, padding: 8,
+  noticeX: 12, noticeY: 8, noticeFrames: 360,
+  ready: "Adicionar componente em ",
+};
+
+export const UI_CODE_EDITOR = {
+  title: "Editor de codigo", pathLabel: "Caminho do executavel (.exe)",
+  installed: "Escolha um editor instalado", system: "Padrao do Windows",
+  custom: "Personalizado", browse: "Procurar...", selected: "> ",
+  empty: "Nenhum editor detectado. Use Procurar para selecionar um .exe.",
+  hint: "Vazio usa o padrao do Windows. Preferencia local deste projeto.",
+  save: "Salvar", cancel: "Cancelar", width: 620, height: 250,
+  padding: 18, rowH: 26, listY: 80, listGap: 4, labelY: 52,
+  buttonW: 90, gap: 10, fieldId: 78000,
+};
+
 export const UI_C = {
   white: 0xFFFFFFFF,
   axisSelected: 0xFFFFFFCC,

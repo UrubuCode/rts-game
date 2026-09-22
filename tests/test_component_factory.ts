@@ -12,6 +12,10 @@ while (index < COMPONENT_NAMES.length) {
   index = index + 1;
 }
 const object = new GameObject("Teste");
+check(createComponent("Material").fieldType(0) === "boolean", "material declara seus controles booleanos");
+check(createComponent("Camera").fieldType(0) === "number", "camera declara FOV numerico");
+check(createComponent("Camera").fieldType(1) === "boolean", "camera declara Main booleano");
+check(createComponent("Rigidbody").fieldType(0) === "number", "campos legados permanecem numericos");
 object.transform.px = 12;
 const patrol = createComponent("Patrol");
 object.addBehavior(patrol);

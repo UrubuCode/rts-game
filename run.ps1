@@ -41,6 +41,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Descobre scripts/campos antes de compilar ou iniciar uma nova sessao.
+node (Join-Path $PSScriptRoot "tools/generate-components.mjs")
+if ($LASTEXITCODE -ne 0) { throw "falha ao gerar componentes; execute npm ci e corrija o diagnostico acima" }
+
 # O motor mora fora deste repositório, e o caminho é DESCOBERTO, nesta ordem:
 # a variável $env:RTS_MOTOR, depois o irmão deste repositório, depois E:\rts.
 #

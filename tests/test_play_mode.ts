@@ -1,0 +1,68 @@
+import io from "@compat/io.ts";
+import { Behavior } from "@engine/core/behavior";
+import { scene, S } from "@editor/control/session";
+import { playMode } from "@editor/play_mode";
+import { history } from "@editor/undo";
+import { COMPONENT_NAMES, createComponent } from "@editor/components";
+import { recreateBehavior, saveScene } from "@editor/sceneio";
+
+function check(condition: boolean, message: string): void {
+  if (!condition) throw new Error(message);
+}
+let componentIndex = 0;
+while (componentIndex < COMPONENT_NAMES.length) {
+  const component = createComponent(COMPONENT_NAMES[componentIndex]);
+  const data = component.toData();
+  check(data !== null, "catalog component serializes: " + component.typeName());
+  check(recreateBehavior(data).typeName() === component.typeName(), "catalog component clones: " + component.typeName());
+  componentIndex = componentIndex + 1;
+}
+scene.clear();
+scene.name = "Autoria";
+const original = scene.createGameObject("Original", 1, 120, 160, 200);
+const child = scene.createGameObject("Child", 0, 0, 0, 0, 0);
+original.transform.px = 12; original.transform.rz = 0.7;
+original.transform.vx = 2; original.transform.mass = 5; original.transform.friction = 0.6;
+original.layer = 4; original.mask = 7;
+original.customMesh = 91; original.meshPath = "test.obj";
+original.applyTexture(37, "test.png");
+const material = original.behaviors[original.matIdx];
+material.collapsed = 1; material.enabled = 0;
+child.active = 0;
+S.selected = 0; S.selection = [0, 1]; S.lightX = 3;
+history.u = ["before"]; history.r = ["after"];
+const undo = history.u; const redo = history.r;
+check(S.playing === 0 && S.simulating === 0, "editor starts in edit mode");
+playMode.pause();
+check(S.simulating === 0, "pause in edit mode is harmless");
+check(playMode.play(), "play succeeds");
+const runtime = scene.objects[0];
+check(runtime !== original && scene.objects[1] !== child, "simulation gets new game objects");
+check(runtime.transform !== original.transform && runtime.transform.rz === 0.7, "pose copied independently");
+check(runtime.transform.vx === 2 && runtime.transform.mass === 5 && runtime.transform.friction === 0.6, "authored physics defaults copied");
+check(runtime.layer === 4 && runtime.mask === 7 && runtime.customMesh === 91, "render and collision data copied");
+check(scene.objects[1].parent === 0 && scene.objects[1].active === 0, "hierarchy and active preserved");
+check(runtime.behaviors[runtime.matIdx] !== material, "components independent");
+check(runtime.behaviors[runtime.matIdx].matTexId() === 37, "GPU asset handles preserved");
+check(runtime.behaviors[runtime.matIdx].enabled === 0 && runtime.behaviors[runtime.matIdx].collapsed === 1, "component flags preserved");
+check(history.u.length === 0 && history.r.length === 0, "runtime undo isolated");
+check(saveScene("build/must-not-save-simulation.json") === -1, "saving simulation blocked");
+runtime.transform.px = 999; runtime.name = "Temporary";
+scene.createGameObject("Runtime-only");
+scene.name = "Temporary"; S.selected = 2; S.selection = [2]; S.lightX = 99;
+history.u.push("runtime");
+playMode.pause();
+check(S.playing === 0 && S.simulating === 1, "pause keeps runtime scene");
+check(playMode.play() && scene.objects[0] === runtime, "resume reuses runtime scene");
+playMode.stop();
+check(S.playing === 0 && S.simulating === 0, "stop returns to editing");
+check(scene.count() === 2 && scene.objects[0] === original && scene.objects[1] === child, "exact original identities restored");
+check(original.name === "Original" && original.transform.px === 12 && original.transform.rz === 0.7, "authored values preserved");
+check(original.behaviors[original.matIdx] === material, "original component identity restored");
+check(scene.name === "Autoria" && S.selected === 0 && S.selection.length === 2 && S.lightX === 3, "editor state restored");
+check(history.u === undo && history.r === redo, "original undo and redo restored");
+check(playMode.play(), "second play works"); playMode.stop(); playMode.stop();
+original.addBehavior(new Behavior());
+check(!playMode.play() && playMode.error.length > 0, "unsupported component refused explicitly");
+check(scene.objects[0] === original && history.u === undo && S.simulating === 0, "failed play is atomic");
+io.print("[PASSOU] PlayMode: copia, pausa, retorno, assets, historico e falha segura");

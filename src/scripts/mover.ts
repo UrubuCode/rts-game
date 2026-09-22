@@ -2,10 +2,14 @@
 
 import { Behavior } from "../engine/core/behavior";
 
+/**
+ * @componentDescription Move o objeto em uma direção.
+ * @componentKeywords mover translação
+ */
 export class Mover extends Behavior {
   vx: f64; vy: f64; vz: f64;
 
-  constructor(vx: f64, vy: f64, vz: f64) {
+  constructor(vx: f64 = 1.0, vy: f64 = 0.0, vz: f64 = 0.0) {
     super();
     this.vx = vx; this.vy = vy; this.vz = vz;
   }
@@ -20,10 +24,5 @@ export class Mover extends Behavior {
     return { type: "mover", vx: this.vx, vy: this.vy, vz: this.vz };
   }
 
-  typeName(): string { return "Mover"; }
-  fieldCount(): number { return 3; }
-  fieldLabel(i: number): string { if (i === 0) return "Vx"; if (i === 1) return "Vy"; return "Vz"; }
-  fieldGet(i: number): f64 { if (i === 0) return this.vx; if (i === 1) return this.vy; return this.vz; }
-  fieldSet(i: number, v: f64): void { if (i === 0) this.vx = v; else if (i === 1) this.vy = v; else this.vz = v; }
 
 }

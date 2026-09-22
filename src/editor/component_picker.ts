@@ -1,8 +1,30 @@
 import { ComponentBrowser, COMPONENT_CATALOG, COMPONENT_CATEGORIES } from "./component_catalog";
 import { UI_C, UI_COMPONENT_PICKER as P, UI_PICKER_KEYS as K } from "./ui_config";
+import { Behavior, KIND_UI } from "@engine/core/behavior";
+import { UIScene } from "@engine/ui/uiscene";
 
 // Widget independente: apenas devolve a chave escolhida; o editor faz a mutacao/undo.
-export class ComponentPicker {
+export class ComponentPicker extends Behavior {
+  sceneIndex: number = 0;
+  app: any;
+  bounds: number[] = [];
+  result: string = "";
+  kind(): number { return KIND_UI; }
+  typeName(): string { return "ComponentPicker"; }
+  render(scene: UIScene, app: any, x: number, bottom: number, width: number, top: number,
+         mx: number, my: number, pressed: number, wheel: number): string {
+    this.app = app; this.bounds = [mx, my, pressed, wheel];
+    this.host.px = x; this.host.py = top; this.host.sx = width; this.host.sy = bottom - top;
+    this.result = "";
+    scene.panels[this.sceneIndex].active = 1;
+    scene.drawObject(this.sceneIndex, app._win, width, bottom - top);
+    return this.result;
+  }
+  drawUI(win: i64, width: f64, height: f64): void {
+    const b = this.bounds;
+    this.result = this.draw(this.app, this.host.px, this.host.py + this.host.sy,
+      this.host.sx, this.host.py, b[0], b[1], b[2], b[3]);
+  }
   browser: ComponentBrowser = new ComponentBrowser();
   closed: boolean = false;
   mouseX: number = 0 - 1;
