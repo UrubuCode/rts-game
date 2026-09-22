@@ -18,16 +18,31 @@ import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { Patrol } from "../scripts/patrol";
+import { Animator } from "../scripts/animator";
+import { AudioSource } from "../scripts/audiosource";
+import { PhysicsMaterial } from "../scripts/physicsmaterial";
 import { Collider, SHAPE_BOX } from "../engine/core/collider";
 import { hullForMesh } from "../engine/core/hullmesh";
 import { setLight, setAmbient } from "../engine/render/mesh";
 import { loadModel } from "../engine/render/model";
+import { restoreRegisteredComponent } from "../engine/generated/components";
+import { componentToData } from "../engine/components";
+import { componentMetadata } from "../engine/core/component_metadata";
+import { MissingScript } from "../engine/core/missing_script";
 
 /// Recria 1 Behavior a partir do seu descritor (o que toData() produz). Fábrica
-/// única usada pelo load (buildObject) E pelo clone (cloneObject). Tipo desconhecido
-/// → Behavior base (no-op inofensivo). Não trata material/meshRenderer (a aparência
-/// vai pelos campos do GameObject; o SceneRef é marcador e não re-instancia).
+/// única usada pelo load, clone e Play. Scripts gerados usam seus metadados;
+/// os descritores antigos continuam aceitos. Tipo ausente preserva os dados
+/// num MissingScript, em vez de descarta-los silenciosamente ao salvar.
 export function recreateBehavior(sd: any): Behavior {
+  const component = recreateBehaviorInner(sd);
+  componentMetadata.provider.restoreLegacyFields(component, sd.componentFields);
+  return component;
+}
+
+function recreateBehaviorInner(sd: any): Behavior {
+  const registered = restoreRegisteredComponent(sd);
+  if (registered !== null) return registered;
   const t = sd.type !== undefined ? sd.type : sd.t;
   if (t === "spin") return new Spinner(sd.sy, sd.sx);
   if (t === "bob") return new Bobber(sd.amp, sd.freq, sd.base);
@@ -43,6 +58,23 @@ export function recreateBehavior(sd: any): Behavior {
   if (t === "pulse") return new Pulse(sd.amp, sd.freq, sd.base);
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
   if (t === "patrol") return new Patrol(sd.range, sd.speed);
+  if (t === "animator") {
+    const animator = new Animator(sd.channel, sd.ease);
+    animator.loop = sd.loop; animator.speed = sd.speed;
+    let keyIndex = 0;
+    while (keyIndex < sd.kt.length) { animator.key(sd.kt[keyIndex], sd.kv[keyIndex]); keyIndex = keyIndex + 1; }
+    return animator;
+  }
+  if (t === "audiosource") {
+    const audio = new AudioSource(sd.kind, sd.freq, sd.dur, sd.gain);
+    audio.every = sd.every;
+    return audio;
+  }
+  if (t === "physicsmaterial") {
+    const physical = new PhysicsMaterial(sd.preset);
+    physical.density = sd.density; physical.restitution = sd.restitution; physical.friction = sd.friction;
+    return physical;
+  }
   if (t === "sceneRef") return new SceneRef(sd.scenePath);
   // COLLIDER. A forma que colide, incluindo a que ACOMPANHA a geometria.
   //
@@ -82,7 +114,7 @@ export function recreateBehavior(sd: any): Behavior {
     r.customMesh = sd.customMesh;
     return r;
   }
-  return new Behavior();
+  return new MissingScript(sd);
 }
 
 /// Clona um GameObject: transform+aparência (cloneShallow) + os SCRIPTS de gameplay
@@ -92,7 +124,7 @@ export function cloneObject(src: GameObject): GameObject {
   const g = src.cloneShallow();
   let i = 0;
   while (i < src.behaviors.length) {
-    const d = src.behaviors[i].toData();   // clona TODOS os componentes que serializam
+    const d = componentToData(src.behaviors[i]);
     if (d !== null) g.addBehavior(recreateBehavior(d));
     i = i + 1;
   }
@@ -105,7 +137,7 @@ export function objectToData(go: GameObject): any {
   const scripts: any[] = [];
   let i = 0;
   while (i < go.behaviors.length) {
-    const d = go.behaviors[i].toData();
+    const d = componentToData(go.behaviors[i]);
     if (d !== null) scripts.push(d);
     i = i + 1;
   }
@@ -159,6 +191,8 @@ export function sceneFromJSON(s: string): void {
 
 /// SALVA a cena inteira num arquivo JSON — fecha o loop com loadSceneFrom.
 export function saveScene(path: string): number {
+  // A simulacao e descartavel; nunca sobrescreva o arquivo de autoria com ela.
+  if (S.simulating !== 0) return 0 - 1;
   fs.write(path, sceneToJSON());
   return scene.objects.length;
 }

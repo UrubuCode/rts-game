@@ -15,6 +15,11 @@ import { BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC } from "../engine/rigid/mater
 /// Velocidade máxima de queda (ver o teto anti-tunneling em `update`).
 const MAX_FALL: f64 = 60.0;
 
+/**
+ * @componentCategory Física
+ * @componentDescription Aplica gravidade e movimento físico.
+ * @componentKeywords fisica corpo gravidade
+ */
 export class Rigidbody extends Behavior {
   g: f64;        // gravidade (negativa)
   bounce: f64;   // restituição (0 = não quica, 1 = elástico)
@@ -26,7 +31,7 @@ export class Rigidbody extends Behavior {
   /// Estado de execução, não de cena: não é serializado nem vai ao inspector.
   externo: number;
 
-  constructor(g: f64, bounce: f64) {
+  constructor(g: f64 = 0 - 9.8, bounce: f64 = 0.5) {
     super();
     this.g = g;
     this.bounce = bounce;

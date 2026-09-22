@@ -70,6 +70,11 @@ export const SHAPE_HULL = 2;
 /// reservado evita que alguém use o 3 para outra coisa e depois colida.
 export const SHAPE_CAPSULE = 3;
 
+/**
+ * @componentCategory Física
+ * @componentDescription Define a forma usada na colisão.
+ * @componentKeywords fisica colisor caixa esfera
+ */
 export class Collider extends Behavior {
   /// Uma das `SHAPE_*`.
   shape: number;
@@ -98,7 +103,7 @@ export class Collider extends Behavior {
   /// serve para zonas de gatilho — o objeto passa através e o jogo fica sabendo.
   trigger: number;
 
-  constructor(shape: number) {
+  constructor(shape: number = SHAPE_BOX) {
     super();
     this.shape = shape;
     this.cx = 0.0; this.cy = 0.0; this.cz = 0.0;

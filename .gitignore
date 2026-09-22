@@ -1,4 +1,6 @@
 rts.exe
+node_modules/
+.rts-editor.local.json
 *.log
 
 assets/*.scene.json

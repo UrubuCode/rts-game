@@ -7,6 +7,7 @@
 // Unity é dirigido pelo motor, não pelo script.
 
 import { Transform } from "./transform";
+import { componentMetadata } from "./component_metadata";
 
 // TIPOS de component (tag numérica) — o primitivo do modelo uniforme "tudo é
 // GameObject + componentes". Systems e o render acham um component por kind()
@@ -77,22 +78,28 @@ export class Behavior {
   /// `null` = não serializa. Subclasses sobrescrevem (o componente se descreve
   /// sozinho); o objeto é o que vai pro array `scripts` da cena.
   toData(): any {
-    return null;
+    return componentMetadata.provider.serialize(this);
   }
 
   // ── SURFACE DE CONFIG (Inspector estilo Unity) ──────────────────────────────
   // O componente se autodescreve: nome + campos numéricos editáveis. O inspector
   // itera fieldCount() e desenha um numField por campo, lendo fieldGet/fieldSet.
   /// Nome do componente exibido no cabeçalho do inspector.
-  typeName(): string { return "Script"; }
+  typeName(): string { return componentMetadata.provider.name(this); }
   /// Quantos campos numéricos editáveis este componente expõe.
-  fieldCount(): number { return 0; }
+  fieldCount(): number { return componentMetadata.provider.fieldCount(this); }
+  /// Tipo de controle no Inspector; componentes descrevem seus proprios campos.
+  fieldType(i: number): string { return componentMetadata.provider.fieldType(this, i); }
   /// Rótulo curto do campo `i` (ex.: "SpdY").
-  fieldLabel(i: number): string { return ""; }
+  fieldLabel(i: number): string { return componentMetadata.provider.fieldLabel(this, i); }
   /// Valor atual do campo `i`.
-  fieldGet(i: number): f64 { return 0.0; }
+  fieldGet(i: number): f64 { return componentMetadata.provider.fieldGet(this, i); }
   /// Grava `v` no campo `i` (chamado pelo inspector ao arrastar/editar).
-  fieldSet(i: number, v: f64): void {}
+  fieldSet(i: number, v: f64): void { componentMetadata.provider.fieldSet(this, i, v); }
+  fieldStringGet(i: number): string { return componentMetadata.provider.fieldStringGet(this, i); }
+  fieldStringSet(i: number, v: string): void { componentMetadata.provider.fieldStringSet(this, i, v); }
+  /// Chamado depois de editar um campo automatico; use para atualizar dados derivados.
+  onValidate(field: string): void {}
 
   // ── IDENTIDADE do component (modelo uniforme) ───────────────────────────────
   /// O TIPO deste component (uma das consts KIND_*). Systems e o render acham um

@@ -33,6 +33,20 @@ jobs:
       - name: Checkout rts-game
         uses: actions/checkout@v4
 
+      - name: Setup Node (geracao de componentes)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Descobrir e validar scripts e campos
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run test:components
+          npm run components
+          npm run components:check
+
       # rust-lld (o linker que o AOT usa) vem com a toolchain. Setup rápido (~1min),
       # sem buildar nada.
       - name: Setup Rust (rust-lld pro link AOT)
@@ -100,6 +114,7 @@ jobs:
           mkdir -p bundle
           cp release/rts-game.exe bundle/ 2>/dev/null || true
           cp release/RTSGame.exe bundle/ 2>/dev/null || true
+          cp release/*.rtsdata bundle/
           cp -r assets bundle/assets 2>/dev/null || true
           cp -r scenes bundle/scenes 2>/dev/null || true
           # sanidade: sem uma cena o jogo abre vazio — falha o build antes de publicar

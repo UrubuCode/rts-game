@@ -13,11 +13,16 @@
 
 import { Behavior, KIND_CAMERA } from "./behavior";
 
+/**
+ * @componentCategory Renderização
+ * @componentDescription Define a câmera usada pelo jogo.
+ * @componentKeywords camera visão perspectiva
+ */
 export class Camera extends Behavior {
   fov: f64;         // campo de visão VERTICAL, em radianos
   isMain: number;   // 1 = câmera principal (a que o jogo usa)
 
-  constructor(fov: f64) {
+  constructor(fov: f64 = 1.05) {
     super();
     this.fov = fov;
     this.isMain = 1;
@@ -28,6 +33,7 @@ export class Camera extends Behavior {
 
   // ── config no inspector: FOV em GRAUS (radiano é ruim de editar à mão) ────
   fieldCount(): number { return 2; }
+  fieldType(i: number): string { return i === 1 ? "boolean" : "number"; }
   fieldLabel(i: number): string {
     if (i === 0) return "FOV";
     return "Main";

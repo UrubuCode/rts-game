@@ -3,10 +3,15 @@
 import { Behavior } from "../engine/core/behavior";
 import math from "../compat/math.ts";
 
+/**
+ * @componentDescription Varia a escala periodicamente.
+ * @componentKeywords pulsar escala
+ */
 export class Pulse extends Behavior {
-  amp: f64; freq: f64; base: f64; t: f64;
+  amp: f64; freq: f64; base: f64;
+  private t: f64;
 
-  constructor(amp: f64, freq: f64, base: f64) {
+  constructor(amp: f64 = 0.3, freq: f64 = 2.0, base: f64 = 1.0) {
     super();
     this.amp = amp; this.freq = freq; this.base = base;
     this.t = 0.0;
@@ -22,10 +27,5 @@ export class Pulse extends Behavior {
     return { type: "pulse", amp: this.amp, freq: this.freq, base: this.base };
   }
 
-  typeName(): string { return "Pulse"; }
-  fieldCount(): number { return 3; }
-  fieldLabel(i: number): string { if (i === 0) return "Amp"; if (i === 1) return "Freq"; return "Base"; }
-  fieldGet(i: number): f64 { if (i === 0) return this.amp; if (i === 1) return this.freq; return this.base; }
-  fieldSet(i: number, v: f64): void { if (i === 0) this.amp = v; else if (i === 1) this.freq = v; else this.base = v; }
 
 }

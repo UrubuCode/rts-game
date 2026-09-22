@@ -1,0 +1,38 @@
+import io from "@compat/io";
+import { scriptComponents, normalizeScriptPath, scriptDropError, dropScriptOnObject } from "@editor/script_drop";
+import { scriptOpenCommand, ScriptEditor } from "@editor/script_editor";
+import { scene, S } from "@editor/control/session";
+import { history } from "@editor/undo";
+import { MotionSettings } from "../assets/scripts/MotionSettings";
+
+function check(ok: boolean, message: string): void { if (!ok) throw new Error(message); }
+const path = "assets/scripts/MotionSettings.ts";
+check(normalizeScriptPath("./assets\\scripts/../scripts/MotionSettings.ts") === path, "normalizes browser paths");
+check(scriptComponents(path)[0] === "MotionSettings", "source resolves to generated class");
+check(scriptComponents("other/MotionSettings.ts").length === 0, "same filename elsewhere is not the same script");
+check(scriptComponents("assets/scripts/Unknown.ts").length === 0, "uncompiled script rejected");
+scene.clear(); S.simulating = 0;
+scene.createGameObject("First"); scene.createGameObject("Second");
+const before = history.undoDepth();
+check(dropScriptOnObject(path, -1).length > 0, "blank destination rejected");
+check(dropScriptOnObject(path, 2).length > 0, "out of bounds rejected");
+check(dropScriptOnObject("assets/scripts/Unknown.ts", 0).length > 0, "unknown source rejected");
+S.simulating = 1;
+check(scriptDropError(path, 0).length > 0 && dropScriptOnObject(path, 0).length > 0, "Play and paused Play reject mutation");
+S.simulating = 0;
+check(history.undoDepth() === before, "rejected drops do not pollute history");
+check(dropScriptOnObject(path, 1) === "", "drop attaches on target");
+check(scene.objects.length === 2 && scene.objects[0].behaviors.length === 0, "no new object or wrong target mutation");
+check(scene.objects[1].behaviors[0] instanceof MotionSettings, "actual script instance attached");
+check(S.selected === 1 && scene.objects[1].behaviors[0].host === scene.objects[1].transform, "host and selection correct");
+check(history.undoDepth() === before + 1, "one snapshot per drop");
+check(history.undo() === 1 && scene.objects[1].behaviors.length === 0, "undo removes attachment");
+check(history.redo() === 1 && scene.objects[1].behaviors[0].typeName() === "MotionSettings", "redo restores script and fields");
+check(dropScriptOnObject(path, 0) === "", "second object gets own instance");
+scene.objects[0].behaviors[0].fieldSet(0, 9);
+check(scene.objects[1].behaviors[0].fieldGet(0) === 2, "instance values independent");
+check(dropScriptOnObject("src/scripts/patrol.ts", 0) === "", "legacy scripts also attach");
+check(scriptOpenCommand("C:/Meu projeto/d'agua & $file.ts") === "Invoke-Item -LiteralPath 'C:/Meu projeto/d''agua & $file.ts' -ErrorAction Stop", "filename quoted as literal, never code");
+const editor = new ScriptEditor(); editor.open("__no_such_script__.ts");
+check(editor.message.indexOf("nao encontrado") >= 0, "missing file reported without spawning");
+io.print("[PASSOU] Script drop: source identity, targets, lifecycle, undo/redo, instances, open command");

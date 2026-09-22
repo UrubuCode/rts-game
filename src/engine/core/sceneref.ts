@@ -10,6 +10,7 @@
 
 import { Behavior, KIND_SCENE_REF } from "./behavior";
 
+/** @componentIgnore Marcador criado pela carga de cenas, nao pelo seletor. */
 export class SceneRef extends Behavior {
   scenePath: string;   // path da cena instanciada sob este objeto
 

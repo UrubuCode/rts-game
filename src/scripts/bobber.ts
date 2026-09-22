@@ -4,13 +4,17 @@
 import { Behavior } from "../engine/core/behavior";
 import math from "../compat/math.ts";
 
+/**
+ * @componentDescription Move o objeto para cima e baixo.
+ * @componentKeywords flutuar oscilar
+ */
 export class Bobber extends Behavior {
   amp: f64;
   freq: f64;
   baseY: f64;
-  t: f64;
+  private t: f64;
 
-  constructor(amp: f64, freq: f64, baseY: f64) {
+  constructor(amp: f64 = 0.6, freq: f64 = 1.5, baseY: f64 = 2.0) {
     super();
     this.amp = amp;
     this.freq = freq;
@@ -27,10 +31,5 @@ export class Bobber extends Behavior {
     return { type: "bob", amp: this.amp, freq: this.freq, base: this.baseY };
   }
 
-  typeName(): string { return "Bobber"; }
-  fieldCount(): number { return 3; }
-  fieldLabel(i: number): string { if (i === 0) return "Amp"; if (i === 1) return "Freq"; return "Base"; }
-  fieldGet(i: number): f64 { if (i === 0) return this.amp; if (i === 1) return this.freq; return this.baseY; }
-  fieldSet(i: number, v: f64): void { if (i === 0) this.amp = v; else if (i === 1) this.freq = v; else this.baseY = v; }
 
 }

@@ -52,13 +52,18 @@ function presetFriction(p: number): f64 {
   return 0.35;
 }
 
+/**
+ * @componentCategory Física
+ * @componentDescription Ajusta atrito e restituição.
+ * @componentKeywords fisica colisão atrito
+ */
 export class PhysicsMaterial extends Behavior {
   preset: f64;
   density: f64;
   restitution: f64;
   friction: f64;
 
-  constructor(preset: number) {
+  constructor(preset: number = MAT_DEFAULT) {
     super();
     this.preset = preset * 1.0;
     this.density = presetDensity(preset);

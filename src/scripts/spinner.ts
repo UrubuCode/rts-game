@@ -3,11 +3,17 @@
 
 import { Behavior } from "../engine/core/behavior";
 
+/**
+ * @componentDescription Gira o objeto continuamente.
+ * @componentKeywords girar rotação
+ */
 export class Spinner extends Behavior {
+  /** @label SpdY */
   speedY: f64;
+  /** @label SpdX */
   speedX: f64;
 
-  constructor(speedY: f64, speedX: f64) {
+  constructor(speedY: f64 = 1.0, speedX: f64 = 0.0) {
     super();
     this.speedY = speedY;
     this.speedX = speedX;
@@ -22,10 +28,5 @@ export class Spinner extends Behavior {
     return { type: "spin", sy: this.speedY, sx: this.speedX };
   }
 
-  typeName(): string { return "Spinner"; }
-  fieldCount(): number { return 2; }
-  fieldLabel(i: number): string { if (i === 0) return "SpdY"; return "SpdX"; }
-  fieldGet(i: number): f64 { if (i === 0) return this.speedY; return this.speedX; }
-  fieldSet(i: number, v: f64): void { if (i === 0) this.speedY = v; else this.speedX = v; }
 
 }

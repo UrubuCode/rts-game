@@ -10,6 +10,11 @@
 
 import { Behavior, KIND_MATERIAL } from "./behavior";
 
+/**
+ * @componentCategory Renderização
+ * @componentDescription Configura a superfície do objeto.
+ * @componentKeywords cor textura aparência
+ */
 export class Material extends Behavior {
   textureId: number;    // id de textura de imagem real (>=2, via loadTexture) ou 0
   texturePath: string;  // path da imagem (exibição + serialização da cena)
@@ -28,6 +33,7 @@ export class Material extends Behavior {
 
   // ── config numérica no inspector (a textura é setada via asset/ws, não aqui) ──
   fieldCount(): number { return 2; }
+  fieldType(i: number): string { return "boolean"; }
   fieldLabel(i: number): string {
     if (i === 0) return "Emis";
     if (i === 1) return "Xadrez";
