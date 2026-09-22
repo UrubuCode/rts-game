@@ -15,7 +15,7 @@ import { Scene } from "../src/engine/core/scene";
 import { GameObject } from "../src/engine/core/gameobject";
 import { boxCollider, sphereCollider, Collider, SHAPE_BOX, SHAPE_SPHERE } from "../src/engine/core/collider";
 import { stepCount, stepsFor, stepMore, FIXED_DT } from "../src/engine/core/fixedstep";
-import { pbActiveBackend, pbGpuLastReadbackStep, rigidSetMode, rigidInvalidate, rigidStep } from "../src/engine/core/physics_backend";
+import { pbActiveBackend, pbGpuLastReadbackStep, rigidSetMode, rigidInvalidate, rigidStep, rigidFlush } from "../src/engine/core/physics_backend";
 import {
   setSpatialScene,
   spatialRebuildIndex,
@@ -293,6 +293,46 @@ if (pbActiveBackend() === 1) {
   check("Carimbo stepId: na GPU stepId < currentStep refletindo latencia real",
         hitGpu !== null && hitGpu.stepId < curStepGpu && hitGpu.stepId === gpuLastStep,
         "hit.stepId=" + (hitGpu ? hitGpu.stepId : -1) + " gpuLastStep=" + gpuLastStep + " curStep=" + curStepGpu);
+
+  // a) rigidFlush no meio do teste mantendo o stepId consistente
+  rigidFlush();
+  const stepAposFlush = stepCount();
+  const gpuStepAposFlush = pbGpuLastReadbackStep();
+  check("Carimbo stepId: rigidFlush alinha stepId com stepCount",
+        gpuStepAposFlush === stepAposFlush,
+        "gpuStepAposFlush=" + gpuStepAposFlush + " stepAposFlush=" + stepAposFlush);
+
+  // Avança mais frames e verifica que stepId da GPU não regride
+  const passosFlush = stepsFor(FIXED_DT);
+  let pf = 0;
+  while (stepMore(pf, passosFlush) !== 0) {
+    scStep.update(FIXED_DT);
+    rigidStep(scStep, 0);
+    pf = pf + 1;
+  }
+  const gpuStepDepois = pbGpuLastReadbackStep();
+  check("Carimbo stepId: nao regride apos rigidFlush",
+        gpuStepDepois >= gpuStepAposFlush,
+        "gpuStepDepois=" + gpuStepDepois + " gpuStepAposFlush=" + gpuStepAposFlush);
+
+  // b) saturação de PB_MAX_DEVIDOS (o atraso não cresce indefinidamente)
+  let sIter = 0;
+  while (sIter < 15) {
+    const passos = stepsFor(FIXED_DT);
+    let p = 0;
+    while (stepMore(p, passos) !== 0) {
+      scStep.update(FIXED_DT);
+      rigidStep(scStep, 0);
+      p = p + 1;
+    }
+    sIter = sIter + 1;
+  }
+  const curStepSat = stepCount();
+  const gpuStepSat = pbGpuLastReadbackStep();
+  const atraso = curStepSat - gpuStepSat;
+  check("Carimbo stepId: saturacao PB_MAX_DEVIDOS mantem atraso finito e consistente",
+        gpuStepSat > 0 && atraso >= 0 && atraso <= 20,
+        "curStepSat=" + curStepSat + " gpuStepSat=" + gpuStepSat + " atraso=" + atraso);
 } else {
   io.print("  [NAO-EXECUTADO] GPU indisponivel neste ambiente; teste de latencia real GPU marcado como nao-executado.");
 }

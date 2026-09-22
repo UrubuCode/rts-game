@@ -47,7 +47,8 @@ import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocal
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
-         rbCount, rbKick, rbGpuLastReadbackStep, rbSetLastReadbackStep, rbResetStepTracking } from "../rigid/gpurigid";
+         rbCount, rbKick, rbGpuLastReadbackStep, rbSetLastReadbackStep, rbResetStepTracking,
+         rbAdvanceDroppedSteps } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
 import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
@@ -699,7 +700,11 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
     return 1;
   }
 
-  if (pbDevidos < PB_MAX_DEVIDOS) pbDevidos = pbDevidos + 1;
+  if (pbDevidos < PB_MAX_DEVIDOS) {
+    pbDevidos = pbDevidos + 1;
+  } else {
+    rbAdvanceDroppedSteps(1);
+  }
   const novo = rbService(PB_SUBSTEPS * pbDevidos, pbDevidos);
   if (rbKicked() !== 0) pbDevidos = 0;
   if (novo !== 0) {
@@ -720,7 +725,6 @@ export function rigidFlush(): void {
       pbDevidos = 0;
     }
     rbReadState();
-    rbSetLastReadbackStep(stepCount());
     const m = pbObjs.length;
     let k = 0;
     while (k < m) {
@@ -741,6 +745,7 @@ export function rigidFlush(): void {
       k = k + 1;
     }
     rbCancel();
+    rbResetStepTracking(stepCount());
   }
 }
 

@@ -890,6 +890,11 @@ export function rbResetStepTracking(initialStep: number): void {
   rbKickedStep = initialStep;
 }
 
+/// Avança o contador de passos entregues para compensar passos descartados por saturação de PB_MAX_DEVIDOS.
+export function rbAdvanceDroppedSteps(n: number): void {
+  rbDeliveredSteps = rbDeliveredSteps + n;
+}
+
 /// Abandona a leitura em voo. Para quem reescreve os corpos (ressincronização):
 /// o resultado pendente descreve o estado de ANTES e não pode cair no espelho.
 export function rbCancel(): void {
