@@ -155,10 +155,19 @@ interface SceneBenchResult {
   n: number;
   rebuildMs: f64;
   raycastUs: f64;
+  rayHitDist: f64;
+  rayHitBodyId: number;
   overlapUs: f64;
 }
 
-function executarBenchCena(nome: string, sc: Scene, n: number, queryX: f64, queryY: f64, queryZ: f64): SceneBenchResult {
+function executarBenchCena(
+  nome: string,
+  sc: Scene,
+  n: number,
+  rayOx: f64, rayOy: f64, rayOz: f64,
+  rayDx: f64, rayDy: f64, rayDz: f64,
+  overlapX: f64, overlapY: f64, overlapZ: f64,
+): SceneBenchResult {
   setSpatialScene(sc);
   spatialRebuildIndex(sc); // Primeiro passo indexa estáticos e dinâmicos
 
@@ -166,8 +175,8 @@ function executarBenchCena(nome: string, sc: Scene, n: number, queryX: f64, quer
   let w = 0;
   while (w < 10) {
     spatialGridRebuildCost(sc);
-    raycastNonAlloc(queryX, queryY, queryZ, 1.0, 0.5, 0.5, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
-    overlapSphereNonAlloc(queryX + 10.0, queryY + 10.0, queryZ + 10.0, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc);
+    raycastNonAlloc(rayOx, rayOy, rayOz, rayDx, rayDy, rayDz, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
+    overlapSphereNonAlloc(overlapX, overlapY, overlapZ, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc);
     w = w + 1;
   }
 
@@ -175,53 +184,82 @@ function executarBenchCena(nome: string, sc: Scene, n: number, queryX: f64, quer
   const temposRaycast: f64[] = [];
   const temposOverlap: f64[] = [];
 
+  // 1. Custo de reconstrução do passo (dinâmicos) medido em RODADAS dedicadas
   let r = 0;
   while (r < RODADAS) {
-    // 1. Custo de reconstrução do passo (dinâmicos)
     const cost = spatialGridRebuildCost(sc);
     temposRebuild.push(cost.timeMs);
+    r = r + 1;
+  }
 
-    // 2. 1.000 Raycasts (50 u)
+  // 2. 1.000 Raycasts (50 u) por rodada
+  r = 0;
+  while (r < RODADAS) {
     const t0Ray = performance.now();
     let k = 0;
     while (k < 1000) {
-      raycastNonAlloc(queryX, queryY, queryZ, 1.0, 0.5, 0.5, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
+      raycastNonAlloc(rayOx, rayOy, rayOz, rayDx, rayDy, rayDz, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
       k = k + 1;
     }
     temposRaycast.push((performance.now() - t0Ray) / 1000.0 * 1000.0); // µs por query
+    r = r + 1;
+  }
 
-    // 3. 1.000 Overlaps (esfera r=3)
+  // 3. 1.000 Overlaps (esfera r=3) por rodada
+  r = 0;
+  while (r < RODADAS) {
     const t0Over = performance.now();
-    k = 0;
+    let k = 0;
     while (k < 1000) {
-      overlapSphereNonAlloc(queryX + 10.0, queryY + 10.0, queryZ + 10.0, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc);
+      overlapSphereNonAlloc(overlapX, overlapY, overlapZ, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc);
       k = k + 1;
     }
     temposOverlap.push((performance.now() - t0Over) / 1000.0 * 1000.0); // µs por query
-
     r = r + 1;
   }
+
+  // Captura distância e bodyId de impacto para verificação de fidelidade
+  raycastNonAlloc(rayOx, rayOy, rayOz, rayDx, rayDy, rayDz, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
 
   return {
     nome: nome,
     n: n,
     rebuildMs: mediana(temposRebuild),
     raycastUs: mediana(temposRaycast),
+    rayHitDist: rayHit.hit ? rayHit.distance : -1.0,
+    rayHitBodyId: rayHit.hit ? rayHit.bodyId : -1,
     overlapUs: mediana(temposOverlap),
   };
 }
 
 // Executa os benchmarks nas 3 cenas com 2.000 corpos
-const resAlinhada = executarBenchCena("1. Cubo Alinhado (2.000 dyn)", criarCenaAlinhada(2000), 2000, 0.0, 0.0, 0.0);
-const resSorteada = executarBenchCena("2. Posicoes Sorteadas (2.000 dyn)", criarCenaSorteada(2000), 2000, 10.0, 10.0, 10.0);
-const resMista    = executarBenchCena("3. Mista (Chao 200x200 + 2k dyn)", criarCenaMista(2000), 2000, 0.0, 1.0, 0.0);
+// 1. Cubo: raio inicia fora em (-5, 10, 10) e atravessa células do cubo ao longo de +X
+const resAlinhada = executarBenchCena(
+  "1. Cubo Alinhado (2.000 dyn)", criarCenaAlinhada(2000), 2000,
+  -5.0, 10.0, 10.0,  1.0, 0.0, 0.0,
+  10.0, 10.0, 10.0,
+);
+
+// 2. Posições Sorteadas: raio inicia em (-5, 25, 25) e entra na nuvem aleatória
+const resSorteada = executarBenchCena(
+  "2. Posicoes Sorteadas (2.000 dyn)", criarCenaSorteada(2000), 2000,
+  -5.0, 25.0, 25.0,  1.0, 0.2, 0.2,
+  25.0, 25.0, 25.0,
+);
+
+// 3. Mista: raio inicia no alto (-5, 15, -5) disparando para baixo através dos dinâmicos em direção ao chão estático
+const resMista = executarBenchCena(
+  "3. Mista (Chao 200x200 + 2k dyn)", criarCenaMista(2000), 2000,
+  -5.0, 15.0, -5.0,  1.0, -0.5, 1.0,
+  10.0, 2.0, 10.0,
+);
 
 const resultados = [resAlinhada, resSorteada, resMista];
 
-io.print("┌───────────────────────────────────┬───────────────────┬───────────────────┬───────────────────┐");
-io.print("│ Cena                              │ Rebuild / passo   │ Overlap (r=3)     │ Raycast (50 u)    │");
-io.print("│                                   │ (meta <= 0,35 ms) │ (meta <= 30 µs)   │ (meta <= 25 µs)   │");
-io.print("├───────────────────────────────────┼───────────────────┼───────────────────┼───────────────────┤");
+io.print("┌───────────────────────────────────┬───────────────────┬───────────────────┬───────────────────────────────┐");
+io.print("│ Cena                              │ Rebuild / passo   │ Overlap (r=3)     │ Raycast (50 u)                │");
+io.print("│                                   │ (meta <= 0,35 ms) │ (meta <= 30 µs)   │ (meta <= 25 µs)               │");
+io.print("├───────────────────────────────────┼───────────────────┼───────────────────┼───────────────────────────────┤");
 
 let ri = 0;
 while (ri < resultados.length) {
@@ -233,11 +271,12 @@ while (ri < resultados.length) {
   const colNome = (res.nome + "                                   ").slice(0, 35);
   const colReb = ((res.rebuildMs.toFixed(3) + " ms [" + rebOk + "]") + "                   ").slice(0, 19);
   const colOver = ((res.overlapUs.toFixed(1) + " µs [" + overOk + "]") + "                   ").slice(0, 19);
-  const colRay = ((res.raycastUs.toFixed(1) + " µs [" + rayOk + "]") + "                   ").slice(0, 19);
+  const rayInfo = res.raycastUs.toFixed(1) + " µs [" + rayOk + "] (d=" + res.rayHitDist.toFixed(1) + "u)";
+  const colRay = (rayInfo + "                               ").slice(0, 29);
 
   io.print("│ " + colNome + " │ " + colReb + " │ " + colOver + " │ " + colRay + " │");
   ri = ri + 1;
 }
-io.print("└───────────────────────────────────┴───────────────────┴───────────────────┴───────────────────┘");
+io.print("└───────────────────────────────────┴───────────────────┴───────────────────┴───────────────────────────────┘");
 
 io.print("\n=== Benchmark Concluido ===");
