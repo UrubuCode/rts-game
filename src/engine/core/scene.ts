@@ -76,6 +76,11 @@ export class Scene {
   /// o instantâneo da interpolação) guardam a última versão que viram e
   /// comparam: cada um percebe a mudança sem roubar o sinal do vizinho.
   compVersion: number;
+  /// VERSÃO da composição ESTÁTICA: muda apenas quando corpos estáticos
+  /// (terrenos, prédios, obstáculos) são adicionados, removidos ou alterados.
+  /// Spawns ou remoções de unidades/projéteis dinâmicos NÃO alteram `staticVersion`,
+  /// permitindo que o índice espacial no host evite reconstruções de 8 ms.
+  staticVersion: number;
   colMaxR: f64;      // maior raio entre os colisores (cacheado com cIdx)
   colMovers: number; // quantos colisores podem se mover (cacheado com cIdx)
   /// Array PARALELO a `objects` com os transforms. Chegar ao transform por
@@ -102,6 +107,7 @@ export class Scene {
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
+    this.staticVersion = sceneVersionSeq;
     this.colMaxR = 0.0001;
     this.colMovers = 0;
   }
@@ -115,10 +121,22 @@ export class Scene {
     this.compVersion = sceneVersionSeq;
   }
 
+  /// Sinaliza que a malha ESTÁTICA mudou (adição/remoção/escala de objeto estático).
+  /// Dispara a reconstrução do grid estático multinível (Two-Tier) no host.
+  markStaticDirty(): void {
+    sceneVersionSeq = sceneVersionSeq + 1;
+    this.staticVersion = sceneVersionSeq;
+    this.markCollidersDirty();
+  }
+
   add(go: GameObject): GameObject {
     go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
+    if (bodyTypeOf(go) === BODY_STATIC) {
+      sceneVersionSeq = sceneVersionSeq + 1;
+      this.staticVersion = sceneVersionSeq;
+    }
     this.markCollidersDirty();
     go.mount();
     return go;
@@ -146,7 +164,7 @@ export class Scene {
   clear(): void {
     this.objects = [];
     this.trs = [];
-    this.markCollidersDirty();
+    this.markStaticDirty();
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
@@ -230,7 +248,7 @@ export class Scene {
     this.trs.length = 0;
     let ti = 0;
     while (ti < order.length) { this.trs.push(order[ti].transform); ti = ti + 1; }
-    this.markCollidersDirty();
+    this.markStaticDirty();
     let j = 0;
     while (j < order.length) {
       const o = order[j];
@@ -252,6 +270,11 @@ export class Scene {
   removeAt(i: number): void {
     const n = this.objects.length;
     if (i < 0 || i >= n) return;
+    const removedObj = this.objects[i];
+    if (bodyTypeOf(removedObj) === BODY_STATIC) {
+      sceneVersionSeq = sceneVersionSeq + 1;
+      this.staticVersion = sceneVersionSeq;
+    }
     // Compacta IN-PLACE (antes alocava um array novo a cada remoção — num RTS,
     // destruir dezenas de unidades por segundo virava dezenas de realocações da
     // cena inteira). Um passe: corrige os parents e desloca os que vêm depois.

@@ -44,7 +44,7 @@ export function cmdAddComp(parts: string[]): string {
     o.refreshCollide();
     // o corpo muda de LISTA na colisão (estáticos vivem fora do grid): sem
     // recoletar, ele continuaria na lista de estáticos e cairia pelo chão
-    scene.markCollidersDirty();
+    scene.markStaticDirty();
   }
   return "[ok] addcomp " + parts[2] + " -> #" + oi;
 }

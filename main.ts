@@ -1253,7 +1253,7 @@ function frame(): void {
     // mutação da cena.
     const wasStat = sel.stationary;
     if (addMenuOpen === 0) sel.stationary = app.checkbox(ix + 134, BAR_H + 226, sel.stationary, "Estatico");
-    if (sel.stationary !== wasStat) scene.markCollidersDirty();
+    if (sel.stationary !== wasStat) scene.markStaticDirty();
   }
 
   // ── componentes do objeto — cada um com CABEÇALHO + campos de CONFIG editáveis
