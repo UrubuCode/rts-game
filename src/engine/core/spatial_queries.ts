@@ -158,12 +158,9 @@ let sStaticSceneMinX = 0.0; let sStaticSceneMaxX = 0.0;
 let sStaticSceneMinY = 0.0; let sStaticSceneMaxY = 0.0;
 let sStaticSceneMinZ = 0.0; let sStaticSceneMaxZ = 0.0;
 
-let sSceneMinX = 0.0;
-let sSceneMaxX = 0.0;
-let sSceneMinY = 0.0;
-let sSceneMaxY = 0.0;
-let sSceneMinZ = 0.0;
-let sSceneMaxZ = 0.0;
+let sDynSceneMinX = 0.0; let sDynSceneMaxX = 0.0;
+let sDynSceneMinY = 0.0; let sDynSceneMaxY = 0.0;
+let sDynSceneMinZ = 0.0; let sDynSceneMaxZ = 0.0;
 
 let sCellSize = 2.0;
 let sInvCellSize = 0.5;
@@ -320,21 +317,41 @@ function rebuildDynamicsInto(
     k = k + 1;
   }
 
-  // 2. Insere cada objeto dinâmico no grid pelo centro
+  // 2. Insere cada objeto dinâmico no grid pelo centro e atualiza limites
+  let minX = 1e30; let maxX = -1e30;
+  let minY = 1e30; let maxY = -1e30;
+  let minZ = 1e30; let maxZ = -1e30;
+
   if (hasLocalOffset === 0) {
     let di = 0;
     while (di < dynamicCount) {
       const objIdx = dynamicIndices[di];
       const t: Transform = trs[objIdx];
-      const fx = t.wx * invCellSize;
+      const wx = t.wx;
+      const wy = t.wy;
+      const wz = t.wz;
+
+      sWorldCx[objIdx] = wx;
+      sWorldCy[objIdx] = wy;
+      sWorldCz[objIdx] = wz;
+      sYaw[objIdx] = t.wry;
+
+      if (wx < minX) minX = wx;
+      if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy;
+      if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz;
+      if (wz > maxZ) maxZ = wz;
+
+      const fx = wx * invCellSize;
       const tx = fx | 0;
       const gx = tx > fx ? tx - 1 : tx;
 
-      const fy = t.wy * invCellSize;
+      const fy = wy * invCellSize;
       const ty = fy | 0;
       const gy = ty > fy ? ty - 1 : ty;
 
-      const fz = t.wz * invCellSize;
+      const fz = wz * invCellSize;
       const tz = fz | 0;
       const gz = tz > fz ? tz - 1 : tz;
 
@@ -372,6 +389,18 @@ function rebuildDynamicsInto(
         cy = cy + lcy * t.sy;
       }
 
+      sWorldCx[objIdx] = cx;
+      sWorldCy[objIdx] = cy;
+      sWorldCz[objIdx] = cz;
+      sYaw[objIdx] = t.wry;
+
+      if (cx < minX) minX = cx;
+      if (cx > maxX) maxX = cx;
+      if (cy < minY) minY = cy;
+      if (cy > maxY) maxY = cy;
+      if (cz < minZ) minZ = cz;
+      if (cz > maxZ) maxZ = cz;
+
       const fx = cx * invCellSize;
       const tx = fx | 0;
       const gx = tx > fx ? tx - 1 : tx;
@@ -392,6 +421,20 @@ function rebuildDynamicsInto(
 
       di = di + 1;
     }
+  }
+
+  if (dynamicCount > 0) {
+    const dynH = sDynamicMaxHalfExtent + 0.01;
+    sDynSceneMinX = minX - dynH;
+    sDynSceneMaxX = maxX + dynH;
+    sDynSceneMinY = minY - dynH;
+    sDynSceneMaxY = maxY + dynH;
+    sDynSceneMinZ = minZ - dynH;
+    sDynSceneMaxZ = maxZ + dynH;
+  } else {
+    sDynSceneMinX = 0.0; sDynSceneMaxX = 0.0;
+    sDynSceneMinY = 0.0; sDynSceneMaxY = 0.0;
+    sDynSceneMinZ = 0.0; sDynSceneMaxZ = 0.0;
   }
 }
 
@@ -984,21 +1027,52 @@ function raycastStaticDDA(
   const cell = sStaticCellSize;
   const invCell = sStaticInvCellSize;
 
-  const endX = ox + ndx * maxDistance;
-  const endY = oy + ndy * maxDistance;
-  const endZ = oz + ndz * maxDistance;
-  const minRx = ox < endX ? ox : endX;
-  const maxRx = ox > endX ? ox : endX;
-  const minRy = oy < endY ? oy : endY;
-  const maxRy = oy > endY ? oy : endY;
-  const minRz = oz < endZ ? oz : endZ;
-  const maxRz = oz > endZ ? oz : endZ;
+  let tMin = 0.0;
+  let tMax = maxDistance;
 
-  if (maxRx < sStaticSceneMinX || minRx > sStaticSceneMaxX ||
-      maxRy < sStaticSceneMinY || minRy > sStaticSceneMaxY ||
-      maxRz < sStaticSceneMinZ || minRz > sStaticSceneMaxZ) {
-    return false;
+  const boxMinX = sStaticSceneMinX - 0.01;
+  const boxMaxX = sStaticSceneMaxX + 0.01;
+  if (math.abs(ndx) < 0.000000001) {
+    if (ox < boxMinX || ox > boxMaxX) return false;
+  } else {
+    const invD = 1.0 / ndx;
+    let t1 = (boxMinX - ox) * invD;
+    let t2 = (boxMaxX - ox) * invD;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
   }
+
+  const boxMinY = sStaticSceneMinY - 0.01;
+  const boxMaxY = sStaticSceneMaxY + 0.01;
+  if (math.abs(ndy) < 0.000000001) {
+    if (oy < boxMinY || oy > boxMaxY) return false;
+  } else {
+    const invD = 1.0 / ndy;
+    let t1 = (boxMinY - oy) * invD;
+    let t2 = (boxMaxY - oy) * invD;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
+  }
+
+  const boxMinZ = sStaticSceneMinZ - 0.01;
+  const boxMaxZ = sStaticSceneMaxZ + 0.01;
+  if (math.abs(ndz) < 0.000000001) {
+    if (oz < boxMinZ || oz > boxMaxZ) return false;
+  } else {
+    const invD = 1.0 / ndz;
+    let t1 = (boxMinZ - oz) * invD;
+    let t2 = (boxMaxZ - oz) * invD;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
+  }
+
+  if (tMax < 0.0) return false;
 
   let closestDist = maxDistance + 1.0;
   let found = false;
@@ -1028,8 +1102,11 @@ function raycastStaticDDA(
     stepZ = -1; tDeltaZ = (0.0 - cell) / ndz; tMaxZ = (gz * cell - oz) / ndz;
   }
 
+  let tEndLoop = closestDist < maxDistance ? closestDist : maxDistance;
+  if (tMax < tEndLoop) tEndLoop = tMax;
+
   let tCurrent = 0.0;
-  while (tCurrent <= closestDist && tCurrent <= maxDistance) {
+  while (tCurrent <= tEndLoop) {
     const bucket = (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
     let entry = sStaticHead[bucket];
     while (entry !== -1) {
@@ -1041,6 +1118,7 @@ function raycastStaticDDA(
           if (hit) {
             if (sTempRayHit.distance < closestDist) {
               closestDist = sTempRayHit.distance;
+              if (closestDist < tEndLoop) tEndLoop = closestDist;
               outHit.hit = true;
               outHit.bodyId = sTempRayHit.bodyId;
               outHit.point[0] = sTempRayHit.point[0];
@@ -1107,6 +1185,53 @@ function raycastDynamicsDDA(
   worldRadiusArr: f64[],
   hullIdArr: number[],
 ): boolean {
+  let tMin = 0.0;
+  let tMax = maxDistance;
+
+  const dynMinX = sDynSceneMinX;
+  const dynMaxX = sDynSceneMaxX;
+  if (math.abs(ndx) < 0.000000001) {
+    if (ox < dynMinX || ox > dynMaxX) return false;
+  } else {
+    const invD = 1.0 / ndx;
+    let t1 = (dynMinX - ox) * invD;
+    let t2 = (dynMaxX - ox) * invD;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
+  }
+
+  const dynMinY = sDynSceneMinY;
+  const dynMaxY = sDynSceneMaxY;
+  if (math.abs(ndy) < 0.000000001) {
+    if (oy < dynMinY || oy > dynMaxY) return false;
+  } else {
+    const invD = 1.0 / ndy;
+    let t1 = (dynMinY - oy) * invD;
+    let t2 = (dynMaxY - oy) * invD;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
+  }
+
+  const dynMinZ = sDynSceneMinZ;
+  const dynMaxZ = sDynSceneMaxZ;
+  if (math.abs(ndz) < 0.000000001) {
+    if (oz < dynMinZ || oz > dynMaxZ) return false;
+  } else {
+    const invD = 1.0 / ndz;
+    let t1 = (dynMinZ - oz) * invD;
+    let t2 = (dynMaxZ - oz) * invD;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
+  }
+
+  if (tMax < 0.0) return false;
+
   let closestDist = maxDistance;
   let found = false;
 
@@ -1140,10 +1265,13 @@ function raycastDynamicsDDA(
   const hyMult = 19349663;
   const hzMult = 83492791;
 
+  let tEndLoop = closestDist;
+  if (tMax < tEndLoop) tEndLoop = tMax;
+
   let tCurrent = 0.0;
-  while (tCurrent <= closestDist && tCurrent <= maxDistance) {
+  while (tCurrent <= tEndLoop) {
     const tNext = tMaxX < tMaxY ? (tMaxX < tMaxZ ? tMaxX : tMaxZ) : (tMaxY < tMaxZ ? tMaxY : tMaxZ);
-    const tEnd = tNext < closestDist ? tNext : closestDist;
+    const tEnd = tNext < tEndLoop ? tNext : tEndLoop;
 
     const x0 = ox + ndx * tCurrent;
     const y0 = oy + ndy * tCurrent;
@@ -1217,6 +1345,7 @@ function raycastDynamicsDDA(
                       const c = ocX * ocX + ocY * ocY + ocZ * ocZ - tr * tr;
                       if (c <= 0.0) { // Origem dentro da esfera
                         closestDist = 0.0;
+                        if (closestDist < tEndLoop) tEndLoop = closestDist;
                         outHit.hit = true;
                         outHit.bodyId = bodyIdArr[k];
                         outHit.point[0] = ox; outHit.point[1] = oy; outHit.point[2] = oz;
@@ -1230,6 +1359,7 @@ function raycastDynamicsDDA(
                           const dist = (0.0 - b) - math.sqrt(disc);
                           if (dist >= 0.0 && dist < closestDist) {
                             closestDist = dist;
+                            if (closestDist < tEndLoop) tEndLoop = closestDist;
                             const hxPoint = ox + ndx * dist;
                             const hyPoint = oy + ndy * dist;
                             const hzPoint = oz + ndz * dist;
@@ -1268,6 +1398,7 @@ function raycastDynamicsDDA(
 
                       if (rox >= 0.0 - hx && rox <= hx && roy >= 0.0 - hy && roy <= hy && roz >= 0.0 - hz && roz <= hz) {
                         closestDist = 0.0;
+                        if (closestDist < tEndLoop) tEndLoop = closestDist;
                         outHit.hit = true;
                         outHit.bodyId = bodyIdArr[k];
                         outHit.point[0] = ox; outHit.point[1] = oy; outHit.point[2] = oz;
@@ -1329,6 +1460,7 @@ function raycastDynamicsDDA(
 
                         if (ok && tmin >= 0.0 && tmin < closestDist) {
                           closestDist = tmin;
+                          if (closestDist < tEndLoop) tEndLoop = closestDist;
                           let nxBox = hitNormX; let nyBox = hitNormY; let nzBox = hitNormZ;
                           if (yaw !== 0.0) {
                             const cosY = math.cos(yaw); const sinY = math.sin(yaw);
@@ -1350,6 +1482,7 @@ function raycastDynamicsDDA(
                       const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, tempHit, includeTriggers, curStepId);
                       if (hit && tempHit.distance < closestDist) {
                         closestDist = tempHit.distance;
+                        if (closestDist < tEndLoop) tEndLoop = closestDist;
                         outHit.hit = true;
                         outHit.bodyId = tempHit.bodyId;
                         outHit.point[0] = tempHit.point[0];
@@ -1407,6 +1540,7 @@ export function raycastNonAlloc(
   includeTriggers: boolean = false,
   sc?: Scene,
 ): boolean {
+  if (maxDistance <= 0.0 || maxDistance !== maxDistance) return false;
   const targetScene = ensureIndex(sc);
   if (targetScene === null) return false;
 

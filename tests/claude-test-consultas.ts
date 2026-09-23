@@ -89,6 +89,16 @@ if (hitBox !== null) {
 const missRay = raycast(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 20.0);
 check("Raycast que erra o alvo: devolve null", missRay === null);
 
+// Raycast com maxDistance = Infinity (Item 1, Revisao 5: nao pode travar)
+const hitInfSphere = raycast(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, Infinity);
+check("Raycast com maxDistance = Infinity: atingiu", hitInfSphere !== null && hitInfSphere.hit);
+if (hitInfSphere !== null) {
+  check("Raycast com maxDistance = Infinity: bodyId correto", hitInfSphere.bodyId === sphereObj.id);
+  check("Raycast com maxDistance = Infinity: distancia ~9.0", math.abs(hitInfSphere.distance - 9.0) < 0.01);
+}
+const missInfRay = raycast(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, Infinity);
+check("Raycast com maxDistance = Infinity que erra o alvo: nao trava e devolve null", missInfRay === null);
+
 // ── 2. raycastNonAlloc com parâmetros escalares e buffer reutilizado ─────────
 const outHit = createRaycastHit();
 const nonAllocHit = raycastNonAlloc(
