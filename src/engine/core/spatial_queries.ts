@@ -280,6 +280,20 @@ function resolveCandidateTransform(k: number): void {
   sCandCz = cz;
 }
 
+/// ARQUITETURA DO GRID DINÂMICO (Centro Único + Expansão de Consulta):
+/// Os corpos dinâmicos são indexados em célula única determinada pelo seu centro (reduzindo
+/// inserções de 16.000 para 2.000 e viabilizando o rebuild em ~0.33 ms a 60 Hz).
+/// As consultas de overlap expandem a AABB de busca por `sDynamicMaxHalfExtent`, e o DDA de raycast
+/// engorda o raio pela mesma meia-extensão máxima.
+///
+/// LIMITAÇÃO CONHECIDA (Corpos Dinâmicos Grandes):
+/// Como a região de busca é expandida pela MAIOR meia-extensão dinâmica presente na cena, se um
+/// único corpo dinâmico for excepcionalmente grande (ex: um veículo ou chefe com meia-extensão de 50 u),
+/// todas as consultas de overlap dinâmico passam a varrer uma vizinhança expandida em 50 u, aumentando
+/// o número de células e corpos candidatos testados. Caso uma cena futura necessite de múltiplos corpos
+/// dinâmicos colossais coexistindo com milhares de corpos pequenos, uma partição em camadas hierárquicas
+/// ou multi-célula dedicada para corpos grandes deverá ser introduzida.
+///
 /// Reconstrução dos objetos dinâmicos no índice espacial como FUNÇÃO LIVRE de parâmetros TIPADOS.
 ///
 /// Segue o mesmo padrão de `computeWorldInto` e `buildSceneGrid` em `scene.ts`:
@@ -614,10 +628,23 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
     sHasDynamicLocalOffset = hasDynLocalOffset;
 
-    // Célula estática dimensionada para 2 * maiorMeiaExtensãoEstática (com teto para evitar que terrenos gigantes inflem a célula)
+    // Célula estática dimensionada pela MEDIANA das meias-extensões dos corpos estáticos (§7.3)
+    // Evita que objetos gigantescos (como planos de chão/terreno de 200x200) inflem a célula estática,
+    // garantindo que os objetos estáticos típicos permaneçam particionados em células finas.
     sStaticMaxHalfExtent = maxStaticHalfExtent;
-    let statCellSize = maxStaticHalfExtent * 2.0;
-    if (statCellSize > 16.0) statCellSize = 16.0;
+    let statCellSize = 2.0;
+    if (sStaticCount > 0) {
+      const extents: f64[] = [];
+      let si = 0;
+      while (si < sStaticCount) {
+        const k = sStaticIndices[si];
+        extents.push(sWorldRadius[k]);
+        si = si + 1;
+      }
+      extents.sort((a, b) => a - b);
+      const medianExtent = extents[extents.length >> 1];
+      statCellSize = medianExtent * 2.0;
+    }
     if (statCellSize < 2.0) statCellSize = 2.0;
     sStaticCellSize = statCellSize;
     sStaticInvCellSize = 1.0 / sStaticCellSize;

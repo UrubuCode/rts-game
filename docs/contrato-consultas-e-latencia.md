@@ -254,3 +254,26 @@ O Lote B será dividido em dois PRs (1º Consultas, 2º Eventos). Os critérios 
 6. Filtros com regra simétrica `layer`/`mask` e `includeTriggers` passarem em testes unitários dedicados;
 7. **Como medir zero alocações:** Inspeção de código garantindo que o caminho quente não aloca no heap (passagem de parâmetros escalares, buffers pré-alocados pelo chamador), acompanhada de teste medindo a estabilidade de RSS (`process.memoryUsage().rss`) e tempo estável por chamada em várias rodadas de 1.000 chamadas consecutivas de `raycastNonAlloc` e `overlapSphereNonAlloc`;
 8. O custo de reconstrução do índice espacial do executor no host ser medido e reportado no benchmark do Lote B.
+
+---
+
+## 8. Topologia do Índice Espacial e Limitações Conhecidas
+
+### 8.1 Grid Híbrido Estático vs. Dinâmico
+Para atender simultaneamente a simulações de alta taxa de atualização (60 Hz) com milhares de corpos e consultas espaciais rápidas:
+1. **Grid Estático (Multi-célula, Mediana de Extensões):**
+   - Corpos estáticos são inseridos em todas as células que sua AABB sobrepõe.
+   - A reconstrução ocorre exclusivamente quando a versão composicional da cena (`compVersion`) muda (custo amortizado por passo = 0).
+   - O tamanho da célula estática (`sStaticCellSize`) é dimensionado pela **mediana** das meias-extensões dos corpos estáticos (`max(2.0, median * 2.0)`). Isso impede que terrenos ou planos gigantescos (ex.: 200×200 u) inflem a célula para centenas de unidades, garantindo que objetos estáticos típicos permaneçam particionados em células finas e preservando raycasts estáticos em dezenas de microssegundos.
+
+2. **Grid Dinâmico (Célula Única por Centro + Expansão de Consulta):**
+   - Cada corpo dinâmico reside em exatamente uma célula determinada por seu centro de massa.
+   - Reduz o volume de inserções por passo de ~16.000 para 2.000, permitindo reconstrução em ~0,33 ms para 2.000 corpos.
+   - Consultas de overlap e DDA de raycast expandem a região de busca pela maior meia-extensão dinâmica (`sDynamicMaxHalfExtent`).
+
+### 8.2 Limitações Conhecidas e Dívidas Técnicas Registradas
+1. **Corpos Dinâmicos Excepcionalmente Grandes:**
+   - Como a região de busca dinâmica expande por `sDynamicMaxHalfExtent`, a introdução de um único corpo dinâmico muito grande (ex.: meia-extensão de 50 u) expande a vizinhança de busca para todos os overlaps dinâmicos, elevando o tempo de consulta para ~400 µs. Em cenários que demandem múltiplos corpos dinâmicos colossais coexistindo com milhares de corpos pequenos, uma partição hierárquica em dois níveis deverá ser considerada.
+2. **Tempo de Overlap em Cenas de Alta Densidade:**
+   - Em cenários com alta concentração de corpos na área de consulta (18 a 27 corpos no raio $r=3$), o tempo de `overlapSphereNonAlloc` fica entre 33 µs e 55 µs (acima da meta estrita de 30 µs), devido ao custo de teste geométrico OBB/SAT e ordenação no runtime JS sem aceleração SIMD. Esta meta permanece como dívida técnica registrada para futura otimização nativa em Rust.
+
