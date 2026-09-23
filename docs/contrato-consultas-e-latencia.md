@@ -292,23 +292,24 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
    - **Histórico:** Anteriormente, qualquer mutação na cena via `Scene.add()` ou remoção via `Scene.removeAt()` incrementava `compVersion`, forçando a reconstrução estática completa (cálculo de mediana com `quickselect`, reinserção de centenas/milhares de estáticos nos grids Tier 1 e Tier 2, etc.), consumindo 8 a 9 ms em cenas com 2.100 estáticos e congelando o framerate em disparos corriqueiros de projéteis. Em uma primeira tentativa, o desacoplamento de `staticVersion` sem mutação incremental ainda realizava uma varredura completa $O(N)$ em todos os objetos da cena buscando componentes dinâmicos, mantendo o custo de spawn em ~3,4 ms em cenas densas.
    - **Solução Arquitetural Implementada:**
      - **Inversão da Regra de Invalidação (`markCollidersDirty`):** `markCollidersDirty()` é a regra geral e **invalida tudo** (marca tanto `compVersion` quanto `staticVersion` como sujos e limpa as filas incrementais pendentes). Qualquer comando do editor (`cmdMove`, `cmdAlign`, `cmdReset`), gizmo de translação/rotação ou campo de Inspector que manipule objetos estáticos chama `scene.markCollidersDirty()`. A função `markStaticDirty()` apenas delega para `markCollidersDirty()`.
-     - **Detecção Automática de Deriva Estática (`Static Drift Detection`):** Caso um script ou sistema mova/rotacione/escale um estático sem chamar explicitamente `markCollidersDirty()`, o início de `ensureIndex` executa uma verificação vetorial ultra-rápida (~5 µs) comparando os valores em cache (`sStaticCacheWx/Wy/Wz/Sx/Wry`) contra os valores atuais de `transform`. Havendo qualquer desvio, o índice força reindexação estática imediata, garantindo que o índice nunca fique inconsistente com a geometria física.
+     - **Detecção de Deriva Estática por Passo via Função Livre (`checkStaticDriftFree`):** A checagem de drift de estáticos é executada estritamente **uma vez por passo** dentro de `spatialRebuildIndex` através da função livre `checkStaticDriftFree` com parâmetros tipados. Não é executada por consulta em `ensureIndex`. Caso detecte movimentação de estático, marca apenas a flag local `staticDirty = true` no índice espacial, **sem chamar `markCollidersDirty()`** e sem alterar `compVersion`, evitando ressincronizações espúrias no backend de física (`physics_backend.ts`).
+     - **Entrada e Travessia DDA Otimizada com Ponto de Penetração (`tMin`):** O algoritmo de DDA em grades estáticas e dinâmicas calcula a interseção com a AABB da grade e inicia a caminhada celular a partir do ponto de entrada (`tMin`), saltando células de ar vazio quando o raio inicia distante da cena, reduzindo a latência de raycast para 5 a 16 µs mesmo em cenas com milhares de estáticos.
+     - **Suporte Nativo a Object Pooling (`active = 0` / `1`):** Corpos dinâmicos são indexados em `sObjs` e `sDynamicIndices` independentemente de seu estado de ativação inicial. A filtragem de corpos ativos (`active !== 0`) ocorre a cada passo dentro de `rebuildDynamicsInto` (objetos inativos recebem `dynCell[di] = -1` e não entram nas listas de balde) e nas funções de consulta (`passesFilter` e loops de overlap), suportando pooling de projéteis e unidades sem inconsistências.
+     - **Teto de Segurança na Fila Incremental e Proteção contra Vazamento de Memória (`MAX_PENDING_DYNAMIC_OPS = 256`):** Para proteger o coletor de lixo (GC) contra acúmulo ilimitado de referências em cenas sem consultas espaciais, a fila de mutações dinâmicas possui teto de 256 operações. Ao atingir o limite, a fila descarta as referências acumuladas e ativa `pendingDynamicOverflow = true`, disparando uma reconstrução dinâmica completa sob demanda no próximo rebuild.
      - **Caminho Estrito do Desacoplamento:** O desacoplamento é restrito exclusivamente ao caminho rápido de mutações puramente dinâmicas (`Scene.add()` e `Scene.removeAt()` para corpos não-estáticos), que apenas incrementa `compVersion` e enfileira a operação na fila incremental pendente (`pendingDynamicOps` e `pendingDynamicObjs`).
      - **Fila Incremental $O(K)$ com Swap-with-last:** Cada `GameObject` rastreia seus índices diretos no índice espacial via `spatialSlot` e `spatialDynSlot`. As operações `DYN_OP_ADD` e `DYN_OP_REMOVE` são consumidas de forma incremental em tempo $O(1)$ por operação. Na remoção, o último elemento do array dinâmico preenche o slot vago (swap-with-last), atualizando o slot do elemento movido em $O(1)$.
      - **Passe Único no Rebuild Estático:** Quando uma reconstrução estática completa de fato ocorre, ela é realizada em um único passe linear sobre `scene.objects`, coletando simultaneamente os corpos dinâmicos em `sDynCollectObjs`, o que reduz o custo de reconstrução fria de 4.100 objetos para ~5,5 a 6,0 ms.
-   - **Resultados Medidos no Benchmark Oficial:**
-     - Em cena sob carga severa (2.100 estáticos + 2.000 dinâmicos = 4.100 objetos):
-       - Rebuild normal por passo (sem mutações): **~0,337 ms**;
-       - Rebuild com 5 criações por frame: **~0,363 ms**;
-       - Delta total por passo (5 criações): **~0,027 ms**;
-       - Custo marginal por objeto criado: **~0,005 ms/objeto** (meta $\le 0,05$ ms atendida com folga de 10x);
-       - Custo amortizado do passo de indexação estática: **$0,00$ ms**.
-   - **Status:** **RESOLVIDO**. Coberto por suíte de testes de regressão em `tests/claude-test-consultas.ts` (§13 e §14) e benchmark oficial em `bench/claude-bench-consultas-grid.ts`.
+    - **Resultados Medidos no Benchmark Oficial:**
+      - Em cena sob carga severa (2.100 estáticos + 2.000 dinâmicos = 4.100 objetos):
+        - Rebuild normal por passo (sem mutações): **~0,38 ms**;
+        - Rebuild com 5 criações por frame: **~0,40 ms**;
+        - Delta total por passo (5 criações): **~0,022 ms**;
+        - Custo marginal por objeto criado: **~0,0044 ms/objeto** (meta $\le 0,05$ ms atendida com folga de 11x);
+        - Custo de Raycast (50 u) com 2.100 estáticos: **5 a 16 µs** (meta $\le 25$ µs atendida em 100% das cenas).
+    - **Status:** **RESOLVIDO**. Coberto por suíte de testes de regressão em `tests/claude-test-consultas.ts` (§13, §14 e §15) e benchmark oficial em `bench/claude-bench-consultas-grid.ts`.
 
 3. **Lista Linear de Objetos Colossais em Quantidade:**
    - Corpos com meia-extensão $> 128.0$ u são direcionados para a lista linear `sColossalStaticObjs`.
    - A premissa de projeto assume que tais corpos são raros (1 a 2 terrenos globais por cena, onde a busca linear consome $< 0,3$ µs).
    - Caso uma cena instancie centenas de macro-terrenos (ex.: 300 blocos colossais de 300×300 u em mundo aberto de 6 km), a lista volta a incorrer em custo $O(N)$ nas consultas (~400 µs).
    - Status / Solução futura: Adoção de hierarquia esparsa (BVH/Quadtree) para macro-terrenos caso mundos com múltiplos blocos colossais sejam necessários.
-
-
