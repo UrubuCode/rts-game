@@ -677,6 +677,29 @@ export function getSpatialStepId(): number {
   return stepCount();
 }
 
+/// Verificação rápida de drift dos estáticos como função livre com parâmetros tipados.
+/// Executada UMA VEZ por passo dentro de spatialRebuildIndex (e NÃO por consulta).
+function checkStaticDriftFree(
+  count: number,
+  trs: Transform[],
+  cWx: f64[],
+  cWy: f64[],
+  cWz: f64[],
+  cSx: f64[],
+  cWry: f64[],
+): boolean {
+  let i = 0;
+  while (i < count) {
+    const t = trs[i];
+    if (t.wx !== cWx[i] || t.wy !== cWy[i] || t.wz !== cWz[i] ||
+        t.sx !== cSx[i] || t.wry !== cWry[i]) {
+      return true;
+    }
+    i = i + 1;
+  }
+  return false;
+}
+
 /// Reconstrói o índice espacial no host a partir da cena.
 export function spatialRebuildIndex(sc?: Scene): void {
   const targetScene = sc !== undefined ? sc : sActiveScene;
@@ -686,7 +709,14 @@ export function spatialRebuildIndex(sc?: Scene): void {
   const statVer = targetScene.staticVersion;
   const compVer = targetScene.compVersion;
 
-  const staticDirty = (sLastStaticVersion !== statVer);
+  let staticDirty = (sLastStaticVersion !== statVer);
+
+  // Verificação de drift dos estáticos (executada UMA VEZ por passo dentro da reindexação, e não por consulta)
+  if (!staticDirty && sStaticTotal > 0) {
+    if (checkStaticDriftFree(sStaticTotal, sTrs, sStaticCacheWx, sStaticCacheWy, sStaticCacheWz, sStaticCacheSx, sStaticCacheWry)) {
+      staticDirty = true;
+    }
+  }
   const compDirty = (sLastCompVersion !== compVer || staticDirty);
 
   if (staticDirty) {
@@ -1316,23 +1346,6 @@ function ensureIndex(sc?: Scene): Scene | null {
   if (targetScene === null) return null;
   const curStep = getSpatialStepId();
 
-  // Verificação de drift dos estáticos (Item 🔴 2 do Claude):
-  // Compara posição atual dos estáticos com o cache (3 comparações por estático).
-  // Se algum estático moveu, rotacionou ou escalou sem chamar markCollidersDirty,
-  // marca a cena suja para forçar reindexação completa dos estáticos.
-  if (sStaticTotal > 0 && sLastStaticVersion === targetScene.staticVersion) {
-    let ki = 0;
-    while (ki < sStaticTotal) {
-      const t = sTrs[ki];
-      if (t.wx !== sStaticCacheWx[ki] || t.wy !== sStaticCacheWy[ki] || t.wz !== sStaticCacheWz[ki] ||
-          t.sx !== sStaticCacheSx[ki] || t.wry !== sStaticCacheWry[ki]) {
-        targetScene.markCollidersDirty();
-        break;
-      }
-      ki = ki + 1;
-    }
-  }
-
   if (sLastRebuildStep !== curStep ||
       sLastCompVersion !== targetScene.compVersion ||
       sLastStaticVersion !== targetScene.staticVersion) {
@@ -1704,39 +1717,49 @@ function raycastStaticGridDDA(
   }
 
   if (tMax < 0.0) return false;
+  if (tMin >= maxDistance) return false;
 
   let closestDist = maxDistance + 1.0;
   let found = false;
 
-  let gx = mfloor(ox * invCell);
-  let gy = mfloor(oy * invCell);
-  let gz = mfloor(oz * invCell);
+  let tCurrent = 0.0;
+  let curOx = ox;
+  let curOy = oy;
+  let curOz = oz;
+  if (tMin > 0.0) {
+    tCurrent = tMin;
+    curOx = ox + ndx * (tMin + 0.0001);
+    curOy = oy + ndy * (tMin + 0.0001);
+    curOz = oz + ndz * (tMin + 0.0001);
+  }
+
+  let gx = mfloor(curOx * invCell);
+  let gy = mfloor(curOy * invCell);
+  let gz = mfloor(curOz * invCell);
 
   let stepX = 0; let tDeltaX = 1e30; let tMaxX = 1e30;
   if (ndx > 0.000000001) {
-    stepX = 1; tDeltaX = cell / ndx; tMaxX = ((gx + 1) * cell - ox) / ndx;
+    stepX = 1; tDeltaX = cell / ndx; tMaxX = tCurrent + ((gx + 1) * cell - curOx) / ndx;
   } else if (ndx < -0.000000001) {
-    stepX = -1; tDeltaX = (0.0 - cell) / ndx; tMaxX = (gx * cell - ox) / ndx;
+    stepX = -1; tDeltaX = (0.0 - cell) / ndx; tMaxX = tCurrent + (gx * cell - curOx) / ndx;
   }
 
   let stepY = 0; let tDeltaY = 1e30; let tMaxY = 1e30;
   if (ndy > 0.000000001) {
-    stepY = 1; tDeltaY = cell / ndy; tMaxY = ((gy + 1) * cell - oy) / ndy;
+    stepY = 1; tDeltaY = cell / ndy; tMaxY = tCurrent + ((gy + 1) * cell - curOy) / ndy;
   } else if (ndy < -0.000000001) {
-    stepY = -1; tDeltaY = (0.0 - cell) / ndy; tMaxY = (gy * cell - oy) / ndy;
+    stepY = -1; tDeltaY = (0.0 - cell) / ndy; tMaxY = tCurrent + (gy * cell - curOy) / ndy;
   }
 
   let stepZ = 0; let tDeltaZ = 1e30; let tMaxZ = 1e30;
   if (ndz > 0.000000001) {
-    stepZ = 1; tDeltaZ = cell / ndz; tMaxZ = ((gz + 1) * cell - oz) / ndz;
+    stepZ = 1; tDeltaZ = cell / ndz; tMaxZ = tCurrent + ((gz + 1) * cell - curOz) / ndz;
   } else if (ndz < -0.000000001) {
-    stepZ = -1; tDeltaZ = (0.0 - cell) / ndz; tMaxZ = (gz * cell - oz) / ndz;
+    stepZ = -1; tDeltaZ = (0.0 - cell) / ndz; tMaxZ = tCurrent + (gz * cell - curOz) / ndz;
   }
 
   let tEndLoop = closestDist < maxDistance ? closestDist : maxDistance;
   if (tMax < tEndLoop) tEndLoop = tMax;
-
-  let tCurrent = 0.0;
   while (tCurrent <= tEndLoop) {
     const bucket = (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
     let entry = head[bucket];
@@ -1908,33 +1931,45 @@ function raycastDynamicsDDA(
   }
 
   if (tMax < 0.0) return false;
+  if (tMin >= maxDistance) return false;
 
   let closestDist = maxDistance;
   let found = false;
 
-  const fox = ox * invCell; const tox = fox | 0; let gx = tox > fox ? tox - 1 : tox;
-  const foy = oy * invCell; const toy = foy | 0; let gy = toy > foy ? toy - 1 : toy;
-  const foz = oz * invCell; const toz = foz | 0; let gz = toz > foz ? toz - 1 : toz;
+  let tCurrent = 0.0;
+  let curOx = ox;
+  let curOy = oy;
+  let curOz = oz;
+  if (tMin > 0.0) {
+    tCurrent = tMin;
+    curOx = ox + ndx * (tMin + 0.0001);
+    curOy = oy + ndy * (tMin + 0.0001);
+    curOz = oz + ndz * (tMin + 0.0001);
+  }
+
+  const fox = curOx * invCell; const tox = fox | 0; let gx = tox > fox ? tox - 1 : tox;
+  const foy = curOy * invCell; const toy = foy | 0; let gy = toy > foy ? toy - 1 : toy;
+  const foz = curOz * invCell; const toz = foz | 0; let gz = toz > foz ? toz - 1 : toz;
 
   let stepX = 0; let tDeltaX = 1e30; let tMaxX = 1e30;
   if (ndx > 0.000000001) {
-    stepX = 1; tDeltaX = cell / ndx; tMaxX = ((gx + 1) * cell - ox) / ndx;
+    stepX = 1; tDeltaX = cell / ndx; tMaxX = tCurrent + ((gx + 1) * cell - curOx) / ndx;
   } else if (ndx < -0.000000001) {
-    stepX = -1; tDeltaX = (0.0 - cell) / ndx; tMaxX = (gx * cell - ox) / ndx;
+    stepX = -1; tDeltaX = (0.0 - cell) / ndx; tMaxX = tCurrent + (gx * cell - curOx) / ndx;
   }
 
   let stepY = 0; let tDeltaY = 1e30; let tMaxY = 1e30;
   if (ndy > 0.000000001) {
-    stepY = 1; tDeltaY = cell / ndy; tMaxY = ((gy + 1) * cell - oy) / ndy;
+    stepY = 1; tDeltaY = cell / ndy; tMaxY = tCurrent + ((gy + 1) * cell - curOy) / ndy;
   } else if (ndy < -0.000000001) {
-    stepY = -1; tDeltaY = (0.0 - cell) / ndy; tMaxY = (gy * cell - oy) / ndy;
+    stepY = -1; tDeltaY = (0.0 - cell) / ndy; tMaxY = tCurrent + (gy * cell - curOy) / ndy;
   }
 
   let stepZ = 0; let tDeltaZ = 1e30; let tMaxZ = 1e30;
   if (ndz > 0.000000001) {
-    stepZ = 1; tDeltaZ = cell / ndz; tMaxZ = ((gz + 1) * cell - oz) / ndz;
+    stepZ = 1; tDeltaZ = cell / ndz; tMaxZ = tCurrent + ((gz + 1) * cell - curOz) / ndz;
   } else if (ndz < -0.000000001) {
-    stepZ = -1; tDeltaZ = (0.0 - cell) / ndz; tMaxZ = (gz * cell - oz) / ndz;
+    stepZ = -1; tDeltaZ = (0.0 - cell) / ndz; tMaxZ = tCurrent + (gz * cell - curOz) / ndz;
   }
 
   const gridMask = 8191;
@@ -1944,8 +1979,6 @@ function raycastDynamicsDDA(
 
   let tEndLoop = closestDist;
   if (tMax < tEndLoop) tEndLoop = tMax;
-
-  let tCurrent = 0.0;
   while (tCurrent <= tEndLoop) {
     const tNext = tMaxX < tMaxY ? (tMaxX < tMaxZ ? tMaxX : tMaxZ) : (tMaxY < tMaxZ ? tMaxY : tMaxZ);
     const tEnd = tNext < tEndLoop ? tNext : tEndLoop;
