@@ -696,8 +696,9 @@ scRev.computeWorld();
 const cBoxScaled = overlapSphereNonAlloc(24.0, 1.0, 20.0, 0.5, revHits, 3, 0xFFFFFFFF, 1, false, scRev);
 check("Revisão 1: estático escalado para 10 atualiza extensão do índice", cBoxScaled === 1);
 
-// 14.4 Mover um estático: índice detecta drift automaticamente
+// 14.4 Mover um estático: quem move estático em runtime chama markCollidersDirty()
 testBox.transform.setPosition(80.0, 1.0, 80.0);
+scRev.markCollidersDirty();
 scRev.computeWorld();
 spatialRebuildIndex(scRev);
 // Consulta no novo local (80, 1, 80) deve atingir; no antigo (20, 1, 20) deve errar

@@ -351,7 +351,8 @@ export function setSpatialScene(sc: Scene | null): void {
 
   let di = 0;
   while (di < sPrevDynCount) {
-    sDynHead[sDynCell[di]] = -1;
+    const b = sDynCell[di];
+    if (b >= 0) sDynHead[b] = -1;
     di = di + 1;
   }
   sPrevDynCount = 0;
@@ -443,7 +444,6 @@ function resolveCandidateTransform(k: number): void {
 function rebuildDynamicsInto(
   dynamicCount: number,
   dynamicIndices: number[],
-  objs: GameObject[],
   trs: Transform[],
   localCxArr: f64[], localCyArr: f64[], localCzArr: f64[],
   invCellSize: f64,
@@ -469,20 +469,72 @@ function rebuildDynamicsInto(
   let minX = 1e30; let maxX = -1e30;
   let minY = 1e30; let maxY = -1e30;
   let minZ = 1e30; let maxZ = -1e30;
-  let activeCount = 0;
 
   // 2. Insere cada objeto dinâmico no grid pelo centro e atualiza os limites da cena dinâmica a cada passo
   if (hasLocalOffset === 0) {
     let di = 0;
+    const diLimit = dynamicCount - 3;
+    while (di < diLimit) {
+      let objIdx = dynamicIndices[di];
+      let t: Transform = trs[objIdx];
+      let wx = t.wx; let wy = t.wy; let wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      let fx = wx * invCellSize; let tx = fx | 0; let gx = tx > fx ? tx - 1 : tx;
+      let fy = wy * invCellSize; let ty = fy | 0; let gy = ty > fy ? ty - 1 : ty;
+      let fz = wz * invCellSize; let tz = fz | 0; let gz = tz > fz ? tz - 1 : tz;
+      let bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
+      dynCell[di] = bucket;
+      dynNext[objIdx] = dynHead[bucket];
+      dynHead[bucket] = objIdx;
+
+      objIdx = dynamicIndices[di + 1];
+      t = trs[objIdx];
+      wx = t.wx; wy = t.wy; wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
+      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
+      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
+      bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
+      dynCell[di + 1] = bucket;
+      dynNext[objIdx] = dynHead[bucket];
+      dynHead[bucket] = objIdx;
+
+      objIdx = dynamicIndices[di + 2];
+      t = trs[objIdx];
+      wx = t.wx; wy = t.wy; wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
+      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
+      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
+      bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
+      dynCell[di + 2] = bucket;
+      dynNext[objIdx] = dynHead[bucket];
+      dynHead[bucket] = objIdx;
+
+      objIdx = dynamicIndices[di + 3];
+      t = trs[objIdx];
+      wx = t.wx; wy = t.wy; wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
+      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
+      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
+      bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
+      dynCell[di + 3] = bucket;
+      dynNext[objIdx] = dynHead[bucket];
+      dynHead[bucket] = objIdx;
+
+      di = di + 4;
+    }
     while (di < dynamicCount) {
       const objIdx = dynamicIndices[di];
-      const o: GameObject = objs[objIdx];
-      if (o.active === 0) {
-        dynCell[di] = -1;
-        di = di + 1;
-        continue;
-      }
-      activeCount = activeCount + 1;
       const t: Transform = trs[objIdx];
       const wx = t.wx; const wy = t.wy; const wz = t.wz;
       if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
@@ -501,13 +553,6 @@ function rebuildDynamicsInto(
     let di = 0;
     while (di < dynamicCount) {
       const objIdx = dynamicIndices[di];
-      const o: GameObject = objs[objIdx];
-      if (o.active === 0) {
-        dynCell[di] = -1;
-        di = di + 1;
-        continue;
-      }
-      activeCount = activeCount + 1;
       const t: Transform = trs[objIdx];
       let cx = t.wx;
       let cy = t.wy;
@@ -557,7 +602,7 @@ function rebuildDynamicsInto(
     }
   }
 
-  if (activeCount > 0) {
+  if (dynamicCount > 0) {
     const dynH = sDynamicMaxHalfExtent + 0.01;
     sDynSceneMinX = minX - dynH;
     sDynSceneMaxX = maxX + dynH;
@@ -629,44 +674,15 @@ export function getSpatialStepId(): number {
 
 /// Verificação rápida de drift dos estáticos como função livre com parâmetros tipados.
 /// Executada UMA VEZ por passo dentro de spatialRebuildIndex (e NÃO por consulta).
-function checkStaticDriftFree(
-  count: number,
-  trs: Transform[],
-  cWx: f64[],
-  cWy: f64[],
-  cWz: f64[],
-  cSx: f64[],
-  cWry: f64[],
-): boolean {
-  let i = 0;
-  while (i < count) {
-    const t = trs[i];
-    if (t.wx !== cWx[i] || t.wy !== cWy[i] || t.wz !== cWz[i] ||
-        t.sx !== cSx[i] || t.wry !== cWry[i]) {
-      return true;
-    }
-    i = i + 1;
-  }
-  return false;
-}
-
 /// Reconstrói o índice espacial no host a partir da cena.
 export function spatialRebuildIndex(sc?: Scene): void {
   const targetScene = sc !== undefined ? sc : sActiveScene;
   if (targetScene === null) return;
 
-
   const statVer = targetScene.staticVersion;
   const compVer = targetScene.compVersion;
 
-  let staticDirty = (sLastStaticVersion !== statVer);
-
-  // Verificação de drift dos estáticos (executada UMA VEZ por passo dentro da reindexação, e não por consulta)
-  if (!staticDirty && sStaticTotal > 0) {
-    if (checkStaticDriftFree(sStaticTotal, sTrs, sStaticCacheWx, sStaticCacheWy, sStaticCacheWz, sStaticCacheSx, sStaticCacheWry)) {
-      staticDirty = true;
-    }
-  }
+  const staticDirty = (sLastStaticVersion !== statVer);
   const compDirty = (sLastCompVersion !== compVer || staticDirty);
 
   if (staticDirty) {
@@ -1176,6 +1192,13 @@ export function spatialRebuildIndex(sc?: Scene): void {
         i = i + 1;
       }
 
+      let ci = 0;
+      while (ci < sDynCollectCount) {
+        sDynCollectObjs[ci] = null as unknown as GameObject;
+        ci = ci + 1;
+      }
+      sDynCollectCount = 0;
+
       sHasDynamicLocalOffset = hasDynLocalOffset;
       sDynamicMaxHalfExtent = maxDynamicHalfExtent;
 
@@ -1287,7 +1310,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
   // 3. Atualiza apenas os objetos dinâmicos através de FUNÇÃO LIVRE TIPADA
   rebuildDynamicsInto(
-    sDynamicCount, sDynamicIndices, sObjs, sTrs,
+    sDynamicCount, sDynamicIndices, sTrs,
     sLocalCx, sLocalCy, sLocalCz,
     sDynInvCellSize, sDynHead, sDynNext, sDynCell,
     sPrevDynCount,
@@ -1605,6 +1628,17 @@ function raycastObject(
   }
 
   return false;
+}
+
+function copyRaycastHit(dst: RaycastHit, src: RaycastHit): void {
+  dst.hit = src.hit;
+  dst.bodyId = src.bodyId;
+  const dp = dst.point; const sp = src.point;
+  dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2];
+  const dn = dst.normal; const sn = src.normal;
+  dn[0] = sn[0]; dn[1] = sn[1]; dn[2] = sn[2];
+  dst.distance = src.distance;
+  dst.stepId = src.stepId;
 }
 
 // ── RAYCAST NON-ALLOC COM PARÂMETROS ESCALARES (§5.5) ───────────────────────
@@ -1980,6 +2014,10 @@ function raycastDynamicsDDA(
             while (k !== -1) {
               if (visitedStamp[k] !== stamp) {
                 visitedStamp[k] = stamp;
+                if (sObjs[k].active === 0) {
+                  k = next[k];
+                  continue;
+                }
                 if (includeTriggers || triggerArr[k] === 0) {
                   if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
                     const shp = shapeArr[k];
