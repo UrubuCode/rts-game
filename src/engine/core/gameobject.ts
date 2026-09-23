@@ -89,6 +89,10 @@ export class GameObject {
   /// no laço mais quente. -1 é o caminho LEGADO, não um erro: cenas antigas não
   /// têm Collider e continuam colidindo pela escala.
   colIdx: number;
+  /// Índice deste objeto nas tabelas paralelas do índice espacial (sObjs), ou -1 se não indexado.
+  spatialSlot: number;
+  /// Índice deste objeto no array sDynamicIndices do índice espacial, ou -1 se não dinâmico normal.
+  spatialDynSlot: number;
 
   constructor(name: string) {
     this.id = nextGameObjectId;
@@ -115,6 +119,8 @@ export class GameObject {
     this.matIdx = 0 - 1;
     this.rendIdx = 0 - 1;
     this.colIdx = 0 - 1;
+    this.spatialSlot = 0 - 1;
+    this.spatialDynSlot = 0 - 1;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`

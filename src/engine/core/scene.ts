@@ -18,6 +18,10 @@ import math from "@compat/math.ts";
 /// mudou". Com a sequência global, um número identifica a cena E o momento.
 let sceneVersionSeq = 0;
 
+/// Constantes de mutação dinâmica para fila incremental do índice espacial
+export const DYN_OP_ADD = 1;
+export const DYN_OP_REMOVE = 2;
+
 export class Scene {
   name: string;
   objects: GameObject[];
@@ -81,6 +85,9 @@ export class Scene {
   /// Spawns ou remoções de unidades/projéteis dinâmicos NÃO alteram `staticVersion`,
   /// permitindo que o índice espacial no host evite reconstruções de 8 ms.
   staticVersion: number;
+  /// Fila de mutações dinâmicas pendentes para consumo incremental pelo índice espacial
+  pendingDynamicOps: number[];
+  pendingDynamicObjs: GameObject[];
   colMaxR: f64;      // maior raio entre os colisores (cacheado com cIdx)
   colMovers: number; // quantos colisores podem se mover (cacheado com cIdx)
   /// Array PARALELO a `objects` com os transforms. Chegar ao transform por
@@ -108,24 +115,26 @@ export class Scene {
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
     this.staticVersion = sceneVersionSeq;
+    this.pendingDynamicOps = [];
+    this.pendingDynamicObjs = [];
     this.colMaxR = 0.0001;
     this.colMovers = 0;
   }
 
   /// A composição (ou a FORMA de alguém: escala, estático, component de
-  /// colisor) mudou. É o único jeito certo de levantar `colDirty` — escrever o
-  /// flag direto deixa os backends externos simulando a cena de antes.
+  /// colisor) mudou. Marca TUDO como sujo (inclusive staticVersion), garantindo
+  /// integridade total das estruturas espaciais estáticas e dinâmicas.
   markCollidersDirty(): void {
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
+    this.staticVersion = sceneVersionSeq;
+    this.pendingDynamicOps.length = 0;
+    this.pendingDynamicObjs.length = 0;
   }
 
-  /// Sinaliza que a malha ESTÁTICA mudou (adição/remoção/escala de objeto estático).
-  /// Dispara a reconstrução do grid estático multinível (Two-Tier) no host.
+  /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
   markStaticDirty(): void {
-    sceneVersionSeq = sceneVersionSeq + 1;
-    this.staticVersion = sceneVersionSeq;
     this.markCollidersDirty();
   }
 
@@ -134,10 +143,14 @@ export class Scene {
     this.objects.push(go);
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
     if (bodyTypeOf(go) === BODY_STATIC) {
+      this.markCollidersDirty();
+    } else {
+      this.colDirty = 1;
       sceneVersionSeq = sceneVersionSeq + 1;
-      this.staticVersion = sceneVersionSeq;
+      this.compVersion = sceneVersionSeq;
+      this.pendingDynamicOps.push(DYN_OP_ADD);
+      this.pendingDynamicObjs.push(go);
     }
-    this.markCollidersDirty();
     go.mount();
     return go;
   }
@@ -271,10 +284,8 @@ export class Scene {
     const n = this.objects.length;
     if (i < 0 || i >= n) return;
     const removedObj = this.objects[i];
-    if (bodyTypeOf(removedObj) === BODY_STATIC) {
-      sceneVersionSeq = sceneVersionSeq + 1;
-      this.staticVersion = sceneVersionSeq;
-    }
+    const isStatic = (bodyTypeOf(removedObj) === BODY_STATIC);
+
     // Compacta IN-PLACE (antes alocava um array novo a cada remoção — num RTS,
     // destruir dezenas de unidades por segundo virava dezenas de realocações da
     // cena inteira). Um passe: corrige os parents e desloca os que vêm depois.
@@ -289,7 +300,16 @@ export class Scene {
     }
     this.objects.length = w;
     this.trs.length = w;
-    this.markCollidersDirty();
+
+    if (isStatic) {
+      this.markCollidersDirty();
+    } else {
+      this.colDirty = 1;
+      sceneVersionSeq = sceneVersionSeq + 1;
+      this.compVersion = sceneVersionSeq;
+      this.pendingDynamicOps.push(DYN_OP_REMOVE);
+      this.pendingDynamicObjs.push(removedObj);
+    }
   }
 
   /// Índice do objeto ATIVO que carrega a câmera principal (-1 = nenhuma).
