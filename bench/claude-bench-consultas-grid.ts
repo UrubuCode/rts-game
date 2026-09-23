@@ -476,7 +476,7 @@ io.print("• Rebuild completo com mutação de cena: rápido em todas as cenas 
 io.print("• Raycast (meta <= 25 µs): ATENDIDO em 100% das cenas (3 a 19 µs com travessias reais de 4,5u a 30,0u).");
 io.print("• Overlap (meta <= 30 µs):");
 io.print("  - Cenas de alta densidade (18 a 27 corpos no raio r=3): 33 a 55 µs [ALTO].");
-io.print("  - Motivo: Custo do teste geometrico SAT de multiplos corpos e ordenacao em runtime JS.");
+io.print("  - Motivo: Causa sob investigacao / perfilamento detalhado (possivel custo de testes de multiplos corpos e ordenacao em runtime JS).");
 io.print("  - Status: Registrado oficialmente como divida tecnica para aceleracao nativa (Rust/SIMD).");
 
 io.print("\n=== Benchmark Concluido ===");

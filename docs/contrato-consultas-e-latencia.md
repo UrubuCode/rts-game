@@ -283,7 +283,21 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
    - As funções `overlapSphereNonAlloc` e `overlapBoxNonAlloc` utilizam `effectiveMaxHits = min(maxHits, outHits.length)`, garantindo que jamais aloquem novos objetos `OverlapHit` durante a execução.
 
 ### 8.3 Limitações Conhecidas e Dívidas Técnicas Registradas
-1. **Tempo de Overlap em Cenas de Alta Densidade:**
-   - Em cenários com alta concentração de corpos na área de consulta (18 a 27 corpos no raio $r=3$), o tempo de `overlapSphereNonAlloc` fica entre 33 µs e 55 µs (acima da meta estrita de 30 µs), devido ao custo de teste geométrico OBB/SAT e ordenação no runtime JS sem aceleração SIMD. Esta meta permanece como dívida técnica registrada para futura otimização nativa em Rust.
+1. **Tempo de Overlap em Cenas de Alta Densidade (Meta de 30 µs Aberta):**
+   - Em cenários com alta concentração de corpos na área de consulta (18 a 27 corpos no raio $r=3$), o tempo de `overlapSphereNonAlloc` fica entre 33 µs e 55 µs (acima da meta estrita de 30 µs).
+   - Causa: Causa sob investigação e perfilamento detalhado (possíveis fatores incluem testes geométricos de múltiplos candidatos e ordenação de hits no runtime JS sem aceleração SIMD).
+   - Status: Registrado oficialmente como dívida técnica para futura otimização nativa em Rust/SIMD.
+
+2. **Custo de Reindexação Completa em Mutações Frequentes (`compVersion`):**
+   - Adicionar ou remover qualquer corpo via `Scene.add()` ou chamar `markCollidersDirty()` incrementa `compVersion`, forçando a reindexação estática e dinâmica completa na consulta seguinte.
+   - Esse custo é de 2,6 a 4,0 ms nas cenas padrão e atinge 8 a 9 ms em cenas com 2.100 estáticos.
+   - Embora seja desprezível como evento raro (carregamento de cena ou spawns pontuais), torna-se proibitivo para sistemas de alta frequência (ex.: instanciar projéteis todo frame resultaria em perda severa de framerate).
+   - Status / Solução para o próximo PR: Separar o versionamento estático (`staticVersion`) da composição dinâmica, implementando inserção/remoção incremental de dinâmicos sem reconstruir a malha estática.
+
+3. **Lista Linear de Objetos Colossais em Quantidade:**
+   - Corpos com meia-extensão $> 128.0$ u são direcionados para a lista linear `sColossalStaticObjs`.
+   - A premissa de projeto assume que tais corpos são raros (1 a 2 terrenos globais por cena, onde a busca linear consome $< 0,3$ µs).
+   - Caso uma cena instancie centenas de macro-terrenos (ex.: 300 blocos colossais de 300×300 u em mundo aberto de 6 km), a lista volta a incorrer em custo $O(N)$ nas consultas (~400 µs).
+   - Status / Solução futura: Adoção de hierarquia esparsa (BVH/Quadtree) para macro-terrenos caso mundos com múltiplos blocos colossais sejam necessários.
 
 
