@@ -317,16 +317,24 @@ function rebuildDynamicsInto(
     k = k + 1;
   }
 
-  // 2. Insere cada objeto dinâmico no grid pelo centro
+  let minX = 1e30; let maxX = -1e30;
+  let minY = 1e30; let maxY = -1e30;
+  let minZ = 1e30; let maxZ = -1e30;
+
+  // 2. Insere cada objeto dinâmico no grid pelo centro e atualiza os limites da cena dinâmica a cada passo
   if (hasLocalOffset === 0) {
     let di = 0;
     const diLimit = dynamicCount - 3;
     while (di < diLimit) {
       let objIdx = dynamicIndices[di];
       let t: Transform = trs[objIdx];
-      let fx = t.wx * invCellSize; let tx = fx | 0; let gx = tx > fx ? tx - 1 : tx;
-      let fy = t.wy * invCellSize; let ty = fy | 0; let gy = ty > fy ? ty - 1 : ty;
-      let fz = t.wz * invCellSize; let tz = fz | 0; let gz = tz > fz ? tz - 1 : tz;
+      let wx = t.wx; let wy = t.wy; let wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      let fx = wx * invCellSize; let tx = fx | 0; let gx = tx > fx ? tx - 1 : tx;
+      let fy = wy * invCellSize; let ty = fy | 0; let gy = ty > fy ? ty - 1 : ty;
+      let fz = wz * invCellSize; let tz = fz | 0; let gz = tz > fz ? tz - 1 : tz;
       let bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
       dynCell[di] = bucket;
       dynNext[objIdx] = dynHead[bucket];
@@ -334,9 +342,13 @@ function rebuildDynamicsInto(
 
       objIdx = dynamicIndices[di + 1];
       t = trs[objIdx];
-      fx = t.wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
-      fy = t.wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
-      fz = t.wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
+      wx = t.wx; wy = t.wy; wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
+      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
+      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
       bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
       dynCell[di + 1] = bucket;
       dynNext[objIdx] = dynHead[bucket];
@@ -344,9 +356,13 @@ function rebuildDynamicsInto(
 
       objIdx = dynamicIndices[di + 2];
       t = trs[objIdx];
-      fx = t.wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
-      fy = t.wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
-      fz = t.wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
+      wx = t.wx; wy = t.wy; wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
+      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
+      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
       bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
       dynCell[di + 2] = bucket;
       dynNext[objIdx] = dynHead[bucket];
@@ -354,9 +370,13 @@ function rebuildDynamicsInto(
 
       objIdx = dynamicIndices[di + 3];
       t = trs[objIdx];
-      fx = t.wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
-      fy = t.wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
-      fz = t.wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
+      wx = t.wx; wy = t.wy; wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
+      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
+      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
       bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
       dynCell[di + 3] = bucket;
       dynNext[objIdx] = dynHead[bucket];
@@ -367,9 +387,13 @@ function rebuildDynamicsInto(
     while (di < dynamicCount) {
       const objIdx = dynamicIndices[di];
       const t: Transform = trs[objIdx];
-      const fx = t.wx * invCellSize; const tx = fx | 0; const gx = tx > fx ? tx - 1 : tx;
-      const fy = t.wy * invCellSize; const ty = fy | 0; const gy = ty > fy ? ty - 1 : ty;
-      const fz = t.wz * invCellSize; const tz = fz | 0; const gz = tz > fz ? tz - 1 : tz;
+      const wx = t.wx; const wy = t.wy; const wz = t.wz;
+      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
+      const fx = wx * invCellSize; const tx = fx | 0; const gx = tx > fx ? tx - 1 : tx;
+      const fy = wy * invCellSize; const ty = fy | 0; const gy = ty > fy ? ty - 1 : ty;
+      const fz = wz * invCellSize; const tz = fz | 0; const gz = tz > fz ? tz - 1 : tz;
       const bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
       dynCell[di] = bucket;
       dynNext[objIdx] = dynHead[bucket];
@@ -402,6 +426,10 @@ function rebuildDynamicsInto(
         cy = cy + lcy * t.sy;
       }
 
+      if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
+      if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
+      if (cz < minZ) minZ = cz; if (cz > maxZ) maxZ = cz;
+
       const fx = cx * invCellSize;
       const tx = fx | 0;
       const gx = tx > fx ? tx - 1 : tx;
@@ -422,6 +450,20 @@ function rebuildDynamicsInto(
 
       di = di + 1;
     }
+  }
+
+  if (dynamicCount > 0) {
+    const dynH = sDynamicMaxHalfExtent + 0.01;
+    sDynSceneMinX = minX - dynH;
+    sDynSceneMaxX = maxX + dynH;
+    sDynSceneMinY = minY - dynH;
+    sDynSceneMaxY = maxY + dynH;
+    sDynSceneMinZ = minZ - dynH;
+    sDynSceneMaxZ = maxZ + dynH;
+  } else {
+    sDynSceneMinX = 0.0; sDynSceneMaxX = 0.0;
+    sDynSceneMinY = 0.0; sDynSceneMaxY = 0.0;
+    sDynSceneMinZ = 0.0; sDynSceneMaxZ = 0.0;
   }
 }
 
@@ -572,23 +614,12 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
     sHasDynamicLocalOffset = hasDynLocalOffset;
 
-    if (sDynamicCount > 0) {
-      sDynSceneMinX = dynMinX - maxDynamicHalfExtent - 100.0;
-      sDynSceneMaxX = dynMaxX + maxDynamicHalfExtent + 100.0;
-      sDynSceneMinY = dynMinY - maxDynamicHalfExtent - 100.0;
-      sDynSceneMaxY = dynMaxY + maxDynamicHalfExtent + 100.0;
-      sDynSceneMinZ = dynMinZ - maxDynamicHalfExtent - 100.0;
-      sDynSceneMaxZ = dynMaxZ + maxDynamicHalfExtent + 100.0;
-    } else {
-      sDynSceneMinX = 0.0; sDynSceneMaxX = 0.0;
-      sDynSceneMinY = 0.0; sDynSceneMaxY = 0.0;
-      sDynSceneMinZ = 0.0; sDynSceneMaxZ = 0.0;
-    }
-
-    // Célula estática dimensionada dinamicamente para 2 * maiorMeiaExtensãoEstática
+    // Célula estática dimensionada para 2 * maiorMeiaExtensãoEstática (com teto para evitar que terrenos gigantes inflem a célula)
     sStaticMaxHalfExtent = maxStaticHalfExtent;
-    sStaticCellSize = maxStaticHalfExtent * 2.0;
-    if (sStaticCellSize < 2.0) sStaticCellSize = 2.0;
+    let statCellSize = maxStaticHalfExtent * 2.0;
+    if (statCellSize > 16.0) statCellSize = 16.0;
+    if (statCellSize < 2.0) statCellSize = 2.0;
+    sStaticCellSize = statCellSize;
     sStaticInvCellSize = 1.0 / sStaticCellSize;
 
     // Célula dinâmica dimensionada para 2 * maiorMeiaExtensão dinâmica
@@ -2028,10 +2059,9 @@ function overlapSphereDynamicsInto(
   candHit: OverlapHit,
   startStoredCount: number,
   startTotalFound: number,
-  worldCxArr: f64[],
-  worldCyArr: f64[],
-  worldCzArr: f64[],
-  yawArr: f64[],
+  trsArr: Transform[],
+  localCxArr: f64[], localCyArr: f64[], localCzArr: f64[],
+  hasLocalOffset: number,
   shapeArr: number[],
   worldHxArr: f64[], worldHyArr: f64[], worldHzArr: f64[],
   worldRadiusArr: f64[],
@@ -2064,10 +2094,27 @@ function overlapSphereDynamicsInto(
             const isTrig = triggerArr[k] !== 0;
             if (includeTriggers || !isTrig) {
               if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
-                const cxObj = worldCxArr[k];
-                const cyObj = worldCyArr[k];
-                const czObj = worldCzArr[k];
-                const yaw = yawArr[k];
+                const t = trsArr[k];
+                let cxObj = t.wx;
+                let cyObj = t.wy;
+                let czObj = t.wz;
+                const yaw = t.wry;
+                if (hasLocalOffset !== 0) {
+                  const lcx = localCxArr[k];
+                  const lcy = localCyArr[k];
+                  const lcz = localCzArr[k];
+                  if (lcx !== 0.0 || lcz !== 0.0) {
+                    const oxLocal = lcx * t.sx; const ozLocal = lcz * t.sz;
+                    if (yaw === 0.0) {
+                      cxObj = cxObj + oxLocal; czObj = czObj + ozLocal;
+                    } else {
+                      const cs = math.cos(yaw); const sn = math.sin(yaw);
+                      cxObj = cxObj + (oxLocal * cs + ozLocal * sn);
+                      czObj = czObj + (0.0 - oxLocal * sn + ozLocal * cs);
+                    }
+                  }
+                  if (lcy !== 0.0) cyObj = cyObj + lcy * t.sy;
+                }
 
                 const hx = worldHxArr[k];
                 const rx = cx - cxObj;
@@ -2326,7 +2373,7 @@ export function overlapSphereNonAlloc(
       sDynHead, sDynNext, sBucketStamp, stamp,
       sTrigger, sLayer, sMask, sBodyId, sCandidateOverlapHit,
       storedCount, totalFound,
-      sWorldCx, sWorldCy, sWorldCz, sYaw,
+      sTrs, sLocalCx, sLocalCy, sLocalCz, sHasDynamicLocalOffset,
       sShape, sWorldHx, sWorldHy, sWorldHz, sWorldRadius, sHullId,
     );
   }
