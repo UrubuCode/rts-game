@@ -288,11 +288,15 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
    - Causa: Causa sob investigação e perfilamento detalhado (possíveis fatores incluem testes geométricos de múltiplos candidatos e ordenação de hits no runtime JS sem aceleração SIMD).
    - Status: Registrado oficialmente como dívida técnica para futura otimização nativa em Rust/SIMD.
 
-2. **Custo de Reindexação Completa em Mutações Frequentes (`compVersion`):**
-   - Adicionar ou remover qualquer corpo via `Scene.add()` ou chamar `markCollidersDirty()` incrementa `compVersion`, forçando a reindexação estática e dinâmica completa na consulta seguinte.
-   - Esse custo é de 2,6 a 4,0 ms nas cenas padrão e atinge 8 a 9 ms em cenas com 2.100 estáticos.
-   - Embora seja desprezível como evento raro (carregamento de cena ou spawns pontuais), torna-se proibitivo para sistemas de alta frequência (ex.: instanciar projéteis todo frame resultaria em perda severa de framerate).
-   - Status / Solução para o próximo PR: Separar o versionamento estático (`staticVersion`) da composição dinâmica, implementando inserção/remoção incremental de dinâmicos sem reconstruir a malha estática.
+2. **Desacoplamento de `staticVersion` e Mutação Dinâmica Incremental (RESOLVIDO no PR #9):**
+   - **Histórico:** Anteriormente, qualquer mutação na cena via `Scene.add()` ou remoção via `Scene.removeAt()` incrementava `compVersion`, forçando a reconstrução estática completa (cálculo de mediana com `quickselect`, reinserção de centenas/milhares de estáticos nos grids Tier 1 e Tier 2, etc.), consumindo 8 a 9 ms em cenas com 2.100 estáticos e congelando o framerate em disparos corriqueiros de projéteis.
+   - **Solução Implementada:**
+     - A classe `Scene` passou a rastrear `staticVersion: number` de forma independente de `compVersion`.
+     - `Scene.add()` e `Scene.removeAt()` inspecionam o tipo de corpo (`bodyTypeOf(o) === BODY_STATIC`): caso o objeto seja dinâmico ou cinemático, apenas `compVersion` é incrementada; `staticVersion` permanece intacta. Mutações explícitas de estáticos contam com `Scene.markStaticDirty()`.
+     - No executor espacial (`spatial_queries.ts`), a reconstrução foi segregada: quando apenas `compVersion` foi alterada (`staticDirty === false`), a reconstrução estática inteira (Tier 1, Tier 2, objetos colossais estáticos, particionamento de meias-extensões) é completamente ignorada ($0,00$ ms). Apenas os arrays e grid dinâmicos são sincronizados.
+   - **Resultados Medidos:**
+     - Em cena com 2.100 estáticos (chão colossal + 100 prédios + 2.000 props), a adição/remoção em tempo de execução de projéteis e unidades dinâmicas passou de 8,9 ms para **0,27 ms a 0,35 ms** em cenários leves/médios (~25x a 30x mais rápido), eliminando totalmente os picos de latência (stutter) em spawn/despawn contínuo.
+   - **Status:** **RESOLVIDO**. Coberto por suíte de testes de regressão em `tests/claude-test-consultas.ts` (§13).
 
 3. **Lista Linear de Objetos Colossais em Quantidade:**
    - Corpos com meia-extensão $> 128.0$ u são direcionados para a lista linear `sColossalStaticObjs`.
