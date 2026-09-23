@@ -82,8 +82,12 @@ export function createOverlapHit(): OverlapHit {
 const SGRID_CAP = 8192;
 const SGRID_MASK = 8191;
 
+const HASH_X = 73856093;
+const HASH_Y = 19349663;
+const HASH_Z = 83492791;
+
 function cellHash(gx: number, gy: number, gz: number): number {
-  return (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
+  return (((gx * HASH_X) ^ (gy * HASH_Y) ^ (gz * HASH_Z)) & SGRID_MASK);
 }
 
 function insertHitSorted(outHits: OverlapHit[], startIndex: number, target: OverlapHit): void {
@@ -384,9 +388,6 @@ function mfloor(v: f64): number {
   return t;
 }
 
-function sHash(gx: number, gy: number, gz: number): number {
-  return (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
-}
 
 let sCandCx: f64 = 0.0;
 let sCandCy: f64 = 0.0;
@@ -468,9 +469,9 @@ function rebuildDynamicsInto(
   hasLocalOffset: number,
 ): void {
   const mask = SGRID_MASK;
-  const hxMult = 73856093;
-  const hyMult = 19349663;
-  const hzMult = 83492791;
+  const hxMult = HASH_X;
+  const hyMult = HASH_Y;
+  const hzMult = HASH_Z;
 
   // 1. Limpa APENAS os buckets sujos na passada anterior (no máximo prevDynCount)
   let k = 0;
@@ -1895,9 +1896,9 @@ function raycastDynamicsDDA(
   }
 
   const gridMask = SGRID_MASK;
-  const hxMult = 73856093;
-  const hyMult = 19349663;
-  const hzMult = 83492791;
+  const hxMult = HASH_X;
+  const hyMult = HASH_Y;
+  const hzMult = HASH_Z;
 
   let tEndLoop = closestDist;
   if (tMax < tEndLoop) tEndLoop = tMax;
@@ -2604,9 +2605,9 @@ function overlapSphereInto(
   startTotalFound: number,
 ): number {
   const gridMask = SGRID_MASK;
-  const hxMult = 73856093;
-  const hyMult = 19349663;
-  const hzMult = 83492791;
+  const hxMult = HASH_X;
+  const hyMult = HASH_Y;
+  const hzMult = HASH_Z;
 
   let storedCount = startStoredCount;
   let totalFound = startTotalFound;
@@ -2714,9 +2715,9 @@ function overlapSphereDynamicsInto(
   hullIdArr: number[],
 ): number {
   const gridMask = SGRID_MASK;
-  const hxMult = 73856093;
-  const hyMult = 19349663;
-  const hzMult = 83492791;
+  const hxMult = HASH_X;
+  const hyMult = HASH_Y;
+  const hzMult = HASH_Z;
 
   let storedCount = startStoredCount;
   let totalFound = startTotalFound;
@@ -2801,24 +2802,14 @@ function overlapSphereDynamicsInto(
                               target.hit = true; target.bodyId = candId; target.depth = depth;
                               target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
                               target.stepId = curStepId;
-                              let p = storedCount;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1];
-                                p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, storedCount, target);
                               storedCount = storedCount + 1;
                             } else {
                               const target = outHits[maxHits - 1];
                               target.hit = true; target.bodyId = candId; target.depth = depth;
                               target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
                               target.stepId = curStepId;
-                              let p = maxHits - 1;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1];
-                                p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, maxHits - 1, target);
                             }
                           }
                         }
@@ -2879,24 +2870,14 @@ function overlapSphereDynamicsInto(
                               target.hit = true; target.bodyId = candId; target.depth = depth;
                               target.normal[0] = wnx; target.normal[1] = wny; target.normal[2] = wnz;
                               target.stepId = curStepId;
-                              let p = storedCount;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1];
-                                p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, storedCount, target);
                               storedCount = storedCount + 1;
                             } else {
                               const target = outHits[maxHits - 1];
                               target.hit = true; target.bodyId = candId; target.depth = depth;
                               target.normal[0] = wnx; target.normal[1] = wny; target.normal[2] = wnz;
                               target.stepId = curStepId;
-                              let p = maxHits - 1;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1];
-                                p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, maxHits - 1, target);
                             }
                           }
                         }
@@ -3067,12 +3048,7 @@ export function overlapSphereNonAlloc(
           const target = outHits[storedCount];
           if (overlapSphereObject(k, cx, cy, cz, radius, target, includeTriggers, curStepId)) {
             totalFound = totalFound + 1;
-            let p = storedCount;
-            while (p > 0 && outHits[p - 1].bodyId > candId) {
-              outHits[p] = outHits[p - 1];
-              p = p - 1;
-            }
-            outHits[p] = target;
+            insertHitSorted(outHits, storedCount, target);
             storedCount = storedCount + 1;
           }
         } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
@@ -3080,12 +3056,7 @@ export function overlapSphereNonAlloc(
             totalFound = totalFound + 1;
             const target = outHits[effectiveMaxHits - 1];
             copyOverlapHit(target, sCandidateOverlapHit);
-            let p = effectiveMaxHits - 1;
-            while (p > 0 && outHits[p - 1].bodyId > candId) {
-              outHits[p] = outHits[p - 1];
-              p = p - 1;
-            }
-            outHits[p] = target;
+            insertHitSorted(outHits, effectiveMaxHits - 1, target);
           }
         } else if (testOverlapSphereObject(k, cx, cy, cz, radius)) {
           totalFound = totalFound + 1;
@@ -3443,9 +3414,9 @@ function overlapBoxInto(
   startTotalFound: number,
 ): number {
   const gridMask = SGRID_MASK;
-  const hxMult = 73856093;
-  const hyMult = 19349663;
-  const hzMult = 83492791;
+  const hxMult = HASH_X;
+  const hyMult = HASH_Y;
+  const hzMult = HASH_Z;
 
   let storedCount = startStoredCount;
   let totalFound = startTotalFound;
@@ -3478,12 +3449,7 @@ function overlapBoxInto(
                     if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
                       totalFound = totalFound + 1;
                       const candId = target.bodyId;
-                      let p = storedCount;
-                      while (p > 0 && outHits[p - 1].bodyId > candId) {
-                        outHits[p] = outHits[p - 1];
-                        p = p - 1;
-                      }
-                      outHits[p] = target;
+                      insertHitSorted(outHits, storedCount, target);
                       storedCount = storedCount + 1;
                     }
                   } else {
@@ -3493,12 +3459,7 @@ function overlapBoxInto(
                         totalFound = totalFound + 1;
                         const target = outHits[maxHits - 1];
                         copyOverlapHit(target, candHit);
-                        let p = maxHits - 1;
-                        while (p > 0 && outHits[p - 1].bodyId > candId) {
-                          outHits[p] = outHits[p - 1];
-                          p = p - 1;
-                        }
-                        outHits[p] = target;
+                        insertHitSorted(outHits, maxHits - 1, target);
                       }
                     } else {
                       if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
@@ -3557,9 +3518,9 @@ function overlapBoxDynamicsInto(
   hullIdArr: number[],
 ): number {
   const gridMask = SGRID_MASK;
-  const hxMult = 73856093;
-  const hyMult = 19349663;
-  const hzMult = 83492791;
+  const hxMult = HASH_X;
+  const hyMult = HASH_Y;
+  const hzMult = HASH_Z;
 
   let storedCount = startStoredCount;
   let totalFound = startTotalFound;
@@ -3664,22 +3625,14 @@ function overlapBoxDynamicsInto(
                               target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
                               target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
                               target.stepId = curStepId;
-                              let p = storedCount;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1]; p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, storedCount, target);
                               storedCount = storedCount + 1;
                             } else {
                               const target = outHits[maxHits - 1];
                               target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
                               target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
                               target.stepId = curStepId;
-                              let p = maxHits - 1;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1]; p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, maxHits - 1, target);
                             }
                           }
                         }
@@ -3706,22 +3659,14 @@ function overlapBoxDynamicsInto(
                                 target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
                                 target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
                                 target.stepId = curStepId;
-                                let p = storedCount;
-                                while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                  outHits[p] = outHits[p - 1]; p = p - 1;
-                                }
-                                outHits[p] = target;
+                                insertHitSorted(outHits, storedCount, target);
                                 storedCount = storedCount + 1;
                               } else {
                                 const target = outHits[maxHits - 1];
                                 target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
                                 target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
                                 target.stepId = curStepId;
-                                let p = maxHits - 1;
-                                while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                  outHits[p] = outHits[p - 1]; p = p - 1;
-                                }
-                                outHits[p] = target;
+                                insertHitSorted(outHits, maxHits - 1, target);
                               }
                             }
                           }
@@ -3730,11 +3675,7 @@ function overlapBoxDynamicsInto(
                             const target = outHits[storedCount];
                             if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
                               totalFound = totalFound + 1;
-                              let p = storedCount;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1]; p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, storedCount, target);
                               storedCount = storedCount + 1;
                             }
                           } else if (candId < outHits[maxHits - 1].bodyId) {
@@ -3742,11 +3683,7 @@ function overlapBoxDynamicsInto(
                               totalFound = totalFound + 1;
                               const target = outHits[maxHits - 1];
                               copyOverlapHit(target, candHit);
-                              let p = maxHits - 1;
-                              while (p > 0 && outHits[p - 1].bodyId > candId) {
-                                outHits[p] = outHits[p - 1]; p = p - 1;
-                              }
-                              outHits[p] = target;
+                              insertHitSorted(outHits, maxHits - 1, target);
                             }
                           } else if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
                             totalFound = totalFound + 1;
@@ -3757,11 +3694,7 @@ function overlapBoxDynamicsInto(
                           const target = outHits[storedCount];
                           if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
                             totalFound = totalFound + 1;
-                            let p = storedCount;
-                            while (p > 0 && outHits[p - 1].bodyId > candId) {
-                              outHits[p] = outHits[p - 1]; p = p - 1;
-                            }
-                            outHits[p] = target;
+                            insertHitSorted(outHits, storedCount, target);
                             storedCount = storedCount + 1;
                           }
                         } else if (candId < outHits[maxHits - 1].bodyId) {
@@ -3769,11 +3702,7 @@ function overlapBoxDynamicsInto(
                             totalFound = totalFound + 1;
                             const target = outHits[maxHits - 1];
                             copyOverlapHit(target, candHit);
-                            let p = maxHits - 1;
-                            while (p > 0 && outHits[p - 1].bodyId > candId) {
-                              outHits[p] = outHits[p - 1]; p = p - 1;
-                            }
-                            outHits[p] = target;
+                            insertHitSorted(outHits, maxHits - 1, target);
                           }
                         } else if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
                           totalFound = totalFound + 1;
@@ -3927,12 +3856,7 @@ export function overlapBoxNonAlloc(
           const target = outHits[storedCount];
           if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
             totalFound = totalFound + 1;
-            let p = storedCount;
-            while (p > 0 && outHits[p - 1].bodyId > candId) {
-              outHits[p] = outHits[p - 1];
-              p = p - 1;
-            }
-            outHits[p] = target;
+            insertHitSorted(outHits, storedCount, target);
             storedCount = storedCount + 1;
           }
         } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
@@ -3940,12 +3864,7 @@ export function overlapBoxNonAlloc(
             totalFound = totalFound + 1;
             const target = outHits[effectiveMaxHits - 1];
             copyOverlapHit(target, sCandidateOverlapHit);
-            let p = effectiveMaxHits - 1;
-            while (p > 0 && outHits[p - 1].bodyId > candId) {
-              outHits[p] = outHits[p - 1];
-              p = p - 1;
-            }
-            outHits[p] = target;
+            insertHitSorted(outHits, effectiveMaxHits - 1, target);
           }
         } else if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
           totalFound = totalFound + 1;
