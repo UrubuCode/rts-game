@@ -147,6 +147,36 @@ let sStaticCount = 0;
 let sDynamicIndices: number[] = new Array(sObjCap).fill(0);
 let sDynamicCount = 0;
 
+// Lista de objetos grandes (terrenos estáticos e dinâmicos colossais)
+const LARGE_OBJECT_THRESHOLD: f64 = 16.0;
+let sStaticLargeCap = 256;
+let sStaticLargeObjs: number[] = new Array(sStaticLargeCap).fill(0);
+let sStaticLargeCount = 0;
+
+let sDynamicLargeCap = 256;
+let sDynamicLargeObjs: number[] = new Array(sDynamicLargeCap).fill(0);
+let sDynamicLargeCount = 0;
+
+function addStaticLarge(k: number): void {
+  if (sStaticLargeCount >= sStaticLargeCap) {
+    const newCap = sStaticLargeCap * 2;
+    while (sStaticLargeObjs.length < newCap) sStaticLargeObjs.push(0);
+    sStaticLargeCap = newCap;
+  }
+  sStaticLargeObjs[sStaticLargeCount] = k;
+  sStaticLargeCount = sStaticLargeCount + 1;
+}
+
+function addDynamicLarge(k: number): void {
+  if (sDynamicLargeCount >= sDynamicLargeCap) {
+    const newCap = sDynamicLargeCap * 2;
+    while (sDynamicLargeObjs.length < newCap) sDynamicLargeObjs.push(0);
+    sDynamicLargeCap = newCap;
+  }
+  sDynamicLargeObjs[sDynamicLargeCount] = k;
+  sDynamicLargeCount = sDynamicLargeCount + 1;
+}
+
 let sMinX: number[] = new Array(sObjCap).fill(0.0);
 let sMaxX: number[] = new Array(sObjCap).fill(0.0);
 let sMinY: number[] = new Array(sObjCap).fill(0.0);
@@ -216,6 +246,8 @@ export function setSpatialScene(sc: Scene | null): void {
     di = di + 1;
   }
   sPrevDynCount = 0;
+  sStaticLargeCount = 0;
+  sDynamicLargeCount = 0;
 }
 
 export function getSpatialScene(): Scene | null {
@@ -552,6 +584,8 @@ export function spatialRebuildIndex(sc?: Scene): void {
     sTrs.length = 0;
     sStaticCount = 0;
     sDynamicCount = 0;
+    sStaticLargeCount = 0;
+    sDynamicLargeCount = 0;
     let maxStaticHalfExtent: f64 = 0.5;
     let maxDynamicHalfExtent: f64 = 0.5;
     let hasDynLocalOffset = 0;
@@ -602,25 +636,35 @@ export function spatialRebuildIndex(sc?: Scene): void {
         sWorldHz[k] = hz;
         sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
 
+        const isLarge = (hx > LARGE_OBJECT_THRESHOLD || hy > LARGE_OBJECT_THRESHOLD || hz > LARGE_OBJECT_THRESHOLD);
+
         if (isStat !== 0) {
-          if (hx > maxStaticHalfExtent) maxStaticHalfExtent = hx;
-          if (hy > maxStaticHalfExtent) maxStaticHalfExtent = hy;
-          if (hz > maxStaticHalfExtent) maxStaticHalfExtent = hz;
-          sStaticIndices[sStaticCount] = k;
-          sStaticCount = sStaticCount + 1;
+          if (isLarge) {
+            addStaticLarge(k);
+          } else {
+            if (hx > maxStaticHalfExtent) maxStaticHalfExtent = hx;
+            if (hy > maxStaticHalfExtent) maxStaticHalfExtent = hy;
+            if (hz > maxStaticHalfExtent) maxStaticHalfExtent = hz;
+            sStaticIndices[sStaticCount] = k;
+            sStaticCount = sStaticCount + 1;
+          }
         } else {
           if (lcx !== 0.0 || lcy !== 0.0 || lcz !== 0.0) hasDynLocalOffset = 1;
-          if (hx > maxDynamicHalfExtent) maxDynamicHalfExtent = hx;
-          if (hy > maxDynamicHalfExtent) maxDynamicHalfExtent = hy;
-          if (hz > maxDynamicHalfExtent) maxDynamicHalfExtent = hz;
-          if (t.wx < dynMinX) dynMinX = t.wx;
-          if (t.wx > dynMaxX) dynMaxX = t.wx;
-          if (t.wy < dynMinY) dynMinY = t.wy;
-          if (t.wy > dynMaxY) dynMaxY = t.wy;
-          if (t.wz < dynMinZ) dynMinZ = t.wz;
-          if (t.wz > dynMaxZ) dynMaxZ = t.wz;
-          sDynamicIndices[sDynamicCount] = k;
-          sDynamicCount = sDynamicCount + 1;
+          if (isLarge) {
+            addDynamicLarge(k);
+          } else {
+            if (hx > maxDynamicHalfExtent) maxDynamicHalfExtent = hx;
+            if (hy > maxDynamicHalfExtent) maxDynamicHalfExtent = hy;
+            if (hz > maxDynamicHalfExtent) maxDynamicHalfExtent = hz;
+            if (t.wx < dynMinX) dynMinX = t.wx;
+            if (t.wx > dynMaxX) dynMaxX = t.wx;
+            if (t.wy < dynMinY) dynMinY = t.wy;
+            if (t.wy > dynMaxY) dynMaxY = t.wy;
+            if (t.wz < dynMinZ) dynMinZ = t.wz;
+            if (t.wz > dynMaxZ) dynMaxZ = t.wz;
+            sDynamicIndices[sDynamicCount] = k;
+            sDynamicCount = sDynamicCount + 1;
+          }
         }
       }
       i = i + 1;
@@ -747,6 +791,45 @@ export function spatialRebuildIndex(sc?: Scene): void {
         gx = gx + 1;
       }
       si = si + 1;
+    }
+
+    let sli = 0;
+    while (sli < sStaticLargeCount) {
+      const k = sStaticLargeObjs[sli];
+      const t = sTrs[k];
+      sYaw[k] = t.wry;
+      const hx = sWorldHx[k];
+      const hy = sWorldHy[k];
+      const hz = sWorldHz[k];
+      const lcx = sLocalCx[k];
+      const lcy = sLocalCy[k];
+      const lcz = sLocalCz[k];
+      let cx = t.wx;
+      let cy = t.wy;
+      let cz = t.wz;
+      if (lcx !== 0.0 || lcz !== 0.0) {
+        const ox = lcx * t.sx; const oz = lcz * t.sz;
+        if (t.wry === 0.0) {
+          cx = cx + ox;
+          cz = cz + oz;
+        } else {
+          const cs = math.cos(t.wry); const sn = math.sin(t.wry);
+          cx = cx + (ox * cs + oz * sn);
+          cz = cz + (0.0 - ox * sn + oz * cs);
+        }
+      }
+      if (lcy !== 0.0) {
+        cy = cy + lcy * t.sy;
+      }
+      sWorldCx[k] = cx; sWorldCy[k] = cy; sWorldCz[k] = cz;
+
+      const minX = cx - hx; const maxX = cx + hx;
+      const minY = cy - hy; const maxY = cy + hy;
+      const minZ = cz - hz; const maxZ = cz + hz;
+      sMinX[k] = minX; sMaxX[k] = maxX;
+      sMinY[k] = minY; sMaxY[k] = maxY;
+      sMinZ[k] = minZ; sMaxZ[k] = maxZ;
+      sli = sli + 1;
     }
 
     sLastSceneVersion = compVer;
@@ -1645,6 +1728,59 @@ export function raycastNonAlloc(
     }
   }
 
+  // 3. Raycast contra objetos grandes (estáticos e dinâmicos)
+  if (sStaticLargeCount > 0) {
+    let li = 0;
+    while (li < sStaticLargeCount) {
+      const k = sStaticLargeObjs[li];
+      if (passesFilter(mask, layer, includeTriggers, k)) {
+        if (raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId)) {
+          if (sTempRayHit.distance < closestDist) {
+            closestDist = sTempRayHit.distance;
+            outHit.hit = true;
+            outHit.bodyId = sTempRayHit.bodyId;
+            outHit.point[0] = sTempRayHit.point[0];
+            outHit.point[1] = sTempRayHit.point[1];
+            outHit.point[2] = sTempRayHit.point[2];
+            outHit.normal[0] = sTempRayHit.normal[0];
+            outHit.normal[1] = sTempRayHit.normal[1];
+            outHit.normal[2] = sTempRayHit.normal[2];
+            outHit.distance = sTempRayHit.distance;
+            outHit.stepId = sTempRayHit.stepId;
+            found = true;
+          }
+        }
+      }
+      li = li + 1;
+    }
+  }
+
+  if (sDynamicLargeCount > 0) {
+    let li = 0;
+    while (li < sDynamicLargeCount) {
+      const k = sDynamicLargeObjs[li];
+      if (passesFilter(mask, layer, includeTriggers, k)) {
+        if (raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId)) {
+          if (sTempRayHit.distance < closestDist) {
+            closestDist = sTempRayHit.distance;
+            outHit.hit = true;
+            outHit.bodyId = sTempRayHit.bodyId;
+            outHit.point[0] = sTempRayHit.point[0];
+            outHit.point[1] = sTempRayHit.point[1];
+            outHit.point[2] = sTempRayHit.point[2];
+            outHit.normal[0] = sTempRayHit.normal[0];
+            outHit.normal[1] = sTempRayHit.normal[1];
+            outHit.normal[2] = sTempRayHit.normal[2];
+            outHit.distance = sTempRayHit.distance;
+            outHit.stepId = sTempRayHit.stepId;
+            found = true;
+          }
+        }
+      }
+      li = li + 1;
+    }
+  }
+
   if (!found) {
     outHit.hit = false;
   }
@@ -2405,6 +2541,55 @@ export function overlapSphereNonAlloc(
     );
   }
 
+  storedCount = totalFound < maxHits ? totalFound : maxHits;
+
+  // 3. Objetos grandes (estáticos e dinâmicos)
+  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
+    let largeIdx = 0;
+    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
+    while (largeIdx < totalLarge) {
+      const k = largeIdx < sStaticLargeCount 
+        ? sStaticLargeObjs[largeIdx] 
+        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
+      largeIdx = largeIdx + 1;
+
+      if (passesFilter(mask, layer, includeTriggers, k)) {
+        const candId = sBodyId[k];
+        if (storedCount < maxHits) {
+          let target = outHits[storedCount];
+          if (target === undefined) {
+            target = createOverlapHit();
+            outHits[storedCount] = target;
+          }
+          if (overlapSphereObject(k, cx, cy, cz, radius, target, includeTriggers, curStepId)) {
+            totalFound = totalFound + 1;
+            let p = storedCount;
+            while (p > 0 && outHits[p - 1].bodyId > candId) {
+              outHits[p] = outHits[p - 1];
+              p = p - 1;
+            }
+            outHits[p] = target;
+            storedCount = storedCount + 1;
+          }
+        } else if (candId < outHits[maxHits - 1].bodyId) {
+          if (overlapSphereObject(k, cx, cy, cz, radius, sCandidateOverlapHit, includeTriggers, curStepId)) {
+            totalFound = totalFound + 1;
+            const target = outHits[maxHits - 1];
+            copyOverlapHit(target, sCandidateOverlapHit);
+            let p = maxHits - 1;
+            while (p > 0 && outHits[p - 1].bodyId > candId) {
+              outHits[p] = outHits[p - 1];
+              p = p - 1;
+            }
+            outHits[p] = target;
+          }
+        } else if (testOverlapSphereObject(k, cx, cy, cz, radius)) {
+          totalFound = totalFound + 1;
+        }
+      }
+    }
+  }
+
   return totalFound;
 }
 
@@ -2523,6 +2708,25 @@ export function overlapSphere(
         gy = gy + 1;
       }
       gx = gx + 1;
+    }
+  }
+
+  // 3. Objetos grandes (estáticos e dinâmicos)
+  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
+    let largeIdx = 0;
+    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
+    while (largeIdx < totalLarge) {
+      const k = largeIdx < sStaticLargeCount 
+        ? sStaticLargeObjs[largeIdx] 
+        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
+      largeIdx = largeIdx + 1;
+
+      if (passesFilter(mask, layer, includeTriggers, k)) {
+        const hit = createOverlapHit();
+        if (overlapSphereObject(k, cx, cy, cz, radius, hit, includeTriggers, curStepId)) {
+          result.push(hit);
+        }
+      }
     }
   }
 
@@ -3263,6 +3467,55 @@ export function overlapBoxNonAlloc(
     );
   }
 
+  storedCount = totalFound < maxHits ? totalFound : maxHits;
+
+  // 3. Objetos grandes (estáticos e dinâmicos)
+  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
+    let largeIdx = 0;
+    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
+    while (largeIdx < totalLarge) {
+      const k = largeIdx < sStaticLargeCount 
+        ? sStaticLargeObjs[largeIdx] 
+        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
+      largeIdx = largeIdx + 1;
+
+      if (passesFilter(mask, layer, includeTriggers, k)) {
+        const candId = sBodyId[k];
+        if (storedCount < maxHits) {
+          let target = outHits[storedCount];
+          if (target === undefined) {
+            target = createOverlapHit();
+            outHits[storedCount] = target;
+          }
+          if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
+            totalFound = totalFound + 1;
+            let p = storedCount;
+            while (p > 0 && outHits[p - 1].bodyId > candId) {
+              outHits[p] = outHits[p - 1];
+              p = p - 1;
+            }
+            outHits[p] = target;
+            storedCount = storedCount + 1;
+          }
+        } else if (candId < outHits[maxHits - 1].bodyId) {
+          if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, sCandidateOverlapHit, includeTriggers, curStepId)) {
+            totalFound = totalFound + 1;
+            const target = outHits[maxHits - 1];
+            copyOverlapHit(target, sCandidateOverlapHit);
+            let p = maxHits - 1;
+            while (p > 0 && outHits[p - 1].bodyId > candId) {
+              outHits[p] = outHits[p - 1];
+              p = p - 1;
+            }
+            outHits[p] = target;
+          }
+        } else if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
+          totalFound = totalFound + 1;
+        }
+      }
+    }
+  }
+
   return totalFound;
 }
 
@@ -3377,6 +3630,25 @@ export function overlapBox(
         gy = gy + 1;
       }
       gx = gx + 1;
+    }
+  }
+
+  // 3. Objetos grandes (estáticos e dinâmicos)
+  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
+    let largeIdx = 0;
+    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
+    while (largeIdx < totalLarge) {
+      const k = largeIdx < sStaticLargeCount 
+        ? sStaticLargeObjs[largeIdx] 
+        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
+      largeIdx = largeIdx + 1;
+
+      if (passesFilter(mask, layer, includeTriggers, k)) {
+        const hit = createOverlapHit();
+        if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, hit, includeTriggers, curStepId)) {
+          result.push(hit);
+        }
+      }
     }
   }
 

@@ -261,19 +261,26 @@ O Lote B será dividido em dois PRs (1º Consultas, 2º Eventos). Os critérios 
 
 ### 8.1 Grid Híbrido Estático vs. Dinâmico
 Para atender simultaneamente a simulações de alta taxa de atualização (60 Hz) com milhares de corpos e consultas espaciais rápidas:
-1. **Grid Estático (Multi-célula, Mediana de Extensões):**
-   - Corpos estáticos são inseridos em todas as células que sua AABB sobrepõe.
+1. **Grid Estático (Multi-célula para Corpos Normais):**
+   - Corpos estáticos normais são inseridos em todas as células que sua AABB sobrepõe.
    - A reconstrução ocorre exclusivamente quando a versão composicional da cena (`compVersion`) muda (custo amortizado por passo = 0).
-   - O tamanho da célula estática (`sStaticCellSize`) é dimensionado pela **mediana** das meias-extensões dos corpos estáticos (`max(2.0, median * 2.0)`). Isso impede que terrenos ou planos gigantescos (ex.: 200×200 u) inflem a célula para centenas de unidades, garantindo que objetos estáticos típicos permaneçam particionados em células finas e preservando raycasts estáticos em dezenas de microssegundos.
-
+   - O tamanho da célula estática (`sStaticCellSize`) é dimensionado pela **mediana** das meias-extensões dos corpos estáticos normais (`max(2.0, median * 2.0)`).
 2. **Grid Dinâmico (Célula Única por Centro + Expansão de Consulta):**
-   - Cada corpo dinâmico reside em exatamente uma célula determinada por seu centro de massa.
+   - Cada corpo dinâmico normal reside em exatamente uma célula determinada por seu centro de massa.
    - Reduz o volume de inserções por passo de ~16.000 para 2.000, permitindo reconstrução em ~0,33 ms para 2.000 corpos.
    - Consultas de overlap e DDA de raycast expandem a região de busca pela maior meia-extensão dinâmica (`sDynamicMaxHalfExtent`).
 
-### 8.2 Limitações Conhecidas e Dívidas Técnicas Registradas
-1. **Corpos Dinâmicos Excepcionalmente Grandes:**
-   - Como a região de busca dinâmica expande por `sDynamicMaxHalfExtent`, a introdução de um único corpo dinâmico muito grande (ex.: meia-extensão de 50 u) expande a vizinhança de busca para todos os overlaps dinâmicos, elevando o tempo de consulta para ~400 µs. Em cenários que demandem múltiplos corpos dinâmicos colossais coexistindo com milhares de corpos pequenos, uma partição hierárquica em dois níveis deverá ser considerada.
-2. **Tempo de Overlap em Cenas de Alta Densidade:**
+### 8.2 Lista de Objetos Grandes (`LARGE_OBJECT_THRESHOLD = 16.0`)
+Para evitar patologias de fragmentação e inflação dimensional com corpos atípicos:
+1. **Limiar de Segregação:** Todo corpo com meia-extensão em qualquer eixo superior a $16.0$ u é classificado como objeto grande e segregado em lista dedicada (`sStaticLargeObjs` e `sDynamicLargeObjs`, pré-alocadas com capacidade 256).
+2. **Terrenos e Planos Estáticos (ex.: 200×200 u ou 2.000×2.000 u):**
+   - Não são inseridos no grid multi-célula. Isso elimina a fragmentação de dezenas de milhares de entradas na tabela de hash durante `Scene.add()` ou mutações estruturais (evitando picos de 200–800 ms de rebuild e colisões severas de buckets), mantendo a reconstrução estática em $\le 0.35$ ms.
+3. **Corpos Dinâmicos Colossais (ex.: chefe de 50 u):**
+   - Não entram no grid dinâmico por centro nem inflam `sDynamicMaxHalfExtent`. O grid dinâmico preserva seu tamanho de célula e raio de expansão calibrados para unidades normais (0.5 a 2.0 u).
+4. **Resolução em Consultas:**
+   - Consultas (`raycastNonAlloc`, `overlapSphereNonAlloc`, `overlapBoxNonAlloc`) percorrem o grid normalmente e, em seguida, testam os corpos da lista de objetos grandes (tipicamente 1 a 2 elementos, com custo $< 1$ µs).
+
+### 8.3 Limitações Conhecidas e Dívidas Técnicas Registradas
+1. **Tempo de Overlap em Cenas de Alta Densidade:**
    - Em cenários com alta concentração de corpos na área de consulta (18 a 27 corpos no raio $r=3$), o tempo de `overlapSphereNonAlloc` fica entre 33 µs e 55 µs (acima da meta estrita de 30 µs), devido ao custo de teste geométrico OBB/SAT e ordenação no runtime JS sem aceleração SIMD. Esta meta permanece como dívida técnica registrada para futura otimização nativa em Rust.
 
