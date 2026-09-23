@@ -12,6 +12,7 @@ export function cmdAlign(parts: string[]): string {
   if (step <= 0.0) step = 0.5;
   const t = scene.objects[i].transform;
   t.px = snapAt(t.px, step); t.py = snapAt(t.py, step); t.pz = snapAt(t.pz, step);
+  if (scene.objects[i].stationary !== 0) scene.markCollidersDirty();
   return "[ok] align #" + i + " (grid " + step + ")";
 }
 
@@ -31,6 +32,7 @@ export function cmdReset(parts: string[]): string {
   const t = scene.objects[i].transform;
   t.rx = 0.0; t.ry = 0.0; t.rz = 0.0;
   t.sx = 1.0; t.sy = 1.0; t.sz = 1.0;
+  if (scene.objects[i].stationary !== 0) scene.markCollidersDirty();
   return "[ok] reset #" + i + " (rot 0, escala 1)";
 }
 
@@ -63,6 +65,7 @@ export function cmdMove(parts: string[]): string {
   o.transform.px = parseFloat(parts[2]);
   o.transform.py = parseFloat(parts[3]);
   o.transform.pz = parseFloat(parts[4]);
+  if (o.stationary !== 0) scene.markCollidersDirty();
   return "[ok] move";
 }
 
