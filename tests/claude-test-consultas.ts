@@ -423,6 +423,53 @@ if (hitTrans !== null) {
         "x=" + hitTrans.point[0] + " z=" + hitTrans.point[2]);
 }
 
+// ── 10. Movimentação de Corpos Dinâmicos e Consultas Subsequentes ────────────
+const scMove = new Scene("MoveTestScene");
+setSpatialScene(scMove);
+
+const moveObj = new GameObject("MovingDynamic");
+moveObj.setMesh(1, 0, 255, 0); // cubo
+moveObj.transform.setPosition(0.0, 0.0, 0.0);
+moveObj.transform.setScale(1.0); // meia-extensão 0.5
+scMove.add(moveObj);
+scMove.computeWorld();
+spatialRebuildIndex(scMove);
+
+const moveHits: OverlapHit[] = [createOverlapHit(), createOverlapHit()];
+const moveRay = createRaycastHit();
+
+// Consulta inicial em (0, 0, 0)
+const initialHits = overlapSphereNonAlloc(0.0, 0.0, 0.0, 2.0, moveHits, 2, 0xFFFFFFFF, 1, false, scMove);
+check("Dinâmico movido: overlap inicial em (0,0,0) encontra objeto", initialHits === 1 && moveHits[0].bodyId === moveObj.id);
+
+// 10.1 Mover 5 u para (5, 0, 0)
+moveObj.transform.setPosition(5.0, 0.0, 0.0);
+scMove.computeWorld();
+spatialRebuildIndex(scMove);
+
+const oldHits5 = overlapSphereNonAlloc(0.0, 0.0, 0.0, 2.0, moveHits, 2, 0xFFFFFFFF, 1, false, scMove);
+check("Dinâmico movido 5 u: overlap na posicao antiga devolve 0", oldHits5 === 0);
+
+const newHits5 = overlapSphereNonAlloc(5.0, 0.0, 0.0, 2.0, moveHits, 2, 0xFFFFFFFF, 1, false, scMove);
+check("Dinâmico movido 5 u: overlap na posicao nova encontra objeto", newHits5 === 1 && moveHits[0].bodyId === moveObj.id);
+
+const oldRay5 = raycastNonAlloc(0.0, 10.0, 0.0, 0.0, -1.0, 0.0, 50.0, moveRay, 0xFFFFFFFF, 1, false, scMove);
+check("Dinâmico movido 5 u: raycast na posicao antiga erra o alvo", !oldRay5);
+
+const newRay5 = raycastNonAlloc(5.0, 10.0, 0.0, 0.0, -1.0, 0.0, 50.0, moveRay, 0xFFFFFFFF, 1, false, scMove);
+check("Dinâmico movido 5 u: raycast na posicao nova atinge objeto", newRay5 && moveRay.bodyId === moveObj.id && math.abs(moveRay.distance - 9.5) < 0.01);
+
+// 10.2 Mover 500 u para (500, 0, 0) (fora de qualquer margem fixa inicial)
+moveObj.transform.setPosition(500.0, 0.0, 0.0);
+scMove.computeWorld();
+spatialRebuildIndex(scMove);
+
+const newHits500 = overlapSphereNonAlloc(500.0, 0.0, 0.0, 2.0, moveHits, 2, 0xFFFFFFFF, 1, false, scMove);
+check("Dinâmico movido 500 u: overlap na posicao nova encontra objeto", newHits500 === 1 && moveHits[0].bodyId === moveObj.id);
+
+const newRay500 = raycastNonAlloc(500.0, 10.0, 0.0, 0.0, -1.0, 0.0, 50.0, moveRay, 0xFFFFFFFF, 1, false, scMove);
+check("Dinâmico movido 500 u: raycast na posicao nova atinge objeto", newRay500 && moveRay.bodyId === moveObj.id && math.abs(moveRay.distance - 9.5) < 0.01);
+
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
 } else {
