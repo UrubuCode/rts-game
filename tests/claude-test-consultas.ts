@@ -386,6 +386,33 @@ const objDesc2 = { name: "Clone2", id: 42, mesh: 1, color: [255, 0, 0], pos: [0,
 const built2 = buildObject(objDesc2, scIo);
 check("SceneIO: multiplos conflitos remapeados monotonicamente", built2.id > built1.id, "id1=" + built1.id + " id2=" + built2.id);
 
+// ── 9. Raycast com DDA engordada acertando dinâmico em célula vizinha transversal ──
+const scTrans = new Scene("TransverseRayScene");
+setSpatialScene(scTrans);
+
+// Objeto dinâmico com meia-extensão 1.0 (escala 2.0)
+// Centro em (2.5, 0.0, 10.0) -> gx = mfloor(2.5 / 2.0) = 1
+const transObj = new GameObject("TransverseTarget");
+transObj.setMesh(1, 255, 0, 0); // cubo
+transObj.transform.setPosition(2.5, 0.0, 10.0);
+transObj.transform.setScale(2.0); // meia-extensão 1.0 -> caixa em X: [1.5, 3.5]
+scTrans.add(transObj);
+scTrans.computeWorld();
+spatialRebuildIndex(scTrans);
+
+// Raio em x = 1.8 -> gx = mfloor(1.8 / 2.0) = 0
+// O raio passa na célula gx = 0 e nunca entra em gx = 1.
+// A caixa do alvo em X vai de 1.5 a 3.5, logo o raio em x = 1.8 atinge o alvo em z = 9.0.
+const hitTrans = raycast(1.8, 0.0, 0.0, 0.0, 0.0, 1.0, 20.0, undefined, scTrans);
+check("Raycast vizinho transversal: atingiu alvo na celula vizinha", hitTrans !== null && hitTrans.hit);
+if (hitTrans !== null) {
+  check("Raycast vizinho transversal: bodyId correto", hitTrans.bodyId === transObj.id);
+  check("Raycast vizinho transversal: distancia ~9.0", math.abs(hitTrans.distance - 9.0) < 0.01, "dist=" + hitTrans.distance);
+  check("Raycast vizinho transversal: ponto x ~1.8 e z ~9.0",
+        math.abs(hitTrans.point[0] - 1.8) < 0.01 && math.abs(hitTrans.point[2] - 9.0) < 0.01,
+        "x=" + hitTrans.point[0] + " z=" + hitTrans.point[2]);
+}
+
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
 } else {

@@ -1,10 +1,15 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // BENCHMARK DE CONSULTAS ESPACIAIS E ÍNDICE DO HOST (Lote B, Aceite 8)
 //
-// Mede:
-//   1. Custo de reconstrução do índice espacial (spatialRebuildIndex) em n=500, 1000, 2000;
-//   2. Custo de consultas espaciais (raycastNonAlloc e overlapSphereNonAlloc);
-//   3. Aquecimento de 3 segundos, >= 4 rodadas alternadas, reportando a mediana.
+// Mede nas 3 cenas:
+//   1. Cubo alinhado (2.000 dinâmicos alinhados);
+//   2. Posições sorteadas (2.000 dinâmicos, semente fixa, meia-extensão 0,3–1,0);
+//   3. Mista (chão estático 200×200 + 2.000 dinâmicos).
+//
+// Metas:
+//   - Reconstrução por passo (2.000 dinâmicos) <= 0.35 ms
+//   - OverlapSphere (r=3.0) <= 30 µs
+//   - RaycastNonAlloc (50 u) <= 25 µs
 // ═══════════════════════════════════════════════════════════════════════════
 
 import io from "@compat/io.ts";
@@ -12,6 +17,7 @@ import math from "@compat/math.ts";
 import time from "../src/compat/time";
 import { Scene } from "../src/engine/core/scene";
 import { GameObject } from "../src/engine/core/gameobject";
+import { BODY_STATIC } from "../src/engine/rigid/materials";
 import {
   setSpatialScene,
   spatialRebuildIndex,
@@ -31,8 +37,9 @@ function mediana(arr: f64[]): f64 {
   return (sorted[mid - 1] + sorted[mid]) * 0.5;
 }
 
-function criarCena(n: number): Scene {
-  const sc = new Scene("BenchScene_" + n);
+// ── 1. Cena Alinhada (Pior caso anterior, 2.000 corpos) ─────────────────────
+function criarCenaAlinhada(n: number): Scene {
+  const sc = new Scene("BenchScene_Alinhada_" + n);
   const lado = math.ceil(math.pow(n * 1.0, 1.0 / 3.0)) | 0;
   let i = 0;
   while (i < n) {
@@ -40,8 +47,7 @@ function criarCena(n: number): Scene {
     const gy = ((i / lado) | 0) % lado;
     const gz = (i / (lado * lado)) | 0;
 
-    const g = new GameObject("body_" + i);
-    // Alterna cubos e esferas
+    const g = new GameObject("dyn_" + i);
     const shape = (i % 2 === 0) ? 1 : 4;
     g.setMesh(shape, 180, 180, 180);
     g.transform.setPosition(gx * 2.0, gy * 2.0, gz * 2.0);
@@ -53,11 +59,76 @@ function criarCena(n: number): Scene {
   return sc;
 }
 
-io.print("=== Benchmark de Consultas Espaciais e Grid no Host (Lote B) ===");
+// ── 2. Cena com Posições Sorteadas (Semente fixa, meia-extensão 0,3–1,0) ────
+function criarCenaSorteada(n: number): Scene {
+  const sc = new Scene("BenchScene_Sorteada_" + n);
+  let seed = 123456789;
+  function lcg(): f64 {
+    seed = ((seed * 1664525 + 1013904223) | 0);
+    return ((seed >>> 0) / 4294967296.0);
+  }
+
+  let i = 0;
+  while (i < n) {
+    const px = lcg() * 50.0;
+    const py = lcg() * 50.0;
+    const pz = lcg() * 50.0;
+    const halfExtent = 0.3 + lcg() * 0.7; // 0.3 a 1.0
+
+    const g = new GameObject("dyn_rand_" + i);
+    const shape = (i % 2 === 0) ? 1 : 4;
+    g.setMesh(shape, 180, 180, 180);
+    g.transform.setPosition(px, py, pz);
+    g.transform.setScale(halfExtent * 2.0);
+    sc.add(g);
+    i = i + 1;
+  }
+  sc.computeWorld();
+  return sc;
+}
+
+// ── 3. Cena Mista (Chão estático 200×200 + 2.000 dinâmicos) ─────────────────
+function criarCenaMista(n: number): Scene {
+  const sc = new Scene("BenchScene_Mista_" + n);
+
+  // Chão estático 200×200
+  const ground = new GameObject("static_ground");
+  ground.stationary = 1;
+  ground.setMesh(1, 100, 100, 100);
+  ground.transform.setPosition(25.0, -1.0, 25.0);
+  ground.transform.sx = 200.0;
+  ground.transform.sy = 2.0;
+  ground.transform.sz = 200.0;
+  sc.add(ground);
+
+  // 2.000 corpos dinâmicos distribuídos acima do chão
+  const lado = math.ceil(math.pow(n * 1.0, 1.0 / 3.0)) | 0;
+  let i = 0;
+  while (i < n) {
+    const gx = i % lado;
+    const gy = ((i / lado) | 0) % lado;
+    const gz = (i / (lado * lado)) | 0;
+
+    const g = new GameObject("dyn_misto_" + i);
+    const shape = (i % 2 === 0) ? 1 : 4;
+    g.setMesh(shape, 180, 180, 180);
+    g.transform.setPosition(gx * 2.0, 1.0 + gy * 2.0, gz * 2.0);
+    g.transform.setScale(1.0); // meia-extensão 0.5
+    sc.add(g);
+    i = i + 1;
+  }
+  sc.computeWorld();
+  return sc;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXECUÇÃO DO BENCHMARK
+// ═══════════════════════════════════════════════════════════════════════════
+
+io.print("=== Benchmark de Consultas Espaciais e Grid no Host (Lote B, Revisao 4) ===");
 io.print("Aquecendo por 3 segundos...");
 
-// Aquecimento de 3 segundos
-const scWarm = criarCena(500);
+const scWarm = criarCenaAlinhada(500);
 setSpatialScene(scWarm);
 const tWarmStart = performance.now();
 const dummyRay = createRaycastHit();
@@ -68,51 +139,9 @@ while (performance.now() - tWarmStart < 3000.0) {
   raycastNonAlloc(0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 100.0, dummyRay, 0xFFFFFFFF, 1, false, scWarm);
   overlapSphereNonAlloc(5.0, 5.0, 5.0, 4.0, dummyOverlaps, 4, 0xFFFFFFFF, 1, false, scWarm);
 }
-io.print("Aquecimento concluido.");
+io.print("Aquecimento concluido.\n");
 
-// ── 1. Custo de Reconstrução do Índice Espacial (§5.1 e Aceite 8) ─────────────
-const tamanhos = [500, 1000, 2000];
-const RODADAS = 6; // >= 4 rodadas alternadas
-
-io.print("\n--- 1. Custo de Reconstrucao do Indice Espacial (Mediana de " + RODADAS + " rodadas) ---");
-io.print("   n    | Reconstrucao (ms) | Celulas Ativas | Objetos Indexados");
-io.print("----------------------------------------------------------------");
-
-let ti = 0;
-while (ti < tamanhos.length) {
-  const n = tamanhos[ti];
-  const sc = criarCena(n);
-  setSpatialScene(sc);
-
-  const temposRebuild: f64[] = [];
-  let cellCount = 0;
-  let objCount = 0;
-
-  let r = 0;
-  while (r < RODADAS) {
-    const cost = spatialGridRebuildCost(sc);
-    temposRebuild.push(cost.timeMs);
-    cellCount = cost.cellCount;
-    objCount = cost.objCount;
-    r = r + 1;
-  }
-
-  const med = mediana(temposRebuild);
-  io.print(" " + (n + "      ").slice(0, 7) + "| " +
-           (med.toFixed(3) + " ms      ").slice(0, 18) + "| " +
-           (cellCount + "             ").slice(0, 15) + "| " +
-           objCount);
-
-  ti = ti + 1;
-}
-
-// ── 2. Custo por 1.000 Consultas (Raycast e OverlapSphere) ────────────────────
-io.print("\n--- 2. Desempenho de Consultas Espaciais (Cena com 2.000 corpos) ---");
-
-const sc2k = criarCena(2000);
-setSpatialScene(sc2k);
-spatialRebuildIndex(sc2k);
-
+const RODADAS = 6;
 const rayHit = createRaycastHit();
 const overlapBuf: OverlapHit[] = [];
 let oi = 0;
@@ -121,36 +150,94 @@ while (oi < 16) {
   oi = oi + 1;
 }
 
-const temposRaycast1k: f64[] = [];
-const temposOverlap1k: f64[] = [];
-
-let r2 = 0;
-while (r2 < RODADAS) {
-  // 1.000 Raycasts
-  const t0Ray = performance.now();
-  let k = 0;
-  while (k < 1000) {
-    raycastNonAlloc(0.0, 0.0, 0.0, 1.0, 0.5, 0.5, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc2k);
-    k = k + 1;
-  }
-  temposRaycast1k.push(performance.now() - t0Ray);
-
-  // 1.000 OverlapSphere (raio 3.0 cobrindo múltiplos corpos)
-  const t0Over = performance.now();
-  k = 0;
-  while (k < 1000) {
-    overlapSphereNonAlloc(10.0, 10.0, 10.0, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc2k);
-    k = k + 1;
-  }
-  temposOverlap1k.push(performance.now() - t0Over);
-
-  r2 = r2 + 1;
+interface SceneBenchResult {
+  nome: string;
+  n: number;
+  rebuildMs: f64;
+  raycastUs: f64;
+  overlapUs: f64;
 }
 
-const medRay = mediana(temposRaycast1k);
-const medOver = mediana(temposOverlap1k);
+function executarBenchCena(nome: string, sc: Scene, n: number, queryX: f64, queryY: f64, queryZ: f64): SceneBenchResult {
+  setSpatialScene(sc);
+  spatialRebuildIndex(sc); // Primeiro passo indexa estáticos e dinâmicos
 
-io.print("  RaycastNonAlloc   (1.000 chamadas): " + medRay.toFixed(2) + " ms (" + (medRay / 1000.0 * 1000.0).toFixed(1) + " µs/query)");
-io.print("  OverlapSphereNonAlloc (1.000 chamadas): " + medOver.toFixed(2) + " ms (" + (medOver / 1000.0 * 1000.0).toFixed(1) + " µs/query)");
+  // Aquecimento local para estabilização de caches e JIT
+  let w = 0;
+  while (w < 10) {
+    spatialGridRebuildCost(sc);
+    raycastNonAlloc(queryX, queryY, queryZ, 1.0, 0.5, 0.5, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
+    overlapSphereNonAlloc(queryX + 10.0, queryY + 10.0, queryZ + 10.0, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc);
+    w = w + 1;
+  }
+
+  const temposRebuild: f64[] = [];
+  const temposRaycast: f64[] = [];
+  const temposOverlap: f64[] = [];
+
+  let r = 0;
+  while (r < RODADAS) {
+    // 1. Custo de reconstrução do passo (dinâmicos)
+    const cost = spatialGridRebuildCost(sc);
+    temposRebuild.push(cost.timeMs);
+
+    // 2. 1.000 Raycasts (50 u)
+    const t0Ray = performance.now();
+    let k = 0;
+    while (k < 1000) {
+      raycastNonAlloc(queryX, queryY, queryZ, 1.0, 0.5, 0.5, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
+      k = k + 1;
+    }
+    temposRaycast.push((performance.now() - t0Ray) / 1000.0 * 1000.0); // µs por query
+
+    // 3. 1.000 Overlaps (esfera r=3)
+    const t0Over = performance.now();
+    k = 0;
+    while (k < 1000) {
+      overlapSphereNonAlloc(queryX + 10.0, queryY + 10.0, queryZ + 10.0, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc);
+      k = k + 1;
+    }
+    temposOverlap.push((performance.now() - t0Over) / 1000.0 * 1000.0); // µs por query
+
+    r = r + 1;
+  }
+
+  return {
+    nome: nome,
+    n: n,
+    rebuildMs: mediana(temposRebuild),
+    raycastUs: mediana(temposRaycast),
+    overlapUs: mediana(temposOverlap),
+  };
+}
+
+// Executa os benchmarks nas 3 cenas com 2.000 corpos
+const resAlinhada = executarBenchCena("1. Cubo Alinhado (2.000 dyn)", criarCenaAlinhada(2000), 2000, 0.0, 0.0, 0.0);
+const resSorteada = executarBenchCena("2. Posicoes Sorteadas (2.000 dyn)", criarCenaSorteada(2000), 2000, 10.0, 10.0, 10.0);
+const resMista    = executarBenchCena("3. Mista (Chao 200x200 + 2k dyn)", criarCenaMista(2000), 2000, 0.0, 1.0, 0.0);
+
+const resultados = [resAlinhada, resSorteada, resMista];
+
+io.print("┌───────────────────────────────────┬───────────────────┬───────────────────┬───────────────────┐");
+io.print("│ Cena                              │ Rebuild / passo   │ Overlap (r=3)     │ Raycast (50 u)    │");
+io.print("│                                   │ (meta <= 0,35 ms) │ (meta <= 30 µs)   │ (meta <= 25 µs)   │");
+io.print("├───────────────────────────────────┼───────────────────┼───────────────────┼───────────────────┤");
+
+let ri = 0;
+while (ri < resultados.length) {
+  const res = resultados[ri];
+  const rebOk = res.rebuildMs <= 0.35 ? "OK" : "ALTO";
+  const overOk = res.overlapUs <= 30.0 ? "OK" : "ALTO";
+  const rayOk = res.raycastUs <= 25.0 ? "OK" : "ALTO";
+
+  const colNome = (res.nome + "                                   ").slice(0, 35);
+  const colReb = ((res.rebuildMs.toFixed(3) + " ms [" + rebOk + "]") + "                   ").slice(0, 19);
+  const colOver = ((res.overlapUs.toFixed(1) + " µs [" + overOk + "]") + "                   ").slice(0, 19);
+  const colRay = ((res.raycastUs.toFixed(1) + " µs [" + rayOk + "]") + "                   ").slice(0, 19);
+
+  io.print("│ " + colNome + " │ " + colReb + " │ " + colOver + " │ " + colRay + " │");
+  ri = ri + 1;
+}
+io.print("└───────────────────────────────────┴───────────────────┴───────────────────┴───────────────────┘");
 
 io.print("\n=== Benchmark Concluido ===");
