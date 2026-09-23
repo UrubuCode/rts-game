@@ -474,9 +474,16 @@ function rebuildDynamicsInto(
 
   // 1. Limpa APENAS os buckets sujos na passada anterior (no máximo prevDynCount)
   let k = 0;
+  const kLimit = prevDynCount - 3;
+  while (k < kLimit) {
+    dynHead[dynCell[k]] = -1;
+    dynHead[dynCell[k + 1]] = -1;
+    dynHead[dynCell[k + 2]] = -1;
+    dynHead[dynCell[k + 3]] = -1;
+    k = k + 4;
+  }
   while (k < prevDynCount) {
-    const b = dynCell[k];
-    if (b >= 0) dynHead[b] = -1;
+    dynHead[dynCell[k]] = -1;
     k = k + 1;
   }
 
