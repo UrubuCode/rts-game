@@ -304,6 +304,7 @@ let sLastRebuildStep = -1;
 let sLastStaticVersion = -1;
 let sLastCompVersion = -1;
 let sStaticTotal = 0;
+let sForceStaticRebuild = false;
 
 let sQueryStamp = 0;
 let sVisitedStamp: number[] = new Array(sObjCap).fill(0);
@@ -349,6 +350,7 @@ export function setSpatialScene(sc: Scene | null): void {
   sLastStaticVersion = -1;
   sLastCompVersion = -1;
   sStaticTotal = 0;
+  sForceStaticRebuild = false;
   let b = 0;
   while (b < sStaticUsedBucketsCount) {
     sStaticHead[sStaticUsedBuckets[b]] = -1;
@@ -773,10 +775,11 @@ export function spatialRebuildIndex(sc?: Scene): void {
   const statVer = targetScene.staticVersion;
   const compVer = targetScene.compVersion;
 
-  const staticDirty = (sLastStaticVersion !== statVer);
+  const staticDirty = (sLastStaticVersion !== statVer || sForceStaticRebuild);
   const compDirty = (sLastCompVersion !== compVer || staticDirty);
 
   if (staticDirty) {
+    sForceStaticRebuild = false;
     const allObjs = targetScene.objects;
     const n = allObjs.length;
     ensureObjCapacity(n);
@@ -1048,6 +1051,17 @@ export function spatialRebuildIndex(sc?: Scene): void {
           }
         } else if (op === DYN_OP_REMOVE) {
           const k = o.spatialSlot;
+          if (k >= 0 && k < sStaticTotal) {
+            if (sObjs[k] === o) {
+              sForceStaticRebuild = true;
+              o.spatialSlot = 0 - 1;
+              o.spatialDynSlot = 0 - 1;
+              spatialRebuildIndex(targetScene);
+              return;
+            }
+            oi = oi + 1;
+            continue;
+          }
           if (k >= sStaticTotal && k < sObjs.length && sObjs[k] === o) {
             // 1. Remover de sDynamicIndices ou sColossalDynamicObjs
             const dynSlot = o.spatialDynSlot;
@@ -1253,7 +1267,8 @@ function ensureIndex(sc?: Scene): Scene | null {
 
   if (sLastRebuildStep !== curStep ||
       sLastCompVersion !== targetScene.compVersion ||
-      sLastStaticVersion !== targetScene.staticVersion) {
+      sLastStaticVersion !== targetScene.staticVersion ||
+      sForceStaticRebuild) {
     spatialRebuildIndex(targetScene);
   }
   return targetScene;

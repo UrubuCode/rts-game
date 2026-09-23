@@ -1282,6 +1282,27 @@ for (let step = 0; step < 50; step++) {
 
 check("Revisão 3: oráculo de força bruta (" + oracleTotalQueries + " queries sob mutação contínua) zero divergências", oracleDivergences === 0, "divergências=" + oracleDivergences);
 
+// ── 17. Sonda Revisão 5: Estático passa para stationary = 0 sem aviso e depois é removido ──
+const scGhost = new Scene("SceneGhost");
+setSpatialScene(scGhost);
+const gObj = new GameObject("ghost_obj");
+gObj.stationary = 1;
+gObj.setMesh(1, 10, 10, 10);
+gObj.transform.setPosition(10.0, 1.0, 10.0);
+scGhost.add(gObj);
+scGhost.computeWorld();
+spatialRebuildIndex(scGhost);
+
+// Passa para stationary = 0 sem aviso e é removido da cena
+gObj.stationary = 0;
+scGhost.removeAt(0);
+scGhost.computeWorld();
+spatialRebuildIndex(scGhost);
+
+const gHits: OverlapHit[] = [createOverlapHit()];
+const cGhost = overlapSphereNonAlloc(10.0, 1.0, 10.0, 2.0, gHits, 1, 0xFFFFFFFF, 1, false, scGhost);
+check("Revisão 5: estático que virou dinâmico sem aviso e foi removido não é encontrado em overlap", cGhost === 0);
+
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
 } else {

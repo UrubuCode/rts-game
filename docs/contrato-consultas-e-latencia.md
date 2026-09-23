@@ -300,7 +300,7 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
      - **Fila Incremental $O(K)$ com Swap-with-last:** Cada `GameObject` rastreia seus índices diretos no índice espacial via `spatialSlot` e `spatialDynSlot`. As operações `DYN_OP_ADD` e `DYN_OP_REMOVE` são consumidas de forma incremental em tempo $O(1)$ por operação. Na remoção, o último elemento do array dinâmico preenche o slot vago (swap-with-last), atualizando o slot do elemento movido em $O(1)$.
      - **Passe Único no Rebuild Estático:** Quando uma reconstrução estática completa de fato ocorre, ela é realizada em um único passe linear sobre `scene.objects`, coletando simultaneamente os corpos dinâmicos em `sDynCollectObjs`, o que reduz o custo de reconstrução fria de 4.100 objetos para ~5,5 a 6,0 ms.
     - **Resultados Medidos no Benchmark Oficial:**
-       - Rebuild dinâmico normal por passo (2.000 corpos): **0,336 a 0,345 ms** (meta $\le 0,35$ ms atendida em todas as cenas normais);
+       - Rebuild dinâmico normal por passo (2.000 corpos): **0,336 a 0,345 ms** (rebuild por passo ~0,34 ms, no limite da meta de $\le 0,35$ ms atendida em todas as cenas normais);
        - Rebuild normal sob 2.100 estáticos + 2.000 dinâmicos (4.100 objetos): **~0,340 ms** (queda de 0,573 ms de volta para a meta);
        - Rebuild com 5 criações por frame: **~0,365 ms**;
        - Delta total por passo (5 criações): **~0,022 ms**;
