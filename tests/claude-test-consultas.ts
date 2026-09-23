@@ -470,6 +470,61 @@ check("Dinâmico movido 500 u: overlap na posicao nova encontra objeto", newHits
 const newRay500 = raycastNonAlloc(500.0, 10.0, 0.0, 0.0, -1.0, 0.0, 50.0, moveRay, 0xFFFFFFFF, 1, false, scMove);
 check("Dinâmico movido 500 u: raycast na posicao nova atinge objeto", newRay500 && moveRay.bodyId === moveObj.id && math.abs(moveRay.distance - 9.5) < 0.01);
 
+// ── 11. Objetos Grandes: Terreno Estático (2.000 u) e Chefe Dinâmico Colossal (50 u) ──
+const scLarge = new Scene("LargeObjectsTestScene");
+setSpatialScene(scLarge);
+
+// Terreno estático de 2.000 x 2.000 u (meia-extensão 1.000 u em X e Z, 0.5 em Y)
+const terrain = new GameObject("StaticTerrain");
+terrain.stationary = 1;
+terrain.setMesh(1, 100, 100, 100);
+terrain.transform.setPosition(0.0, -0.5, 0.0);
+terrain.transform.sx = 2000.0;
+terrain.transform.sy = 1.0;
+terrain.transform.sz = 2000.0;
+scLarge.add(terrain);
+
+// Dinâmico colossal (chefe): meia-extensão 25 u (escala 50 u)
+const colossalBoss = new GameObject("ColossalBoss");
+colossalBoss.setMesh(1, 255, 0, 255);
+colossalBoss.transform.setPosition(100.0, 25.0, 100.0);
+colossalBoss.transform.setScale(50.0); // hx = 25, hy = 25, hz = 25
+scLarge.add(colossalBoss);
+
+// Dinâmico normal: meia-extensão 0.5 u (escala 1.0 u)
+const normalUnit = new GameObject("NormalUnit");
+normalUnit.setMesh(1, 0, 255, 0);
+normalUnit.transform.setPosition(0.0, 0.5, 0.0);
+normalUnit.transform.setScale(1.0);
+scLarge.add(normalUnit);
+
+scLarge.computeWorld();
+const t0Rebuild = performance.now();
+spatialRebuildIndex(scLarge);
+const rebuildDuration = performance.now() - t0Rebuild;
+
+check("Reconstrucao com terreno 2.000 u e chefe 50 u: rapida (< 5 ms)", rebuildDuration < 5.0, "tempo=" + rebuildDuration + " ms");
+
+// Raycast contra terreno em (500, 100, 500) apontando para baixo
+const largeRayHit = createRaycastHit();
+const hitTerrain = raycastNonAlloc(500.0, 100.0, 500.0, 0.0, -1.0, 0.0, 200.0, largeRayHit, 0xFFFFFFFF, 1, false, scLarge);
+check("Raycast contra terreno estatico 2.000 u: atinge", hitTerrain && largeRayHit.bodyId === terrain.id);
+check("Raycast contra terreno estatico 2.000 u: distancia ~100.0", hitTerrain && math.abs(largeRayHit.distance - 100.0) < 0.01, "dist=" + largeRayHit.distance);
+
+// Raycast contra chefe colossal em (100, 100, 100) apontando para baixo
+const hitBoss = raycastNonAlloc(100.0, 100.0, 100.0, 0.0, -1.0, 0.0, 200.0, largeRayHit, 0xFFFFFFFF, 1, false, scLarge);
+check("Raycast contra chefe colossal: atinge", hitBoss && largeRayHit.bodyId === colossalBoss.id);
+check("Raycast contra chefe colossal: distancia ~50.0", hitBoss && math.abs(largeRayHit.distance - 50.0) < 0.01, "dist=" + largeRayHit.distance);
+
+// Overlap com terreno e unidade normal
+const largeHits: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOverlapHit()];
+const countAtOrigin = overlapSphereNonAlloc(0.0, 0.5, 0.0, 2.0, largeHits, 3, 0xFFFFFFFF, 1, false, scLarge);
+check("Overlap na origem: encontra terreno e unidade normal", countAtOrigin === 2);
+
+// Overlap no chefe colossal (esfera em y=5.0 com r=10 toca o terreno em y=0 e o chefe em y=[0..50])
+const countAtBoss = overlapSphereNonAlloc(100.0, 5.0, 100.0, 10.0, largeHits, 3, 0xFFFFFFFF, 1, false, scLarge);
+check("Overlap no chefe colossal: encontra chefe e terreno", countAtBoss === 2);
+
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
 } else {
