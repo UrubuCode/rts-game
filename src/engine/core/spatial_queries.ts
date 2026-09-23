@@ -2023,9 +2023,10 @@ function overlapSphereDynamicsInto(
   candHit: OverlapHit,
   startStoredCount: number,
   startTotalFound: number,
-  trsArr: Transform[],
-  localCxArr: f64[], localCyArr: f64[], localCzArr: f64[],
-  hasLocalOffset: number,
+  worldCxArr: f64[],
+  worldCyArr: f64[],
+  worldCzArr: f64[],
+  yawArr: f64[],
   shapeArr: number[],
   worldHxArr: f64[], worldHyArr: f64[], worldHzArr: f64[],
   worldRadiusArr: f64[],
@@ -2058,27 +2059,10 @@ function overlapSphereDynamicsInto(
             const isTrig = triggerArr[k] !== 0;
             if (includeTriggers || !isTrig) {
               if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
-                const t = trsArr[k];
-                let cxObj = t.wx;
-                let cyObj = t.wy;
-                let czObj = t.wz;
-                const yaw = t.wry;
-                if (hasLocalOffset !== 0) {
-                  const lcx = localCxArr[k];
-                  const lcy = localCyArr[k];
-                  const lcz = localCzArr[k];
-                  if (lcx !== 0.0 || lcz !== 0.0) {
-                    const oxLocal = lcx * t.sx; const ozLocal = lcz * t.sz;
-                    if (yaw === 0.0) {
-                      cxObj = cxObj + oxLocal; czObj = czObj + ozLocal;
-                    } else {
-                      const cs = math.cos(yaw); const sn = math.sin(yaw);
-                      cxObj = cxObj + (oxLocal * cs + ozLocal * sn);
-                      czObj = czObj + (0.0 - oxLocal * sn + ozLocal * cs);
-                    }
-                  }
-                  if (lcy !== 0.0) cyObj = cyObj + lcy * t.sy;
-                }
+                const cxObj = worldCxArr[k];
+                const cyObj = worldCyArr[k];
+                const czObj = worldCzArr[k];
+                const yaw = yawArr[k];
 
                 const hx = worldHxArr[k];
                 const rx = cx - cxObj;
@@ -2292,7 +2276,9 @@ export function overlapSphereNonAlloc(
   let totalFound = 0;
 
   // 1. Estáticos
-  if (sStaticCount > 0) {
+  if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
+      maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
+      maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
     const minGx = mfloor(minQx * sStaticInvCellSize);
     const maxGx = mfloor(maxQx * sStaticInvCellSize);
     const minGy = mfloor(minQy * sStaticInvCellSize);
@@ -2316,7 +2302,9 @@ export function overlapSphereNonAlloc(
   }
 
   // 2. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
-  if (sDynamicCount > 0) {
+  if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
+      maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
+      maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
     const dynH = sDynamicMaxHalfExtent;
     const minGx = mfloor((minQx - dynH) * sDynInvCellSize);
     const maxGx = mfloor((maxQx + dynH) * sDynInvCellSize);
@@ -2333,7 +2321,7 @@ export function overlapSphereNonAlloc(
       sDynHead, sDynNext, sBucketStamp, stamp,
       sTrigger, sLayer, sMask, sBodyId, sCandidateOverlapHit,
       storedCount, totalFound,
-      sTrs, sLocalCx, sLocalCy, sLocalCz, sHasDynamicLocalOffset,
+      sWorldCx, sWorldCy, sWorldCz, sYaw,
       sShape, sWorldHx, sWorldHy, sWorldHz, sWorldRadius, sHullId,
     );
   }
@@ -2368,7 +2356,9 @@ export function overlapSphere(
   const result: OverlapHit[] = [];
 
   // 1. Estáticos
-  if (sStaticCount > 0) {
+  if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
+      maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
+      maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
     const minGx = mfloor(minQx * sStaticInvCellSize);
     const maxGx = mfloor(maxQx * sStaticInvCellSize);
     const minGy = mfloor(minQy * sStaticInvCellSize);
@@ -2412,7 +2402,9 @@ export function overlapSphere(
   }
 
   // 2. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
-  if (sDynamicCount > 0) {
+  if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
+      maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
+      maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
     const dynH = sDynamicMaxHalfExtent;
     const minGx = mfloor((minQx - dynH) * sDynInvCellSize);
     const maxGx = mfloor((maxQx + dynH) * sDynInvCellSize);
