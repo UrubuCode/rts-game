@@ -443,6 +443,7 @@ function resolveCandidateTransform(k: number): void {
 function rebuildDynamicsInto(
   dynamicCount: number,
   dynamicIndices: number[],
+  objs: GameObject[],
   trs: Transform[],
   localCxArr: f64[], localCyArr: f64[], localCzArr: f64[],
   invCellSize: f64,
@@ -459,88 +460,29 @@ function rebuildDynamicsInto(
 
   // 1. Limpa APENAS os buckets sujos na passada anterior (no máximo prevDynCount)
   let k = 0;
-  const kLimit = prevDynCount - 3;
-  while (k < kLimit) {
-    dynHead[dynCell[k]] = -1;
-    dynHead[dynCell[k + 1]] = -1;
-    dynHead[dynCell[k + 2]] = -1;
-    dynHead[dynCell[k + 3]] = -1;
-    k = k + 4;
-  }
   while (k < prevDynCount) {
-    dynHead[dynCell[k]] = -1;
+    const b = dynCell[k];
+    if (b >= 0) dynHead[b] = -1;
     k = k + 1;
   }
 
   let minX = 1e30; let maxX = -1e30;
   let minY = 1e30; let maxY = -1e30;
   let minZ = 1e30; let maxZ = -1e30;
+  let activeCount = 0;
 
   // 2. Insere cada objeto dinâmico no grid pelo centro e atualiza os limites da cena dinâmica a cada passo
   if (hasLocalOffset === 0) {
     let di = 0;
-    const diLimit = dynamicCount - 3;
-    while (di < diLimit) {
-      let objIdx = dynamicIndices[di];
-      let t: Transform = trs[objIdx];
-      let wx = t.wx; let wy = t.wy; let wz = t.wz;
-      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
-      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
-      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
-      let fx = wx * invCellSize; let tx = fx | 0; let gx = tx > fx ? tx - 1 : tx;
-      let fy = wy * invCellSize; let ty = fy | 0; let gy = ty > fy ? ty - 1 : ty;
-      let fz = wz * invCellSize; let tz = fz | 0; let gz = tz > fz ? tz - 1 : tz;
-      let bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
-      dynCell[di] = bucket;
-      dynNext[objIdx] = dynHead[bucket];
-      dynHead[bucket] = objIdx;
-
-      objIdx = dynamicIndices[di + 1];
-      t = trs[objIdx];
-      wx = t.wx; wy = t.wy; wz = t.wz;
-      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
-      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
-      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
-      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
-      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
-      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
-      bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
-      dynCell[di + 1] = bucket;
-      dynNext[objIdx] = dynHead[bucket];
-      dynHead[bucket] = objIdx;
-
-      objIdx = dynamicIndices[di + 2];
-      t = trs[objIdx];
-      wx = t.wx; wy = t.wy; wz = t.wz;
-      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
-      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
-      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
-      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
-      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
-      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
-      bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
-      dynCell[di + 2] = bucket;
-      dynNext[objIdx] = dynHead[bucket];
-      dynHead[bucket] = objIdx;
-
-      objIdx = dynamicIndices[di + 3];
-      t = trs[objIdx];
-      wx = t.wx; wy = t.wy; wz = t.wz;
-      if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
-      if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
-      if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz;
-      fx = wx * invCellSize; tx = fx | 0; gx = tx > fx ? tx - 1 : tx;
-      fy = wy * invCellSize; ty = fy | 0; gy = ty > fy ? ty - 1 : ty;
-      fz = wz * invCellSize; tz = fz | 0; gz = tz > fz ? tz - 1 : tz;
-      bucket = (((gx * hxMult) ^ (gy * hyMult) ^ (gz * hzMult)) & mask);
-      dynCell[di + 3] = bucket;
-      dynNext[objIdx] = dynHead[bucket];
-      dynHead[bucket] = objIdx;
-
-      di = di + 4;
-    }
     while (di < dynamicCount) {
       const objIdx = dynamicIndices[di];
+      const o: GameObject = objs[objIdx];
+      if (o.active === 0) {
+        dynCell[di] = -1;
+        di = di + 1;
+        continue;
+      }
+      activeCount = activeCount + 1;
       const t: Transform = trs[objIdx];
       const wx = t.wx; const wy = t.wy; const wz = t.wz;
       if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
@@ -559,6 +501,13 @@ function rebuildDynamicsInto(
     let di = 0;
     while (di < dynamicCount) {
       const objIdx = dynamicIndices[di];
+      const o: GameObject = objs[objIdx];
+      if (o.active === 0) {
+        dynCell[di] = -1;
+        di = di + 1;
+        continue;
+      }
+      activeCount = activeCount + 1;
       const t: Transform = trs[objIdx];
       let cx = t.wx;
       let cy = t.wy;
@@ -568,7 +517,8 @@ function rebuildDynamicsInto(
       const lcz = localCzArr[objIdx];
       if (lcx !== 0.0 || lcz !== 0.0) {
         const ox = lcx * t.sx; const oz = lcz * t.sz;
-        if (t.wry === 0.0) {
+        const yaw = t.wry;
+        if (yaw === 0.0) {
           cx = cx + ox;
           cz = cz + oz;
         } else {
@@ -607,7 +557,7 @@ function rebuildDynamicsInto(
     }
   }
 
-  if (dynamicCount > 0) {
+  if (activeCount > 0) {
     const dynH = sDynamicMaxHalfExtent + 0.01;
     sDynSceneMinX = minX - dynH;
     sDynSceneMaxX = maxX + dynH;
@@ -732,8 +682,9 @@ export function spatialRebuildIndex(sc?: Scene): void {
     let i = 0;
     while (i < n) {
       const o = allObjs[i];
-      if (o.active !== 0 && (o.collideFlag !== 0 || o.colIdx >= 0)) {
+      if (o.collideFlag !== 0 || o.colIdx >= 0) {
         if (bodyTypeOf(o) === BODY_STATIC) {
+          if (o.active !== 0) {
           const k = sObjs.length;
           sObjs.push(o);
           const t = o.transform;
@@ -1023,7 +974,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
         const op = ops[oi];
         const o = objs[oi];
         if (op === DYN_OP_ADD) {
-          if (o.active !== 0 && (o.collideFlag !== 0 || o.colIdx >= 0) && bodyTypeOf(o) !== BODY_STATIC) {
+          if ((o.collideFlag !== 0 || o.colIdx >= 0) && bodyTypeOf(o) !== BODY_STATIC) {
             ensureObjCapacity(sObjs.length + 1);
             const k = sObjs.length;
             sObjs.push(o);
@@ -1244,7 +1195,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
       let i = 0;
       while (i < n) {
         const o = allObjs[i];
-        if (o.active !== 0 && (o.collideFlag !== 0 || o.colIdx >= 0)) {
+        if (o.collideFlag !== 0 || o.colIdx >= 0) {
           if (bodyTypeOf(o) !== BODY_STATIC) {
             const k = sObjs.length;
             sObjs.push(o);
@@ -1329,7 +1280,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
   // 3. Atualiza apenas os objetos dinâmicos através de FUNÇÃO LIVRE TIPADA
   rebuildDynamicsInto(
-    sDynamicCount, sDynamicIndices, sTrs,
+    sDynamicCount, sDynamicIndices, sObjs, sTrs,
     sLocalCx, sLocalCy, sLocalCz,
     sDynInvCellSize, sDynHead, sDynNext, sDynCell,
     sPrevDynCount,
@@ -1374,6 +1325,7 @@ function passesFilter(
   includeTriggers: boolean,
   k: number,
 ): boolean {
+  if (sObjs[k].active === 0) return false;
   if (!includeTriggers && sTrigger[k] !== 0) {
     return false;
   }
@@ -2709,6 +2661,10 @@ function overlapSphereInto(
           const k = entriesObj[entry];
           if (visitedStamp[k] !== stamp) {
             visitedStamp[k] = stamp;
+            if (sObjs[k].active === 0) {
+              entry = entriesNext[entry];
+              continue;
+            }
             if (includeTriggers || triggerArr[k] === 0) {
               if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
                 if (minXArr[k] <= maxQx && maxXArr[k] >= minQx &&
@@ -2827,6 +2783,10 @@ function overlapSphereDynamicsInto(
           bucketStamp[bucket] = stamp;
           let k = head[bucket];
           while (k !== -1) {
+            if (sObjs[k].active === 0) {
+              k = next[k];
+              continue;
+            }
             const isTrig = triggerArr[k] !== 0;
             if (includeTriggers || !isTrig) {
               if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
@@ -3711,6 +3671,10 @@ function overlapBoxInto(
           const k = entriesObj[entry];
           if (visitedStamp[k] !== stamp) {
             visitedStamp[k] = stamp;
+            if (sObjs[k].active === 0) {
+              entry = entriesNext[entry];
+              continue;
+            }
             if (includeTriggers || triggerArr[k] === 0) {
               if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
                 if (minXArr[k] <= maxQx && maxXArr[k] >= minQx &&
@@ -3822,6 +3786,10 @@ function overlapBoxDynamicsInto(
           bucketStamp[bucket] = stamp;
           let k = head[bucket];
           while (k !== -1) {
+            if (sObjs[k].active === 0) {
+              k = next[k];
+              continue;
+            }
             const isTrig = triggerArr[k] !== 0;
             if (includeTriggers || !isTrig) {
               if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
