@@ -18,6 +18,12 @@ import math from "@compat/math.ts";
 /// mudou". Com a sequência global, um número identifica a cena E o momento.
 let sceneVersionSeq = 0;
 
+/// Constantes de mutação dinâmica para fila incremental do índice espacial
+export const DYN_OP_ADD = 1;
+export const DYN_OP_REMOVE = 2;
+/// Limite máximo de operações dinâmicas pendentes antes de descartar a fila para evitar retenção de memória
+export const MAX_PENDING_DYNAMIC_OPS = 256;
+
 export class Scene {
   name: string;
   objects: GameObject[];
@@ -76,6 +82,16 @@ export class Scene {
   /// o instantâneo da interpolação) guardam a última versão que viram e
   /// comparam: cada um percebe a mudança sem roubar o sinal do vizinho.
   compVersion: number;
+  /// VERSÃO da composição ESTÁTICA: muda apenas quando corpos estáticos
+  /// (terrenos, prédios, obstáculos) são adicionados, removidos ou alterados.
+  /// Spawns ou remoções de unidades/projéteis dinâmicos NÃO alteram `staticVersion`,
+  /// permitindo que o índice espacial no host evite reconstruções de 8 ms.
+  staticVersion: number;
+  /// Fila de mutações dinâmicas pendentes para consumo incremental pelo índice espacial
+  pendingDynamicOps: number[];
+  pendingDynamicObjs: GameObject[];
+  /// Indica se a fila ultrapassou o teto de segurança e deve ser reconstruída por completo
+  pendingDynamicOverflow: boolean;
   colMaxR: f64;      // maior raio entre os colisores (cacheado com cIdx)
   colMovers: number; // quantos colisores podem se mover (cacheado com cIdx)
   /// Array PARALELO a `objects` com os transforms. Chegar ao transform por
@@ -102,24 +118,53 @@ export class Scene {
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
+    this.staticVersion = sceneVersionSeq;
+    this.pendingDynamicOps = [];
+    this.pendingDynamicObjs = [];
+    this.pendingDynamicOverflow = false;
     this.colMaxR = 0.0001;
     this.colMovers = 0;
   }
 
   /// A composição (ou a FORMA de alguém: escala, estático, component de
-  /// colisor) mudou. É o único jeito certo de levantar `colDirty` — escrever o
-  /// flag direto deixa os backends externos simulando a cena de antes.
+  /// colisor) mudou. Marca TUDO como sujo (inclusive staticVersion), garantindo
+  /// integridade total das estruturas espaciais estáticas e dinâmicas.
   markCollidersDirty(): void {
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
+    this.staticVersion = sceneVersionSeq;
+    this.pendingDynamicOps.length = 0;
+    this.pendingDynamicObjs.length = 0;
+    this.pendingDynamicOverflow = false;
+  }
+
+  /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
+  markStaticDirty(): void {
+    this.markCollidersDirty();
   }
 
   add(go: GameObject): GameObject {
     go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
-    this.markCollidersDirty();
+    if (bodyTypeOf(go) === BODY_STATIC) {
+      this.markCollidersDirty();
+    } else {
+      this.colDirty = 1;
+      sceneVersionSeq = sceneVersionSeq + 1;
+      this.compVersion = sceneVersionSeq;
+      if (!this.pendingDynamicOverflow) {
+        if (this.pendingDynamicOps.length >= MAX_PENDING_DYNAMIC_OPS) {
+          this.pendingDynamicOverflow = true;
+          this.pendingDynamicOps.length = 0;
+          this.pendingDynamicObjs.length = 0;
+        } else {
+          this.pendingDynamicOps.push(DYN_OP_ADD);
+          this.pendingDynamicObjs.push(go);
+        }
+      }
+    }
     go.mount();
     return go;
   }
@@ -146,7 +191,7 @@ export class Scene {
   clear(): void {
     this.objects = [];
     this.trs = [];
-    this.markCollidersDirty();
+    this.markStaticDirty();
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
@@ -230,7 +275,7 @@ export class Scene {
     this.trs.length = 0;
     let ti = 0;
     while (ti < order.length) { this.trs.push(order[ti].transform); ti = ti + 1; }
-    this.markCollidersDirty();
+    this.markStaticDirty();
     let j = 0;
     while (j < order.length) {
       const o = order[j];
@@ -252,6 +297,9 @@ export class Scene {
   removeAt(i: number): void {
     const n = this.objects.length;
     if (i < 0 || i >= n) return;
+    const removedObj = this.objects[i];
+    const isStatic = (bodyTypeOf(removedObj) === BODY_STATIC);
+
     // Compacta IN-PLACE (antes alocava um array novo a cada remoção — num RTS,
     // destruir dezenas de unidades por segundo virava dezenas de realocações da
     // cena inteira). Um passe: corrige os parents e desloca os que vêm depois.
@@ -266,7 +314,24 @@ export class Scene {
     }
     this.objects.length = w;
     this.trs.length = w;
-    this.markCollidersDirty();
+
+    if (isStatic) {
+      this.markCollidersDirty();
+    } else {
+      this.colDirty = 1;
+      sceneVersionSeq = sceneVersionSeq + 1;
+      this.compVersion = sceneVersionSeq;
+      if (!this.pendingDynamicOverflow) {
+        if (this.pendingDynamicOps.length >= MAX_PENDING_DYNAMIC_OPS) {
+          this.pendingDynamicOverflow = true;
+          this.pendingDynamicOps.length = 0;
+          this.pendingDynamicObjs.length = 0;
+        } else {
+          this.pendingDynamicOps.push(DYN_OP_REMOVE);
+          this.pendingDynamicObjs.push(removedObj);
+        }
+      }
+    }
   }
 
   /// Índice do objeto ATIVO que carrega a câmera principal (-1 = nenhuma).

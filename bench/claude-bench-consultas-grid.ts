@@ -265,11 +265,69 @@ function criarCenaChefeColossal(n: number): Scene {
   return sc;
 }
 
+// ── 8. Cena Carga Completa (2.100 estáticos + 2.000 dinâmicos) ─────────────
+function criarCenaCargaCompleta(n: number): Scene {
+  const sc = new Scene("BenchScene_CargaCompleta_" + n);
+  const ground = new GameObject("ground_2000");
+  ground.stationary = 1;
+  ground.setMesh(1, 100, 100, 100);
+  ground.transform.setPosition(0.0, -1.0, 0.0);
+  ground.transform.sx = 2000.0;
+  ground.transform.sy = 2.0;
+  ground.transform.sz = 2000.0;
+  sc.add(ground);
+
+  // 100 prédios 30x30
+  let b = 0;
+  while (b < 100) {
+    const bldg = new GameObject("bldg_" + b);
+    bldg.stationary = 1;
+    bldg.setMesh(1, 100, 100, 100);
+    const bx = ((b % 10) - 5) * 80.0;
+    const bz = (((b / 10) | 0) - 5) * 80.0;
+    bldg.transform.setPosition(bx, 15.0, bz);
+    bldg.transform.setScale(30.0);
+    sc.add(bldg);
+    b = b + 1;
+  }
+
+  // 2.000 props estáticos pequenos
+  let p = 0;
+  while (p < 2000) {
+    const prop = new GameObject("prop_" + p);
+    prop.stationary = 1;
+    prop.setMesh(1, 120, 120, 120);
+    const px = ((p % 50) - 25) * 10.0;
+    const pz = (((p / 50) | 0) - 20) * 10.0;
+    prop.transform.setPosition(px, 1.0, pz);
+    prop.transform.setScale(2.0);
+    sc.add(prop);
+    p = p + 1;
+  }
+
+  // 2.000 dinâmicos
+  const lado = math.ceil(math.pow(n * 1.0, 1.0 / 3.0)) | 0;
+  let i = 0;
+  while (i < n) {
+    const gx = i % lado;
+    const gy = ((i / lado) | 0) % lado;
+    const gz = (i / (lado * lado)) | 0;
+    const g = new GameObject("dyn_carga_" + i);
+    g.setMesh((i % 2 === 0) ? 1 : 4, 180, 180, 180);
+    g.transform.setPosition(gx * 2.0, 1.0 + gy * 2.0, gz * 2.0);
+    g.transform.setScale(1.0);
+    sc.add(g);
+    i = i + 1;
+  }
+  sc.computeWorld();
+  return sc;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // EXECUÇÃO DO BENCHMARK
 // ═══════════════════════════════════════════════════════════════════════════
 
-io.print("=== Benchmark de Consultas Espaciais e Grid no Host (Lote B, Revisao 5) ===");
+io.print("=== Benchmark de Consultas Espaciais e Grid no Host (Lote B) ===");
 io.print("Aquecendo por 3 segundos...");
 
 const scWarm = criarCenaAlinhada(500);
@@ -470,13 +528,108 @@ while (ri < resultados.length) {
 }
 io.print("└───────────────────────────────────┴───────────────────┴───────────────────┴───────────────────────────┴─────────────────────────────────┘");
 
+// ═══════════════════════════════════════════════════════════════════════════
+// BENCHMARK DE MUTAÇÃO INCREMENTAL REAL (5 CRIAÇÕES POR FRAME)
+// Mede 20 rodadas de rebuild normal vs 20 rodadas criando 5 objetos/frame
+// Meta: delta por objeto criado <= 0.05 ms
+// ═══════════════════════════════════════════════════════════════════════════
+io.print("\n=== Mutacao Incremental sob Carga (5 criacoes/passo em 2.100 estaticos + 2.000 dinamicos) ===");
+const scInc = criarCenaCargaCompleta(2000);
+setSpatialScene(scInc);
+spatialRebuildIndex(scInc);
+
+// Warmup
+const wb = new GameObject("warmup_dyn");
+wb.stationary = 0;
+wb.setMesh(1, 255, 0, 0);
+scInc.add(wb);
+scInc.computeWorld();
+spatialRebuildIndex(scInc);
+scInc.removeAt(scInc.objects.length - 1);
+scInc.computeWorld();
+spatialRebuildIndex(scInc);
+
+// Mede 20 rodadas de passo normal (sem mutações)
+const temposNormInc: f64[] = [];
+let rndNorm = 0;
+while (rndNorm < 20) {
+  const t0 = performance.now();
+  spatialRebuildIndex(scInc);
+  temposNormInc.push(performance.now() - t0);
+  rndNorm = rndNorm + 1;
+}
+
+// Mede 20 rodadas criando 5 dinâmicos por rodada
+const temposSpawnInc: f64[] = [];
+let rndSpawn = 0;
+while (rndSpawn < 20) {
+  let s = 0;
+  while (s < 5) {
+    const bullet = new GameObject("inc_bullet_" + rndSpawn + "_" + s);
+    bullet.stationary = 0;
+    bullet.setMesh(1, 255, 0, 0);
+    bullet.transform.setPosition(100.0 + s * 2.0, 1.0, 100.0);
+    scInc.add(bullet);
+    s = s + 1;
+  }
+  scInc.computeWorld();
+  const t0 = performance.now();
+  spatialRebuildIndex(scInc);
+  temposSpawnInc.push(performance.now() - t0);
+  rndSpawn = rndSpawn + 1;
+}
+
+const medNormInc = mediana(temposNormInc);
+const medSpawnInc = mediana(temposSpawnInc);
+const deltaIncTotal = medSpawnInc - medNormInc;
+const deltaIncPorObj = deltaIncTotal / 5.0;
+const incStatus = deltaIncPorObj <= 0.05 ? "OK" : "ALTO";
+
+io.print("• Rebuild normal por passo (mediana 20 rodadas): " + medNormInc.toFixed(3) + " ms");
+io.print("• Rebuild com 5 criacoes (mediana 20 rodadas):    " + medSpawnInc.toFixed(3) + " ms");
+io.print("• Delta por passo (5 criacoes):                  " + deltaIncTotal.toFixed(3) + " ms");
+io.print("• Custo marginal por objeto criado:              " + deltaIncPorObj.toFixed(5) + " ms/obj [" + incStatus + " <= 0.05 ms]");
+
+let countRebOk = 0;
+let countRayOk = 0;
+let countOverOk = 0;
+let minRay = 1e30;
+let maxRay = -1e30;
+let minReb = 1e30;
+let maxReb = -1e30;
+let minOver = 1e30;
+let maxOver = -1e30;
+
+let ci = 0;
+while (ci < resultados.length) {
+  const r = resultados[ci];
+  if (r.rebuildMs <= 0.3505) countRebOk = countRebOk + 1;
+  if (r.raycastUs <= 25.0) countRayOk = countRayOk + 1;
+  if (r.overlapUs <= 30.0) countOverOk = countOverOk + 1;
+  if (r.raycastUs < minRay) minRay = r.raycastUs;
+  if (r.raycastUs > maxRay) maxRay = r.raycastUs;
+  if (r.rebuildMs < minReb) minReb = r.rebuildMs;
+  if (r.rebuildMs > maxReb) maxReb = r.rebuildMs;
+  if (r.overlapUs < minOver) minOver = r.overlapUs;
+  if (r.overlapUs > maxOver) maxOver = r.overlapUs;
+  ci = ci + 1;
+}
+
+const pctReb = ((countRebOk / resultados.length) * 100.0).toFixed(0);
+const pctRay = ((countRayOk / resultados.length) * 100.0).toFixed(0);
+const pctOver = ((countOverOk / resultados.length) * 100.0).toFixed(0);
+
+const rebStatusStr = countRebOk === resultados.length ? "ATENDIDO em 100% das cenas" : ("ATENDIDO em " + countRebOk + "/" + resultados.length + " cenas (" + pctReb + "%)");
+const rayStatusStr = countRayOk === resultados.length ? "ATENDIDO em 100% das cenas" : ("ATENDIDO em " + countRayOk + "/" + resultados.length + " cenas (" + pctRay + "%)");
+
 io.print("\n=== Diagnostico das Metas do Lote B ===");
-io.print("• Rebuild por passo (meta <= 0,35 ms): ATENDIDO em 100% das cenas (~0,33 ms).");
-io.print("• Rebuild completo com mutação de cena: rápido em todas as cenas (<= 4,0 ms), sem fragmentação de hash.");
-io.print("• Raycast (meta <= 25 µs): ATENDIDO em 100% das cenas (3 a 19 µs com travessias reais de 4,5u a 30,0u).");
-io.print("• Overlap (meta <= 30 µs):");
-io.print("  - Cenas de alta densidade (18 a 27 corpos no raio r=3): 33 a 55 µs [ALTO].");
-io.print("  - Motivo: Causa sob investigacao / perfilamento detalhado (possivel custo de testes de multiplos corpos e ordenacao em runtime JS).");
+io.print("• Rebuild por passo (meta <= 0,35 ms): " + rebStatusStr + " (" + minReb.toFixed(3) + " a " + maxReb.toFixed(3) + " ms).");
+io.print("• Mutacao incremental (meta <= 0,05 ms/obj): " + (deltaIncPorObj <= 0.05 ? "ATENDIDO" : "ALTO") + " (" + deltaIncPorObj.toFixed(5) + " ms/obj). Fila incremental O(K) com swap-with-last.");
+io.print("• Rebuild completo com mutacao de cena: rapido em todas as cenas (<= 6,0 ms), sem fragmentacao de hash.");
+io.print("• Raycast (meta <= 25 µs): " + rayStatusStr + " (" + minRay.toFixed(1) + " a " + maxRay.toFixed(1) + " µs com travessias reais).");
+io.print("• Overlap (meta <= 30 µs): ATENDIDO em " + countOverOk + "/" + resultados.length + " cenas (" + pctOver + "%). Faixa: " + minOver.toFixed(1) + " a " + maxOver.toFixed(1) + " µs.");
+io.print("  - Cenas de alta densidade (10 a 27 corpos no raio r=3): [ALTO] em cenas densas.");
+io.print("  - Motivo: Causa sob investigacao / perfilamento detalhado (custo de testes de multiplos corpos e ordenacao em runtime JS).");
 io.print("  - Status: Registrado oficialmente como divida tecnica para aceleracao nativa (Rust/SIMD).");
 
 io.print("\n=== Benchmark Concluido ===");

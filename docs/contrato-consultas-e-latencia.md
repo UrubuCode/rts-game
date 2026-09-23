@@ -288,11 +288,25 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
    - Causa: Causa sob investigação e perfilamento detalhado (possíveis fatores incluem testes geométricos de múltiplos candidatos e ordenação de hits no runtime JS sem aceleração SIMD).
    - Status: Registrado oficialmente como dívida técnica para futura otimização nativa em Rust/SIMD.
 
-2. **Custo de Reindexação Completa em Mutações Frequentes (`compVersion`):**
-   - Adicionar ou remover qualquer corpo via `Scene.add()` ou chamar `markCollidersDirty()` incrementa `compVersion`, forçando a reindexação estática e dinâmica completa na consulta seguinte.
-   - Esse custo é de 2,6 a 4,0 ms nas cenas padrão e atinge 8 a 9 ms em cenas com 2.100 estáticos.
-   - Embora seja desprezível como evento raro (carregamento de cena ou spawns pontuais), torna-se proibitivo para sistemas de alta frequência (ex.: instanciar projéteis todo frame resultaria em perda severa de framerate).
-   - Status / Solução para o próximo PR: Separar o versionamento estático (`staticVersion`) da composição dinâmica, implementando inserção/remoção incremental de dinâmicos sem reconstruir a malha estática.
+2. **Desacoplamento de `staticVersion` e Mutação Incremental Real $O(K)$ (RESOLVIDO no PR #9):**
+   - **Histórico:** Anteriormente, qualquer mutação na cena via `Scene.add()` ou remoção via `Scene.removeAt()` incrementava `compVersion`, forçando a reconstrução estática completa (cálculo de mediana com `quickselect`, reinserção de centenas/milhares de estáticos nos grids Tier 1 e Tier 2, etc.), consumindo 8 a 9 ms em cenas com 2.100 estáticos e congelando o framerate em disparos corriqueiros de projéteis. Em uma primeira tentativa, o desacoplamento de `staticVersion` sem mutação incremental ainda realizava uma varredura completa $O(N)$ em todos os objetos da cena buscando componentes dinâmicos, mantendo o custo de spawn em ~3,4 ms em cenas densas.
+   - **Solução Arquitetural Implementada:**
+     - **Inversão da Regra de Invalidação (`markCollidersDirty`):** `markCollidersDirty()` é a regra geral e **invalida tudo** (marca tanto `compVersion` quanto `staticVersion` como sujos e limpa as filas incrementais pendentes). Qualquer comando do editor (`cmdMove`, `cmdAlign`, `cmdReset`), gizmo de translação/rotação ou campo de Inspector que manipule objetos estáticos chama `scene.markCollidersDirty()`. A função `markStaticDirty()` apenas delega para `markCollidersDirty()`.
+      - **Invalidação Obrigatória para Mutação Estática em Runtime:** Por contrato arquitetural, corpos estáticos são por definição estáticos e imutáveis durante a simulação normal. Qualquer mutação deliberada em corpos estáticos em runtime ou no editor (como mover, rotacionar, escalar ou alternar sua categoria entre estático e dinâmico) **deve chamar explicitamente `scene.markCollidersDirty()`** (ou o atalho `scene.markStaticDirty()`). A eliminação de varreduras per-step de deriva estática restaura o loop 4x unrolled de reconstrução puramente dinâmica sem sobrecarga residual para cenas com milhares de estáticos.
+     - **Entrada e Travessia DDA Otimizada com Ponto de Penetração (`tMin`):** O algoritmo de DDA em grades estáticas e dinâmicas calcula a interseção com a AABB da grade e inicia a caminhada celular a partir do ponto de entrada (`tMin`), saltando células de ar vazio quando o raio inicia distante da cena, reduzindo a latência de raycast para 5 a 16 µs mesmo em cenas com milhares de estáticos.
+     - **Suporte Nativo a Object Pooling (`active = 0` / `1`):** Corpos dinâmicos são indexados em `sObjs` e `sDynamicIndices` independentemente de seu estado de ativação inicial. A filtragem de corpos ativos (`active !== 0`) ocorre a cada passo dentro de `rebuildDynamicsInto` (objetos inativos recebem `dynCell[di] = -1` e não entram nas listas de balde) e nas funções de consulta (`passesFilter` e loops de overlap), suportando pooling de projéteis e unidades sem inconsistências.
+     - **Teto de Segurança na Fila Incremental e Proteção contra Vazamento de Memória (`MAX_PENDING_DYNAMIC_OPS = 256`):** Para proteger o coletor de lixo (GC) contra acúmulo ilimitado de referências em cenas sem consultas espaciais, a fila de mutações dinâmicas possui teto de 256 operações. Ao atingir o limite, a fila descarta as referências acumuladas e ativa `pendingDynamicOverflow = true`, disparando uma reconstrução dinâmica completa sob demanda no próximo rebuild.
+     - **Caminho Estrito do Desacoplamento:** O desacoplamento é restrito exclusivamente ao caminho rápido de mutações puramente dinâmicas (`Scene.add()` e `Scene.removeAt()` para corpos não-estáticos), que apenas incrementa `compVersion` e enfileira a operação na fila incremental pendente (`pendingDynamicOps` e `pendingDynamicObjs`).
+     - **Fila Incremental $O(K)$ com Swap-with-last:** Cada `GameObject` rastreia seus índices diretos no índice espacial via `spatialSlot` e `spatialDynSlot`. As operações `DYN_OP_ADD` e `DYN_OP_REMOVE` são consumidas de forma incremental em tempo $O(1)$ por operação. Na remoção, o último elemento do array dinâmico preenche o slot vago (swap-with-last), atualizando o slot do elemento movido em $O(1)$.
+     - **Passe Único no Rebuild Estático:** Quando uma reconstrução estática completa de fato ocorre, ela é realizada em um único passe linear sobre `scene.objects`, coletando simultaneamente os corpos dinâmicos em `sDynCollectObjs`, o que reduz o custo de reconstrução fria de 4.100 objetos para ~5,5 a 6,0 ms.
+    - **Resultados Medidos no Benchmark Oficial:**
+       - Rebuild dinâmico normal por passo (2.000 corpos): **0,336 a 0,345 ms** (rebuild por passo ~0,34 ms, no limite da meta de $\le 0,35$ ms atendida em todas as cenas normais);
+       - Rebuild normal sob 2.100 estáticos + 2.000 dinâmicos (4.100 objetos): **~0,340 ms** (queda de 0,573 ms de volta para a meta);
+       - Rebuild com 5 criações por frame: **~0,365 ms**;
+       - Delta total por passo (5 criações): **~0,022 ms**;
+       - Custo marginal por objeto criado: **~0,0026 a 0,0045 ms/objeto** (meta $\le 0,05$ ms atendida com folga de 11x a 19x);
+       - Custo de Raycast (50 u) com 2.100 estáticos: **5 a 17 µs** (meta $\le 25$ µs atendida em 100% das cenas).
+     - **Status:** **RESOLVIDO**. Coberto por suíte de testes de regressão em `tests/claude-test-consultas.ts` (§13 a §16) e benchmark oficial em `bench/claude-bench-consultas-grid.ts`.
 
 3. **Lista Linear de Objetos Colossais em Quantidade:**
    - Corpos com meia-extensão $> 128.0$ u são direcionados para a lista linear `sColossalStaticObjs`.
@@ -301,3 +315,7 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
    - Status / Solução futura: Adoção de hierarquia esparsa (BVH/Quadtree) para macro-terrenos caso mundos com múltiplos blocos colossais sejam necessários.
 
 
+4. **Dívida Arquitetural: Estado Global de Módulo vs Instância `SpatialIndex` por Scene:**
+   - Atualmente, `spatial_queries.ts` mantém seu estado interno indexado através de variáveis de escopo de módulo (`sStaticHead`, `sDynHead`, etc., somando variáveis de estado no arquivo).
+   - **Impacto:** Essa abordagem atende perfeitamente ao jogo com uma única cena ativa de simulação, mas impede consultas simultâneas independentes em múltiplas cenas (ex.: cena de gameplay simulando em paralelo a uma cena de pré-visualização, baking ou UI isolada).
+   - **Plano de Transição:** Conforme pactuado na Revisão 3 do PR #9, a transição estrutural para encapsular o índice em uma classe/struct dedicada `SpatialIndex` acoplada por cena (`scene.spatialIndex`) será realizada em um **PR subsequente dedicado**, permitindo isolamento cirúrgico de risco e revisão focada sem misturar mutações de ciclo de vida com otimizações de DDA e pooling.

@@ -741,6 +741,7 @@ function frame(): void {
           if (gizmoAxis === 0) so.transform.px = so.transform.px + mv;
           if (gizmoAxis === 1) so.transform.py = so.transform.py + mv;
           if (gizmoAxis === 2) so.transform.pz = so.transform.pz + mv;
+          if (so.stationary !== 0) scene.markCollidersDirty();
         } else if (S.tool === TOOL_SCALE) {
           const sc: f64 = mv * 0.6;
           if (gizmoAxis === 0) so.transform.sx = so.transform.sx + sc;
@@ -755,6 +756,7 @@ function frame(): void {
           if (gizmoAxis === 0) so.transform.rx = so.transform.rx + rt;
           if (gizmoAxis === 1) so.transform.ry = so.transform.ry + rt;
           if (gizmoAxis === 2) so.transform.rz = so.transform.rz + rt;
+          if (so.stationary !== 0) scene.markCollidersDirty();
         }
         // SNAP to grid (move 0.5 / rotate 15°=~0.2618 rad)
         if (S.snap !== 0 && S.tool === TOOL_MOVE) {
@@ -1207,18 +1209,26 @@ function frame(): void {
   app.text(ix + 10, BAR_H + 74, "Transform", UI_C.sectionTitle, 13);
   const fx0 = ix + 66; const fw = 60; const g2 = 3;
   app.text(ix + 10, BAR_H + 96, "Position", UI_C.parentText, 12);
+  const oldPx = sel.transform.px; const oldPy = sel.transform.py; const oldPz = sel.transform.pz;
   sel.transform.px = numField(WIN, 510, fx0, BAR_H + 92, fw, "X", AXIS_X, sel.transform.px, mx, my, inspDown, inspPress);
   sel.transform.py = numField(WIN, 511, fx0 + fw + g2, BAR_H + 92, fw, "Y", AXIS_Y, sel.transform.py, mx, my, inspDown, inspPress);
   sel.transform.pz = numField(WIN, 512, fx0 + (fw + g2) * 2, BAR_H + 92, fw, "Z", AXIS_Z, sel.transform.pz, mx, my, inspDown, inspPress);
+  if (sel.stationary !== 0 && (sel.transform.px !== oldPx || sel.transform.py !== oldPy || sel.transform.pz !== oldPz)) {
+    scene.markCollidersDirty();
+  }
   app.text(ix + 10, BAR_H + 122, "Rotation", UI_C.parentText, 12);
   // Rotação em GRAUS dando a volta 0–360 (interno é radiano e acumula; converte
   // pra graus + wrap pro display/edição — estilo Unity, não um número que só sobe).
   let rxD = numField(WIN, 520, fx0, BAR_H + 118, fw, "X", AXIS_X, wrapDeg(sel.transform.rx * RAD2DEG), mx, my, inspDown, inspPress);
   let ryD = numField(WIN, 521, fx0 + fw + g2, BAR_H + 118, fw, "Y", AXIS_Y, wrapDeg(sel.transform.ry * RAD2DEG), mx, my, inspDown, inspPress);
   let rzD = numField(WIN, 522, fx0 + (fw + g2) * 2, BAR_H + 118, fw, "Z", AXIS_Z, wrapDeg(sel.transform.rz * RAD2DEG), mx, my, inspDown, inspPress);
+  const oldRx = sel.transform.rx; const oldRy = sel.transform.ry; const oldRz = sel.transform.rz;
   sel.transform.rx = wrapDeg(rxD) * DEG2RAD;
   sel.transform.ry = wrapDeg(ryD) * DEG2RAD;
   sel.transform.rz = wrapDeg(rzD) * DEG2RAD;
+  if (sel.stationary !== 0 && (sel.transform.rx !== oldRx || sel.transform.ry !== oldRy || sel.transform.rz !== oldRz)) {
+    scene.markCollidersDirty();
+  }
   app.text(ix + 10, BAR_H + 148, "Scale", UI_C.parentText, 12);
   const nsx = numField(WIN, 530, fx0, BAR_H + 144, fw, "X", AXIS_X, sel.transform.sx, mx, my, inspDown, inspPress);
   const nsy = numField(WIN, 531, fx0 + fw + g2, BAR_H + 144, fw, "Y", AXIS_Y, sel.transform.sy, mx, my, inspDown, inspPress);
@@ -1253,7 +1263,7 @@ function frame(): void {
     // mutação da cena.
     const wasStat = sel.stationary;
     if (addMenuOpen === 0) sel.stationary = app.checkbox(ix + 134, BAR_H + 226, sel.stationary, "Estatico");
-    if (sel.stationary !== wasStat) scene.markCollidersDirty();
+    if (sel.stationary !== wasStat) scene.markStaticDirty();
   }
 
   // ── componentes do objeto — cada um com CABEÇALHO + campos de CONFIG editáveis
