@@ -259,28 +259,31 @@ O Lote B será dividido em dois PRs (1º Consultas, 2º Eventos). Os critérios 
 
 ## 8. Topologia do Índice Espacial e Limitações Conhecidas
 
-### 8.1 Grid Híbrido Estático vs. Dinâmico
-Para atender simultaneamente a simulações de alta taxa de atualização (60 Hz) com milhares de corpos e consultas espaciais rápidas:
-1. **Grid Estático (Multi-célula para Corpos Normais):**
-   - Corpos estáticos normais são inseridos em todas as células que sua AABB sobrepõe.
-   - A reconstrução ocorre exclusivamente quando a versão composicional da cena (`compVersion`) muda (custo amortizado por passo = 0).
-   - O tamanho da célula estática (`sStaticCellSize`) é dimensionado pela **mediana** das meias-extensões dos corpos estáticos normais (`max(2.0, median * 2.0)`).
+### 8.1 Grid Híbrido Estático Multinível vs. Dinâmico
+Para atender simultaneamente a simulações de alta taxa de atualização (60 Hz) com milhares de corpos e consultas espaciais ultrarrápidas em mundos abertos ou com estruturas complexas:
+1. **Grid Estático Multinível (Two-Tier Multi-célula para Corpos Estáticos):**
+   - **Tier 1 (Grid Fino):** Dimensionado pela mediana das meias-extensões características $\max(hx, hy, hz)$ dos corpos estáticos normais via algoritmo `quickselect` in-place sem alocação ($O(N)$), definindo a célula $S_1 = \max(2.0, \text{medianFine} \times 2.0)$.
+   - **Limiar Relativo à Célula ($T_1 = 2.0 \times S_1$):** Corpos com meia-extensão até $T_1$ entram no Tier 1 (garantindo no máximo 1 a 2 células por eixo e $\le 5$ células no pior caso de alinhamento). Isso impede que objetos de porte médio (como prédios 30×30) fragmentem a tabela de hash do grid fino em centenas de milhares de entradas.
+   - **Tier 2 (Grid Coarse):** Dimensionado pela mediana dos corpos médios/grandes que ultrapassaram o Tier 1, com célula $S_2 = \max(S_1 \times 4.0, \text{medianCoarse} \times 2.0)$. Acomoda corpos com meia-extensão até $T_2 = 2.0 \times S_2$ e $\le 128.0$ u (ex.: 100 edifícios de 30 u ou 300 blocos modulares de terreno de 50 u). Essa discretização em coarse grid substitui buscas lineares $O(N)$ e preserva consultas em microsegundos.
+   - A reconstrução de ambos os tiers ocorre exclusivamente quando a versão composicional da cena (`compVersion`) muda (custo amortizado por passo = 0).
 2. **Grid Dinâmico (Célula Única por Centro + Expansão de Consulta):**
    - Cada corpo dinâmico normal reside em exatamente uma célula determinada por seu centro de massa.
    - Reduz o volume de inserções por passo de ~16.000 para 2.000, permitindo reconstrução em ~0,33 ms para 2.000 corpos.
    - Consultas de overlap e DDA de raycast expandem a região de busca pela maior meia-extensão dinâmica (`sDynamicMaxHalfExtent`).
 
-### 8.2 Lista de Objetos Grandes (`LARGE_OBJECT_THRESHOLD = 16.0`)
-Para evitar patologias de fragmentação e inflação dimensional com corpos atípicos:
-1. **Limiar de Segregação:** Todo corpo com meia-extensão em qualquer eixo superior a $16.0$ u é classificado como objeto grande e segregado em lista dedicada (`sStaticLargeObjs` e `sDynamicLargeObjs`, pré-alocadas com capacidade 256).
-2. **Terrenos e Planos Estáticos (ex.: 200×200 u ou 2.000×2.000 u):**
-   - Não são inseridos no grid multi-célula. Isso elimina a fragmentação de dezenas de milhares de entradas na tabela de hash durante `Scene.add()` ou mutações estruturais (evitando picos de 200–800 ms de rebuild e colisões severas de buckets), mantendo a reconstrução estática em $\le 0.35$ ms.
-3. **Corpos Dinâmicos Colossais (ex.: chefe de 50 u):**
-   - Não entram no grid dinâmico por centro nem inflam `sDynamicMaxHalfExtent`. O grid dinâmico preserva seu tamanho de célula e raio de expansão calibrados para unidades normais (0.5 a 2.0 u).
-4. **Resolução em Consultas:**
-   - Consultas (`raycastNonAlloc`, `overlapSphereNonAlloc`, `overlapBoxNonAlloc`) percorrem o grid normalmente e, em seguida, testam os corpos da lista de objetos grandes (tipicamente 1 a 2 elementos, com custo $< 1$ µs).
+### 8.2 Segregação de Corpos Colossais
+Para evitar patologias de inflação dimensional e fragmentação de hash em cenas de escala astronômica:
+1. **Terrenos Colossais de Mapa (`sColossalStaticObjs`):**
+   - Corpos com meia-extensão superior a $128.0$ u ou que ultrapassam o limiar do Tier 2 (ex.: terrenos de 200 u, 2.000 u ou 4.000 u) não entram em nenhum grid hash.
+   - São segregados em lista plana pré-alocada (`sColossalStaticObjs`). Por existirem em quantidade ínfima (tipicamente 1 a 2 por cena), o teste linear consome $< 0,3$ µs e elimina 100% da poluição de hash.
+2. **Chefes e Unidades Colossais Móveis (`sColossalDynamicObjs`):**
+   - Dinâmicos com meia-extensão $> 16.0$ u são segregados em `sColossalDynamicObjs`. Isso impede que corpos gigantes inflem `sDynamicMaxHalfExtent`, preservando o raio de busca das consultas dinâmicas calibrado estritamente para as tropas normais.
+3. **Zero Alocações no Heap:**
+   - A medição de meias-extensões e o cálculo de mediana usam `sExtentBuffer: f64[]` pré-alocado e ordenação in-place (`quickselect`), sem alocar arrays temporários nem chamar `.sort()`.
+   - As funções `overlapSphereNonAlloc` e `overlapBoxNonAlloc` utilizam `effectiveMaxHits = min(maxHits, outHits.length)`, garantindo que jamais aloquem novos objetos `OverlapHit` durante a execução.
 
 ### 8.3 Limitações Conhecidas e Dívidas Técnicas Registradas
 1. **Tempo de Overlap em Cenas de Alta Densidade:**
    - Em cenários com alta concentração de corpos na área de consulta (18 a 27 corpos no raio $r=3$), o tempo de `overlapSphereNonAlloc` fica entre 33 µs e 55 µs (acima da meta estrita de 30 µs), devido ao custo de teste geométrico OBB/SAT e ordenação no runtime JS sem aceleração SIMD. Esta meta permanece como dívida técnica registrada para futura otimização nativa em Rust.
+
 

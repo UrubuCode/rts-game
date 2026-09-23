@@ -147,34 +147,87 @@ let sStaticCount = 0;
 let sDynamicIndices: number[] = new Array(sObjCap).fill(0);
 let sDynamicCount = 0;
 
-// Lista de objetos grandes (terrenos estáticos e dinâmicos colossais)
-const LARGE_OBJECT_THRESHOLD: f64 = 16.0;
-let sStaticLargeCap = 256;
-let sStaticLargeObjs: number[] = new Array(sStaticLargeCap).fill(0);
-let sStaticLargeCount = 0;
+// ── TIER 2: GRID COARSE PARA ESTÁTICOS MÉDIOS/GRANDES ─────────────────────
+let sStaticCoarseHead: number[] = new Array(SGRID_CAP).fill(-1);
+let sStaticCoarseUsedBuckets: number[] = new Array(SGRID_CAP).fill(0);
+let sStaticCoarseUsedBucketsCount = 0;
+let sStaticCoarseEntriesCap = 32768;
+let sStaticCoarseEntriesObj: number[] = new Array(sStaticCoarseEntriesCap).fill(0);
+let sStaticCoarseEntriesNext: number[] = new Array(sStaticCoarseEntriesCap).fill(0);
+let sStaticCoarseEntriesCount = 0;
+let sStaticCoarseCellSize = 32.0;
+let sStaticCoarseInvCellSize = 1.0 / 32.0;
+let sStaticCoarseCount = 0;
+let sStaticCoarseIndices: number[] = new Array(sObjCap).fill(0);
+let sStaticCoarseSceneMinX = 0.0; let sStaticCoarseSceneMaxX = 0.0;
+let sStaticCoarseSceneMinY = 0.0; let sStaticCoarseSceneMaxY = 0.0;
+let sStaticCoarseSceneMinZ = 0.0; let sStaticCoarseSceneMaxZ = 0.0;
 
-let sDynamicLargeCap = 256;
-let sDynamicLargeObjs: number[] = new Array(sDynamicLargeCap).fill(0);
-let sDynamicLargeCount = 0;
-
-function addStaticLarge(k: number): void {
-  if (sStaticLargeCount >= sStaticLargeCap) {
-    const newCap = sStaticLargeCap * 2;
-    while (sStaticLargeObjs.length < newCap) sStaticLargeObjs.push(0);
-    sStaticLargeCap = newCap;
+function growStaticCoarseEntries(): void {
+  const newCap = sStaticCoarseEntriesCap * 2;
+  while (sStaticCoarseEntriesObj.length < newCap) {
+    sStaticCoarseEntriesObj.push(0);
+    sStaticCoarseEntriesNext.push(0);
   }
-  sStaticLargeObjs[sStaticLargeCount] = k;
-  sStaticLargeCount = sStaticLargeCount + 1;
+  sStaticCoarseEntriesCap = newCap;
 }
 
-function addDynamicLarge(k: number): void {
-  if (sDynamicLargeCount >= sDynamicLargeCap) {
-    const newCap = sDynamicLargeCap * 2;
-    while (sDynamicLargeObjs.length < newCap) sDynamicLargeObjs.push(0);
-    sDynamicLargeCap = newCap;
+// ── CORPOS COLOSSAIS (TERRENOS GIGANTES DE MAPA E CHEFES DINÂMICOS) ────────
+let sColossalStaticCap = 256;
+let sColossalStaticObjs: number[] = new Array(sColossalStaticCap).fill(0);
+let sColossalStaticCount = 0;
+
+let sColossalDynamicCap = 256;
+let sColossalDynamicObjs: number[] = new Array(sColossalDynamicCap).fill(0);
+let sColossalDynamicCount = 0;
+
+function addColossalStatic(k: number): void {
+  if (sColossalStaticCount >= sColossalStaticCap) {
+    const newCap = sColossalStaticCap * 2;
+    while (sColossalStaticObjs.length < newCap) sColossalStaticObjs.push(0);
+    sColossalStaticCap = newCap;
   }
-  sDynamicLargeObjs[sDynamicLargeCount] = k;
-  sDynamicLargeCount = sDynamicLargeCount + 1;
+  sColossalStaticObjs[sColossalStaticCount] = k;
+  sColossalStaticCount = sColossalStaticCount + 1;
+}
+
+function addColossalDynamic(k: number): void {
+  if (sColossalDynamicCount >= sColossalDynamicCap) {
+    const newCap = sColossalDynamicCap * 2;
+    while (sColossalDynamicObjs.length < newCap) sColossalDynamicObjs.push(0);
+    sColossalDynamicCap = newCap;
+  }
+  sColossalDynamicObjs[sColossalDynamicCount] = k;
+  sColossalDynamicCount = sColossalDynamicCount + 1;
+}
+
+// Buffer reutilizado para cálculo de mediana sem alocações no heap
+let sExtentBuffer: f64[] = new Array(sObjCap).fill(0.0);
+
+function quickselect(arr: f64[], left: number, right: number, k: number): f64 {
+  while (left < right) {
+    const pivotIdx = (left + right) >> 1;
+    const pivotVal = arr[pivotIdx];
+    let i = left;
+    let j = right;
+    while (i <= j) {
+      while (arr[i] < pivotVal) i = i + 1;
+      while (arr[j] > pivotVal) j = j - 1;
+      if (i <= j) {
+        const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+        i = i + 1;
+        j = j - 1;
+      }
+    }
+    if (k <= j) {
+      right = j;
+    } else if (k >= i) {
+      left = i;
+    } else {
+      return arr[k];
+    }
+  }
+  return arr[left];
 }
 
 let sMinX: number[] = new Array(sObjCap).fill(0.0);
@@ -215,6 +268,8 @@ function ensureObjCapacity(cap: number): void {
     sLayer.push(0); sMask.push(0);
     sBodyId.push(0); sYaw.push(0.0);
     sStaticIndices.push(0); sDynamicIndices.push(0);
+    sStaticCoarseIndices.push(0);
+    sExtentBuffer.push(0.0);
     sMinX.push(0.0); sMaxX.push(0.0);
     sMinY.push(0.0); sMaxY.push(0.0);
     sMinZ.push(0.0); sMaxZ.push(0.0);
@@ -240,14 +295,23 @@ export function setSpatialScene(sc: Scene | null): void {
   sStaticUsedBucketsCount = 0;
   sStaticEntriesCount = 0;
 
+  let cb = 0;
+  while (cb < sStaticCoarseUsedBucketsCount) {
+    sStaticCoarseHead[sStaticCoarseUsedBuckets[cb]] = -1;
+    cb = cb + 1;
+  }
+  sStaticCoarseUsedBucketsCount = 0;
+  sStaticCoarseEntriesCount = 0;
+  sStaticCoarseCount = 0;
+
   let di = 0;
   while (di < sPrevDynCount) {
     sDynHead[sDynCell[di]] = -1;
     di = di + 1;
   }
   sPrevDynCount = 0;
-  sStaticLargeCount = 0;
-  sDynamicLargeCount = 0;
+  sColossalStaticCount = 0;
+  sColossalDynamicCount = 0;
 }
 
 export function getSpatialScene(): Scene | null {
@@ -582,11 +646,9 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
     sObjs.length = 0;
     sTrs.length = 0;
-    sStaticCount = 0;
+    let allStaticCount = 0;
     sDynamicCount = 0;
-    sStaticLargeCount = 0;
-    sDynamicLargeCount = 0;
-    let maxStaticHalfExtent: f64 = 0.5;
+    sColossalDynamicCount = 0;
     let maxDynamicHalfExtent: f64 = 0.5;
     let hasDynLocalOffset = 0;
     let dynMinX = 1e30; let dynMaxX = -1e30;
@@ -636,22 +698,39 @@ export function spatialRebuildIndex(sc?: Scene): void {
         sWorldHz[k] = hz;
         sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
 
-        const isLarge = (hx > LARGE_OBJECT_THRESHOLD || hy > LARGE_OBJECT_THRESHOLD || hz > LARGE_OBJECT_THRESHOLD);
+        // Maior meia-extensão característica
+        const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
 
         if (isStat !== 0) {
-          if (isLarge) {
-            addStaticLarge(k);
-          } else {
-            if (hx > maxStaticHalfExtent) maxStaticHalfExtent = hx;
-            if (hy > maxStaticHalfExtent) maxStaticHalfExtent = hy;
-            if (hz > maxStaticHalfExtent) maxStaticHalfExtent = hz;
-            sStaticIndices[sStaticCount] = k;
-            sStaticCount = sStaticCount + 1;
+          sYaw[k] = t.wry;
+          let cx = t.wx; let cy = t.wy; let cz = t.wz;
+          if (lcx !== 0.0 || lcz !== 0.0) {
+            const ox = lcx * t.sx; const oz = lcz * t.sz;
+            if (t.wry === 0.0) {
+              cx = cx + ox; cz = cz + oz;
+            } else {
+              const cs = math.cos(t.wry); const sn = math.sin(t.wry);
+              cx = cx + (ox * cs + oz * sn);
+              cz = cz + (0.0 - ox * sn + oz * cs);
+            }
           }
+          if (lcy !== 0.0) cy = cy + lcy * t.sy;
+          sWorldCx[k] = cx; sWorldCy[k] = cy; sWorldCz[k] = cz;
+
+          const minX = cx - hx; const maxX = cx + hx;
+          const minY = cy - hy; const maxY = cy + hy;
+          const minZ = cz - hz; const maxZ = cz + hz;
+          sMinX[k] = minX; sMaxX[k] = maxX;
+          sMinY[k] = minY; sMaxY[k] = maxY;
+          sMinZ[k] = minZ; sMaxZ[k] = maxZ;
+
+          sStaticIndices[allStaticCount] = k;
+          sExtentBuffer[allStaticCount] = maxH;
+          allStaticCount = allStaticCount + 1;
         } else {
           if (lcx !== 0.0 || lcy !== 0.0 || lcz !== 0.0) hasDynLocalOffset = 1;
-          if (isLarge) {
-            addDynamicLarge(k);
+          if (maxH > 16.0) {
+            addColossalDynamic(k);
           } else {
             if (hx > maxDynamicHalfExtent) maxDynamicHalfExtent = hx;
             if (hy > maxDynamicHalfExtent) maxDynamicHalfExtent = hy;
@@ -672,36 +751,72 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
     sHasDynamicLocalOffset = hasDynLocalOffset;
 
-    // Célula estática dimensionada pela MEDIANA das meias-extensões dos corpos estáticos (§7.3)
-    // Evita que objetos gigantescos (como planos de chão/terreno de 200x200) inflem a célula estática,
-    // garantindo que os objetos estáticos típicos permaneçam particionados em células finas.
-    sStaticMaxHalfExtent = maxStaticHalfExtent;
+    // Célula estática Tier 1 dimensionada pela MEDIANA das meias-extensões características
     let statCellSize = 2.0;
-    if (sStaticCount > 0) {
-      const extents: f64[] = [];
-      let si = 0;
-      while (si < sStaticCount) {
-        const k = sStaticIndices[si];
-        extents.push(sWorldRadius[k]);
-        si = si + 1;
-      }
-      extents.sort((a, b) => a - b);
-      const medianExtent = extents[extents.length >> 1];
+    if (allStaticCount > 0) {
+      const medianExtent = quickselect(sExtentBuffer, 0, allStaticCount - 1, allStaticCount >> 1);
       statCellSize = medianExtent * 2.0;
     }
     if (statCellSize < 2.0) statCellSize = 2.0;
     sStaticCellSize = statCellSize;
     sStaticInvCellSize = 1.0 / sStaticCellSize;
 
-    // Célula dinâmica dimensionada para 2 * maiorMeiaExtensão dinâmica
-    sDynamicMaxHalfExtent = maxDynamicHalfExtent;
-    sDynCellSize = maxDynamicHalfExtent * 2.0;
-    if (sDynCellSize < 2.0) sDynCellSize = 2.0;
-    sDynInvCellSize = 1.0 / sDynCellSize;
-    sCellSize = sDynCellSize;
-    sInvCellSize = sDynInvCellSize;
+    // Limiar relativo à célula (§Item 1 do Claude)
+    const tier1Threshold = 2.0 * sStaticCellSize;
 
-    // Limpa buckets estáticos
+    sStaticCount = 0;
+    sStaticCoarseCount = 0;
+    sColossalStaticCount = 0;
+
+    let coarseCandidatesCount = 0;
+    let si = 0;
+    while (si < allStaticCount) {
+      const k = sStaticIndices[si];
+      const hx = sWorldHx[k];
+      const hy = sWorldHy[k];
+      const hz = sWorldHz[k];
+      const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+      if (maxH <= tier1Threshold) {
+        sStaticIndices[sStaticCount] = k;
+        sStaticCount = sStaticCount + 1;
+      } else {
+        sStaticCoarseIndices[coarseCandidatesCount] = k;
+        sExtentBuffer[coarseCandidatesCount] = maxH;
+        coarseCandidatesCount = coarseCandidatesCount + 1;
+      }
+      si = si + 1;
+    }
+
+    // Dimensiona Tier 2 (Coarse Grid) se houver candidatos
+    let coarseCellSize = sStaticCellSize * 4.0;
+    if (coarseCandidatesCount > 0) {
+      const medianCoarse = quickselect(sExtentBuffer, 0, coarseCandidatesCount - 1, coarseCandidatesCount >> 1);
+      coarseCellSize = medianCoarse * 2.0;
+      if (coarseCellSize < sStaticCellSize * 4.0) coarseCellSize = sStaticCellSize * 4.0;
+    }
+    sStaticCoarseCellSize = coarseCellSize;
+    sStaticCoarseInvCellSize = 1.0 / sStaticCoarseCellSize;
+    const tier2Threshold = 2.0 * sStaticCoarseCellSize;
+
+    let cci = 0;
+    let finalCoarseCount = 0;
+    while (cci < coarseCandidatesCount) {
+      const k = sStaticCoarseIndices[cci];
+      const hx = sWorldHx[k];
+      const hy = sWorldHy[k];
+      const hz = sWorldHz[k];
+      const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+      if (maxH <= tier2Threshold && maxH <= 128.0) {
+        sStaticCoarseIndices[finalCoarseCount] = k;
+        finalCoarseCount = finalCoarseCount + 1;
+      } else {
+        addColossalStatic(k);
+      }
+      cci = cci + 1;
+    }
+    sStaticCoarseCount = finalCoarseCount;
+
+    // Limpa e popula buckets estáticos Tier 1 (Grid Fino)
     let b = 0;
     while (b < sStaticUsedBucketsCount) {
       sStaticHead[sStaticUsedBuckets[b]] = -1;
@@ -714,42 +829,12 @@ export function spatialRebuildIndex(sc?: Scene): void {
     sStaticSceneMinY = 1e30; sStaticSceneMaxY = -1e30;
     sStaticSceneMinZ = 1e30; sStaticSceneMaxZ = -1e30;
 
-    let si = 0;
-    while (si < sStaticCount) {
-      const k = sStaticIndices[si];
-      const t = sTrs[k];
-      sYaw[k] = t.wry;
-      const hx = sWorldHx[k];
-      const hy = sWorldHy[k];
-      const hz = sWorldHz[k];
-      const lcx = sLocalCx[k];
-      const lcy = sLocalCy[k];
-      const lcz = sLocalCz[k];
-      let cx = t.wx;
-      let cy = t.wy;
-      let cz = t.wz;
-      if (lcx !== 0.0 || lcz !== 0.0) {
-        const ox = lcx * t.sx; const oz = lcz * t.sz;
-        if (t.wry === 0.0) {
-          cx = cx + ox;
-          cz = cz + oz;
-        } else {
-          const cs = math.cos(t.wry); const sn = math.sin(t.wry);
-          cx = cx + (ox * cs + oz * sn);
-          cz = cz + (0.0 - ox * sn + oz * cs);
-        }
-      }
-      if (lcy !== 0.0) {
-        cy = cy + lcy * t.sy;
-      }
-      sWorldCx[k] = cx; sWorldCy[k] = cy; sWorldCz[k] = cz;
-
-      const minX = cx - hx; const maxX = cx + hx;
-      const minY = cy - hy; const maxY = cy + hy;
-      const minZ = cz - hz; const maxZ = cz + hz;
-      sMinX[k] = minX; sMaxX[k] = maxX;
-      sMinY[k] = minY; sMaxY[k] = maxY;
-      sMinZ[k] = minZ; sMaxZ[k] = maxZ;
+    let ti = 0;
+    while (ti < sStaticCount) {
+      const k = sStaticIndices[ti];
+      const minX = sMinX[k]; const maxX = sMaxX[k];
+      const minY = sMinY[k]; const maxY = sMaxY[k];
+      const minZ = sMinZ[k]; const maxZ = sMaxZ[k];
 
       if (minX < sStaticSceneMinX) sStaticSceneMinX = minX;
       if (maxX > sStaticSceneMaxX) sStaticSceneMaxX = maxX;
@@ -790,47 +875,78 @@ export function spatialRebuildIndex(sc?: Scene): void {
         }
         gx = gx + 1;
       }
-      si = si + 1;
+      ti = ti + 1;
     }
 
-    let sli = 0;
-    while (sli < sStaticLargeCount) {
-      const k = sStaticLargeObjs[sli];
-      const t = sTrs[k];
-      sYaw[k] = t.wry;
-      const hx = sWorldHx[k];
-      const hy = sWorldHy[k];
-      const hz = sWorldHz[k];
-      const lcx = sLocalCx[k];
-      const lcy = sLocalCy[k];
-      const lcz = sLocalCz[k];
-      let cx = t.wx;
-      let cy = t.wy;
-      let cz = t.wz;
-      if (lcx !== 0.0 || lcz !== 0.0) {
-        const ox = lcx * t.sx; const oz = lcz * t.sz;
-        if (t.wry === 0.0) {
-          cx = cx + ox;
-          cz = cz + oz;
-        } else {
-          const cs = math.cos(t.wry); const sn = math.sin(t.wry);
-          cx = cx + (ox * cs + oz * sn);
-          cz = cz + (0.0 - ox * sn + oz * cs);
+    // Limpa e popula buckets estáticos Tier 2 (Grid Coarse)
+    let cb = 0;
+    while (cb < sStaticCoarseUsedBucketsCount) {
+      sStaticCoarseHead[sStaticCoarseUsedBuckets[cb]] = -1;
+      cb = cb + 1;
+    }
+    sStaticCoarseUsedBucketsCount = 0;
+    sStaticCoarseEntriesCount = 0;
+
+    sStaticCoarseSceneMinX = 1e30; sStaticCoarseSceneMaxX = -1e30;
+    sStaticCoarseSceneMinY = 1e30; sStaticCoarseSceneMaxY = -1e30;
+    sStaticCoarseSceneMinZ = 1e30; sStaticCoarseSceneMaxZ = -1e30;
+
+    let cii = 0;
+    while (cii < sStaticCoarseCount) {
+      const k = sStaticCoarseIndices[cii];
+      const minX = sMinX[k]; const maxX = sMaxX[k];
+      const minY = sMinY[k]; const maxY = sMaxY[k];
+      const minZ = sMinZ[k]; const maxZ = sMaxZ[k];
+
+      if (minX < sStaticCoarseSceneMinX) sStaticCoarseSceneMinX = minX;
+      if (maxX > sStaticCoarseSceneMaxX) sStaticCoarseSceneMaxX = maxX;
+      if (minY < sStaticCoarseSceneMinY) sStaticCoarseSceneMinY = minY;
+      if (maxY > sStaticCoarseSceneMaxY) sStaticCoarseSceneMaxY = maxY;
+      if (minZ < sStaticCoarseSceneMinZ) sStaticCoarseSceneMinZ = minZ;
+      if (maxZ > sStaticCoarseSceneMaxZ) sStaticCoarseSceneMaxZ = maxZ;
+
+      const minGx = mfloor(minX * sStaticCoarseInvCellSize);
+      const maxGx = mfloor(maxX * sStaticCoarseInvCellSize);
+      const minGy = mfloor(minY * sStaticCoarseInvCellSize);
+      const maxGy = mfloor(maxY * sStaticCoarseInvCellSize);
+      const minGz = mfloor(minZ * sStaticCoarseInvCellSize);
+      const maxGz = mfloor(maxZ * sStaticCoarseInvCellSize);
+
+      let gx = minGx;
+      while (gx <= maxGx) {
+        const hashX = gx * 73856093;
+        let gy = minGy;
+        while (gy <= maxGy) {
+          const gxy = hashX ^ (gy * 19349663);
+          let gz = minGz;
+          while (gz <= maxGz) {
+            const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
+            if (sStaticCoarseHead[bucket] === -1) {
+              sStaticCoarseUsedBuckets[sStaticCoarseUsedBucketsCount] = bucket;
+              sStaticCoarseUsedBucketsCount = sStaticCoarseUsedBucketsCount + 1;
+            }
+            const entryIdx = sStaticCoarseEntriesCount;
+            sStaticCoarseEntriesCount = sStaticCoarseEntriesCount + 1;
+            if (sStaticCoarseEntriesCount >= sStaticCoarseEntriesCap) growStaticCoarseEntries();
+            sStaticCoarseEntriesObj[entryIdx] = k;
+            sStaticCoarseEntriesNext[entryIdx] = sStaticCoarseHead[bucket];
+            sStaticCoarseHead[bucket] = entryIdx;
+            gz = gz + 1;
+          }
+          gy = gy + 1;
         }
+        gx = gx + 1;
       }
-      if (lcy !== 0.0) {
-        cy = cy + lcy * t.sy;
-      }
-      sWorldCx[k] = cx; sWorldCy[k] = cy; sWorldCz[k] = cz;
-
-      const minX = cx - hx; const maxX = cx + hx;
-      const minY = cy - hy; const maxY = cy + hy;
-      const minZ = cz - hz; const maxZ = cz + hz;
-      sMinX[k] = minX; sMaxX[k] = maxX;
-      sMinY[k] = minY; sMaxY[k] = maxY;
-      sMinZ[k] = minZ; sMaxZ[k] = maxZ;
-      sli = sli + 1;
+      cii = cii + 1;
     }
+
+    // Célula dinâmica dimensionada para 2 * maiorMeiaExtensão dinâmica
+    sDynamicMaxHalfExtent = maxDynamicHalfExtent;
+    sDynCellSize = maxDynamicHalfExtent * 2.0;
+    if (sDynCellSize < 2.0) sDynCellSize = 2.0;
+    sDynInvCellSize = 1.0 / sDynCellSize;
+    sCellSize = sDynCellSize;
+    sInvCellSize = sDynInvCellSize;
 
     sLastSceneVersion = compVer;
   }
@@ -1157,7 +1273,7 @@ function raycastObject(
 
 const sTempRayHit: RaycastHit = createRaycastHit();
 
-function raycastStaticDDA(
+function raycastStaticGridDDA(
   ox: f64, oy: f64, oz: f64,
   ndx: f64, ndy: f64, ndz: f64,
   maxDistance: f64,
@@ -1167,17 +1283,20 @@ function raycastStaticDDA(
   includeTriggers: boolean,
   curStepId: number,
   stamp: number,
+  cell: f64,
+  invCell: f64,
+  sceneMinX: f64, sceneMaxX: f64,
+  sceneMinY: f64, sceneMaxY: f64,
+  sceneMinZ: f64, sceneMaxZ: f64,
+  head: number[],
+  entriesObj: number[],
+  entriesNext: number[],
 ): boolean {
-  if (sStaticCount === 0) return false;
-
-  const cell = sStaticCellSize;
-  const invCell = sStaticInvCellSize;
-
   let tMin = 0.0;
   let tMax = maxDistance;
 
-  const boxMinX = sStaticSceneMinX - 0.01;
-  const boxMaxX = sStaticSceneMaxX + 0.01;
+  const boxMinX = sceneMinX - 0.01;
+  const boxMaxX = sceneMaxX + 0.01;
   if (math.abs(ndx) < 0.000000001) {
     if (ox < boxMinX || ox > boxMaxX) return false;
   } else {
@@ -1190,8 +1309,8 @@ function raycastStaticDDA(
     if (tMin > tMax) return false;
   }
 
-  const boxMinY = sStaticSceneMinY - 0.01;
-  const boxMaxY = sStaticSceneMaxY + 0.01;
+  const boxMinY = sceneMinY - 0.01;
+  const boxMaxY = sceneMaxY + 0.01;
   if (math.abs(ndy) < 0.000000001) {
     if (oy < boxMinY || oy > boxMaxY) return false;
   } else {
@@ -1204,8 +1323,8 @@ function raycastStaticDDA(
     if (tMin > tMax) return false;
   }
 
-  const boxMinZ = sStaticSceneMinZ - 0.01;
-  const boxMaxZ = sStaticSceneMaxZ + 0.01;
+  const boxMinZ = sceneMinZ - 0.01;
+  const boxMaxZ = sceneMaxZ + 0.01;
   if (math.abs(ndz) < 0.000000001) {
     if (oz < boxMinZ || oz > boxMaxZ) return false;
   } else {
@@ -1254,9 +1373,9 @@ function raycastStaticDDA(
   let tCurrent = 0.0;
   while (tCurrent <= tEndLoop) {
     const bucket = (((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & SGRID_MASK);
-    let entry = sStaticHead[bucket];
+    let entry = head[bucket];
     while (entry !== -1) {
-      const k = sStaticEntriesObj[entry];
+      const k = entriesObj[entry];
       if (sVisitedStamp[k] !== stamp) {
         sVisitedStamp[k] = stamp;
         if (passesFilter(mask, layer, includeTriggers, k)) {
@@ -1280,7 +1399,7 @@ function raycastStaticDDA(
           }
         }
       }
-      entry = sStaticEntriesNext[entry];
+      entry = entriesNext[entry];
     }
 
     if (tMaxX < tMaxY) {
@@ -1299,6 +1418,52 @@ function raycastStaticDDA(
   }
 
   return found;
+}
+
+function raycastStaticDDA(
+  ox: f64, oy: f64, oz: f64,
+  ndx: f64, ndy: f64, ndz: f64,
+  maxDistance: f64,
+  outHit: RaycastHit,
+  mask: number,
+  layer: number,
+  includeTriggers: boolean,
+  curStepId: number,
+  stamp: number,
+): boolean {
+  if (sStaticCount === 0) return false;
+  return raycastStaticGridDDA(
+    ox, oy, oz, ndx, ndy, ndz, maxDistance, outHit,
+    mask, layer, includeTriggers, curStepId, stamp,
+    sStaticCellSize, sStaticInvCellSize,
+    sStaticSceneMinX, sStaticSceneMaxX,
+    sStaticSceneMinY, sStaticSceneMaxY,
+    sStaticSceneMinZ, sStaticSceneMaxZ,
+    sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
+  );
+}
+
+function raycastStaticCoarseDDA(
+  ox: f64, oy: f64, oz: f64,
+  ndx: f64, ndy: f64, ndz: f64,
+  maxDistance: f64,
+  outHit: RaycastHit,
+  mask: number,
+  layer: number,
+  includeTriggers: boolean,
+  curStepId: number,
+  stamp: number,
+): boolean {
+  if (sStaticCoarseCount === 0) return false;
+  return raycastStaticGridDDA(
+    ox, oy, oz, ndx, ndy, ndz, maxDistance, outHit,
+    mask, layer, includeTriggers, curStepId, stamp,
+    sStaticCoarseCellSize, sStaticCoarseInvCellSize,
+    sStaticCoarseSceneMinX, sStaticCoarseSceneMaxX,
+    sStaticCoarseSceneMinY, sStaticCoarseSceneMaxY,
+    sStaticCoarseSceneMinZ, sStaticCoarseSceneMaxZ,
+    sStaticCoarseHead, sStaticCoarseEntriesObj, sStaticCoarseEntriesNext,
+  );
 }
 
 function raycastDynamicsDDA(
@@ -1704,7 +1869,7 @@ export function raycastNonAlloc(
   let closestDist = maxDistance;
   let found = false;
 
-  // 1. Raycast contra estáticos (DDA exata atual)
+  // 1. Raycast contra estáticos Tier 1 (Grid Fino)
   if (sStaticCount > 0) {
     if (raycastStaticDDA(ox, oy, oz, ndx, ndy, ndz, closestDist, outHit, mask, layer, includeTriggers, curStepId, stamp)) {
       closestDist = outHit.distance;
@@ -1712,7 +1877,15 @@ export function raycastNonAlloc(
     }
   }
 
-  // 2. Raycast contra dinâmicos (DDA do raio engordado em maiorMeiaExtensãoDinâmica)
+  // 2. Raycast contra estáticos Tier 2 (Grid Coarse)
+  if (sStaticCoarseCount > 0) {
+    if (raycastStaticCoarseDDA(ox, oy, oz, ndx, ndy, ndz, closestDist, outHit, mask, layer, includeTriggers, curStepId, stamp)) {
+      closestDist = outHit.distance;
+      found = true;
+    }
+  }
+
+  // 3. Raycast contra dinâmicos (DDA do raio engordado em maiorMeiaExtensãoDinâmica)
   if (sDynamicCount > 0) {
     if (raycastDynamicsDDA(
       ox, oy, oz, ndx, ndy, ndz, closestDist, outHit,
@@ -1728,11 +1901,11 @@ export function raycastNonAlloc(
     }
   }
 
-  // 3. Raycast contra objetos grandes (estáticos e dinâmicos)
-  if (sStaticLargeCount > 0) {
+  // 4. Raycast contra estáticos colossais (terrenos gigantes)
+  if (sColossalStaticCount > 0) {
     let li = 0;
-    while (li < sStaticLargeCount) {
-      const k = sStaticLargeObjs[li];
+    while (li < sColossalStaticCount) {
+      const k = sColossalStaticObjs[li];
       if (passesFilter(mask, layer, includeTriggers, k)) {
         if (raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId)) {
           if (sTempRayHit.distance < closestDist) {
@@ -1755,10 +1928,11 @@ export function raycastNonAlloc(
     }
   }
 
-  if (sDynamicLargeCount > 0) {
+  // 5. Raycast contra dinâmicos colossais (chefes gigantes)
+  if (sColossalDynamicCount > 0) {
     let li = 0;
-    while (li < sDynamicLargeCount) {
-      const k = sDynamicLargeObjs[li];
+    while (li < sColossalDynamicCount) {
+      const k = sColossalDynamicObjs[li];
       if (passesFilter(mask, layer, includeTriggers, k)) {
         if (raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId)) {
           if (sTempRayHit.distance < closestDist) {
@@ -2473,8 +2647,14 @@ export function overlapSphereNonAlloc(
   includeTriggers: boolean = false,
   sc?: Scene,
 ): number {
+  let effectiveMaxHits = maxHits;
+  if (outHits.length < effectiveMaxHits) {
+    effectiveMaxHits = outHits.length;
+  }
+  if (effectiveMaxHits <= 0) return 0;
+
   const targetScene = ensureIndex(sc);
-  if (targetScene === null || maxHits <= 0) return 0;
+  if (targetScene === null) return 0;
 
   sQueryStamp = sQueryStamp + 1;
   const stamp = sQueryStamp;
@@ -2490,7 +2670,7 @@ export function overlapSphereNonAlloc(
   let storedCount = 0;
   let totalFound = 0;
 
-  // 1. Estáticos
+  // 1. Estáticos Tier 1 (Grid Fino)
   if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
       maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
       maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
@@ -2505,7 +2685,7 @@ export function overlapSphereNonAlloc(
       cx, cy, cz, radius,
       minGx, maxGx, minGy, maxGy, minGz, maxGz,
       minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
       sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
       sVisitedStamp, stamp,
       sTrigger, sLayer, sMask,
@@ -2513,10 +2693,36 @@ export function overlapSphereNonAlloc(
       sBodyId, sCandidateOverlapHit,
       0, 0,
     );
-    storedCount = totalFound < maxHits ? totalFound : maxHits;
+    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
   }
 
-  // 2. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
+  // 2. Estáticos Tier 2 (Grid Coarse)
+  if (sStaticCoarseCount > 0 && maxQx >= sStaticCoarseSceneMinX && minQx <= sStaticCoarseSceneMaxX &&
+      maxQy >= sStaticCoarseSceneMinY && minQy <= sStaticCoarseSceneMaxY &&
+      maxQz >= sStaticCoarseSceneMinZ && minQz <= sStaticCoarseSceneMaxZ) {
+    const minGx = mfloor(minQx * sStaticCoarseInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticCoarseInvCellSize);
+    const minGy = mfloor(minQy * sStaticCoarseInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticCoarseInvCellSize);
+    const minGz = mfloor(minQz * sStaticCoarseInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticCoarseInvCellSize);
+
+    totalFound = overlapSphereInto(
+      cx, cy, cz, radius,
+      minGx, maxGx, minGy, maxGy, minGz, maxGz,
+      minQx, maxQx, minQy, maxQy, minQz, maxQz,
+      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+      sStaticCoarseHead, sStaticCoarseEntriesObj, sStaticCoarseEntriesNext,
+      sVisitedStamp, stamp,
+      sTrigger, sLayer, sMask,
+      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
+      sBodyId, sCandidateOverlapHit,
+      storedCount, totalFound,
+    );
+    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+  }
+
+  // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
   if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
       maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
       maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
@@ -2532,35 +2738,30 @@ export function overlapSphereNonAlloc(
       cx, cy, cz, radius,
       minGx, maxGx, minGy, maxGy, minGz, maxGz,
       minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
       sDynHead, sDynNext, sBucketStamp, stamp,
       sTrigger, sLayer, sMask, sBodyId, sCandidateOverlapHit,
       storedCount, totalFound,
       sTrs, sLocalCx, sLocalCy, sLocalCz, sHasDynamicLocalOffset,
       sShape, sWorldHx, sWorldHy, sWorldHz, sWorldRadius, sHullId,
     );
+    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
   }
 
-  storedCount = totalFound < maxHits ? totalFound : maxHits;
-
-  // 3. Objetos grandes (estáticos e dinâmicos)
-  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
-    let largeIdx = 0;
-    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
-    while (largeIdx < totalLarge) {
-      const k = largeIdx < sStaticLargeCount 
-        ? sStaticLargeObjs[largeIdx] 
-        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
-      largeIdx = largeIdx + 1;
+  // 4. Objetos colossais (estáticos e dinâmicos)
+  if (sColossalStaticCount > 0 || sColossalDynamicCount > 0) {
+    let colIdx = 0;
+    const totalCol = sColossalStaticCount + sColossalDynamicCount;
+    while (colIdx < totalCol) {
+      const k = colIdx < sColossalStaticCount
+        ? sColossalStaticObjs[colIdx]
+        : sColossalDynamicObjs[colIdx - sColossalStaticCount];
+      colIdx = colIdx + 1;
 
       if (passesFilter(mask, layer, includeTriggers, k)) {
         const candId = sBodyId[k];
-        if (storedCount < maxHits) {
-          let target = outHits[storedCount];
-          if (target === undefined) {
-            target = createOverlapHit();
-            outHits[storedCount] = target;
-          }
+        if (storedCount < effectiveMaxHits) {
+          const target = outHits[storedCount];
           if (overlapSphereObject(k, cx, cy, cz, radius, target, includeTriggers, curStepId)) {
             totalFound = totalFound + 1;
             let p = storedCount;
@@ -2571,12 +2772,12 @@ export function overlapSphereNonAlloc(
             outHits[p] = target;
             storedCount = storedCount + 1;
           }
-        } else if (candId < outHits[maxHits - 1].bodyId) {
+        } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
           if (overlapSphereObject(k, cx, cy, cz, radius, sCandidateOverlapHit, includeTriggers, curStepId)) {
             totalFound = totalFound + 1;
-            const target = outHits[maxHits - 1];
+            const target = outHits[effectiveMaxHits - 1];
             copyOverlapHit(target, sCandidateOverlapHit);
-            let p = maxHits - 1;
+            let p = effectiveMaxHits - 1;
             while (p > 0 && outHits[p - 1].bodyId > candId) {
               outHits[p] = outHits[p - 1];
               p = p - 1;
@@ -2619,7 +2820,7 @@ export function overlapSphere(
 
   const result: OverlapHit[] = [];
 
-  // 1. Estáticos
+  // 1. Estáticos Tier 1 (Grid Fino)
   if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
       maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
       maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
@@ -2665,7 +2866,53 @@ export function overlapSphere(
     }
   }
 
-  // 2. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
+  // 2. Estáticos Tier 2 (Grid Coarse)
+  if (sStaticCoarseCount > 0 && maxQx >= sStaticCoarseSceneMinX && minQx <= sStaticCoarseSceneMaxX &&
+      maxQy >= sStaticCoarseSceneMinY && minQy <= sStaticCoarseSceneMaxY &&
+      maxQz >= sStaticCoarseSceneMinZ && minQz <= sStaticCoarseSceneMaxZ) {
+    const minGx = mfloor(minQx * sStaticCoarseInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticCoarseInvCellSize);
+    const minGy = mfloor(minQy * sStaticCoarseInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticCoarseInvCellSize);
+    const minGz = mfloor(minQz * sStaticCoarseInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticCoarseInvCellSize);
+
+    let gx = minGx;
+    while (gx <= maxGx) {
+      const hashX = gx * 73856093;
+      let gy = minGy;
+      while (gy <= maxGy) {
+        const gxy = hashX ^ (gy * 19349663);
+        let gz = minGz;
+        while (gz <= maxGz) {
+          const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
+          let entry = sStaticCoarseHead[bucket];
+          while (entry !== -1) {
+            const k = sStaticCoarseEntriesObj[entry];
+            if (sVisitedStamp[k] !== stamp) {
+              sVisitedStamp[k] = stamp;
+              if (passesFilter(mask, layer, includeTriggers, k)) {
+                if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
+                    sMinY[k] <= maxQy && sMaxY[k] >= minQy &&
+                    sMinZ[k] <= maxQz && sMaxZ[k] >= minQz) {
+                  const hit = createOverlapHit();
+                  if (overlapSphereObject(k, cx, cy, cz, radius, hit, includeTriggers, curStepId)) {
+                    result.push(hit);
+                  }
+                }
+              }
+            }
+            entry = sStaticCoarseEntriesNext[entry];
+          }
+          gz = gz + 1;
+        }
+        gy = gy + 1;
+      }
+      gx = gx + 1;
+    }
+  }
+
+  // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
   if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
       maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
       maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
@@ -2711,15 +2958,15 @@ export function overlapSphere(
     }
   }
 
-  // 3. Objetos grandes (estáticos e dinâmicos)
-  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
-    let largeIdx = 0;
-    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
-    while (largeIdx < totalLarge) {
-      const k = largeIdx < sStaticLargeCount 
-        ? sStaticLargeObjs[largeIdx] 
-        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
-      largeIdx = largeIdx + 1;
+  // 4. Objetos colossais (estáticos e dinâmicos)
+  if (sColossalStaticCount > 0 || sColossalDynamicCount > 0) {
+    let colIdx = 0;
+    const totalCol = sColossalStaticCount + sColossalDynamicCount;
+    while (colIdx < totalCol) {
+      const k = colIdx < sColossalStaticCount
+        ? sColossalStaticObjs[colIdx]
+        : sColossalDynamicObjs[colIdx - sColossalStaticCount];
+      colIdx = colIdx + 1;
 
       if (passesFilter(mask, layer, includeTriggers, k)) {
         const hit = createOverlapHit();
@@ -3403,8 +3650,14 @@ export function overlapBoxNonAlloc(
   includeTriggers: boolean = false,
   sc?: Scene,
 ): number {
+  let effectiveMaxHits = maxHits;
+  if (outHits.length < effectiveMaxHits) {
+    effectiveMaxHits = outHits.length;
+  }
+  if (effectiveMaxHits <= 0) return 0;
+
   const targetScene = ensureIndex(sc);
-  if (targetScene === null || maxHits <= 0) return 0;
+  if (targetScene === null) return 0;
 
   sQueryStamp = sQueryStamp + 1;
   const stamp = sQueryStamp;
@@ -3420,8 +3673,10 @@ export function overlapBoxNonAlloc(
   let storedCount = 0;
   let totalFound = 0;
 
-  // 1. Estáticos
-  if (sStaticCount > 0) {
+  // 1. Estáticos Tier 1 (Grid Fino)
+  if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
+      maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
+      maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
     const minGx = mfloor(minQx * sStaticInvCellSize);
     const maxGx = mfloor(maxQx * sStaticInvCellSize);
     const minGy = mfloor(minQy * sStaticInvCellSize);
@@ -3433,7 +3688,7 @@ export function overlapBoxNonAlloc(
       cx, cy, cz, hx, hy, hz,
       minGx, maxGx, minGy, maxGy, minGz, maxGz,
       minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
       sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
       sVisitedStamp, stamp,
       sTrigger, sLayer, sMask,
@@ -3441,11 +3696,39 @@ export function overlapBoxNonAlloc(
       sBodyId, sCandidateOverlapHit,
       0, 0,
     );
-    storedCount = totalFound < maxHits ? totalFound : maxHits;
+    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
   }
 
-  // 2. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
-  if (sDynamicCount > 0) {
+  // 2. Estáticos Tier 2 (Grid Coarse)
+  if (sStaticCoarseCount > 0 && maxQx >= sStaticCoarseSceneMinX && minQx <= sStaticCoarseSceneMaxX &&
+      maxQy >= sStaticCoarseSceneMinY && minQy <= sStaticCoarseSceneMaxY &&
+      maxQz >= sStaticCoarseSceneMinZ && minQz <= sStaticCoarseSceneMaxZ) {
+    const minGx = mfloor(minQx * sStaticCoarseInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticCoarseInvCellSize);
+    const minGy = mfloor(minQy * sStaticCoarseInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticCoarseInvCellSize);
+    const minGz = mfloor(minQz * sStaticCoarseInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticCoarseInvCellSize);
+
+    totalFound = overlapBoxInto(
+      cx, cy, cz, hx, hy, hz,
+      minGx, maxGx, minGy, maxGy, minGz, maxGz,
+      minQx, maxQx, minQy, maxQy, minQz, maxQz,
+      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+      sStaticCoarseHead, sStaticCoarseEntriesObj, sStaticCoarseEntriesNext,
+      sVisitedStamp, stamp,
+      sTrigger, sLayer, sMask,
+      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
+      sBodyId, sCandidateOverlapHit,
+      storedCount, totalFound,
+    );
+    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+  }
+
+  // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
+  if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
+      maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
+      maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
     const dynH = sDynamicMaxHalfExtent;
     const minGx = mfloor((minQx - dynH) * sDynInvCellSize);
     const maxGx = mfloor((maxQx + dynH) * sDynInvCellSize);
@@ -3458,35 +3741,30 @@ export function overlapBoxNonAlloc(
       cx, cy, cz, hx, hy, hz,
       minGx, maxGx, minGy, maxGy, minGz, maxGz,
       minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, maxHits, mask, layer, includeTriggers, curStepId,
+      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
       sDynHead, sDynNext, sBucketStamp, stamp,
       sTrigger, sLayer, sMask, sBodyId, sCandidateOverlapHit,
       storedCount, totalFound,
       sTrs, sLocalCx, sLocalCy, sLocalCz, sHasDynamicLocalOffset,
       sShape, sWorldHx, sWorldHy, sWorldHz, sWorldRadius, sHullId,
     );
+    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
   }
 
-  storedCount = totalFound < maxHits ? totalFound : maxHits;
-
-  // 3. Objetos grandes (estáticos e dinâmicos)
-  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
-    let largeIdx = 0;
-    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
-    while (largeIdx < totalLarge) {
-      const k = largeIdx < sStaticLargeCount 
-        ? sStaticLargeObjs[largeIdx] 
-        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
-      largeIdx = largeIdx + 1;
+  // 4. Objetos colossais (estáticos e dinâmicos)
+  if (sColossalStaticCount > 0 || sColossalDynamicCount > 0) {
+    let colIdx = 0;
+    const totalCol = sColossalStaticCount + sColossalDynamicCount;
+    while (colIdx < totalCol) {
+      const k = colIdx < sColossalStaticCount
+        ? sColossalStaticObjs[colIdx]
+        : sColossalDynamicObjs[colIdx - sColossalStaticCount];
+      colIdx = colIdx + 1;
 
       if (passesFilter(mask, layer, includeTriggers, k)) {
         const candId = sBodyId[k];
-        if (storedCount < maxHits) {
-          let target = outHits[storedCount];
-          if (target === undefined) {
-            target = createOverlapHit();
-            outHits[storedCount] = target;
-          }
+        if (storedCount < effectiveMaxHits) {
+          const target = outHits[storedCount];
           if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
             totalFound = totalFound + 1;
             let p = storedCount;
@@ -3497,12 +3775,12 @@ export function overlapBoxNonAlloc(
             outHits[p] = target;
             storedCount = storedCount + 1;
           }
-        } else if (candId < outHits[maxHits - 1].bodyId) {
+        } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
           if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, sCandidateOverlapHit, includeTriggers, curStepId)) {
             totalFound = totalFound + 1;
-            const target = outHits[maxHits - 1];
+            const target = outHits[effectiveMaxHits - 1];
             copyOverlapHit(target, sCandidateOverlapHit);
-            let p = maxHits - 1;
+            let p = effectiveMaxHits - 1;
             while (p > 0 && outHits[p - 1].bodyId > candId) {
               outHits[p] = outHits[p - 1];
               p = p - 1;
@@ -3545,8 +3823,10 @@ export function overlapBox(
 
   const result: OverlapHit[] = [];
 
-  // 1. Estáticos
-  if (sStaticCount > 0) {
+  // 1. Estáticos Tier 1 (Grid Fino)
+  if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
+      maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
+      maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
     const minGx = mfloor(minQx * sStaticInvCellSize);
     const maxGx = mfloor(maxQx * sStaticInvCellSize);
     const minGy = mfloor(minQy * sStaticInvCellSize);
@@ -3589,8 +3869,56 @@ export function overlapBox(
     }
   }
 
-  // 2. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
-  if (sDynamicCount > 0) {
+  // 2. Estáticos Tier 2 (Grid Coarse)
+  if (sStaticCoarseCount > 0 && maxQx >= sStaticCoarseSceneMinX && minQx <= sStaticCoarseSceneMaxX &&
+      maxQy >= sStaticCoarseSceneMinY && minQy <= sStaticCoarseSceneMaxY &&
+      maxQz >= sStaticCoarseSceneMinZ && minQz <= sStaticCoarseSceneMaxZ) {
+    const minGx = mfloor(minQx * sStaticCoarseInvCellSize);
+    const maxGx = mfloor(maxQx * sStaticCoarseInvCellSize);
+    const minGy = mfloor(minQy * sStaticCoarseInvCellSize);
+    const maxGy = mfloor(maxQy * sStaticCoarseInvCellSize);
+    const minGz = mfloor(minQz * sStaticCoarseInvCellSize);
+    const maxGz = mfloor(maxQz * sStaticCoarseInvCellSize);
+
+    let gx = minGx;
+    while (gx <= maxGx) {
+      const hashX = gx * 73856093;
+      let gy = minGy;
+      while (gy <= maxGy) {
+        const gxy = hashX ^ (gy * 19349663);
+        let gz = minGz;
+        while (gz <= maxGz) {
+          const bucket = (gxy ^ (gz * 83492791)) & SGRID_MASK;
+          let entry = sStaticCoarseHead[bucket];
+          while (entry !== -1) {
+            const k = sStaticCoarseEntriesObj[entry];
+            if (sVisitedStamp[k] !== stamp) {
+              sVisitedStamp[k] = stamp;
+              if (passesFilter(mask, layer, includeTriggers, k)) {
+                if (sMinX[k] <= maxQx && sMaxX[k] >= minQx &&
+                    sMinY[k] <= maxQy && sMaxY[k] >= minQy &&
+                    sMinZ[k] <= maxQz && sMaxZ[k] >= minQz) {
+                  const hit = createOverlapHit();
+                  if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, hit, includeTriggers, curStepId)) {
+                    result.push(hit);
+                  }
+                }
+              }
+            }
+            entry = sStaticCoarseEntriesNext[entry];
+          }
+          gz = gz + 1;
+        }
+        gy = gy + 1;
+      }
+      gx = gx + 1;
+    }
+  }
+
+  // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
+  if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
+      maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
+      maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
     const dynH = sDynamicMaxHalfExtent;
     const minGx = mfloor((minQx - dynH) * sDynInvCellSize);
     const maxGx = mfloor((maxQx + dynH) * sDynInvCellSize);
@@ -3633,15 +3961,15 @@ export function overlapBox(
     }
   }
 
-  // 3. Objetos grandes (estáticos e dinâmicos)
-  if (sStaticLargeCount > 0 || sDynamicLargeCount > 0) {
-    let largeIdx = 0;
-    const totalLarge = sStaticLargeCount + sDynamicLargeCount;
-    while (largeIdx < totalLarge) {
-      const k = largeIdx < sStaticLargeCount 
-        ? sStaticLargeObjs[largeIdx] 
-        : sDynamicLargeObjs[largeIdx - sStaticLargeCount];
-      largeIdx = largeIdx + 1;
+  // 4. Objetos colossais (estáticos e dinâmicos)
+  if (sColossalStaticCount > 0 || sColossalDynamicCount > 0) {
+    let colIdx = 0;
+    const totalCol = sColossalStaticCount + sColossalDynamicCount;
+    while (colIdx < totalCol) {
+      const k = colIdx < sColossalStaticCount
+        ? sColossalStaticObjs[colIdx]
+        : sColossalDynamicObjs[colIdx - sColossalStaticCount];
+      colIdx = colIdx + 1;
 
       if (passesFilter(mask, layer, includeTriggers, k)) {
         const hit = createOverlapHit();
