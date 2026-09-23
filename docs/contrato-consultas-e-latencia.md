@@ -288,15 +288,22 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
    - Causa: Causa sob investigação e perfilamento detalhado (possíveis fatores incluem testes geométricos de múltiplos candidatos e ordenação de hits no runtime JS sem aceleração SIMD).
    - Status: Registrado oficialmente como dívida técnica para futura otimização nativa em Rust/SIMD.
 
-2. **Desacoplamento de `staticVersion` e Mutação Dinâmica Incremental (RESOLVIDO no PR #9):**
-   - **Histórico:** Anteriormente, qualquer mutação na cena via `Scene.add()` ou remoção via `Scene.removeAt()` incrementava `compVersion`, forçando a reconstrução estática completa (cálculo de mediana com `quickselect`, reinserção de centenas/milhares de estáticos nos grids Tier 1 e Tier 2, etc.), consumindo 8 a 9 ms em cenas com 2.100 estáticos e congelando o framerate em disparos corriqueiros de projéteis.
-   - **Solução Implementada:**
-     - A classe `Scene` passou a rastrear `staticVersion: number` de forma independente de `compVersion`.
-     - `Scene.add()` e `Scene.removeAt()` inspecionam o tipo de corpo (`bodyTypeOf(o) === BODY_STATIC`): caso o objeto seja dinâmico ou cinemático, apenas `compVersion` é incrementada; `staticVersion` permanece intacta. Mutações explícitas de estáticos contam com `Scene.markStaticDirty()`.
-     - No executor espacial (`spatial_queries.ts`), a reconstrução foi segregada: quando apenas `compVersion` foi alterada (`staticDirty === false`), a reconstrução estática inteira (Tier 1, Tier 2, objetos colossais estáticos, particionamento de meias-extensões) é completamente ignorada ($0,00$ ms). Apenas os arrays e grid dinâmicos são sincronizados.
-   - **Resultados Medidos:**
-     - Em cena com 2.100 estáticos (chão colossal + 100 prédios + 2.000 props), a adição/remoção em tempo de execução de projéteis e unidades dinâmicas passou de 8,9 ms para **0,27 ms a 0,35 ms** em cenários leves/médios (~25x a 30x mais rápido), eliminando totalmente os picos de latência (stutter) em spawn/despawn contínuo.
-   - **Status:** **RESOLVIDO**. Coberto por suíte de testes de regressão em `tests/claude-test-consultas.ts` (§13).
+2. **Desacoplamento de `staticVersion` e Mutação Incremental Real $O(K)$ (RESOLVIDO no PR #9):**
+   - **Histórico:** Anteriormente, qualquer mutação na cena via `Scene.add()` ou remoção via `Scene.removeAt()` incrementava `compVersion`, forçando a reconstrução estática completa (cálculo de mediana com `quickselect`, reinserção de centenas/milhares de estáticos nos grids Tier 1 e Tier 2, etc.), consumindo 8 a 9 ms em cenas com 2.100 estáticos e congelando o framerate em disparos corriqueiros de projéteis. Em uma primeira tentativa, o desacoplamento de `staticVersion` sem mutação incremental ainda realizava uma varredura completa $O(N)$ em todos os objetos da cena buscando componentes dinâmicos, mantendo o custo de spawn em ~3,4 ms em cenas densas.
+   - **Solução Arquitetural Implementada:**
+     - **Inversão da Regra de Invalidação (`markCollidersDirty`):** `markCollidersDirty()` é a regra geral e **invalida tudo** (marca tanto `compVersion` quanto `staticVersion` como sujos e limpa as filas incrementais pendentes). Qualquer comando do editor (`cmdMove`, `cmdAlign`, `cmdReset`), gizmo de translação/rotação ou campo de Inspector que manipule objetos estáticos chama `scene.markCollidersDirty()`. A função `markStaticDirty()` apenas delega para `markCollidersDirty()`.
+     - **Detecção Automática de Deriva Estática (`Static Drift Detection`):** Caso um script ou sistema mova/rotacione/escale um estático sem chamar explicitamente `markCollidersDirty()`, o início de `ensureIndex` executa uma verificação vetorial ultra-rápida (~5 µs) comparando os valores em cache (`sStaticCacheWx/Wy/Wz/Sx/Wry`) contra os valores atuais de `transform`. Havendo qualquer desvio, o índice força reindexação estática imediata, garantindo que o índice nunca fique inconsistente com a geometria física.
+     - **Caminho Estrito do Desacoplamento:** O desacoplamento é restrito exclusivamente ao caminho rápido de mutações puramente dinâmicas (`Scene.add()` e `Scene.removeAt()` para corpos não-estáticos), que apenas incrementa `compVersion` e enfileira a operação na fila incremental pendente (`pendingDynamicOps` e `pendingDynamicObjs`).
+     - **Fila Incremental $O(K)$ com Swap-with-last:** Cada `GameObject` rastreia seus índices diretos no índice espacial via `spatialSlot` e `spatialDynSlot`. As operações `DYN_OP_ADD` e `DYN_OP_REMOVE` são consumidas de forma incremental em tempo $O(1)$ por operação. Na remoção, o último elemento do array dinâmico preenche o slot vago (swap-with-last), atualizando o slot do elemento movido em $O(1)$.
+     - **Passe Único no Rebuild Estático:** Quando uma reconstrução estática completa de fato ocorre, ela é realizada em um único passe linear sobre `scene.objects`, coletando simultaneamente os corpos dinâmicos em `sDynCollectObjs`, o que reduz o custo de reconstrução fria de 4.100 objetos para ~5,5 a 6,0 ms.
+   - **Resultados Medidos no Benchmark Oficial:**
+     - Em cena sob carga severa (2.100 estáticos + 2.000 dinâmicos = 4.100 objetos):
+       - Rebuild normal por passo (sem mutações): **~0,337 ms**;
+       - Rebuild com 5 criações por frame: **~0,363 ms**;
+       - Delta total por passo (5 criações): **~0,027 ms**;
+       - Custo marginal por objeto criado: **~0,005 ms/objeto** (meta $\le 0,05$ ms atendida com folga de 10x);
+       - Custo amortizado do passo de indexação estática: **$0,00$ ms**.
+   - **Status:** **RESOLVIDO**. Coberto por suíte de testes de regressão em `tests/claude-test-consultas.ts` (§13 e §14) e benchmark oficial em `bench/claude-bench-consultas-grid.ts`.
 
 3. **Lista Linear de Objetos Colossais em Quantidade:**
    - Corpos com meia-extensão $> 128.0$ u são direcionados para a lista linear `sColossalStaticObjs`.
