@@ -248,7 +248,9 @@ let sDynSceneMinZ = 0.0; let sDynSceneMaxZ = 0.0;
 let sCellSize = 2.0;
 let sInvCellSize = 0.5;
 let sLastRebuildStep = -1;
-let sLastSceneVersion = -1;
+let sLastStaticVersion = -1;
+let sLastCompVersion = -1;
+let sStaticTotal = 0;
 
 let sQueryStamp = 0;
 let sVisitedStamp: number[] = new Array(sObjCap).fill(0);
@@ -286,7 +288,9 @@ const sHullContactOut: Contact = new Contact();
 export function setSpatialScene(sc: Scene | null): void {
   sActiveScene = sc;
   sLastRebuildStep = -1;
-  sLastSceneVersion = -1;
+  sLastStaticVersion = -1;
+  sLastCompVersion = -1;
+  sStaticTotal = 0;
   let b = 0;
   while (b < sStaticUsedBucketsCount) {
     sStaticHead[sStaticUsedBuckets[b]] = -1;
@@ -638,8 +642,13 @@ export function spatialRebuildIndex(sc?: Scene): void {
   if (targetScene === null) return;
 
 
+  const statVer = targetScene.staticVersion;
   const compVer = targetScene.compVersion;
-  if (sLastSceneVersion !== compVer) {
+
+  const staticDirty = (sLastStaticVersion !== statVer);
+  const compDirty = (sLastCompVersion !== compVer || staticDirty);
+
+  if (staticDirty) {
     const allObjs = targetScene.objects;
     const n = allObjs.length;
     ensureObjCapacity(n);
@@ -647,61 +656,53 @@ export function spatialRebuildIndex(sc?: Scene): void {
     sObjs.length = 0;
     sTrs.length = 0;
     let allStaticCount = 0;
-    sDynamicCount = 0;
-    sColossalDynamicCount = 0;
-    let maxDynamicHalfExtent: f64 = 0.5;
-    let hasDynLocalOffset = 0;
-    let dynMinX = 1e30; let dynMaxX = -1e30;
-    let dynMinY = 1e30; let dynMaxY = -1e30;
-    let dynMinZ = 1e30; let dynMaxZ = -1e30;
 
     let i = 0;
     while (i < n) {
       const o = allObjs[i];
       if (o.active !== 0 && (o.collideFlag !== 0 || o.colIdx >= 0)) {
-        const k = sObjs.length;
-        sObjs.push(o);
-        const t = o.transform;
-        sTrs.push(t);
+        if (bodyTypeOf(o) === BODY_STATIC) {
+          const k = sObjs.length;
+          sObjs.push(o);
+          const t = o.transform;
+          sTrs.push(t);
 
-        const shp = shapeOf(o);
-        const trig = triggerOf(o);
-        const hid = hullIdOf(o);
-        const lhx = halfLocalX(o);
-        const lhy = halfLocalY(o);
-        const lhz = halfLocalZ(o);
-        const lcx = centerLocalX(o);
-        const lcy = centerLocalY(o);
-        const lcz = centerLocalZ(o);
-        const isStat = (bodyTypeOf(o) === BODY_STATIC) ? 1 : 0;
+          const shp = shapeOf(o);
+          const trig = triggerOf(o);
+          const hid = hullIdOf(o);
+          const lhx = halfLocalX(o);
+          const lhy = halfLocalY(o);
+          const lhz = halfLocalZ(o);
+          const lcx = centerLocalX(o);
+          const lcy = centerLocalY(o);
+          const lcz = centerLocalZ(o);
 
-        sShape[k] = shp;
-        sTrigger[k] = trig;
-        sHullId[k] = hid;
-        sLocalHx[k] = lhx;
-        sLocalHy[k] = lhy;
-        sLocalHz[k] = lhz;
-        sLocalCx[k] = lcx;
-        sLocalCy[k] = lcy;
-        sLocalCz[k] = lcz;
-        sIsStatic[k] = isStat;
-        sLayer[k] = o.layer;
-        sMask[k] = o.mask;
-        sBodyId[k] = o.id;
+          sShape[k] = shp;
+          sTrigger[k] = trig;
+          sHullId[k] = hid;
+          sLocalHx[k] = lhx;
+          sLocalHy[k] = lhy;
+          sLocalHz[k] = lhz;
+          sLocalCx[k] = lcx;
+          sLocalCy[k] = lcy;
+          sLocalCz[k] = lcz;
+          sIsStatic[k] = 1;
+          sLayer[k] = o.layer;
+          sMask[k] = o.mask;
+          sBodyId[k] = o.id;
 
-        const hx = lhx * t.sx;
-        const hy = lhy * t.sy;
-        const hz = lhz * t.sz;
+          const hx = lhx * t.sx;
+          const hy = lhy * t.sy;
+          const hz = lhz * t.sz;
 
-        sWorldHx[k] = hx;
-        sWorldHy[k] = hy;
-        sWorldHz[k] = hz;
-        sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
+          sWorldHx[k] = hx;
+          sWorldHy[k] = hy;
+          sWorldHz[k] = hz;
+          sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
 
-        // Maior meia-extensão característica
-        const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+          // Maior meia-extensão característica
+          const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
 
-        if (isStat !== 0) {
           sYaw[k] = t.wry;
           let cx = t.wx; let cy = t.wy; let cz = t.wz;
           if (lcx !== 0.0 || lcz !== 0.0) {
@@ -727,29 +728,12 @@ export function spatialRebuildIndex(sc?: Scene): void {
           sStaticIndices[allStaticCount] = k;
           sExtentBuffer[allStaticCount] = maxH;
           allStaticCount = allStaticCount + 1;
-        } else {
-          if (lcx !== 0.0 || lcy !== 0.0 || lcz !== 0.0) hasDynLocalOffset = 1;
-          if (maxH > 16.0) {
-            addColossalDynamic(k);
-          } else {
-            if (hx > maxDynamicHalfExtent) maxDynamicHalfExtent = hx;
-            if (hy > maxDynamicHalfExtent) maxDynamicHalfExtent = hy;
-            if (hz > maxDynamicHalfExtent) maxDynamicHalfExtent = hz;
-            if (t.wx < dynMinX) dynMinX = t.wx;
-            if (t.wx > dynMaxX) dynMaxX = t.wx;
-            if (t.wy < dynMinY) dynMinY = t.wy;
-            if (t.wy > dynMaxY) dynMaxY = t.wy;
-            if (t.wz < dynMinZ) dynMinZ = t.wz;
-            if (t.wz > dynMaxZ) dynMaxZ = t.wz;
-            sDynamicIndices[sDynamicCount] = k;
-            sDynamicCount = sDynamicCount + 1;
-          }
         }
       }
       i = i + 1;
     }
 
-    sHasDynamicLocalOffset = hasDynLocalOffset;
+    sStaticTotal = sObjs.length;
 
     // Célula estática Tier 1 dimensionada pela MEDIANA das meias-extensões características
     let statCellSize = 2.0;
@@ -940,6 +924,93 @@ export function spatialRebuildIndex(sc?: Scene): void {
       cii = cii + 1;
     }
 
+    sLastStaticVersion = statVer;
+  }
+
+  // 2. SINCRONIZAÇÃO DA COMPOSIÇÃO DINÂMICA (quando compVersion mudar)
+  if (compDirty) {
+    const allObjs = targetScene.objects;
+    const n = allObjs.length;
+    ensureObjCapacity(n);
+
+    sObjs.length = sStaticTotal;
+    sTrs.length = sStaticTotal;
+    sDynamicCount = 0;
+    sColossalDynamicCount = 0;
+    let maxDynamicHalfExtent: f64 = 0.5;
+    let hasDynLocalOffset = 0;
+    let dynMinX = 1e30; let dynMaxX = -1e30;
+    let dynMinY = 1e30; let dynMaxY = -1e30;
+    let dynMinZ = 1e30; let dynMaxZ = -1e30;
+
+    let i = 0;
+    while (i < n) {
+      const o = allObjs[i];
+      if (o.active !== 0 && (o.collideFlag !== 0 || o.colIdx >= 0)) {
+        if (bodyTypeOf(o) !== BODY_STATIC) {
+          const k = sObjs.length;
+          sObjs.push(o);
+          const t = o.transform;
+          sTrs.push(t);
+
+          const shp = shapeOf(o);
+          const trig = triggerOf(o);
+          const hid = hullIdOf(o);
+          const lhx = halfLocalX(o);
+          const lhy = halfLocalY(o);
+          const lhz = halfLocalZ(o);
+          const lcx = centerLocalX(o);
+          const lcy = centerLocalY(o);
+          const lcz = centerLocalZ(o);
+
+          sShape[k] = shp;
+          sTrigger[k] = trig;
+          sHullId[k] = hid;
+          sLocalHx[k] = lhx;
+          sLocalHy[k] = lhy;
+          sLocalHz[k] = lhz;
+          sLocalCx[k] = lcx;
+          sLocalCy[k] = lcy;
+          sLocalCz[k] = lcz;
+          sIsStatic[k] = 0;
+          sLayer[k] = o.layer;
+          sMask[k] = o.mask;
+          sBodyId[k] = o.id;
+
+          const hx = lhx * t.sx;
+          const hy = lhy * t.sy;
+          const hz = lhz * t.sz;
+
+          sWorldHx[k] = hx;
+          sWorldHy[k] = hy;
+          sWorldHz[k] = hz;
+          sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
+
+          const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+
+          if (lcx !== 0.0 || lcy !== 0.0 || lcz !== 0.0) hasDynLocalOffset = 1;
+          if (maxH > 16.0) {
+            addColossalDynamic(k);
+          } else {
+            if (hx > maxDynamicHalfExtent) maxDynamicHalfExtent = hx;
+            if (hy > maxDynamicHalfExtent) maxDynamicHalfExtent = hy;
+            if (hz > maxDynamicHalfExtent) maxDynamicHalfExtent = hz;
+            if (t.wx < dynMinX) dynMinX = t.wx;
+            if (t.wx > dynMaxX) dynMaxX = t.wx;
+            if (t.wy < dynMinY) dynMinY = t.wy;
+            if (t.wy > dynMaxY) dynMaxY = t.wy;
+            if (t.wz < dynMinZ) dynMinZ = t.wz;
+            if (t.wz > dynMaxZ) dynMaxZ = t.wz;
+            sDynamicIndices[sDynamicCount] = k;
+            sDynamicCount = sDynamicCount + 1;
+          }
+        }
+      }
+      i = i + 1;
+    }
+
+    sHasDynamicLocalOffset = hasDynLocalOffset;
+
     // Célula dinâmica dimensionada para 2 * maiorMeiaExtensão dinâmica
     sDynamicMaxHalfExtent = maxDynamicHalfExtent;
     sDynCellSize = maxDynamicHalfExtent * 2.0;
@@ -948,10 +1019,10 @@ export function spatialRebuildIndex(sc?: Scene): void {
     sCellSize = sDynCellSize;
     sInvCellSize = sDynInvCellSize;
 
-    sLastSceneVersion = compVer;
+    sLastCompVersion = compVer;
   }
 
-  // Atualiza apenas os objetos dinâmicos através de FUNÇÃO LIVRE TIPADA
+  // 3. Atualiza apenas os objetos dinâmicos através de FUNÇÃO LIVRE TIPADA
   rebuildDynamicsInto(
     sDynamicCount, sDynamicIndices, sTrs,
     sLocalCx, sLocalCy, sLocalCz,
@@ -969,7 +1040,9 @@ function ensureIndex(sc?: Scene): Scene | null {
   const targetScene = sc !== undefined ? sc : sActiveScene;
   if (targetScene === null) return null;
   const curStep = getSpatialStepId();
-  if (sLastRebuildStep !== curStep || sLastSceneVersion !== targetScene.compVersion) {
+  if (sLastRebuildStep !== curStep ||
+      sLastCompVersion !== targetScene.compVersion ||
+      sLastStaticVersion !== targetScene.staticVersion) {
     spatialRebuildIndex(targetScene);
   }
   return targetScene;
