@@ -187,9 +187,10 @@ function executarBenchCena(
   const temposRaycast: f64[] = [];
   const temposOverlap: f64[] = [];
 
-  // 1. Custo de reconstrução do passo (dinâmicos) medido em RODADAS dedicadas
+  // 1. Custo de reconstrução do passo (dinâmicos) medido em 20 rodadas dedicadas
+  const RODADAS_REBUILD = 20;
   let r = 0;
-  while (r < RODADAS) {
+  while (r < RODADAS_REBUILD) {
     const cost = spatialGridRebuildCost(sc);
     temposRebuild.push(cost.timeMs);
     r = r + 1;
