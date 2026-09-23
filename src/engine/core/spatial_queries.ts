@@ -1041,6 +1041,11 @@ export function spatialRebuildIndex(sc?: Scene): void {
           }
         } else if (op === DYN_OP_REMOVE) {
           const k = o.spatialSlot;
+          if (k >= 0 && k < sStaticTotal && sObjs[k] === o) {
+            targetScene.markCollidersDirty();
+            spatialRebuildIndex(targetScene);
+            return;
+          }
           if (k >= sStaticTotal && k < sObjs.length && sObjs[k] === o) {
             // 1. Remover de sDynamicIndices ou sColossalDynamicObjs
             const dynSlot = o.spatialDynSlot;
@@ -1629,7 +1634,7 @@ function raycastStaticGridDDA(
   if (tMax < 0.0) return false;
   if (tMin >= maxDistance) return false;
 
-  let closestDist = maxDistance + 1.0;
+  let closestDist = maxDistance;
   let found = false;
 
   let tCurrent = 0.0;
