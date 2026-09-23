@@ -657,6 +657,149 @@ check("Remoção dinâmica: raio não atinge mais o projétil removido", !hitOld
 scMulti.markStaticDirty();
 check("Mutação estática: markStaticDirty incrementa staticVersion", scMulti.staticVersion > initialStatVer);
 
+// ── 14. Regressões e Integridade da Revisão 1 (Trocas de Categoria e Movimento) ──
+const scRev = new Scene("SceneRev1");
+setSpatialScene(scRev);
+
+const testBox = new GameObject("TestBox");
+testBox.stationary = 1;
+testBox.setMesh(1, 100, 100, 100);
+testBox.transform.setPosition(20.0, 1.0, 20.0);
+testBox.transform.setScale(1.0);
+scRev.add(testBox);
+scRev.computeWorld();
+spatialRebuildIndex(scRev);
+
+const revHits: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOverlapHit()];
+const cBoxInit = overlapSphereNonAlloc(20.0, 1.0, 20.0, 2.0, revHits, 3, 0xFFFFFFFF, 1, false, scRev);
+check("Revisão 1: estático inicial encontrado", cBoxInit === 1);
+
+// 14.1 Estático vira dinâmico (stationary = 0 + markCollidersDirty)
+testBox.stationary = 0;
+scRev.markCollidersDirty();
+scRev.computeWorld();
+const cBoxDyn = overlapSphereNonAlloc(20.0, 1.0, 20.0, 2.0, revHits, 3, 0xFFFFFFFF, 1, false, scRev);
+check("Revisão 1: estático vira dinâmico tem exatamente 1 ocorrência (sem duplicata)", cBoxDyn === 1);
+
+// 14.2 Dinâmico vira estático (stationary = 1 + markCollidersDirty)
+testBox.stationary = 1;
+scRev.markCollidersDirty();
+scRev.computeWorld();
+const cBoxStatAgain = overlapSphereNonAlloc(20.0, 1.0, 20.0, 2.0, revHits, 3, 0xFFFFFFFF, 1, false, scRev);
+check("Revisão 1: dinâmico vira estático tem exatamente 1 ocorrência (não sumiu)", cBoxStatAgain === 1);
+
+// 14.3 Estático escalado de 1 para 10 com markCollidersDirty
+testBox.transform.setScale(10.0); // meia-extensão agora é 5.0
+scRev.markCollidersDirty();
+scRev.computeWorld();
+// Ponto a 4 unidades do centro: dentro da nova escala de 10, fora da antiga de 1
+const cBoxScaled = overlapSphereNonAlloc(24.0, 1.0, 20.0, 0.5, revHits, 3, 0xFFFFFFFF, 1, false, scRev);
+check("Revisão 1: estático escalado para 10 atualiza extensão do índice", cBoxScaled === 1);
+
+// 14.4 Mover um estático: índice detecta drift automaticamente
+testBox.transform.setPosition(80.0, 1.0, 80.0);
+scRev.computeWorld();
+// Consulta no novo local (80, 1, 80) deve atingir; no antigo (20, 1, 20) deve errar
+const cBoxNewPos = overlapSphereNonAlloc(80.0, 1.0, 80.0, 2.0, revHits, 3, 0xFFFFFFFF, 1, false, scRev);
+const cBoxOldPos = overlapSphereNonAlloc(20.0, 1.0, 20.0, 2.0, revHits, 3, 0xFFFFFFFF, 1, false, scRev);
+check("Revisão 1: mover estático atinge nova posição", cBoxNewPos === 1);
+check("Revisão 1: mover estático erra posição antiga", cBoxOldPos === 0);
+
+// 14.5 Desempenho incremental com 2.000 dinâmicos + 2.100 estáticos (meta <= 0,05 ms/objeto)
+const scBenchInc = new Scene("SceneBenchInc");
+const bGnd = new GameObject("ground_2000");
+bGnd.stationary = 1;
+bGnd.setMesh(1, 100, 100, 100);
+bGnd.transform.setPosition(0.0, -1.0, 0.0);
+bGnd.transform.sx = 2000.0; bGnd.transform.sy = 2.0; bGnd.transform.sz = 2000.0;
+scBenchInc.add(bGnd);
+
+// 100 prédios
+let biInc = 0;
+while (biInc < 100) {
+  const bldg = new GameObject("bldg_" + biInc);
+  bldg.stationary = 1;
+  bldg.setMesh(1, 100, 100, 100);
+  bldg.transform.setPosition(((biInc % 10) - 5) * 80.0, 15.0, (((biInc / 10) | 0) - 5) * 80.0);
+  bldg.transform.setScale(30.0);
+  scBenchInc.add(bldg);
+  biInc = biInc + 1;
+}
+
+// 2.000 props estáticos pequenos
+let piInc = 0;
+while (piInc < 2000) {
+  const prop = new GameObject("prop_" + piInc);
+  prop.stationary = 1;
+  prop.setMesh(1, 120, 120, 120);
+  prop.transform.setPosition(((piInc % 50) - 25) * 10.0, 1.0, (((piInc / 50) | 0) - 20) * 10.0);
+  prop.transform.setScale(2.0);
+  scBenchInc.add(prop);
+  piInc = piInc + 1;
+}
+
+// 2.000 dinâmicos
+let diInc = 0;
+while (diInc < 2000) {
+  const dyn = new GameObject("dyn_" + diInc);
+  dyn.stationary = 0;
+  dyn.setMesh(1, 200, 50, 50);
+  dyn.transform.setPosition((diInc % 40) * 3.0, 1.0, ((diInc / 40) | 0) * 3.0);
+  dyn.transform.setScale(1.0);
+  scBenchInc.add(dyn);
+  diInc = diInc + 1;
+}
+
+scBenchInc.computeWorld();
+setSpatialScene(scBenchInc);
+spatialRebuildIndex(scBenchInc); // Inicial
+
+// Warmup de 1 rodada de spawn/remoção para estabilizar buffers
+const wb = new GameObject("wb"); wb.stationary = 0; wb.setMesh(1, 255, 0, 0); scBenchInc.add(wb);
+scBenchInc.computeWorld();
+spatialRebuildIndex(scBenchInc);
+scBenchInc.removeAt(scBenchInc.objects.length - 1);
+scBenchInc.computeWorld();
+spatialRebuildIndex(scBenchInc);
+
+// Mede passo normal em 20 rodadas
+const timesNorm: number[] = [];
+let stepRounds = 0;
+while (stepRounds < 20) {
+  const t0 = performance.now();
+  spatialRebuildIndex(scBenchInc);
+  timesNorm.push(performance.now() - t0);
+  stepRounds = stepRounds + 1;
+}
+
+// Mede passo criando 5 objetos em 20 rodadas
+const timesSpawn: number[] = [];
+let spawnRounds = 0;
+while (spawnRounds < 20) {
+  let s = 0;
+  while (s < 5) {
+    const bullet = new GameObject("b_" + spawnRounds + "_" + s);
+    bullet.stationary = 0;
+    bullet.setMesh(1, 255, 0, 0);
+    bullet.transform.setPosition(100.0 + s * 2.0, 1.0, 100.0);
+    scBenchInc.add(bullet);
+    s = s + 1;
+  }
+  scBenchInc.computeWorld();
+  const t0Rebuild = performance.now();
+  spatialRebuildIndex(scBenchInc);
+  timesSpawn.push(performance.now() - t0Rebuild);
+  spawnRounds = spawnRounds + 1;
+}
+
+timesNorm.sort((a, b) => a - b);
+timesSpawn.sort((a, b) => a - b);
+const medNorm = timesNorm[10];
+const medSpawn = timesSpawn[10];
+const deltaPorObj = (medSpawn - medNorm) / 5.0;
+
+check("Revisão 1: inserção incremental <= 0.05 ms por objeto criado", deltaPorObj <= 0.05, "custo=" + deltaPorObj.toFixed(5) + " ms/obj");
+
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
 } else {
