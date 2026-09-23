@@ -21,6 +21,8 @@ let sceneVersionSeq = 0;
 /// Constantes de mutação dinâmica para fila incremental do índice espacial
 export const DYN_OP_ADD = 1;
 export const DYN_OP_REMOVE = 2;
+/// Limite máximo de operações dinâmicas pendentes antes de descartar a fila para evitar retenção de memória
+export const MAX_PENDING_DYNAMIC_OPS = 256;
 
 export class Scene {
   name: string;
@@ -88,6 +90,8 @@ export class Scene {
   /// Fila de mutações dinâmicas pendentes para consumo incremental pelo índice espacial
   pendingDynamicOps: number[];
   pendingDynamicObjs: GameObject[];
+  /// Indica se a fila ultrapassou o teto de segurança e deve ser reconstruída por completo
+  pendingDynamicOverflow: boolean;
   colMaxR: f64;      // maior raio entre os colisores (cacheado com cIdx)
   colMovers: number; // quantos colisores podem se mover (cacheado com cIdx)
   /// Array PARALELO a `objects` com os transforms. Chegar ao transform por
@@ -117,6 +121,7 @@ export class Scene {
     this.staticVersion = sceneVersionSeq;
     this.pendingDynamicOps = [];
     this.pendingDynamicObjs = [];
+    this.pendingDynamicOverflow = false;
     this.colMaxR = 0.0001;
     this.colMovers = 0;
   }
@@ -131,6 +136,7 @@ export class Scene {
     this.staticVersion = sceneVersionSeq;
     this.pendingDynamicOps.length = 0;
     this.pendingDynamicObjs.length = 0;
+    this.pendingDynamicOverflow = false;
   }
 
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
@@ -148,8 +154,16 @@ export class Scene {
       this.colDirty = 1;
       sceneVersionSeq = sceneVersionSeq + 1;
       this.compVersion = sceneVersionSeq;
-      this.pendingDynamicOps.push(DYN_OP_ADD);
-      this.pendingDynamicObjs.push(go);
+      if (!this.pendingDynamicOverflow) {
+        if (this.pendingDynamicOps.length >= MAX_PENDING_DYNAMIC_OPS) {
+          this.pendingDynamicOverflow = true;
+          this.pendingDynamicOps.length = 0;
+          this.pendingDynamicObjs.length = 0;
+        } else {
+          this.pendingDynamicOps.push(DYN_OP_ADD);
+          this.pendingDynamicObjs.push(go);
+        }
+      }
     }
     go.mount();
     return go;
@@ -307,8 +321,16 @@ export class Scene {
       this.colDirty = 1;
       sceneVersionSeq = sceneVersionSeq + 1;
       this.compVersion = sceneVersionSeq;
-      this.pendingDynamicOps.push(DYN_OP_REMOVE);
-      this.pendingDynamicObjs.push(removedObj);
+      if (!this.pendingDynamicOverflow) {
+        if (this.pendingDynamicOps.length >= MAX_PENDING_DYNAMIC_OPS) {
+          this.pendingDynamicOverflow = true;
+          this.pendingDynamicOps.length = 0;
+          this.pendingDynamicObjs.length = 0;
+        } else {
+          this.pendingDynamicOps.push(DYN_OP_REMOVE);
+          this.pendingDynamicObjs.push(removedObj);
+        }
+      }
     }
   }
 

@@ -685,82 +685,87 @@ export function spatialRebuildIndex(sc?: Scene): void {
       if (o.collideFlag !== 0 || o.colIdx >= 0) {
         if (bodyTypeOf(o) === BODY_STATIC) {
           if (o.active !== 0) {
-          const k = sObjs.length;
-          sObjs.push(o);
-          const t = o.transform;
-          sTrs.push(t);
-          o.spatialSlot = k;
-          o.spatialDynSlot = 0 - 1;
+            const k = sObjs.length;
+            sObjs.push(o);
+            const t = o.transform;
+            sTrs.push(t);
+            o.spatialSlot = k;
+            o.spatialDynSlot = 0 - 1;
 
-          const shp = shapeOf(o);
-          const trig = triggerOf(o);
-          const hid = hullIdOf(o);
-          const lhx = halfLocalX(o);
-          const lhy = halfLocalY(o);
-          const lhz = halfLocalZ(o);
-          const lcx = centerLocalX(o);
-          const lcy = centerLocalY(o);
-          const lcz = centerLocalZ(o);
+            const shp = shapeOf(o);
+            const trig = triggerOf(o);
+            const hid = hullIdOf(o);
+            const lhx = halfLocalX(o);
+            const lhy = halfLocalY(o);
+            const lhz = halfLocalZ(o);
+            const lcx = centerLocalX(o);
+            const lcy = centerLocalY(o);
+            const lcz = centerLocalZ(o);
 
-          sShape[k] = shp;
-          sTrigger[k] = trig;
-          sHullId[k] = hid;
-          sLocalHx[k] = lhx;
-          sLocalHy[k] = lhy;
-          sLocalHz[k] = lhz;
-          sLocalCx[k] = lcx;
-          sLocalCy[k] = lcy;
-          sLocalCz[k] = lcz;
-          sIsStatic[k] = 1;
-          sLayer[k] = o.layer;
-          sMask[k] = o.mask;
-          sBodyId[k] = o.id;
+            sShape[k] = shp;
+            sTrigger[k] = trig;
+            sHullId[k] = hid;
+            sLocalHx[k] = lhx;
+            sLocalHy[k] = lhy;
+            sLocalHz[k] = lhz;
+            sLocalCx[k] = lcx;
+            sLocalCy[k] = lcy;
+            sLocalCz[k] = lcz;
+            sIsStatic[k] = 1;
+            sLayer[k] = o.layer;
+            sMask[k] = o.mask;
+            sBodyId[k] = o.id;
 
-          const hx = lhx * t.sx;
-          const hy = lhy * t.sy;
-          const hz = lhz * t.sz;
+            const hx = lhx * t.sx;
+            const hy = lhy * t.sy;
+            const hz = lhz * t.sz;
 
-          sWorldHx[k] = hx;
-          sWorldHy[k] = hy;
-          sWorldHz[k] = hz;
-          sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
+            sWorldHx[k] = hx;
+            sWorldHy[k] = hy;
+            sWorldHz[k] = hz;
+            sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
 
-          // Maior meia-extensão característica
-          const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+            // Maior meia-extensão característica
+            const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
 
-          sYaw[k] = t.wry;
-          let cx = t.wx; let cy = t.wy; let cz = t.wz;
-          if (lcx !== 0.0 || lcz !== 0.0) {
-            const ox = lcx * t.sx; const oz = lcz * t.sz;
-            if (t.wry === 0.0) {
-              cx = cx + ox; cz = cz + oz;
-            } else {
-              const cs = math.cos(t.wry); const sn = math.sin(t.wry);
-              cx = cx + (ox * cs + oz * sn);
-              cz = cz + (0.0 - ox * sn + oz * cs);
+            sYaw[k] = t.wry;
+            let cx = t.wx; let cy = t.wy; let cz = t.wz;
+            if (lcx !== 0.0 || lcz !== 0.0) {
+              const ox = lcx * t.sx; const oz = lcz * t.sz;
+              if (t.wry === 0.0) {
+                cx = cx + ox; cz = cz + oz;
+              } else {
+                const cs = math.cos(t.wry); const sn = math.sin(t.wry);
+                cx = cx + (ox * cs + oz * sn);
+                cz = cz + (0.0 - ox * sn + oz * cs);
+              }
             }
+            if (lcy !== 0.0) cy = cy + lcy * t.sy;
+            sWorldCx[k] = cx; sWorldCy[k] = cy; sWorldCz[k] = cz;
+
+            sStaticCacheWx[k] = t.wx;
+            sStaticCacheWy[k] = t.wy;
+            sStaticCacheWz[k] = t.wz;
+            sStaticCacheSx[k] = t.sx;
+            sStaticCacheWry[k] = t.wry;
+
+            const minX = cx - hx; const maxX = cx + hx;
+            const minY = cy - hy; const maxY = cy + hy;
+            const minZ = cz - hz; const maxZ = cz + hz;
+            sMinX[k] = minX; sMaxX[k] = maxX;
+            sMinY[k] = minY; sMaxY[k] = maxY;
+            sMinZ[k] = minZ; sMaxZ[k] = maxZ;
+
+            sStaticIndices[allStaticCount] = k;
+            sExtentBuffer[allStaticCount] = maxH;
+            allStaticCount = allStaticCount + 1;
           }
-          if (lcy !== 0.0) cy = cy + lcy * t.sy;
-          sWorldCx[k] = cx; sWorldCy[k] = cy; sWorldCz[k] = cz;
-
-          sStaticCacheWx[k] = t.wx;
-          sStaticCacheWy[k] = t.wy;
-          sStaticCacheWz[k] = t.wz;
-          sStaticCacheSx[k] = t.sx;
-          sStaticCacheWry[k] = t.wry;
-
-          const minX = cx - hx; const maxX = cx + hx;
-          const minY = cy - hy; const maxY = cy + hy;
-          const minZ = cz - hz; const maxZ = cz + hz;
-          sMinX[k] = minX; sMaxX[k] = maxX;
-          sMinY[k] = minY; sMaxY[k] = maxY;
-          sMinZ[k] = minZ; sMaxZ[k] = maxZ;
-
-          sStaticIndices[allStaticCount] = k;
-          sExtentBuffer[allStaticCount] = maxH;
-          allStaticCount = allStaticCount + 1;
         } else {
-          sDynCollectObjs[sDynCollectCount] = o;
+          if (sDynCollectCount >= sDynCollectObjs.length) {
+            sDynCollectObjs.push(o);
+          } else {
+            sDynCollectObjs[sDynCollectCount] = o;
+          }
           sDynCollectCount = sDynCollectCount + 1;
         }
       }
@@ -965,7 +970,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
   if (compDirty) {
     // Se a malha estática NÃO mudou e há mutações incrementais pendentes na fila da cena,
     // processa estritamente a fila em O(K), sem percorrer os N objetos da cena.
-    if (!staticDirty && targetScene.pendingDynamicOps.length > 0) {
+    if (!staticDirty && !targetScene.pendingDynamicOverflow && targetScene.pendingDynamicOps.length > 0) {
       const ops = targetScene.pendingDynamicOps;
       const objs = targetScene.pendingDynamicObjs;
       const numOps = ops.length;
@@ -1176,6 +1181,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
       targetScene.pendingDynamicOps.length = 0;
       targetScene.pendingDynamicObjs.length = 0;
+      targetScene.pendingDynamicOverflow = false;
     } else {
       // Reconstrução dinâmica completa (fallback quando compVersion foi alterado manualmente sem fila)
       const allObjs = targetScene.objects;
@@ -1266,6 +1272,7 @@ export function spatialRebuildIndex(sc?: Scene): void {
 
       targetScene.pendingDynamicOps.length = 0;
       targetScene.pendingDynamicObjs.length = 0;
+      targetScene.pendingDynamicOverflow = false;
     }
 
     // Célula dinâmica dimensionada para 2 * maiorMeiaExtensão dinâmica
