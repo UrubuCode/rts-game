@@ -1048,10 +1048,10 @@ export function spatialRebuildIndex(sc?: Scene): void {
           }
         } else if (op === DYN_OP_REMOVE) {
           const k = o.spatialSlot;
-          if (k >= 0 && k < sStaticTotal && sObjs[k] === o) {
-            targetScene.markCollidersDirty();
-            spatialRebuildIndex(targetScene);
-            return;
+          if (k >= 0 && k < sStaticTotal) {
+            // Estático não deve ser mutado pela fila de dinâmicos
+            oi = oi + 1;
+            continue;
           }
           if (k >= sStaticTotal && k < sObjs.length && sObjs[k] === o) {
             // 1. Remover de sDynamicIndices ou sColossalDynamicObjs
