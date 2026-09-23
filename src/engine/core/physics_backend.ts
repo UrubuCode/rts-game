@@ -47,13 +47,14 @@ import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocal
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
-         rbCount, rbKick } from "../rigid/gpurigid";
+         rbCount, rbKick, rbGpuLastReadbackStep, rbSetLastReadbackStep, rbResetStepTracking,
+         rbAdvanceDroppedSteps } from "../rigid/gpurigid";
 // O TERCEIRO backend: o solver paralelo em Rust (`rts:rigid`), mesma
 // formulação gather do kernel WGSL. Ver `engine/rigid/cpurigid.ts`.
 import { crAvailable, crInit, crSetBody, crSetShape, crSetVel, crSetPos, crSetDt, crSetMaterial,
          crSyncStatics, crStep, crGridOverflow, crX, crY, crZ, crVelX, crVelY, crVelZ,
          crCount, crThreads } from "../rigid/cpurigid";
-import { FIXED_DT } from "./fixedstep";
+import { FIXED_DT, stepCount, stepsLastFrame } from "./fixedstep";
 import { Behavior } from "./behavior";
 import rigid, { needForLevel } from "../../compat/rigid";
 import { profBest, profGpuMs, profRustMs, profRange, gpuSupportsLevel,
@@ -411,6 +412,8 @@ function pbSync(sc: Scene): number {
   }
   rbUpload();
   rbSyncStatics(sc);
+  const prevStep = stepCount() - stepsLastFrame();
+  rbResetStepTracking(prevStep >= 0 ? prevStep : 0);
   pbBodies = m;
   pbDono = 1;
   pbAvisaPosse(1);
@@ -697,8 +700,12 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
     return 1;
   }
 
-  if (pbDevidos < PB_MAX_DEVIDOS) pbDevidos = pbDevidos + 1;
-  const novo = rbService(PB_SUBSTEPS * pbDevidos);
+  if (pbDevidos < PB_MAX_DEVIDOS) {
+    pbDevidos = pbDevidos + 1;
+  } else {
+    rbAdvanceDroppedSteps(1);
+  }
+  const novo = rbService(PB_SUBSTEPS * pbDevidos, pbDevidos);
   if (rbKicked() !== 0) pbDevidos = 0;
   if (novo !== 0) {
     pbFresh = pbFresh + 1;
@@ -738,7 +745,18 @@ export function rigidFlush(): void {
       k = k + 1;
     }
     rbCancel();
+    rbResetStepTracking(stepCount());
   }
+}
+
+/// Retorna o passo exato da simulação do último readback concluído da GPU (Lote B, §5.1 e §7.1).
+export function pbGpuLastReadbackStep(): number {
+  return rbGpuLastReadbackStep();
+}
+
+/// Retorna o backend atualmente dono da simulação (0 = CPU, 1 = GPU, 2 = Rust).
+export function pbActiveBackend(): number {
+  return pbDono;
 }
 
 /// Imprime o PERFIL e a decisão (debug/telemetria).

@@ -5,7 +5,8 @@
 import fs from "../compat/fs.ts";
 
 import { scene, S } from "./control/session";
-import { GameObject } from "../engine/core/gameobject";
+import { Scene } from "../engine/core/scene";
+import { GameObject, getNextGameObjectId, setNextGameObjectId } from "../engine/core/gameobject";
 import { Behavior } from "../engine/core/behavior";
 import { Material } from "../engine/core/material";
 import { MeshRenderer } from "../engine/core/meshrenderer";
@@ -111,6 +112,7 @@ export function objectToData(go: GameObject): any {
   }
   const t = go.transform;
   return {
+    id: go.id,
     name: go.name,
     mesh: go.meshKind,
     color: [go.cr, go.cg, go.cb],
@@ -146,15 +148,44 @@ export function sceneToJSON(): string {
   return JSON.stringify(data);
 }
 
+/// Constrói um conjunto com os IDs de todos os objetos existentes na cena (para busca O(1)).
+export function buildIdSet(sc: Scene): Set<number> {
+  const s = new Set<number>();
+  const objs = sc.objects;
+  const n = objs.length;
+  let i = 0;
+  while (i < n) {
+    s.add(objs[i].id);
+    i = i + 1;
+  }
+  return s;
+}
+
+function isIdInScene(id: number, sc: Scene): boolean {
+  let i = 0;
+  const objs = sc.objects;
+  const n = objs.length;
+  while (i < n) {
+    if (objs[i].id === id) return true;
+    i = i + 1;
+  }
+  return false;
+}
+
 /// Restaura a cena a partir de um string JSON (SUBSTITUI a atual). Base do load E
 /// do undo/redo.
-export function sceneFromJSON(s: string): void {
-  scene.clear();
+export function sceneFromJSON(s: string, sc?: Scene): void {
+  const targetScene = sc !== undefined ? sc : scene;
+  targetScene.clear();
   const data = JSON.parse(s);
   const arr = data.objects;
   if (arr === undefined) return;
+  const idSet = buildIdSet(targetScene);
   let i = 0;
-  while (i < arr.length) { scene.add(buildObject(arr[i])); i = i + 1; }
+  while (i < arr.length) {
+    targetScene.add(buildObject(arr[i], targetScene, idSet));
+    i = i + 1;
+  }
 }
 
 /// SALVA a cena inteira num arquivo JSON — fecha o loop com loadSceneFrom.
@@ -164,8 +195,26 @@ export function saveScene(path: string): number {
 }
 
 /// Constrói 1 GameObject a partir de um descritor JSON.
-export function buildObject(od: any): GameObject {
+export function buildObject(od: any, sc?: Scene, idSet?: Set<number>): GameObject {
+  const targetScene = sc !== undefined ? sc : scene;
   const go = new GameObject(od.name);
+  if (od.id !== undefined) {
+    const isConflict = idSet !== undefined
+      ? idSet.has(od.id)
+      : (targetScene !== null && targetScene !== undefined && isIdInScene(od.id, targetScene));
+    if (isConflict) {
+      const newId = getNextGameObjectId();
+      go.id = newId;
+      setNextGameObjectId(newId + 1);
+      if (idSet !== undefined) idSet.add(newId);
+    } else {
+      go.id = od.id;
+      if (od.id >= getNextGameObjectId()) {
+        setNextGameObjectId(od.id + 1);
+      }
+      if (idSet !== undefined) idSet.add(od.id);
+    }
+  }
   if (od.parent !== undefined) go.parent = od.parent;
   if (od.stationary !== undefined) go.stationary = od.stationary;
   if (od.layer !== undefined) go.layer = od.layer;
@@ -219,49 +268,58 @@ export function buildObject(od: any): GameObject {
 ///
 /// Remap de índice: as raízes da sub-cena (parent < 0) viram filhas do host; os
 /// demais têm o parent deslocado pelo offset (base) onde a sub-cena foi anexada.
-export function instantiateSceneUnder(path: string, hostIdx: number): number {
+export function instantiateSceneUnder(path: string, hostIdx: number, sc?: Scene): number {
+  const targetScene = sc !== undefined ? sc : scene;
   if (!fs.exists(path)) return 0;
   const data = JSON.parse(fs.read_text(path));
   const arr = data.objects;
   if (arr === undefined) return 0;
-  const base = scene.objects.length;   // offset dos índices que entram
+  const base = targetScene.objects.length;   // offset dos índices que entram
+  const idSet = buildIdSet(targetScene);
   let n = 0;
   let ci = 0;
   while (ci < arr.length) {
-    const go = buildObject(arr[ci]);
+    const go = buildObject(arr[ci], targetScene, idSet);
     if (go.parent < 0) go.parent = hostIdx;        // raiz da sub-cena → filha do host
     else go.parent = base + go.parent;              // desloca o parent interno
-    scene.add(go);
+    targetScene.add(go);
     n = n + 1;
     ci = ci + 1;
   }
   // marca o host como instância desta cena (component SceneRef — serializa + inspector)
-  if (n > 0 && hostIdx >= 0 && hostIdx < scene.objects.length) {
-    scene.objects[hostIdx].addBehavior(new SceneRef(path));
+  if (n > 0 && hostIdx >= 0 && hostIdx < targetScene.objects.length) {
+    targetScene.objects[hostIdx].addBehavior(new SceneRef(path));
   }
   return n;
 }
 
 /// Carrega uma cena inteira ({ objects: [...] }), SUBSTITUINDO a atual.
-export function loadSceneFrom(path: string): void {
+export function loadSceneFrom(path: string, sc?: Scene): void {
   if (!fs.exists(path)) return;
-  scene.clear();
-  S.selected = 0;
+  const targetScene = sc !== undefined ? sc : scene;
+  targetScene.clear();
+  if (targetScene === scene) S.selected = 0;
   const data = JSON.parse(fs.read_text(path));
   const arr = data.objects;
   let ci = 0;
-  while (ci < arr.length) { scene.add(buildObject(arr[ci])); ci = ci + 1; }
+  const idSet = buildIdSet(targetScene);
+  while (ci < arr.length) {
+    targetScene.add(buildObject(arr[ci], targetScene, idSet));
+    ci = ci + 1;
+  }
   setLight(0.35, 1.0, 0.25);
   setAmbient(0.2);
   let ei = 0;
-  while (ei < scene.objects.length) {
-    if (scene.objects[ei].name === "Sun") scene.objects[ei].emissive = 1;
+  while (ei < targetScene.objects.length) {
+    if (targetScene.objects[ei].name === "Sun") targetScene.objects[ei].emissive = 1;
     ei = ei + 1;
   }
 }
 
 /// Instancia 1 prefab (arquivo com UM objeto) na cena atual, sem limpá-la.
-export function instantiatePrefab(path: string): void {
+export function instantiatePrefab(path: string, sc?: Scene): void {
   if (!fs.exists(path)) return;
-  scene.add(buildObject(JSON.parse(fs.read_text(path))));
+  const targetScene = sc !== undefined ? sc : scene;
+  const idSet = buildIdSet(targetScene);
+  targetScene.add(buildObject(JSON.parse(fs.read_text(path)), targetScene, idSet));
 }

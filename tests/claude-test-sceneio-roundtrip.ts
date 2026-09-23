@@ -92,6 +92,7 @@ const data = objectToData(go);
 const restored = buildObject(data);
 const restoredData = objectToData(restored);
 
+check("Round-trip GameObject: id preservado", restored.id === go.id && typeof restored.id === "number");
 check("Round-trip GameObject: layer e mask", restored.layer === 2 && restored.mask === 0x0F);
 check("Round-trip GameObject: transform",
       restored.transform.px === 10.0 && restored.transform.py === 20.0 && restored.transform.pz === 30.0 &&
@@ -100,7 +101,7 @@ check("Round-trip GameObject: behaviors count", restored.behaviors.length === 3)
 check("Round-trip GameObject: data serializado bate", JSON.stringify(data) === JSON.stringify(restoredData));
 
 if (falhas === 0) {
-  io.print("[PASSOU] Round-trip sceneio completo (13/13)");
+  io.print("[PASSOU] Round-trip sceneio completo (14/14)");
 } else {
   io.print("[FALHA] Total de falhas: " + falhas);
 }
