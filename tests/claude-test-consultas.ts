@@ -589,6 +589,74 @@ const bldgHits: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOv
 const bldgOverlapCount = overlapSphereNonAlloc(targetBx, 1.0, targetBz, 5.0, bldgHits, 3, 0xFFFFFFFF, 1, false, scMulti);
 check("Multi-Tier: overlap no predio medio encontra predio e terreno", bldgOverlapCount === 2);
 
+// ── 13. Desacoplamento de staticVersion e Mutação Dinâmica Incremental ──
+const initialStatVer = scMulti.staticVersion;
+const initialCompVer = scMulti.compVersion;
+
+// 13.1 Spawn dinâmico: adicionar 50 projéteis dinâmicos
+const spawnedBullets: GameObject[] = [];
+let bi = 0;
+while (bi < 50) {
+  const bullet = new GameObject("Bullet" + bi);
+  bullet.stationary = 0;
+  bullet.setMesh(1, 255, 0, 0);
+  bullet.transform.setPosition(100.0 + bi * 2.0, 1.0, 100.0);
+  bullet.transform.setScale(0.5);
+  scMulti.add(bullet);
+  spawnedBullets.push(bullet);
+  bi = bi + 1;
+}
+
+check("Mutação dinâmica: staticVersion inalterada após spawn de dinâmicos", scMulti.staticVersion === initialStatVer);
+check("Mutação dinâmica: compVersion avançou após spawn", scMulti.compVersion > initialCompVer);
+
+scMulti.computeWorld();
+const t0SpawnRebuild = performance.now();
+spatialRebuildIndex(scMulti);
+const spawnRebuildDuration = performance.now() - t0SpawnRebuild;
+
+check("Mutação dinâmica: reconstrução sob spawn é rápida (< 2 ms)", spawnRebuildDuration < 2.0, "tempo=" + spawnRebuildDuration + " ms");
+
+// Consultas contra os projéteis recém-adicionados
+const bulletRayHit = createRaycastHit();
+const hitBullet = raycastNonAlloc(100.0, 10.0, 100.0, 0.0, -1.0, 0.0, 20.0, bulletRayHit, 0xFFFFFFFF, 1, false, scMulti);
+check("Mutação dinâmica: raycast atinge projétil recém-spawnado", hitBullet && bulletRayHit.bodyId === spawnedBullets[0].id);
+
+const bulletOverlapHits: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOverlapHit()];
+const bulletOverlapCount = overlapSphereNonAlloc(100.0, 1.0, 100.0, 2.0, bulletOverlapHits, 3, 0xFFFFFFFF, 1, false, scMulti);
+// Deve encontrar o projétil 0 e o terreno
+check("Mutação dinâmica: overlap encontra projétil spawnado e terreno", bulletOverlapCount >= 2);
+
+// O edifício estático anterior continua acessível intacto
+const hitBldgAfterSpawn = raycastNonAlloc(targetBx, 50.0, targetBz, 0.0, -1.0, 0.0, 100.0, bldgRayHit, 0xFFFFFFFF, 1, false, scMulti);
+check("Mutação dinâmica: grid estático preservado e prédios atingíveis", hitBldgAfterSpawn && bldgRayHit.bodyId === targetBldg!.id);
+
+// 13.2 Remoção dinâmica: remover o projétil 0
+const bullet0Id = spawnedBullets[0].id;
+let bullet0IndexInScene = -1;
+let fIdx = 0;
+while (fIdx < scMulti.objects.length) {
+  if (scMulti.objects[fIdx] === spawnedBullets[0]) {
+    bullet0IndexInScene = fIdx;
+    fIdx = scMulti.objects.length;
+  } else {
+    fIdx = fIdx + 1;
+  }
+}
+scMulti.removeAt(bullet0IndexInScene);
+check("Remoção dinâmica: staticVersion inalterada após remoção de dinâmico", scMulti.staticVersion === initialStatVer);
+
+scMulti.computeWorld();
+spatialRebuildIndex(scMulti);
+
+const hitOldBulletPos = raycastNonAlloc(100.0, 10.0, 100.0, 0.0, -1.0, 0.0, 20.0, bulletRayHit, 0xFFFFFFFF, 1, false, scMulti);
+// Na posição do projétil removido, o raio não deve atingir o projétil removido
+check("Remoção dinâmica: raio não atinge mais o projétil removido", !hitOldBulletPos || bulletRayHit.bodyId !== bullet0Id);
+
+// 13.3 Mutação estática explícita: markStaticDirty incrementa staticVersion
+scMulti.markStaticDirty();
+check("Mutação estática: markStaticDirty incrementa staticVersion", scMulti.staticVersion > initialStatVer);
+
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
 } else {
