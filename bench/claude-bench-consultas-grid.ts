@@ -158,6 +158,7 @@ interface SceneBenchResult {
   rayHitDist: f64;
   rayHitBodyId: number;
   overlapUs: f64;
+  overlapHits: number;
 }
 
 function executarBenchCena(
@@ -218,8 +219,9 @@ function executarBenchCena(
     r = r + 1;
   }
 
-  // Captura distância e bodyId de impacto para verificação de fidelidade
+  // Captura distância, bodyId e hits para verificação de fidelidade
   raycastNonAlloc(rayOx, rayOy, rayOz, rayDx, rayDy, rayDz, 50.0, rayHit, 0xFFFFFFFF, 1, false, sc);
+  const hitsFound = overlapSphereNonAlloc(overlapX, overlapY, overlapZ, 3.0, overlapBuf, 16, 0xFFFFFFFF, 1, false, sc);
 
   return {
     nome: nome,
@@ -229,6 +231,7 @@ function executarBenchCena(
     rayHitDist: rayHit.hit ? rayHit.distance : -1.0,
     rayHitBodyId: rayHit.hit ? rayHit.bodyId : -1,
     overlapUs: mediana(temposOverlap),
+    overlapHits: hitsFound,
   };
 }
 
@@ -247,19 +250,19 @@ const resSorteada = executarBenchCena(
   25.0, 25.0, 25.0,
 );
 
-// 3. Mista: raio inicia no alto (-5, 15, -5) disparando para baixo através dos dinâmicos em direção ao chão estático
+// 3. Mista: raio desce verticalmente por corredor dinâmico (30 u) atravessando células dinâmicas e atingindo o chão estático em y=0
 const resMista = executarBenchCena(
   "3. Mista (Chao 200x200 + 2k dyn)", criarCenaMista(2000), 2000,
-  -5.0, 15.0, -5.0,  1.0, -0.5, 1.0,
+  1.0, 30.0, 1.0,  0.0, -1.0, 0.0,
   10.0, 2.0, 10.0,
 );
 
 const resultados = [resAlinhada, resSorteada, resMista];
 
-io.print("┌───────────────────────────────────┬───────────────────┬───────────────────┬───────────────────────────────┐");
-io.print("│ Cena                              │ Rebuild / passo   │ Overlap (r=3)     │ Raycast (50 u)                │");
-io.print("│                                   │ (meta <= 0,35 ms) │ (meta <= 30 µs)   │ (meta <= 25 µs)               │");
-io.print("├───────────────────────────────────┼───────────────────┼───────────────────┼───────────────────────────────┤");
+io.print("┌───────────────────────────────────┬───────────────────┬───────────────────────────┬─────────────────────────────────┐");
+io.print("│ Cena                              │ Rebuild / passo   │ Overlap (r=3)             │ Raycast (50 u)                  │");
+io.print("│                                   │ (meta <= 0,35 ms) │ (meta <= 30 µs)           │ (meta <= 25 µs)                 │");
+io.print("├───────────────────────────────────┼───────────────────┼───────────────────────────┼─────────────────────────────────┤");
 
 let ri = 0;
 while (ri < resultados.length) {
@@ -270,13 +273,31 @@ while (ri < resultados.length) {
 
   const colNome = (res.nome + "                                   ").slice(0, 35);
   const colReb = ((res.rebuildMs.toFixed(3) + " ms [" + rebOk + "]") + "                   ").slice(0, 19);
-  const colOver = ((res.overlapUs.toFixed(1) + " µs [" + overOk + "]") + "                   ").slice(0, 19);
-  const rayInfo = res.raycastUs.toFixed(1) + " µs [" + rayOk + "] (d=" + res.rayHitDist.toFixed(1) + "u)";
-  const colRay = (rayInfo + "                               ").slice(0, 29);
+  const overInfo = res.overlapUs.toFixed(1) + " µs (" + res.overlapHits + "h) [" + overOk + "]";
+  const colOver = (overInfo + "                           ").slice(0, 25);
+  const rayInfo = res.raycastUs.toFixed(1) + " µs [" + rayOk + "] (d=" + res.rayHitDist.toFixed(1) + "u, id=" + res.rayHitBodyId + ")";
+  const colRay = (rayInfo + "                                 ").slice(0, 31);
 
   io.print("│ " + colNome + " │ " + colReb + " │ " + colOver + " │ " + colRay + " │");
   ri = ri + 1;
 }
-io.print("└───────────────────────────────────┴───────────────────┴───────────────────┴───────────────────────────────┘");
+io.print("└───────────────────────────────────┴───────────────────┴───────────────────────────┴─────────────────────────────────┘");
+
+io.print("\n=== Comparativo A/B contra Baseline 2572574 ===");
+io.print("┌───────────────────────────────────┬─────────────────────────┬─────────────────────────┐");
+io.print("│ Metrica                           │ 2572574 (Baseline)      │ Atual (Revisao 6)       │");
+io.print("├───────────────────────────────────┼─────────────────────────┼─────────────────────────┤");
+io.print("│ Cena 1 - Rebuild                  │ 0.353 ms                │ " + (resAlinhada.rebuildMs.toFixed(3) + " ms                 ").slice(0, 23) + " │");
+io.print("│ Cena 1 - Overlap (tempo e hits)   │ 36.1 µs (27 hits)       │ " + ((resAlinhada.overlapUs.toFixed(1) + " µs (" + resAlinhada.overlapHits + " hits)") + "                  ").slice(0, 23) + " │");
+io.print("│ Cena 1 - Raycast                  │ 6.4 µs (d=0.0u)         │ " + ((resAlinhada.raycastUs.toFixed(1) + " µs (d=" + resAlinhada.rayHitDist.toFixed(1) + "u)") + "            ").slice(0, 23) + " │");
+io.print("├───────────────────────────────────┼─────────────────────────┼─────────────────────────┤");
+io.print("│ Cena 2 - Rebuild                  │ 0.342 ms                │ " + (resSorteada.rebuildMs.toFixed(3) + " ms                 ").slice(0, 23) + " │");
+io.print("│ Cena 2 - Overlap (tempo e hits)   │ 13.1 µs (0 hits)        │ " + ((resSorteada.overlapUs.toFixed(1) + " µs (" + resSorteada.overlapHits + " hits)") + "                  ").slice(0, 23) + " │");
+io.print("│ Cena 2 - Raycast                  │ 21.1 µs (d=0.0u)        │ " + ((resSorteada.raycastUs.toFixed(1) + " µs (d=" + resSorteada.rayHitDist.toFixed(1) + "u)") + "            ").slice(0, 23) + " │");
+io.print("├───────────────────────────────────┼─────────────────────────┼─────────────────────────┤");
+io.print("│ Cena 3 - Rebuild                  │ 0.352 ms                │ " + (resMista.rebuildMs.toFixed(3) + " ms                 ").slice(0, 23) + " │");
+io.print("│ Cena 3 - Overlap (tempo e hits)   │ 45.2 µs (27 hits)       │ " + ((resMista.overlapUs.toFixed(1) + " µs (" + resMista.overlapHits + " hits)") + "                  ").slice(0, 23) + " │");
+io.print("│ Cena 3 - Raycast                  │ 6.4 µs (d=0.0u)         │ " + ((resMista.raycastUs.toFixed(1) + " µs (d=" + resMista.rayHitDist.toFixed(1) + "u)") + "            ").slice(0, 23) + " │");
+io.print("└───────────────────────────────────┴─────────────────────────┴─────────────────────────┘");
 
 io.print("\n=== Benchmark Concluido ===");
