@@ -525,6 +525,70 @@ check("Overlap na origem: encontra terreno e unidade normal", countAtOrigin === 
 const countAtBoss = overlapSphereNonAlloc(100.0, 5.0, 100.0, 10.0, largeHits, 3, 0xFFFFFFFF, 1, false, scLarge);
 check("Overlap no chefe colossal: encontra chefe e terreno", countAtBoss === 2);
 
+// ── 12. Grid Multinível: 100 Edifícios Médios (30x30), 2.000 Props Pequenos e Terreno 2.000 u ──
+const scMulti = new Scene("MultiTierGridTestScene");
+setSpatialScene(scMulti);
+
+// Terreno estático 2.000 x 2.000 u
+const groundMulti = new GameObject("GroundMulti");
+groundMulti.stationary = 1;
+groundMulti.setMesh(1, 100, 100, 100);
+groundMulti.transform.setPosition(0.0, -0.5, 0.0);
+groundMulti.transform.sx = 2000.0;
+groundMulti.transform.sy = 1.0;
+groundMulti.transform.sz = 2000.0;
+scMulti.add(groundMulti);
+
+// 2.000 props estáticos pequenos (escala 1.0 u)
+let p = 0;
+while (p < 2000) {
+  const prop = new GameObject("Prop" + p);
+  prop.stationary = 1;
+  prop.setMesh(1, 120, 120, 120);
+  const px = ((p % 50) - 25) * 8.0;
+  const pz = (((p / 50) | 0) - 20) * 8.0;
+  prop.transform.setPosition(px, 0.5, pz);
+  prop.transform.setScale(1.0);
+  scMulti.add(prop);
+  p = p + 1;
+}
+
+// 100 edifícios estáticos médios (30 x 30 x 30 u, hx=15)
+let bldg = 0;
+let targetBldg: GameObject | null = null;
+while (bldg < 100) {
+  const b = new GameObject("Bldg" + bldg);
+  b.stationary = 1;
+  b.setMesh(1, 180, 140, 100);
+  const bx = ((bldg % 10) - 5) * 70.0;
+  const bz = (((bldg / 10) | 0) - 5) * 70.0;
+  b.transform.setPosition(bx, 15.0, bz);
+  b.transform.setScale(30.0);
+  scMulti.add(b);
+  if (bldg === 0) targetBldg = b;
+  bldg = bldg + 1;
+}
+
+scMulti.computeWorld();
+const t0Multi = performance.now();
+spatialRebuildIndex(scMulti);
+const multiRebuildDuration = performance.now() - t0Multi;
+
+check("Multi-Tier: reconstrucao com 2.000 props, 100 predios e terreno rapida (< 15 ms)", multiRebuildDuration < 15.0, "tempo=" + multiRebuildDuration + " ms");
+
+// Raycast contra o edifício 0 (centro em bx=-350, y=15, bz=-350, topo em y=30)
+const bldgRayHit = createRaycastHit();
+const targetBx = ((0 % 10) - 5) * 70.0;
+const targetBz = (((0 / 10) | 0) - 5) * 70.0;
+const hitBldg = raycastNonAlloc(targetBx, 50.0, targetBz, 0.0, -1.0, 0.0, 100.0, bldgRayHit, 0xFFFFFFFF, 1, false, scMulti);
+check("Multi-Tier: raycast contra predio medio (30 u) atinge", hitBldg && bldgRayHit.bodyId === targetBldg!.id);
+check("Multi-Tier: raycast contra predio medio distancia ~20.0", hitBldg && math.abs(bldgRayHit.distance - 20.0) < 0.01, "dist=" + bldgRayHit.distance);
+
+// Overlap no centro do edifício 0 com r = 5.0 (deve encontrar o edifício e o terreno)
+const bldgHits: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOverlapHit()];
+const bldgOverlapCount = overlapSphereNonAlloc(targetBx, 1.0, targetBz, 5.0, bldgHits, 3, 0xFFFFFFFF, 1, false, scMulti);
+check("Multi-Tier: overlap no predio medio encontra predio e terreno", bldgOverlapCount === 2);
+
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
 } else {
