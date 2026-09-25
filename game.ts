@@ -26,6 +26,8 @@ import { scene, S } from "@editor/control/session";
 import { Transform } from "@engine/core/transform";
 import { loadSceneFrom } from "@editor/sceneio";
 import { drawGameUI } from "@engine/ui/game_ui";
+import { rigidStep } from "@engine/core/physics_backend";
+import { resolveMaterialTexture } from "@engine/render/material_tex";
 import { GameObject } from "@engine/core/gameobject";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh,
          frustumBegin, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
@@ -130,7 +132,9 @@ function frame(): void {
 
   // ── GAMEPLAY: no jogo os scripts rodam SEMPRE (não há botão Play/Pause) ────
   scene.update(dts);
-  scene.resolveCollisions();
+  // Mesmo decisor do editor (main.ts): Rust/GPU quando servem, CPU quando o
+  // backend recusa (casca, offset, eventos de contato, caixa girada).
+  if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
   scene.computeWorld();
 
   // ── RENDER pela câmera da cena ────────────────────────────────────────────
@@ -178,18 +182,20 @@ function frame(): void {
         let texArg = o.tex;
         if (o.textureId > 0) texArg = o.textureId;
         let emisArg = o.emissive;
+        let tileArg = 0.0;
         if (o.matIdx >= 0) {
           const m = o.behaviors[o.matIdx];
-          const tid = m.matTexId() | 0;
+          const tid = resolveMaterialTexture(WIN, m);
+          tileArg = m.matTile();
           if (tid > 0) texArg = tid; else texArg = m.matTexMode();
           emisArg = m.matEmissive();
         }
         if (customMesh > 0) {
           drawGPUMesh(WIN, customMesh, tr.wx, tr.wy, tr.wz,
-            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
+            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
         } else {
           drawGPU(WIN, meshKind, tr.wx, tr.wy, tr.wz,
-            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
+            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
         }
         drawnN = drawnN + 1;
       }

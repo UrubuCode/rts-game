@@ -144,6 +144,14 @@ export function rigidAutoHysteresis(): { ativo: number, candidate: number, strea
 /// `rigidMode`, porque pedir GPU e estar na CPU é exatamente o estado que
 /// alguém medindo precisa enxergar.
 export function rigidBackendName(): string {
+  // Quem de fato roda o passo: se algo na cena obriga a CPU, é ela, seja qual
+  // for o modo escolhido — o nome não pode prometer um backend que recusou.
+  if (pbModo !== PB_MODO_CPU) {
+    if (pbEventos > 0) return "cpu (eventos de contato)";
+    if (pbYaw > 0) return "cpu (caixas giradas)";
+    if (pbCascas > 0) return "cpu (cascas)";
+    if (pbOffsets > 0) return "cpu (colisor com offset)";
+  }
   if (pbModo === PB_MODO_AUTO) {
     const threads = crThreads();
     const ativo = pbAutoAtivo !== 0 ? pbAutoAtivo : (profBest(pbBodies, threads) === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST);

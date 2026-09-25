@@ -139,6 +139,10 @@ export class Behavior {
   matTexMode(): number { return 0; }
   /// Path da imagem aplicada ("" = nenhuma). Só exibição (slot do inspector).
   matTexPath(): string { return ""; }
+  /// Repetições da textura por unidade de MUNDO (0 = UV da malha).
+  matTile(): number { return 0; }
+  /// Nome de textura procedural (`proc_textures.ts`), "" se nenhuma.
+  matProc(): string { return ""; }
 
   // ── SURFACE DE CÂMERA (só o component Camera sobrescreve) ───────────────────
   /// Campo de visão vertical em radianos.

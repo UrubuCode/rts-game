@@ -8,7 +8,7 @@
 // HUD com números ao vivo + botão.
 import io from "@compat/io.ts";
 import { writeFileSync } from "node:fs";
-import { scene } from "@editor/control/session";
+import { scene, S } from "@editor/control/session";
 import { sceneToJSON } from "@editor/sceneio";
 import { GameObject, COL_BOX, COL_SPHERE } from "@engine/core/gameobject";
 import { Rigidbody } from "@scripts/rigidbody";
@@ -17,10 +17,20 @@ import { CONTACT_EVENTS_ENTER_EXIT } from "@engine/core/contact_events";
 import { UIText } from "@engine/core/ui_text";
 import { UIButton } from "@engine/core/ui_button";
 import { ANCHOR_BR } from "@engine/ui/anchor";
+import { Material } from "@engine/core/material";
 import { VitrineHud } from "../assets/scripts/VitrineHud";
 import { VitrineContador } from "../assets/scripts/VitrineContador";
 
 const PI = 3.141592653589793;
+
+/// Material com textura procedural (ou PNG, se `png` != "") e Tiling em mundo.
+function material(o: GameObject, procedural: string, png: string, tile: f64): void {
+  const m = new Material();
+  m.procedural = procedural;
+  m.texturePath = png;
+  m.tile = tile;
+  o.addBehavior(m);
+}
 
 function bloco(nome: string, x: f64, y: f64, z: f64, sx: f64, sy: f64, sz: f64, yaw: f64, r: number, g: number, b: number): GameObject {
   const o = new GameObject(nome);
@@ -37,15 +47,18 @@ function bloco(nome: string, x: f64, y: f64, z: f64, sx: f64, sy: f64, sz: f64, 
 scene.clear();
 scene.name = "Vitrine";
 
-// chão
-bloco("Chao", 0.0, -0.5, 0.0, 60.0, 1.0, 60.0, 0.0, 88, 94, 104);
+// chão de ladrilhos: 0,25 repetições por unidade = um ladrilho grande a cada 4 u
+material(bloco("Chao", 0.0, -0.5, 0.0, 60.0, 1.0, 60.0, 0.0, 225, 225, 230), "piso", "", 0.25);
+
+// muro do fundo com a textura PNG de tijolo (assets/textures/tijolo.png)
+material(bloco("Muro", 0.0, 3.0, 14.0, 30.0, 6.0, 1.0, 0.0, 255, 255, 255), "", "assets/textures/tijolo.png", 0.5);
 
 // blocos girados (OBB em Y): uma rampa de plataformas em leque
 let i = 0;
 while (i < 6) {
   const ang = (i / 6.0) * PI;
   const raio = 7.0;
-  bloco("Plataforma" + i, Math.cos(ang) * raio, 1.0 + i * 0.5, Math.sin(ang) * raio, 6.0, 0.6, 1.4, ang + PI / 2.0, 180 - i * 15, 140, 100 + i * 20);
+  material(bloco("Plataforma" + i, Math.cos(ang) * raio, 1.0 + i * 0.5, Math.sin(ang) * raio, 6.0, 0.6, 1.4, ang + PI / 2.0, 235, 225 - i * 10, 210), "madeira", "", 0.5);
   i = i + 1;
 }
 
@@ -81,6 +94,7 @@ while (i < 36) {
   c.events = CONTACT_EVENTS_ENTER_EXIT;
   o.addBehavior(c);
   o.addBehavior(new VitrineContador());
+  if (i % 2 === 0) material(o, "metal", "", 1.0);
   scene.add(o);
   i = i + 1;
 }
@@ -94,6 +108,9 @@ while (i < 36) {
   h.addBehavior(new VitrineHud());
   scene.add(h);
 }
+
+// câmera: de frente para o muro de tijolo, vendo o chão e as plataformas
+S.camX = 0.0; S.camY = 7.0; S.camZ = -16.0; S.camYaw = 0.0; S.camPitch = 0.0 - 0.25;
 
 const json = sceneToJSON();
 writeFileSync("scenes/vitrine.json", json, "utf8");

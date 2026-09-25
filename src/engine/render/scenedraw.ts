@@ -12,6 +12,7 @@ import { Transform } from "../core/transform";
 import { Scene } from "../core/scene";
 import { renderX, renderY, renderZ } from "../core/interpolate";
 import { drawGPU, drawGPUMesh, drawBatch, meshIdFor, meshRadius } from "./gpu3d";
+import { resolveMaterialTexture } from "./material_tex";
 
 // ── LOTE: os buffers de instância, REAPROVEITADOS entre frames ──────────────
 //
@@ -76,6 +77,9 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
                           cyw: f64, syw: f64, cpt: f64, spt: f64,
                           tanH: f64, tanV: f64): number {
   let drawnN = 0;
+  // Entradas no lote: difere de drawnN quando um objeto com tiling vai pelo
+  // desenho individual (o lote não carrega `tile`).
+  let loteN = 0;
   let oi = 0;
   if (emitirEmLote !== 0) garanteCapacidade(n);
   while (oi < n) {
@@ -137,9 +141,11 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
       let texArg = o.tex;
       if (o.textureId > 0) texArg = o.textureId;
       let emisArg = o.emissive;
+      let tileArg = 0.0;
       if (o.matIdx >= 0) {
         const m = o.behaviors[o.matIdx];
-        const tid = m.matTexId() | 0;
+        const tid = resolveMaterialTexture(win, m);
+        tileArg = m.matTile();
         if (tid > 0) texArg = tid; else texArg = m.matTexMode();
         emisArg = m.matEmissive();
       }
@@ -151,14 +157,16 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
       const rx = renderX(sc, oi, alpha);
       const ry = renderY(sc, oi, alpha);
       const rz = renderZ(sc, oi, alpha);
-      if (emitirEmLote !== 0) {
+      // Tiling não viaja no lote (4 códigos por objeto): quem tem vai pelo
+      // desenho individual, que carrega o `tile`.
+      if (emitirEmLote !== 0 && tileArg <= 0.0) {
         // ACUMULA. A escrita num array tipado é local; o que ela substitui é uma
         // ida ao nativo por objeto, e é essa a diferença que a medição procura.
-        const ft = drawnN * 8;
+        const ft = loteN * 8;
         bufT[ft] = rx; bufT[ft + 1] = ry; bufT[ft + 2] = rz;
         bufT[ft + 3] = tr.wrx; bufT[ft + 4] = tr.wry;
         bufT[ft + 5] = tr.sx; bufT[ft + 6] = tr.sy; bufT[ft + 7] = tr.sz;
-        const ct = drawnN * 4;
+        const ct = loteN * 4;
         bufC[ct] = customMesh > 0 ? customMesh : meshIdFor(meshKind);
         bufC[ct + 1] = col;
         bufC[ct + 2] = emisArg;
@@ -167,12 +175,13 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
         // mesmo (id inexistente = sem textura), mas igual por acidente não é
         // igual: o pedido é que o editor desenhe idêntico.
         bufC[ct + 3] = texArg < 0 ? 0 : texArg;
+        loteN = loteN + 1;
       } else if (customMesh > 0) {
         drawGPUMesh(win, customMesh, rx, ry, rz,
-          tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
+          tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
       } else {
         drawGPU(win, meshKind, rx, ry, rz,
-          tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg);
+          tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
       }
       drawnN = drawnN + 1;
     }
@@ -181,8 +190,8 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
   // UMA travessia com o que sobreviveu ao frustum. O `subarray` é uma view sobre
   // o mesmo buffer — não copia — e é o que impede o nativo de ler as sobras do
   // frame anterior, que continuam no fim do array reaproveitado.
-  if (emitirEmLote !== 0 && drawnN > 0) {
-    drawBatch(win, bufT.subarray(0, drawnN * 8), bufC.subarray(0, drawnN * 4));
+  if (emitirEmLote !== 0 && loteN > 0) {
+    drawBatch(win, bufT.subarray(0, loteN * 8), bufC.subarray(0, loteN * 4));
   }
   return drawnN;
 }

@@ -21,7 +21,7 @@ function mediana(a: f64[]): f64 {
 
 check(fs.exists("scenes/vitrine.json"), "scenes/vitrine.json existe (gerar com rts.exe run tools/gerar-vitrine.ts)");
 sceneFromJSON(fs.read_text("scenes/vitrine.json"));
-check(scene.objects.length === 1 + 6 + 1 + 36 + 1, "45 objetos carregados");
+check(scene.objects.length === 1 + 1 + 6 + 1 + 36 + 1, "46 objetos carregados (com o muro)");
 check(scene.uiObjs.length === 1, "o HUD e o unico objeto de UI");
 
 rigidSetMode(0);

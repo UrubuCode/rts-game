@@ -44,6 +44,7 @@ import {
   winWidth as eguiWinWidth, winHeight as eguiWinHeight,
 } from "rts:egui";
 import math from "@compat/math.ts";
+import { decodePNG } from "./png";
 import fs from "@compat/fs.ts";
 
 const PI: number = 3.14159265358979;
@@ -283,23 +284,25 @@ export function uploadTexture(win: number, pixels: Uint8Array, w: number, h: num
   return texId;
 }
 
-/// AUSENTE NO MOTOR NOVO — lança.
+/// Carrega uma textura de IMAGEM do disco e devolve o id de GPU (cacheado pelo
+/// caminho: a segunda chamada não relê nem reenvia).
 ///
-/// Ia de um arquivo PNG/JPG/BMP/WebP até pixels RGBA8 via `rts:imgdec`, e esse
-/// namespace não existe na superfície nova. Não há substituto: decodificar PNG
-/// em TypeScript aqui seria escrever um decodificador de imagem dentro do
-/// caminho de render, e inventar um nome parecido daria uma função que compila e
-/// devolve textura preta.
-///
-/// Lançar, e não devolver 0, porque um 0 vira um objeto sem textura vários
-/// frames depois de o arquivo ter sido arrastado — o erro fica longe da causa.
-/// Quem já tem os pixels usa `uploadTexture`.
+/// Só PNG (RGBA ou RGB, 8 bits, sem interlace), decodificado em TypeScript por
+/// `png.ts`: o runtime novo não tem `rts:imgdec`. Outro formato lança com o
+/// motivo — lançar, e não devolver 0, porque um 0 vira um objeto sem textura
+/// vários frames depois e o erro fica longe da causa.
+/// Maior lado aceito para uma textura de imagem.
+const LOAD_TEXTURE_MAX_PIXELS = 4096;
+
 export function loadTexture(win: number, path: string): number {
-  throw new Error(
-    "loadTexture ausente no motor novo: `rts:imgdec` (decode de PNG/JPG/BMP/WebP) " +
-    "não existe na superfície nova, e sem ele não há como ir de \"" + path + "\" " +
-    "até pixels RGBA8. Quem já tiver os pixels use uploadTexture(win, pixels, w, h, key)."
-  );
+  const hit = texCache.get(path);
+  if (hit !== undefined && hit > 0) return hit;
+  if (!path.toLowerCase().endsWith(".png")) {
+    throw new Error("loadTexture: so PNG e suportado neste runtime (sem rts:imgdec); '" + path + "' nao e .png");
+  }
+  if (!fs.exists(path)) throw new Error("loadTexture: arquivo nao encontrado: " + path);
+  const img = decodePNG(fs.read_all(path), LOAD_TEXTURE_MAX_PIXELS);
+  return uploadTexture(win, img.pixels, img.width, img.height, path);
 }
 
 /// Enfileira um draw de um mesh id ARBITRÁRIO (ex.: .obj carregado), fora do
@@ -311,10 +314,10 @@ export function loadTexture(win: number, path: string): number {
 /// campo a campo como número — não há param tipado pra bitcastar.
 export function drawGPUMesh(win: number, meshId: number, px: number, py: number, pz: number,
                            rx: number, ry: number, sx: number, sy: number, sz: number,
-                           color: number, emissive: number, tex: number): void {
+                           color: number, emissive: number, tex: number, tile: number = 0.0): void {
   drawMesh(win, {
     mesh: meshId, x: px, y: py, z: pz, rx: rx, ry: ry,
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex,
+    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: tile,
   });
 }
 
@@ -466,12 +469,15 @@ export function drawBatch(win: number, transforms: Float32Array, codes: Uint32Ar
 }
 
 /// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).
+/// `tile` > 0: textura em coordenada de MUNDO, `tile` repetições por unidade
+/// (ver `proc_textures.ts`); 0 = UV da malha. Precisa de runtime com `tile`
+/// no `drawMesh` — um runtime antigo ignora o campo e estica a textura.
 export function drawGPU(win: number, kind: number, px: number, py: number, pz: number,
                         rx: number, ry: number, sx: number, sy: number, sz: number, color: number,
-                        emissive: number, tex: number): void {
+                        emissive: number, tex: number, tile: number = 0.0): void {
   const id = meshIdFor(kind);
   drawMesh(win, {
     mesh: id, x: px, y: py, z: pz, rx: rx, ry: ry,
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex,
+    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: tile,
   });
 }

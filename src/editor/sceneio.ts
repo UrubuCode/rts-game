@@ -122,6 +122,8 @@ function recreateBehaviorInner(sd: any): Behavior {
   if (t === "material") {
     const m = new Material();
     m.emissive = sd.emissive; m.texChecker = sd.texChecker; m.texturePath = sd.texturePath;
+    if (sd.tile !== undefined) m.tile = sd.tile;
+    if (sd.procedural !== undefined) m.procedural = sd.procedural;
     return m;   // textureId (GPU) não serializa; re-aplicar via loadtex/path
   }
   if (t === "meshRenderer") {
