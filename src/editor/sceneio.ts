@@ -24,6 +24,8 @@ import { Animator } from "../scripts/animator";
 import { AudioSource } from "../scripts/audiosource";
 import { PhysicsMaterial } from "../scripts/physicsmaterial";
 import { Collider, SHAPE_BOX } from "../engine/core/collider";
+import { UIText } from "../engine/core/ui_text";
+import { UIButton } from "../engine/core/ui_button";
 import { hullForMesh } from "../engine/core/hullmesh";
 import { setLight, setAmbient } from "../engine/render/mesh";
 import { loadModel } from "../engine/render/model";
@@ -80,6 +82,14 @@ function recreateBehaviorInner(sd: any): Behavior {
     return physical;
   }
   if (t === "sceneRef") return new SceneRef(sd.scenePath);
+  if (t === "uiText") return new UIText(sd.text, sd.size, sd.color, sd.anchor);
+  if (t === "uiButton") {
+    const ub = new UIButton(sd.label, sd.w, sd.h, sd.anchor);
+    if (sd.color !== undefined) ub.color = sd.color;
+    if (sd.hoverColor !== undefined) ub.hoverColor = sd.hoverColor;
+    if (sd.textColor !== undefined) ub.textColor = sd.textColor;
+    return ub;
+  }
   // COLLIDER. A forma que colide, incluindo a que ACOMPANHA a geometria.
   //
   // A casca NÃO é serializada: `hullId` é um índice num registro de processo, e

@@ -15,7 +15,9 @@ import { Orbit as Component10 } from "../../scripts/orbit";
 import { Patrol as Component11 } from "../../scripts/patrol";
 import { Pulse as Component12 } from "../../scripts/pulse";
 import { Spinner as Component13 } from "../../scripts/spinner";
-import { AudioSource as Component14 } from "../../scripts/audiosource";
+import { UIButton as Component14 } from "../core/ui_button";
+import { UIText as Component15 } from "../core/ui_text";
+import { AudioSource as Component16 } from "../../scripts/audiosource";
 class GeneratedReflection extends ComponentReflection {
   create(name: string): any { return createRegisteredComponent(name); }
   name(component: any): string {
@@ -62,6 +64,12 @@ class GeneratedReflection extends ComponentReflection {
       return "Spinner";
     }
     if (component instanceof Component14) {
+      return "UIButton";
+    }
+    if (component instanceof Component15) {
+      return "UIText";
+    }
+    if (component instanceof Component16) {
       return "AudioSource";
     }
     return "Script";
@@ -110,6 +118,12 @@ class GeneratedReflection extends ComponentReflection {
       return 2;
     }
     if (component instanceof Component14) {
+      return 0;
+    }
+    if (component instanceof Component15) {
+      return 0;
+    }
+    if (component instanceof Component16) {
       return 0;
     }
     return 0;
@@ -185,6 +199,14 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component14) {
+
+      return "";
+    }
+    if (component instanceof Component15) {
+
+      return "";
+    }
+    if (component instanceof Component16) {
 
       return "";
     }
@@ -264,6 +286,14 @@ class GeneratedReflection extends ComponentReflection {
 
       return "number";
     }
+    if (component instanceof Component15) {
+
+      return "number";
+    }
+    if (component instanceof Component16) {
+
+      return "number";
+    }
     return "number";
   }
   fieldGet(component: any, index: number): f64 {
@@ -337,6 +367,14 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component14) {
+
+      return 0;
+    }
+    if (component instanceof Component15) {
+
+      return 0;
+    }
+    if (component instanceof Component16) {
 
       return 0;
     }
@@ -416,6 +454,14 @@ class GeneratedReflection extends ComponentReflection {
 
       return "";
     }
+    if (component instanceof Component15) {
+
+      return "";
+    }
+    if (component instanceof Component16) {
+
+      return "";
+    }
     return "";
   }
   fieldSet(component: any, index: number, value: f64): void {
@@ -489,6 +535,14 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component14) {
+
+      return;
+    }
+    if (component instanceof Component15) {
+
+      return;
+    }
+    if (component instanceof Component16) {
 
       return;
     }
@@ -567,6 +621,14 @@ class GeneratedReflection extends ComponentReflection {
 
       return;
     }
+    if (component instanceof Component15) {
+
+      return;
+    }
+    if (component instanceof Component16) {
+
+      return;
+    }
   }
   serialize(component: any): any {
     if (component instanceof Component0) {
@@ -612,6 +674,12 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component14) {
+      return null;
+    }
+    if (component instanceof Component15) {
+      return null;
+    }
+    if (component instanceof Component16) {
       return null;
     }
     return null;
@@ -660,6 +728,12 @@ class GeneratedReflection extends ComponentReflection {
       return { "speedY": component["speedY"], "speedX": component["speedX"] };
     }
     if (component instanceof Component14) {
+      return null;
+    }
+    if (component instanceof Component15) {
+      return null;
+    }
+    if (component instanceof Component16) {
       return null;
     }
     return null;
@@ -733,6 +807,12 @@ class GeneratedReflection extends ComponentReflection {
     if (component instanceof Component14) {
       return;
     }
+    if (component instanceof Component15) {
+      return;
+    }
+    if (component instanceof Component16) {
+      return;
+    }
   }
 }
 componentMetadata.provider = new GeneratedReflection();
@@ -751,7 +831,9 @@ export function createRegisteredComponent(name: string): Behavior {
   if (name === "Patrol") return new Component11();
   if (name === "Pulse") return new Component12();
   if (name === "Spinner") return new Component13();
-  if (name === "AudioSource") return new Component14();
+  if (name === "UIButton") return new Component14();
+  if (name === "UIText") return new Component15();
+  if (name === "AudioSource") return new Component16();
   throw new Error("Componente nao registrado: " + name);
 }
 export function restoreRegisteredComponent(data: any): any {

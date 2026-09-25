@@ -30,6 +30,7 @@ import { ScriptEditor } from "@editor/script_editor";
 import { UI_SCRIPT_DROP, UI_CODE_EDITOR } from "@editor/ui_config";
 import { PreferencesPanel } from "@editor/preferences_panel";
 import { PlayToolbar } from "@editor/play_toolbar";
+import { drawGameUI } from "@engine/ui/game_ui";
 import { playMode } from "@editor/play_mode";
 import { UI_PLAY } from "@editor/ui_config";
 import { UI_WORKSPACE, UI_DOCUMENT } from "@editor/ui_config";
@@ -852,6 +853,8 @@ function frame(): void {
   secBegin(P_UI);
   secBegin(P_UI_GIZ);
   S.drawnLast = drawnN;   // nº de objetos desenhados neste frame (diagnóstico via ws 'dbg')
+  // UI do JOGO (UIText/UIButton da cena) aparece no Play, como na build.
+  if (S.simulating !== 0) drawGameUI(scene, WIN, W, H);
 
   // ── GIZMO 2D: eixos X/Y/Z coloridos sobre a viewport (over o 3D, sob a UI). O
   // eixo pego fica destacado (branco). Move/Rotate/Scale usam os mesmos eixos. ──

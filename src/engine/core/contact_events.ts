@@ -18,8 +18,8 @@
 // helpers têm até 4 parâmetros, e o estado é um conjunto de arrays paralelos
 // de números (um objeto por par seria uma alocação por par).
 
-import { GameObject } from "./gameobject";
-import { Behavior } from "./behavior";
+import { GameObject } from "@engine/core/gameobject";
+import { Behavior } from "@engine/core/behavior";
 
 export const CONTACT_EVENTS_NONE = 0;
 export const CONTACT_EVENTS_ENTER_EXIT = 1;

@@ -57,6 +57,15 @@ export class Behavior {
   onTriggerStay(c: ContactInfo): void {}
   onTriggerExit(c: ContactInfo): void {}
 
+  // ── UI do jogo (src/engine/ui/game_ui.ts) ────────────────────────────────
+  /// Um componente KIND_UI clicável responde 1 no frame do clique.
+  uiClicked(): number { return 0; }
+  /// Nome que o clique carrega (o rótulo do botão).
+  uiName(): string { return ""; }
+  /// Recebido por TODOS os behaviors habilitados do objeto cujo botão foi
+  /// clicado — o script do botão é um irmão, como o OnClick da Unity.
+  onUIClick(name: string): void {}
+
   /// Um backend EXTERNO (GPU ou o solver em Rust) assumiu (`1`) ou devolveu
   /// (`0`) a simulação do corpo dono. Quem INTEGRA movimento sobrescreve e para
   /// de integrar enquanto estiver ligado: o backend já aplica gravidade e move

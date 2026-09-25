@@ -3,7 +3,7 @@
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
 import { Transform } from "./transform";
-import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER } from "./behavior";
+import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI } from "./behavior";
 import { Material } from "./material";
 
 /// Formas de colisor (ver `GameObject.colShape`).
@@ -23,6 +23,13 @@ export function getNextGameObjectId(): number {
 }
 
 // meshKind: 0 = vazio (só nó), 1 = cubo. (grid/luz/câmera entram depois)
+/// Quem quer saber quando um objeto ganha ou perde componente de UI: a Scene
+/// mantém a lista de objetos com UI sem varrer a cena (ver `Scene.uiObjs`).
+/// Interface e não `Scene` para não criar ciclo de import.
+export interface UIOwner {
+  uiChanged(go: GameObject): void;
+}
+
 export class GameObject {
   /// Identificador estável e monotônico do corpo na cena (Lote B, §5.4).
   id: number;
@@ -89,6 +96,11 @@ export class GameObject {
   /// no laço mais quente. -1 é o caminho LEGADO, não um erro: cenas antigas não
   /// têm Collider e continuam colidindo pela escala.
   colIdx: number;
+  /// Índice do primeiro component de UI (KIND_UI) em behaviors, -1 se nenhum.
+  /// Cache para o pass de UI do jogo achar quem tem UI sem varrer behaviors.
+  uiIdx: number;
+  /// A cena que registra este objeto na lista de UI (null fora de cena).
+  uiOwner: UIOwner | null;
   /// Índice deste objeto nas tabelas paralelas do índice espacial (sObjs), ou -1 se não indexado.
   spatialSlot: number;
   /// Índice deste objeto no array sDynamicIndices do índice espacial, ou -1 se não dinâmico normal.
@@ -123,6 +135,8 @@ export class GameObject {
     this.matIdx = 0 - 1;
     this.rendIdx = 0 - 1;
     this.colIdx = 0 - 1;
+    this.uiIdx = 0 - 1;
+    this.uiOwner = null;
     this.spatialSlot = 0 - 1;
     this.spatialDynSlot = 0 - 1;
     this.sceneIndex = 0 - 1;
@@ -147,6 +161,9 @@ export class GameObject {
     this.matIdx = this.componentIdx(KIND_MATERIAL);
     this.rendIdx = this.componentIdx(KIND_RENDERER);
     this.colIdx = this.componentIdx(KIND_COLLIDER);
+    const hadUI = this.uiIdx;
+    this.uiIdx = this.componentIdx(KIND_UI);
+    if (this.uiOwner !== null && (hadUI >= 0) !== (this.uiIdx >= 0)) this.uiOwner.uiChanged(this);
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.

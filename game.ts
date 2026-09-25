@@ -25,6 +25,7 @@ import { createAppAt } from "@compat/app.ts";
 import { scene, S } from "@editor/control/session";
 import { Transform } from "@engine/core/transform";
 import { loadSceneFrom } from "@editor/sceneio";
+import { drawGameUI } from "@engine/ui/game_ui";
 import { GameObject } from "@engine/core/gameobject";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh,
          frustumBegin, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
@@ -193,6 +194,8 @@ function frame(): void {
     oi = oi + 1;
   }
   S.drawnLast = drawnN;
+  // ── UI do jogo (UIText/UIButton da cena) por cima do 3D ─────────────────
+  drawGameUI(scene, WIN, W, H);
   app.endFrame();
 }
 

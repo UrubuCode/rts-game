@@ -99,6 +99,20 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/spinner.ts"
   },
   {
+    "name": "UIButton",
+    "category": "UI",
+    "description": "Botão na tela do jogo; o clique chega em onUIClick(label) dos scripts do mesmo objeto.",
+    "keywords": "ui botao button clique",
+    "source": "src/engine/core/ui_button.ts"
+  },
+  {
+    "name": "UIText",
+    "category": "UI",
+    "description": "Texto na tela do jogo, ancorado a um canto da janela.",
+    "keywords": "ui texto hud label",
+    "source": "src/engine/core/ui_text.ts"
+  },
+  {
     "name": "AudioSource",
     "category": "Áudio",
     "description": "Emite som a partir do objeto.",

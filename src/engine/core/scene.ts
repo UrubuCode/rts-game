@@ -114,6 +114,10 @@ export class Scene {
   spatialIndex: SceneSpatialIndex | null;
   /// Eventos de contato desta cena (Lote B2); ver contact_events.ts.
   contacts: ContactEvents;
+  /// Objetos desta cena com componente de UI (UIText, UIButton…), mantida em
+  /// `add`/`removeAt`/`clear` e por `GameObject.refreshComponentCache` via
+  /// `uiChanged`. O pass de UI do jogo lê daqui: zero varredura por frame.
+  uiObjs: GameObject[];
 
   constructor(name: string) {
     this.name = name;
@@ -132,6 +136,7 @@ export class Scene {
     this.trs = [];
     this.spatialIndex = null;
     this.contacts = new ContactEvents();
+    this.uiObjs = [];
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
@@ -159,6 +164,18 @@ export class Scene {
     }
   }
 
+  /// `GameObject.refreshComponentCache` avisa quando o objeto ganhou ou perdeu
+  /// componente de UI depois de estar na cena.
+  uiChanged(go: GameObject): void {
+    if (go.uiIdx >= 0) { if (this.uiObjs.indexOf(go) < 0) this.uiObjs.push(go); }
+    else this.uiForget(go);
+  }
+
+  uiForget(go: GameObject): void {
+    const k = this.uiObjs.indexOf(go);
+    if (k >= 0) this.uiObjs.splice(k, 1);
+  }
+
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
   markStaticDirty(): void {
     this.markCollidersDirty();
@@ -168,6 +185,8 @@ export class Scene {
     go.refreshCollide();   // mantém o cache de colisão em dia (ver collideFlag)
     this.objects.push(go);
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
+    go.uiOwner = this;
+    if (go.uiIdx >= 0) this.uiObjs.push(go);
     if (bodyTypeOf(go) === BODY_STATIC) {
       this.markCollidersDirty();
     } else {
@@ -209,8 +228,11 @@ export class Scene {
 
   /// Esvazia a cena (pra carregar outra por cima).
   clear(): void {
+    let i = 0;
+    while (i < this.objects.length) { this.objects[i].uiOwner = null; i = i + 1; }
     this.objects = [];
     this.trs = [];
+    this.uiObjs.length = 0;
     this.markStaticDirty();
   }
 
@@ -335,6 +357,8 @@ export class Scene {
     this.objects.length = w;
     this.trs.length = w;
     removedObj.sceneIndex = 0 - 1;
+    removedObj.uiOwner = null;
+    if (removedObj.uiIdx >= 0) this.uiForget(removedObj);
 
     if (isStatic) {
       this.markCollidersDirty();
