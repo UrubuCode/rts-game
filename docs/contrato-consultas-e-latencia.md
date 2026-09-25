@@ -315,7 +315,8 @@ Para evitar patologias de inflação dimensional e fragmentação de hash em cen
    - Status / Solução futura: Adoção de hierarquia esparsa (BVH/Quadtree) para macro-terrenos caso mundos com múltiplos blocos colossais sejam necessários.
 
 
-4. **Dívida Arquitetural: Estado Global de Módulo vs Instância `SpatialIndex` por Scene:**
-   - Atualmente, `spatial_queries.ts` mantém seu estado interno indexado através de variáveis de escopo de módulo (`sStaticHead`, `sDynHead`, etc., somando variáveis de estado no arquivo).
-   - **Impacto:** Essa abordagem atende perfeitamente ao jogo com uma única cena ativa de simulação, mas impede consultas simultâneas independentes em múltiplas cenas (ex.: cena de gameplay simulando em paralelo a uma cena de pré-visualização, baking ou UI isolada).
-   - **Plano de Transição:** Conforme pactuado na Revisão 3 do PR #9, a transição estrutural para encapsular o índice em uma classe/struct dedicada `SpatialIndex` acoplada por cena (`scene.spatialIndex`) será realizada em um **PR subsequente dedicado**, permitindo isolamento cirúrgico de risco e revisão focada sem misturar mutações de ciclo de vida com otimizações de DDA e pooling.
+4. **Estado Global de Módulo vs Instância `SpatialIndex` por Scene (RESOLVIDO no PR #12, 2026-09-25):**
+   - Cada `Scene` tem o seu `SpatialIndex` (`scene.spatialIndex`, instanciado sob demanda por `getSpatialIndex`); as funções livres de consulta e rebuild mantêm a assinatura. Consultas em cenas distintas são independentes (§18 de `tests/claude-test-consultas.ts`).
+   - **Achado no caminho:** o bench estourava as 524.288 células do RTS não por retenção de cenas, mas por um helper de 9 parâmetros que escrevia num elemento de `outHits` e retornava cedo — no compilador atual isso aloca um bloco de spill **por chamada** ([rts#2760](https://github.com/UrubuCode/rts/issues/2760)); e o alocador não funde células livres soltas em runs, então um span de 3 células morria com 91 % do heap livre. Regra prática para caminhos quentes: helpers com até 4 parâmetros, sem `const t = arr[i]` seguido de escrita, retorno único; medir com `RTS_GC_DEBUG=1` por escala (10× chamadas → 10× coletas prova alocação por chamada).
+   - Linhas por objeto pré-alocadas com `new Array(cap).fill` (elementos de array vivem fora do heap de células): 1º rebuild de 2.000 objetos 5,5 ms → 4,5 ms.
+   - Resíduo registrado: em 200 k consultas o índice por cena faz ~35 % mais coletas que a versão global (35/27 vs 26/18); a versão global também aloca por consulta, mesma família do rts#2760.
