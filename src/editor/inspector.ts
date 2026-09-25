@@ -108,7 +108,7 @@ export class Inspector extends Behavior {
     if (active.value !== object.active) { this.snapshot(); object.active = active.value; scene.markCollidersDirty(); }
     const stationary = this.ui.control("Static", "toggle", x + width / 2, flagsY, width / 2 - L.padding, L.rowH, L.stationary, this.enabledInput);
     stationary.value = object.stationary; this.ui.draw(stationary);
-    if (stationary.value !== object.stationary) { this.snapshot(); object.stationary = stationary.value; scene.markCollidersDirty(); }
+    if (stationary.value !== object.stationary) { this.snapshot(); object.stationary = stationary.value; scene.markStaticDirty(); }
     const available = Math.max(0, this.bottom - this.top);
     const maxBefore = Math.max(0, this.contentHeight - available);
     if (this.enabledInput && mx >= x && mx < x + width && my >= this.top && my < this.bottom) {
@@ -136,12 +136,15 @@ export class Inspector extends Behavior {
     if (this.transformOpen) {
       const transform = object.transform;
       const position = this.vector("Transform/Position", rowY, L.position, [transform.px, transform.py, transform.pz]);
+      // Mover um ESTATICO invalida o indice espacial estatico (o dinamico segue o transform sozinho).
+      if (object.stationary !== 0 && (position[0] !== transform.px || position[1] !== transform.py || position[2] !== transform.pz)) scene.markCollidersDirty();
       transform.px = position[0]; transform.py = position[1]; transform.pz = position[2];
       rowY = rowY + L.rowH;
       const rxDegrees = transform.rx * DEGREES_PER_RADIAN;
       const ryDegrees = transform.ry * DEGREES_PER_RADIAN;
       const rzDegrees = transform.rz * DEGREES_PER_RADIAN;
       const rotation = this.vector("Transform/Rotation", rowY, L.rotation, [rxDegrees, ryDegrees, rzDegrees]);
+      if (object.stationary !== 0 && (rotation[0] !== rxDegrees || rotation[1] !== ryDegrees || rotation[2] !== rzDegrees)) scene.markCollidersDirty();
       if (rotation[0] !== rxDegrees) transform.rx = rotation[0] / DEGREES_PER_RADIAN;
       if (rotation[1] !== ryDegrees) transform.ry = rotation[1] / DEGREES_PER_RADIAN;
       if (rotation[2] !== rzDegrees) transform.rz = rotation[2] / DEGREES_PER_RADIAN;

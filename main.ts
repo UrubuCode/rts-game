@@ -769,6 +769,7 @@ function frame(): void {
           if (gizmoAxis === 0) so.transform.px = so.transform.px + mv;
           if (gizmoAxis === 1) so.transform.py = so.transform.py + mv;
           if (gizmoAxis === 2) so.transform.pz = so.transform.pz + mv;
+          if (so.stationary !== 0) scene.markCollidersDirty();
         } else if (S.tool === TOOL_SCALE) {
           const sc: f64 = mv * 0.6;
           if (gizmoAxis === 0) so.transform.sx = so.transform.sx + sc;
@@ -783,6 +784,7 @@ function frame(): void {
           if (gizmoAxis === 0) so.transform.rx = so.transform.rx + rt;
           if (gizmoAxis === 1) so.transform.ry = so.transform.ry + rt;
           if (gizmoAxis === 2) so.transform.rz = so.transform.rz + rt;
+          if (so.stationary !== 0) scene.markCollidersDirty();
         }
         // SNAP to grid (move 0.5 / rotate 15°=~0.2618 rad)
         if (S.snap !== 0 && S.tool === TOOL_MOVE) {
