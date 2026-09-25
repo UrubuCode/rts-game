@@ -102,6 +102,10 @@ export class Collider extends Behavior {
   /// `1` = detecta contato mas não empurra ninguém. É o `isTrigger` da Unity, e
   /// serve para zonas de gatilho — o objeto passa através e o jogo fica sabendo.
   trigger: number;
+  /// Eventos de contato para os scripts deste objeto: 0 nenhum, 1 enter/exit,
+  /// 2 também stay. Opt-in por colisor, como Box2D/Rapier: só pares com um
+  /// lado inscrito são registrados pela narrow phase.
+  events: number;
 
   constructor(shape: number = SHAPE_BOX) {
     super();
@@ -113,6 +117,7 @@ export class Collider extends Behavior {
     this.hx = 0.5; this.hy = 0.5; this.hz = 0.5;
     this.hullId = 0;
     this.trigger = 0;
+    this.events = 0;
   }
 
   kind(): number { return KIND_COLLIDER; }
@@ -127,6 +132,7 @@ export class Collider extends Behavior {
   cShape(): number { return this.shape; }
   cHullId(): number { return this.hullId; }
   cTrigger(): number { return this.trigger; }
+  cEvents(): number { return this.events; }
   cCenterX(): f64 { return this.cx; }
   cCenterY(): f64 { return this.cy; }
   cCenterZ(): f64 { return this.cz; }
@@ -135,7 +141,7 @@ export class Collider extends Behavior {
   cHalfZ(): f64 { return this.hz; }
 
   // ── inspector ──────────────────────────────────────────────────────────
-  fieldCount(): number { return 7; }
+  fieldCount(): number { return 8; }
   fieldLabel(i: number): string {
     if (i === 0) return "Shape";
     if (i === 1) return "Center X";
@@ -143,7 +149,8 @@ export class Collider extends Behavior {
     if (i === 3) return "Center Z";
     if (i === 4) return "Size X";
     if (i === 5) return "Size Y";
-    return "Size Z";
+    if (i === 6) return "Size Z";
+    return "Events";
   }
   fieldGet(i: number): f64 {
     if (i === 0) return this.shape * 1.0;
@@ -152,7 +159,8 @@ export class Collider extends Behavior {
     if (i === 3) return this.cz;
     if (i === 4) return this.hx;
     if (i === 5) return this.hy;
-    return this.hz;
+    if (i === 6) return this.hz;
+    return this.events * 1.0;
   }
   fieldSet(i: number, v: f64): void {
     if (i === 0) { this.shape = v | 0; return; }
@@ -161,12 +169,13 @@ export class Collider extends Behavior {
     if (i === 3) { this.cz = v; return; }
     if (i === 4) { this.hx = v; return; }
     if (i === 5) { this.hy = v; return; }
-    this.hz = v;
+    if (i === 6) { this.hz = v; return; }
+    this.events = v | 0;
   }
 
   toData(): any {
     return { t: "Collider", shape: this.shape, cx: this.cx, cy: this.cy, cz: this.cz,
-             hx: this.hx, hy: this.hy, hz: this.hz, hullId: this.hullId, trigger: this.trigger };
+             hx: this.hx, hy: this.hy, hz: this.hz, hullId: this.hullId, trigger: this.trigger, events: this.events };
   }
 }
 
@@ -294,6 +303,11 @@ export function centerWorldZ(o: GameObject, t: Transform): f64 {
 /// 1 = detecta contato e não empurra ninguém (o `isTrigger` da Unity).
 export function triggerOf(o: GameObject): number {
   const c = colDe(o); return c !== null ? c.cTrigger() : 0;
+}
+
+/// Nível de eventos de contato do objeto (ver `Collider.events`).
+export function eventsOf(o: GameObject): number {
+  const c = colDe(o); return c !== null ? c.cEvents() : 0;
 }
 
 export function halfLocalX(o: GameObject): f64 {

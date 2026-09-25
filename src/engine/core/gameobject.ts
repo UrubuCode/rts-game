@@ -93,6 +93,10 @@ export class GameObject {
   spatialSlot: number;
   /// Índice deste objeto no array sDynamicIndices do índice espacial, ou -1 se não dinâmico normal.
   spatialDynSlot: number;
+  /// Índice deste objeto em `scene.objects`, escrito por `collectColliders`
+  /// (que roda quando a composição muda) e zerado (-1) em `removeAt`. Quem lê
+  /// confere `objects[i] === o` antes de confiar. Ver contact_events.ts.
+  sceneIndex: number;
 
   constructor(name: string) {
     this.id = nextGameObjectId;
@@ -121,6 +125,7 @@ export class GameObject {
     this.colIdx = 0 - 1;
     this.spatialSlot = 0 - 1;
     this.spatialDynSlot = 0 - 1;
+    this.sceneIndex = 0 - 1;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`

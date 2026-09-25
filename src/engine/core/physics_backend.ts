@@ -43,7 +43,7 @@ import io from "@compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocalY, centerLocalZ } from "./collider";
+import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocalY, centerLocalZ, eventsOf } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
@@ -501,6 +501,24 @@ function pbApply(): void {
 /// muda, junto com o resto — é a mesma varredura.
 let pbCascas = 0;
 let pbOffsets = 0;
+/// Colisores com `events` ligado. Rust e GPU não expõem os pares que
+/// resolveram, então eventos de contato pedem o passo na CPU — a regra
+/// "backend que não sabe recusa pelo nome" (`Needs.contact_events`, spec
+/// 2026-09-20 §6 item 7). Follow-up: buffer de pares em `rts-physics`.
+let pbEventos = 0;
+let pbAvisouEventos = 0;
+
+function pbContaEventos(sc: Scene): number {
+  const objs: GameObject[] = sc.objects;
+  const n = objs.length;
+  let c = 0;
+  let i = 0;
+  while (i < n) {
+    if (eventsOf(objs[i]) !== 0) c = c + 1;
+    i = i + 1;
+  }
+  return c;
+}
 
 /// Conta corpos dinâmicos com colisor com offset (centerLocalX/Y/Z !== 0).
 /// Apenas o solver da CPU (Scene) resolve corpos dinâmicos com centro deslocado
@@ -524,7 +542,8 @@ function pbContaOffsets(sc: Scene): number {
 
 /// A cena precisa de casca ou colisor com offset em corpo dinâmico?
 /// Se sim, cai para a CPU (Scene).
-export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets > 0) ? 1 : 0; }
+export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets > 0 || pbEventos > 0) ? 1 : 0; }
+export function rigidContactEventCount(): number { return pbEventos; }
 
 let pbNivel = PHYSICS_LEVEL_SIMPLES;
 
@@ -675,6 +694,15 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
   if (pbDirty !== 0) {
     pbCascas = pbContaCascas(sc);
     pbOffsets = pbContaOffsets(sc);
+    pbEventos = pbContaEventos(sc);
+  }
+  if (pbEventos > 0) {
+    if (pbDono !== 0) pbSoltar();
+    if (pbAvisouEventos === 0) {
+      pbAvisouEventos = 1;
+      io.print("[rigid] " + pbEventos + " colisor(es) com eventos de contato: passo na CPU (Rust/GPU nao expoem pares).");
+    }
+    return 0;
   }
   const alvo = pbAlvo();
 

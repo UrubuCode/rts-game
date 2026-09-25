@@ -41,7 +41,7 @@ ok("hull TAMBEM carrega o AABB (a broadphase precisa)", h.cHalfZ() === 3.0 ? 1 :
 ok("hull e SHAPE_HULL", h.cShape() === SHAPE_HULL ? 1 : 0);
 
 // O inspector precisa conseguir editar sem saber o que e um colisor.
-ok("inspector ve 7 campos", c.fieldCount() === 7 ? 1 : 0);
+ok("inspector ve 8 campos (7 de forma + Events)", c.fieldCount() === 8 ? 1 : 0);
 c.fieldSet(4, 9.0);
 ok("inspector escreve o tamanho", c.hx === 9.0 ? 1 : 0);
 ok("inspector le de volta", c.fieldGet(4) === 9.0 ? 1 : 0);

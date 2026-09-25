@@ -92,6 +92,7 @@ function recreateBehaviorInner(sd: any): Behavior {
     c.cx = sd.cx; c.cy = sd.cy; c.cz = sd.cz;
     c.hx = sd.hx; c.hy = sd.hy; c.hz = sd.hz;
     c.trigger = sd.trigger !== undefined ? sd.trigger : 0;
+    c.events = sd.events !== undefined ? sd.events : 0;
     if (sd.hullMesh !== undefined && sd.hullMesh > 0) {
       c.hullId = hullForMesh(sd.hullMesh);
       // A casca pode degenerar (malha vazia, ou toda coplanar) e aí `hullForMesh`

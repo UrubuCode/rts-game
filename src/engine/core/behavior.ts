@@ -6,6 +6,7 @@
 // o render é um passe separado (engine/render/draw.ts), como o Renderer do
 // Unity é dirigido pelo motor, não pelo script.
 
+import type { ContactInfo } from "./contact_events";
 import { Transform } from "./transform";
 import { componentMetadata } from "./component_metadata";
 
@@ -44,6 +45,17 @@ export class Behavior {
   mount(): void {}
   /// Chamado todo frame com o delta em SEGUNDOS.
   update(dt: f64): void {}
+
+  // ── eventos de contato (Lote B2) ─────────────────────────────────────────
+  // Entregues DEPOIS do passo de física por `Scene.resolveCollisions`, só a
+  // objetos cujo `Collider.events` esteja ligado (1 = enter/exit, 2 = + stay).
+  // `c` é UMA instância reutilizada: copie o que precisar guardar.
+  onCollisionEnter(c: ContactInfo): void {}
+  onCollisionStay(c: ContactInfo): void {}
+  onCollisionExit(c: ContactInfo): void {}
+  onTriggerEnter(c: ContactInfo): void {}
+  onTriggerStay(c: ContactInfo): void {}
+  onTriggerExit(c: ContactInfo): void {}
 
   /// Um backend EXTERNO (GPU ou o solver em Rust) assumiu (`1`) ou devolveu
   /// (`0`) a simulação do corpo dono. Quem INTEGRA movimento sobrescreve e para

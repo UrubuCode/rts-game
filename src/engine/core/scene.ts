@@ -8,6 +8,8 @@ import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL,
          centerLocalX, centerLocalY, centerLocalZ, triggerOf } from "./collider";
 import { Hull, Contact, hullContactLocal } from "./hullpack";
 import { hullAt } from "./hullreg";
+import { ContactEvents } from "./contact_events";
+import { eventsOf } from "./collider";
 import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 import math from "@compat/math.ts";
 
@@ -110,6 +112,8 @@ export class Scene {
   /// `spatial_queries.getSpatialIndex`. Tipado pela interface mínima abaixo
   /// (e não pela classe) para não criar ciclo de import com spatial_queries.
   spatialIndex: SceneSpatialIndex | null;
+  /// Eventos de contato desta cena (Lote B2); ver contact_events.ts.
+  contacts: ContactEvents;
 
   constructor(name: string) {
     this.name = name;
@@ -127,6 +131,7 @@ export class Scene {
     this.done = [];
     this.trs = [];
     this.spatialIndex = null;
+    this.contacts = new ContactEvents();
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
@@ -329,6 +334,7 @@ export class Scene {
     }
     this.objects.length = w;
     this.trs.length = w;
+    removedObj.sceneIndex = 0 - 1;
 
     if (isStatic) {
       this.markCollidersDirty();
@@ -400,7 +406,20 @@ export class Scene {
   /// POR FRAME e limitava a cena a algumas dezenas de unidades. Agora cada
   /// objeto só é testado contra as 9 células vizinhas, o que é ~O(n) enquanto
   /// a densidade for razoável.
+  /// Um passo de colisão na CPU: as passadas (abaixo, em `resolvePasses`) e,
+  /// SEMPRE — mesmo quando as passadas saem cedo —, o fecho dos eventos de
+  /// contato: pares persistentes não vistos são re-testados, os que separaram
+  /// (ou cujo corpo saiu da cena) recebem Exit, e só então os scripts ouvem.
   resolveCollisions(): void {
+    this.contacts.beginStep();
+    curContacts = this.contacts;
+    const dirty = this.colDirty;
+    this.resolvePasses();
+    curContacts = null;
+    finishContacts(this.contacts, this, dirty);
+  }
+
+  resolvePasses(): void {
     const n = this.objects.length;
     tgA.length = 0;
     tgB.length = 0;
@@ -1035,6 +1054,10 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
   // daqui é deliberado — isto roda no laço mais quente do motor, duas passadas
   // por frame, e um script chamado daí pode criar ou destruir objetos no meio de
   // uma varredura que está iterando a cena.
+  // ── EVENTOS: só pares com um lado inscrito; a entrega é depois do passo ──
+  if ((csEvents[ia] !== 0 || csEvents[ib] !== 0) && curContacts !== null) {
+    curContacts.record(ia, ib, gatilho, (csEvents[ia] === 2 || csEvents[ib] === 2) ? 1 : 0);
+  }
   if (gatilho !== 0) {
     tgA.push(ia);
     tgB.push(ib);
@@ -1418,6 +1441,11 @@ const csOff: number[] = [];
 /// 1 = detecta e não empurra. Resolvido na varredura, como a forma, pelo mesmo
 /// motivo: perguntar ao component por par é O(pares) contra O(n).
 const csTrigger: number[] = [];
+/// `Collider.events` por índice, resolvido na mesma varredura (ver csTrigger).
+const csEvents: number[] = [];
+/// Os eventos da cena que está em `resolveCollisions`; a função de par é livre
+/// e registra aqui (como faz com `tgA`/`tgB`).
+let curContacts: ContactEvents | null = null;
 const csTipo: number[] = [];
 
 function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
@@ -1432,7 +1460,7 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
     csShape.push(0); csHull.push(0);
     csHX.push(0.5); csHY.push(0.5); csHZ.push(0.5);
     csCX.push(0.0); csCY.push(0.0); csCZ.push(0.0);
-    csOff.push(0); csTrigger.push(0);
+    csOff.push(0); csTrigger.push(0); csEvents.push(0);
     csTipo.push(BODY_DYNAMIC);
   }
   let maxR: f64 = 0.0001;
@@ -1452,6 +1480,8 @@ function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
       csCX[i] = cx; csCY[i] = cy; csCZ[i] = cz;
       csOff[i] = (cx !== 0.0 || cy !== 0.0 || cz !== 0.0) ? 1 : 0;
       csTrigger[i] = triggerOf(o);
+      csEvents[i] = eventsOf(o);
+      o.sceneIndex = i;
       csTipo[i] = bodyTypeOf(o);
       // ESTÁTICO sai do grid, para a lista direta (ver `sIdx`): um chão de 90
       // de largura dimensionava a célula em 180 e punha a cena inteira num
@@ -1513,4 +1543,148 @@ function applyParentTo(o: GameObject, p: GameObject): void {
   }
   t.wrx = pt.wrx + t.rx;
   t.wry = pt.wry + t.ry;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EVENTOS DE CONTATO (Lote B2) — fecho do passo
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Absorve os pares vistos, re-testa os persistentes que a narrow phase não
+/// revisitou (corpos dormindo ou parados — ela os pula de propósito), encerra
+/// os que separaram ou perderam um corpo, e entrega. Custa O(V + T + E).
+function finishContacts(c: ContactEvents, sc: Scene, dirty: number): void {
+  const objs: GameObject[] = sc.objects;
+  const trs: Transform[] = sc.trs;
+  c.absorb(objs);
+  // Arrays lidos UMA vez: `c.seen(k)`/`c.objA(k)` dentro do laço eram chamadas
+  // de método cujo `this.arr[k]` cai no caminho dinâmico (ver computeWorldInto).
+  const pSeen: number[] = c.pSeen;
+  const pObjA: GameObject[] = c.pObjA;
+  const pObjB: GameObject[] = c.pObjB;
+  const step = c.step;
+  const n = c.pCount;
+  const total = objs.length;
+  let k = 0;
+  while (k < n) {
+    if (pSeen[k] !== step) {
+      const ia = indexOfIn(objs, pObjA[k], total);
+      const ib = indexOfIn(objs, pObjB[k], total);
+      if (ia < 0 || ib < 0) c.markEnd(k);
+      // Ninguém se moveu (os dois dormem ou são estáticos) e a composição não
+      // mudou: o contato não pode ter mudado — Box2D também não revisita
+      // contatos de ilhas dormindo. É o que zera o custo de uma cena em repouso.
+      else if (dirty === 0 && restingPair(sc, ia, ib) !== 0) pSeen[k] = step;
+      else if (pairOverlaps(objs, trs, ia, ib) === 0) c.markEnd(k);
+      else pSeen[k] = step;
+    }
+    k = k + 1;
+  }
+  c.emitOrdered();
+  c.dispatch();
+}
+
+/// 1 se nenhum dos dois pode ter se movido desde o último passo: estático (só
+/// o editor o move, e isso passa por `markCollidersDirty`), dormindo, ou parado
+/// pelo MESMO critério da narrow phase (`moved2 < MOVE_EPS2` contra `lastX`):
+/// um corpo que ela pulou por não se mover é um corpo cujo contato ela não
+/// revisitou — e que também não mudou.
+function restingPair(sc: Scene, ia: number, ib: number): number {
+  return (bodyResting(sc, ia) !== 0 && bodyResting(sc, ib) !== 0) ? 1 : 0;
+}
+
+function bodyResting(sc: Scene, i: number): number {
+  if (sc.objects[i].stationary !== 0) return 1;
+  const t: Transform = sc.trs[i];
+  if (t.asleep !== 0) return 1;
+  if (i >= sc.lastX.length) return 0;
+  const dx = t.px - sc.lastX[i];
+  const dy = t.py - sc.lastY[i];
+  const dz = t.pz - sc.lastZ[i];
+  return (dx * dx + dy * dy + dz * dz < MOVE_EPS2) ? 1 : 0;
+}
+
+/// Índice de `o` na cena, ou -1. Lê `o.sceneIndex` (escrito por
+/// `collectColliders` a cada mudança de composição) e confere a identidade;
+/// só varre a lista se o índice estiver defasado, que é o caso raro.
+function indexOfIn(objs: GameObject[], o: GameObject, n: number): number {
+  const guess = o.sceneIndex;
+  if (guess >= 0 && guess < n && objs[guess] === o) return guess;
+  let i = 0;
+  let found = 0 - 1;
+  while (i < n) {
+    if (objs[i] === o) { found = i; i = n; }
+    else { i = i + 1; }
+  }
+  return found;
+}
+
+/// A mesma geometria da função de par, sem resposta: 1 se `ia` e `ib` se
+/// tocam agora. Usa as tabelas `cs*` (densas para todo índice; rebuild em
+/// `resolvePasses` quando a composição muda).
+function pairOverlaps(objs: GameObject[], trs: Transform[], ia: number, ib: number): number {
+  const oa: GameObject = objs[ia];
+  const ob: GameObject = objs[ib];
+  if (oa.active === 0 || ob.active === 0 || oa.collideFlag === 0 || ob.collideFlag === 0) return 0;
+  if (ia >= csShape.length || ib >= csShape.length) return 0;
+  const ta: Transform = trs[ia];
+  const tb: Transform = trs[ib];
+  let ax: f64 = ta.px; let ay: f64 = ta.py; let az: f64 = ta.pz;
+  let bx: f64 = tb.px; let by: f64 = tb.py; let bz: f64 = tb.pz;
+  if (csOff[ia] !== 0) {
+    const ox = csCX[ia] * ta.sx; const oz = csCZ[ia] * ta.sz;
+    ay = ay + csCY[ia] * ta.sy;
+    if (ta.ry === 0.0) { ax = ax + ox; az = az + oz; }
+    else {
+      const cs = math.cos(ta.ry); const sn = math.sin(ta.ry);
+      ax = ax + (ox * cs + oz * sn);
+      az = az + (0.0 - ox * sn + oz * cs);
+    }
+  }
+  if (csOff[ib] !== 0) {
+    const ox = csCX[ib] * tb.sx; const oz = csCZ[ib] * tb.sz;
+    by = by + csCY[ib] * tb.sy;
+    if (tb.ry === 0.0) { bx = bx + ox; bz = bz + oz; }
+    else {
+      const cs = math.cos(tb.ry); const sn = math.sin(tb.ry);
+      bx = bx + (ox * cs + oz * sn);
+      bz = bz + (0.0 - ox * sn + oz * cs);
+    }
+  }
+  const hullA = csShape[ia] === COL_HULL ? hullAt(csHull[ia]) : null;
+  const hullB = csShape[ib] === COL_HULL ? hullAt(csHull[ib]) : null;
+  if (hullA !== null || hullB !== null) {
+    return hullContact(trs, ia, ib, ax, ay, az, bx, by, bz, hullA, hullB);
+  }
+  const boxA = csShape[ia] === COL_BOX ? 1 : 0;
+  const boxB = csShape[ib] === COL_BOX ? 1 : 0;
+  if (boxA !== 0 && boxB !== 0) {
+    const dx = bx - ax; const dy = by - ay; const dz = bz - az;
+    const ox = csHX[ia] * ta.sx + csHX[ib] * tb.sx - (dx < 0.0 ? 0.0 - dx : dx);
+    if (ox <= 0.0) return 0;
+    const oy = csHY[ia] * ta.sy + csHY[ib] * tb.sy - (dy < 0.0 ? 0.0 - dy : dy);
+    if (oy <= 0.0) return 0;
+    const oz = csHZ[ia] * ta.sz + csHZ[ib] * tb.sz - (dz < 0.0 ? 0.0 - dz : dz);
+    return oz <= 0.0 ? 0 : 1;
+  }
+  if (boxA !== 0 || boxB !== 0) {
+    const bt: Transform = boxA !== 0 ? ta : tb;
+    const st: Transform = boxA !== 0 ? tb : ta;
+    const bcx: f64 = boxA !== 0 ? ax : bx; const bcy: f64 = boxA !== 0 ? ay : by; const bcz: f64 = boxA !== 0 ? az : bz;
+    const scx: f64 = boxA !== 0 ? bx : ax; const scy: f64 = boxA !== 0 ? by : ay; const scz: f64 = boxA !== 0 ? bz : az;
+    const bi = boxA !== 0 ? ia : ib;
+    const si = boxA !== 0 ? ib : ia;
+    const r: f64 = minOf3(csHX[si] * st.sx, csHY[si] * st.sy, csHZ[si] * st.sz);
+    const hx = csHX[bi] * bt.sx; const hy = csHY[bi] * bt.sy; const hz = csHZ[bi] * bt.sz;
+    let qx = scx - bcx; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
+    let qy = scy - bcy; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
+    let qz = scz - bcz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
+    const vx = scx - (bcx + qx); const vy = scy - (bcy + qy); const vz = scz - (bcz + qz);
+    return (vx * vx + vy * vy + vz * vz) < r * r ? 1 : 0;
+  }
+  const ra: f64 = minOf3(csHX[ia] * ta.sx, csHY[ia] * ta.sy, csHZ[ia] * ta.sz);
+  const rb: f64 = minOf3(csHX[ib] * tb.sx, csHY[ib] * tb.sy, csHZ[ib] * tb.sz);
+  const rs: f64 = ra + rb;
+  const dx: f64 = bx - ax; const dy: f64 = by - ay; const dz: f64 = bz - az;
+  const d2: f64 = dx * dx + dy * dy + dz * dz;
+  return (d2 < rs * rs && d2 > 0.0001) ? 1 : 0;
 }
