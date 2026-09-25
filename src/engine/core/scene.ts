@@ -210,8 +210,13 @@ export class Scene {
 
   // Caminho padrao para criar um objeto novo diretamente nesta cena.
   // Configura mesh e parentesco ANTES de add/mount, preservando os caches.
-  createGameObject(name: string, meshKind: number = 0, r: number = 0, g: number = 0,
-                   b: number = 0, parentIdx: number = 0 - 1): GameObject {
+  createGameObject(name: string, meshKindArg?: number, rArg?: number, gArg?: number,
+                   bArg?: number, parentIdxArg?: number): GameObject {
+    const meshKind: number = meshKindArg !== undefined ? meshKindArg : 0;
+    const r: number = rArg !== undefined ? rArg : 0;
+    const g: number = gArg !== undefined ? gArg : 0;
+    const b: number = bArg !== undefined ? bArg : 0;
+    const parentIdx: number = parentIdxArg !== undefined ? parentIdxArg : 0 - 1;
     const go = new GameObject(name);
     if (meshKind > 0) go.setMesh(meshKind, r, g, b);
     if (parentIdx >= 0 && parentIdx < this.objects.length) go.parent = parentIdx;

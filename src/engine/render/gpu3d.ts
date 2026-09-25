@@ -314,7 +314,8 @@ export function loadTexture(win: number, path: string): number {
 /// campo a campo como número — não há param tipado pra bitcastar.
 export function drawGPUMesh(win: number, meshId: number, px: number, py: number, pz: number,
                            rx: number, ry: number, sx: number, sy: number, sz: number,
-                           color: number, emissive: number, tex: number, tile: number = 0.0): void {
+                           color: number, emissive: number, tex: number, tileArg?: number): void {
+  const tile: number = tileArg !== undefined ? tileArg : 0.0;
   drawMesh(win, {
     mesh: meshId, x: px, y: py, z: pz, rx: rx, ry: ry,
     sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: tile,
@@ -474,7 +475,8 @@ export function drawBatch(win: number, transforms: Float32Array, codes: Uint32Ar
 /// no `drawMesh` — um runtime antigo ignora o campo e estica a textura.
 export function drawGPU(win: number, kind: number, px: number, py: number, pz: number,
                         rx: number, ry: number, sx: number, sy: number, sz: number, color: number,
-                        emissive: number, tex: number, tile: number = 0.0): void {
+                        emissive: number, tex: number, tileArg?: number): void {
+  const tile: number = tileArg !== undefined ? tileArg : 0.0;
   const id = meshIdFor(kind);
   drawMesh(win, {
     mesh: id, x: px, y: py, z: pz, rx: rx, ry: ry,

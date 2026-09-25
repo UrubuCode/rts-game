@@ -622,8 +622,9 @@ export function pbDecideAuto(
   curAtivo: number,
   candidate: number,
   streak: number,
-  nivel: number = PHYSICS_LEVEL_SIMPLES,
+  nivelArg?: number,
 ): { nextAtivo: number; nextCandidate: number; nextStreak: number } {
+  const nivel: number = nivelArg !== undefined ? nivelArg : PHYSICS_LEVEL_SIMPLES;
   const quem = profBest(n, threads, nivel);
   const novoCandidato = quem === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST;
   if (curAtivo === 0) {

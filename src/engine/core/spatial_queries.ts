@@ -79,8 +79,8 @@ export function createOverlapHit(): OverlapHit {
 }
 
 // ── ÍNDICE ESPACIAL PRÓPRIO (GRID NO HOST) ──────────────────────────────────
-const SGRID_CAP = 1024;
-const SGRID_MASK = 1023;
+const SGRID_CAP = 8192;
+const SGRID_MASK = 8191;
 const HASH_X = 73856093;
 const HASH_Y = 19349663;
 const HASH_Z = 83492791;
@@ -1166,10 +1166,12 @@ export class SpatialIndex {
     dx: number, dy: number, dz: number,
     maxDistance: number,
     outHit: RaycastHit,
-    mask: number = MASK_ALL,
-    layer: number = LAYER_DEFAULT,
-    includeTriggers: boolean = false,
-  ): boolean {
+    maskArg?: number,
+    layerArg?: number,
+    includeTriggersArg?: boolean): boolean {
+    const mask: number = maskArg !== undefined ? maskArg : MASK_ALL;
+    const layer: number = layerArg !== undefined ? layerArg : LAYER_DEFAULT;
+    const includeTriggers: boolean = includeTriggersArg !== undefined ? includeTriggersArg : false;
     if (maxDistance <= 0.0 || maxDistance !== maxDistance) return false;
     this.ensureIndex();
 
@@ -1308,10 +1310,12 @@ export class SpatialIndex {
     radius: number,
     outHits: OverlapHit[],
     maxHits: number,
-    mask: number = MASK_ALL,
-    layer: number = LAYER_DEFAULT,
-    includeTriggers: boolean = false,
-  ): number {
+    maskArg?: number,
+    layerArg?: number,
+    includeTriggersArg?: boolean): number {
+    const mask: number = maskArg !== undefined ? maskArg : MASK_ALL;
+    const layer: number = layerArg !== undefined ? layerArg : LAYER_DEFAULT;
+    const includeTriggers: boolean = includeTriggersArg !== undefined ? includeTriggersArg : false;
     let effectiveMaxHits = maxHits;
     if (outHits.length < effectiveMaxHits) {
       effectiveMaxHits = outHits.length;
@@ -1457,10 +1461,12 @@ export class SpatialIndex {
     hx: number, hy: number, hz: number,
     outHits: OverlapHit[],
     maxHits: number,
-    mask: number = MASK_ALL,
-    layer: number = LAYER_DEFAULT,
-    includeTriggers: boolean = false,
-  ): number {
+    maskArg?: number,
+    layerArg?: number,
+    includeTriggersArg?: boolean): number {
+    const mask: number = maskArg !== undefined ? maskArg : MASK_ALL;
+    const layer: number = layerArg !== undefined ? layerArg : LAYER_DEFAULT;
+    const includeTriggers: boolean = includeTriggersArg !== undefined ? includeTriggersArg : false;
     let effectiveMaxHits = maxHits;
     if (outHits.length < effectiveMaxHits) {
       effectiveMaxHits = outHits.length;
@@ -2653,11 +2659,13 @@ export function raycastNonAlloc(
   dx: number, dy: number, dz: number,
   maxDistance: number,
   outHit: RaycastHit,
-  mask: number = MASK_ALL,
-  layer: number = LAYER_DEFAULT,
-  includeTriggers: boolean = false,
-  sc?: Scene,
-): boolean {
+  maskArg?: number,
+  layerArg?: number,
+  includeTriggersArg?: boolean,
+  sc?: Scene): boolean {
+  const mask: number = maskArg !== undefined ? maskArg : MASK_ALL;
+  const layer: number = layerArg !== undefined ? layerArg : LAYER_DEFAULT;
+  const includeTriggers: boolean = includeTriggersArg !== undefined ? includeTriggersArg : false;
   if (maxDistance <= 0.0 || maxDistance !== maxDistance) return false;
   const targetScene = sc !== undefined && sc !== null ? sc : sActiveScene;
   if (targetScene === null) return false;
@@ -3283,11 +3291,13 @@ export function overlapSphereNonAlloc(
   radius: number,
   outHits: OverlapHit[],
   maxHits: number,
-  mask: number = MASK_ALL,
-  layer: number = LAYER_DEFAULT,
-  includeTriggers: boolean = false,
-  sc?: Scene,
-): number {
+  maskArg?: number,
+  layerArg?: number,
+  includeTriggersArg?: boolean,
+  sc?: Scene): number {
+  const mask: number = maskArg !== undefined ? maskArg : MASK_ALL;
+  const layer: number = layerArg !== undefined ? layerArg : LAYER_DEFAULT;
+  const includeTriggers: boolean = includeTriggersArg !== undefined ? includeTriggersArg : false;
   let effectiveMaxHits = maxHits;
   if (outHits.length < effectiveMaxHits) {
     effectiveMaxHits = outHits.length;
@@ -3959,11 +3969,13 @@ export function overlapBoxNonAlloc(
   hx: number, hy: number, hz: number,
   outHits: OverlapHit[],
   maxHits: number,
-  mask: number = MASK_ALL,
-  layer: number = LAYER_DEFAULT,
-  includeTriggers: boolean = false,
-  sc?: Scene,
-): number {
+  maskArg?: number,
+  layerArg?: number,
+  includeTriggersArg?: boolean,
+  sc?: Scene): number {
+  const mask: number = maskArg !== undefined ? maskArg : MASK_ALL;
+  const layer: number = layerArg !== undefined ? layerArg : LAYER_DEFAULT;
+  const includeTriggers: boolean = includeTriggersArg !== undefined ? includeTriggersArg : false;
   let effectiveMaxHits = maxHits;
   if (outHits.length < effectiveMaxHits) {
     effectiveMaxHits = outHits.length;

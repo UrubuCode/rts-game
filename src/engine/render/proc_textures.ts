@@ -133,6 +133,16 @@ export function procTexturePixels(nome: string): Uint8Array {
 
 /// Id de GPU da textura `nome`, gerada e enviada na primeira chamada por janela
 /// (o cache de `uploadTexture` responde as seguintes). Usar com `tile` > 0.
+///
+/// O cache é consultado ANTES de gerar: gerar custa ~16 ms, e quem resolve a
+/// aparência por objeto chama isto milhares de vezes com poucos nomes.
 export function procTexture(win: number, nome: string): number {
-  return uploadTexture(win, procTexturePixels(nome), PROC_TEX_SIZE, PROC_TEX_SIZE, "proc:" + nome);
+  const chave = win + ":" + nome;
+  const hit = procCache.get(chave);
+  if (hit !== undefined && hit > 0) return hit;
+  const id = uploadTexture(win, procTexturePixels(nome), PROC_TEX_SIZE, PROC_TEX_SIZE, "proc:" + nome);
+  if (id > 0) procCache.set(chave, id);
+  return id;
 }
+
+const procCache = new Map<string, number>();

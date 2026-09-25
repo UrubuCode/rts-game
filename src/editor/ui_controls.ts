@@ -110,7 +110,8 @@ export class EditorUI {
     while (objectIndex < this.scene.panels.length) { this.scene.panels[objectIndex].active = 0; objectIndex = objectIndex + 1; }
   }
   control(name: string, mode: string, x: number, y: number, w: number, h: number,
-          label: string, inputEnabled: boolean = true): EditorControl {
+          label: string, inputEnabledArg?: boolean): EditorControl {
+    const inputEnabled: boolean = inputEnabledArg !== undefined ? inputEnabledArg : true;
     let index = this.names.indexOf(name);
     if (index < 0) {
       const object = this.scene.createGameObject(this.root.name + "/" + name, 0);
