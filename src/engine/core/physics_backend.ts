@@ -43,7 +43,7 @@ import io from "@compat/io.ts";
 import { Scene } from "./scene";
 import { GameObject } from "./gameobject";
 import { Transform } from "./transform";
-import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, centerLocalX, centerLocalY, centerLocalZ, eventsOf } from "./collider";
+import { shapeOf, halfXOf, halfYOf, halfZOf, COL_HULL, SHAPE_BOX, centerLocalX, centerLocalY, centerLocalZ, eventsOf } from "./collider";
 import { rbInit, rbSetBody, rbSetShape, rbSetVel, rbSetPos, rbPoke, rbSetDt, rbSetMaterial,
          rbUpload, rbSyncStatics, rbGridOverflow,
          rbService, rbKicked, rbCancel, rbReadState, rbX, rbY, rbZ, rbVelX, rbVelY, rbVelZ,
@@ -506,7 +506,38 @@ let pbOffsets = 0;
 /// "backend que não sabe recusa pelo nome" (`Needs.contact_events`, spec
 /// 2026-09-20 §6 item 7). Follow-up: buffer de pares em `rts-physics`.
 let pbEventos = 0;
+/// Caixas giradas em yaw. Rust e GPU tratam caixa como AABB; a CPU resolve OBB
+/// em Y (Lote C0). Contado na mudança de composição (estáticos girados pelo
+/// editor passam por `markCollidersDirty`) e, por passo, sobre os dinâmicos
+/// que o backend acompanha (`pbObjs`): um script que gira uma caixa dinâmica
+/// derruba o passo para a CPU no passo seguinte.
+let pbYaw = 0;
 let pbAvisouEventos = 0;
+
+function pbContaYaw(sc: Scene): number {
+  const objs: GameObject[] = sc.objects;
+  const n = objs.length;
+  let c = 0;
+  let i = 0;
+  while (i < n) {
+    const o: GameObject = objs[i];
+    if (o.collideFlag !== 0 && o.transform.ry !== 0.0 && shapeOf(o) === SHAPE_BOX) c = c + 1;
+    i = i + 1;
+  }
+  return c;
+}
+
+function pbContaYawDinamicos(): number {
+  const m = pbObjs.length;
+  let c = 0;
+  let k = 0;
+  while (k < m) {
+    const o: GameObject = pbObjs[k];
+    if (o.transform.ry !== 0.0 && shapeOf(o) === SHAPE_BOX) c = c + 1;
+    k = k + 1;
+  }
+  return c;
+}
 
 function pbContaEventos(sc: Scene): number {
   const objs: GameObject[] = sc.objects;
@@ -542,7 +573,8 @@ function pbContaOffsets(sc: Scene): number {
 
 /// A cena precisa de casca ou colisor com offset em corpo dinâmico?
 /// Se sim, cai para a CPU (Scene).
-export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets > 0 || pbEventos > 0) ? 1 : 0; }
+export function rigidNeedsFallback(): number { return (pbCascas > 0 || pbOffsets > 0 || pbEventos > 0 || pbYaw > 0) ? 1 : 0; }
+export function rigidYawBoxCount(): number { return pbYaw; }
 export function rigidContactEventCount(): number { return pbEventos; }
 
 let pbNivel = PHYSICS_LEVEL_SIMPLES;
@@ -631,6 +663,14 @@ function pbAlvo(): number {
     }
     return PB_MODO_CPU;
   }
+  if (pbYaw > 0) {
+    if (pbMotivo !== "caixas giradas em yaw") {
+      pbMotivo = "caixas giradas em yaw";
+      io.print("[rigid] " + pbYaw + " caixa(s) girada(s) em yaw na cena — Rust e GPU tratam caixa como " +
+               "AABB, entao a fisica cai para a CPU (OBB em Y). Sem isto a rotacao seria ignorada em silencio.");
+    }
+    return PB_MODO_CPU;
+  }
   if (pbOffsets > 0) {
     if (pbMotivo !== "corpos dinamicos com colisor com offset") {
       pbMotivo = "corpos dinamicos com colisor com offset";
@@ -695,6 +735,9 @@ export function rigidStep(sc: Scene, dirtyHint: number): number {
     pbCascas = pbContaCascas(sc);
     pbOffsets = pbContaOffsets(sc);
     pbEventos = pbContaEventos(sc);
+    pbYaw = pbContaYaw(sc);
+  } else if (pbDono !== 0 && pbYaw === 0) {
+    pbYaw = pbContaYawDinamicos();
   }
   if (pbEventos > 0) {
     if (pbDono !== 0) pbSoltar();

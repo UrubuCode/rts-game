@@ -759,6 +759,62 @@ function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], 
 /// ~4,97 contra ~0,91 µs.
 const hcOut: Contact = new Contact();
 
+/// Saídas de `obbBoxBox`, em variáveis de módulo (como `hcOut`): um objeto
+/// por par seria uma alocação no laço mais quente do motor.
+let obbNx: f64 = 0.0; let obbNy: f64 = 0.0; let obbNz: f64 = 0.0; let obbDepth: f64 = 0.0;
+
+/// Caixa girada em yaw contra caixa (girada ou não): SAT com os 2 eixos XZ de
+/// cada caixa mais Y. Devolve 1 e a normal (de A para B) do eixo de MENOR
+/// penetração em `obb*`, ou 0 se algum eixo separa. Os centros já vêm com o
+/// offset do colisor aplicado. Convenção de rotação: a mesma de `applyParentTo`
+/// e do offset — eixo local X vira (cos, -sin) em (x, z), eixo Z vira (sin, cos).
+function obbBoxBox(trs: Transform[], ia: number, ib: number,
+                   ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64): number {
+  const ta: Transform = trs[ia];
+  const tb: Transform = trs[ib];
+  const hyA = csHY[ia] * ta.sy; const hyB = csHY[ib] * tb.sy;
+  const dy = by - ay;
+  const oy = hyA + hyB - (dy < 0.0 ? 0.0 - dy : dy);
+  if (oy <= 0.0) return 0;
+  const hxA = csHX[ia] * ta.sx; const hzA = csHZ[ia] * ta.sz;
+  const hxB = csHX[ib] * tb.sx; const hzB = csHZ[ib] * tb.sz;
+  const cA = math.cos(ta.ry); const sA = math.sin(ta.ry);
+  const cB = math.cos(tb.ry); const sB = math.sin(tb.ry);
+  // eixos no plano XZ
+  const a1x = cA; const a1z = 0.0 - sA; const a2x = sA; const a2z = cA;
+  const b1x = cB; const b1z = 0.0 - sB; const b2x = sB; const b2z = cB;
+  const dx = bx - ax; const dz = bz - az;
+  let best = oy; let bnx = 0.0; let bny = dy < 0.0 ? 0.0 - 1.0 : 1.0; let bnz = 0.0;
+  // eixo A1
+  let d = dx * a1x + dz * a1z;
+  let rB = hxB * abs1(b1x * a1x + b1z * a1z) + hzB * abs1(b2x * a1x + b2z * a1z);
+  let o = hxA + rB - (d < 0.0 ? 0.0 - d : d);
+  if (o <= 0.0) return 0;
+  if (o < best) { best = o; bny = 0.0; bnx = d < 0.0 ? 0.0 - a1x : a1x; bnz = d < 0.0 ? 0.0 - a1z : a1z; }
+  // eixo A2
+  d = dx * a2x + dz * a2z;
+  rB = hxB * abs1(b1x * a2x + b1z * a2z) + hzB * abs1(b2x * a2x + b2z * a2z);
+  o = hzA + rB - (d < 0.0 ? 0.0 - d : d);
+  if (o <= 0.0) return 0;
+  if (o < best) { best = o; bny = 0.0; bnx = d < 0.0 ? 0.0 - a2x : a2x; bnz = d < 0.0 ? 0.0 - a2z : a2z; }
+  // eixo B1
+  d = dx * b1x + dz * b1z;
+  let rA = hxA * abs1(a1x * b1x + a1z * b1z) + hzA * abs1(a2x * b1x + a2z * b1z);
+  o = rA + hxB - (d < 0.0 ? 0.0 - d : d);
+  if (o <= 0.0) return 0;
+  if (o < best) { best = o; bny = 0.0; bnx = d < 0.0 ? 0.0 - b1x : b1x; bnz = d < 0.0 ? 0.0 - b1z : b1z; }
+  // eixo B2
+  d = dx * b2x + dz * b2z;
+  rA = hxA * abs1(a1x * b2x + a1z * b2z) + hzA * abs1(a2x * b2x + a2z * b2z);
+  o = rA + hzB - (d < 0.0 ? 0.0 - d : d);
+  if (o <= 0.0) return 0;
+  if (o < best) { best = o; bny = 0.0; bnx = d < 0.0 ? 0.0 - b2x : b2x; bnz = d < 0.0 ? 0.0 - b2z : b2z; }
+  obbNx = bnx; obbNy = bny; obbNz = bnz; obbDepth = best;
+  return 1;
+}
+
+function abs1(v: f64): f64 { return v < 0.0 ? 0.0 - v : v; }
+
 /// ESFERA (ou o menor lado de um par de cascas) contra CASCA, em MUNDO.
 ///
 /// O teste roda em espaço LOCAL da casca, que é onde `hullContactLocal` o
@@ -957,6 +1013,12 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     // regra que já tem duas (aqui e no WGSL), e é como os backends divergem.
     if (hullContact(trs, ia, ib, ax, ay, az, bx, by, bz, hullA, hullB) === 0) return;
     nx = hcOut.nx; ny = hcOut.ny; nz = hcOut.nz; overlap = hcOut.depth;
+  } else if (boxA !== 0 && boxB !== 0 && (ta.ry !== 0.0 || tb.ry !== 0.0)) {
+    // ── CAIXA × CAIXA girada (OBB em Y, Lote C0) ──────────────────────────
+    // Uma das caixas tem yaw: SAT no plano XZ (os 2 eixos de cada caixa) mais
+    // Y. Caixas com yaw = 0 nunca entram aqui e seguem no ramo AABB abaixo.
+    if (obbBoxBox(trs, ia, ib, ax, ay, az, bx, by, bz) === 0) return;
+    nx = obbNx; ny = obbNy; nz = obbNz; overlap = obbDepth;
   } else if (boxA !== 0 && boxB !== 0) {
     // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
     // Sobreposição por eixo; se algum for <= 0 não há contato. A normal é o
@@ -1007,26 +1069,44 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     const sgn: f64 = boxA !== 0 ? 1.0 : 0.0 - 1.0;
     const r: f64 = minOf3(csHX[si] * st.sx, csHY[si] * st.sy, csHZ[si] * st.sz);
     const hx = csHX[bi] * bt.sx; const hy = csHY[bi] * bt.sy; const hz = csHZ[bi] * bt.sz;
-    let qx = scx - bcx; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
-    let qy = scy - bcy; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
-    let qz = scz - bcz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
-    const vx = scx - (bcx + qx);
-    const vy = scy - (bcy + qy);
-    const vz = scz - (bcz + qz);
+    // Centro da esfera no ESPAÇO LOCAL da caixa (só XZ giram: OBB em Y). Com
+    // yaw = 0 isto é a subtração de antes; o `cos/sin` só é pago girado.
+    const yawB = bt.ry;
+    let lx = scx - bcx; const ly = scy - bcy; let lz = scz - bcz;
+    let cy = 1.0; let sy = 0.0;
+    if (yawB !== 0.0) {
+      cy = math.cos(yawB); sy = math.sin(yawB);
+      const wx = lx; const wz = lz;
+      lx = cy * wx - sy * wz;
+      lz = sy * wx + cy * wz;
+    }
+    let qx = lx; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
+    let qy = ly; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
+    let qz = lz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
+    const vx = lx - qx;
+    const vy = ly - qy;
+    const vz = lz - qz;
     const d2 = vx * vx + vy * vy + vz * vz;
     if (d2 >= r * r) return;
+    let lnx = 0.0; let lny = 0.0; let lnz = 0.0;
     if (d2 > 0.000001) {
       const d = math.sqrt(d2);
       overlap = r - d;
-      nx = (vx / d) * sgn; ny = (vy / d) * sgn; nz = (vz / d) * sgn;
+      lnx = (vx / d) * sgn; lny = (vy / d) * sgn; lnz = (vz / d) * sgn;
     } else {
       // centro DENTRO da caixa: empurra pela face mais próxima (menor folga)
       const gx = hx - (qx < 0.0 ? 0.0 - qx : qx);
       const gy = hy - (qy < 0.0 ? 0.0 - qy : qy);
       const gz = hz - (qz < 0.0 ? 0.0 - qz : qz);
-      if (gy <= gx && gy <= gz) { overlap = gy + r; ny = (qy < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
-      else if (gx <= gz) { overlap = gx + r; nx = (qx < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
-      else { overlap = gz + r; nz = (qz < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
+      if (gy <= gx && gy <= gz) { overlap = gy + r; lny = (qy < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
+      else if (gx <= gz) { overlap = gx + r; lnx = (qx < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
+      else { overlap = gz + r; lnz = (qz < 0.0 ? 0.0 - 1.0 : 1.0) * sgn; }
+    }
+    // normal de volta ao mundo (a inversa da rotação acima)
+    if (yawB !== 0.0) {
+      nx = cy * lnx + sy * lnz; ny = lny; nz = 0.0 - sy * lnx + cy * lnz;
+    } else {
+      nx = lnx; ny = lny; nz = lnz;
     }
   } else {
     // ── ESFERA × ESFERA ───────────────────────────────────────────────────
@@ -1657,6 +1737,9 @@ function pairOverlaps(objs: GameObject[], trs: Transform[], ia: number, ib: numb
   }
   const boxA = csShape[ia] === COL_BOX ? 1 : 0;
   const boxB = csShape[ib] === COL_BOX ? 1 : 0;
+  if (boxA !== 0 && boxB !== 0 && (ta.ry !== 0.0 || tb.ry !== 0.0)) {
+    return obbBoxBox(trs, ia, ib, ax, ay, az, bx, by, bz);
+  }
   if (boxA !== 0 && boxB !== 0) {
     const dx = bx - ax; const dy = by - ay; const dz = bz - az;
     const ox = csHX[ia] * ta.sx + csHX[ib] * tb.sx - (dx < 0.0 ? 0.0 - dx : dx);
@@ -1675,10 +1758,17 @@ function pairOverlaps(objs: GameObject[], trs: Transform[], ia: number, ib: numb
     const si = boxA !== 0 ? ib : ia;
     const r: f64 = minOf3(csHX[si] * st.sx, csHY[si] * st.sy, csHZ[si] * st.sz);
     const hx = csHX[bi] * bt.sx; const hy = csHY[bi] * bt.sy; const hz = csHZ[bi] * bt.sz;
-    let qx = scx - bcx; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
-    let qy = scy - bcy; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
-    let qz = scz - bcz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
-    const vx = scx - (bcx + qx); const vy = scy - (bcy + qy); const vz = scz - (bcz + qz);
+    let lx = scx - bcx; const ly = scy - bcy; let lz = scz - bcz;
+    if (bt.ry !== 0.0) {
+      const cy = math.cos(bt.ry); const sy = math.sin(bt.ry);
+      const wx = lx; const wz = lz;
+      lx = cy * wx - sy * wz;
+      lz = sy * wx + cy * wz;
+    }
+    let qx = lx; if (qx > hx) qx = hx; if (qx < 0.0 - hx) qx = 0.0 - hx;
+    let qy = ly; if (qy > hy) qy = hy; if (qy < 0.0 - hy) qy = 0.0 - hy;
+    let qz = lz; if (qz > hz) qz = hz; if (qz < 0.0 - hz) qz = 0.0 - hz;
+    const vx = lx - qx; const vy = ly - qy; const vz = lz - qz;
     return (vx * vx + vy * vy + vz * vz) < r * r ? 1 : 0;
   }
   const ra: f64 = minOf3(csHX[ia] * ta.sx, csHY[ia] * ta.sy, csHZ[ia] * ta.sz);
