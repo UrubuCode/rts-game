@@ -904,7 +904,8 @@ function hullContact(
   const yaw = th.ry;
   let lx = dx; let lz = dz;
   if (yaw !== 0.0) {
-    const c = math.cos(0.0 - yaw); const s = math.sin(0.0 - yaw);
+    // mundo -> local: inversa de (cos ry, -sin ry), a convenção do renderer
+    const c = math.cos(yaw); const s = math.sin(yaw);
     lx = dx * c - dz * s;
     lz = dx * s + dz * c;
   }
@@ -922,7 +923,7 @@ function hullContact(
   // ── volta: a normal para o mundo ────────────────────────────────────────
   let wnx = hcOut.nx; const wny = hcOut.ny; let wnz = hcOut.nz;
   if (yaw !== 0.0) {
-    const c = math.cos(yaw); const s = math.sin(yaw);
+    const c = math.cos(yaw); const s = math.sin(0.0 - yaw);
     const rx = wnx * c - wnz * s;
     wnz = wnx * s + wnz * c;
     wnx = rx;

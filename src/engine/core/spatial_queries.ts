@@ -578,7 +578,13 @@ export class SpatialIndex {
     this.worldHy[k] = hy;
     this.worldHz[k] = hz;
     this.worldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
-    const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+    let maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+    // Girada em yaw, o alcance em XZ passa do maior lado: o raio do retângulo
+    // XZ cobre qualquer yaw (um dinâmico pode girar sem reconstruir o índice).
+    if (t.wry !== 0.0) {
+      const rxz = math.sqrt(hx * hx + hz * hz);
+      if (rxz > maxH) maxH = rxz;
+    }
 
     if (isStatic !== 0) {
       if (this.worldCx.length <= k) this.growStatic(k + 1);
@@ -597,9 +603,17 @@ export class SpatialIndex {
       if (lcy !== 0.0) cy = cy + lcy * t.sy;
       this.worldCx[k] = cx; this.worldCy[k] = cy; this.worldCz[k] = cz;
 
-      const minX = cx - hx; const maxX = cx + hx;
+      // Caixa GIRADA em yaw: a fase larga usa o AABB do OBB, senão a parte da
+      // caixa fora da caixa reta fica invisível para raio e esfera.
+      let ex = hx; let ez = hz;
+      if (t.wry !== 0.0) {
+        const ac = math.abs(math.cos(t.wry)); const as = math.abs(math.sin(t.wry));
+        ex = ac * hx + as * hz;
+        ez = as * hx + ac * hz;
+      }
+      const minX = cx - ex; const maxX = cx + ex;
       const minY = cy - hy; const maxY = cy + hy;
-      const minZ = cz - hz; const maxZ = cz + hz;
+      const minZ = cz - ez; const maxZ = cz + ez;
       this.minX[k] = minX; this.maxX[k] = maxX;
       this.minY[k] = minY; this.maxY[k] = maxY;
       this.minZ[k] = minZ; this.maxZ[k] = maxZ;
@@ -1879,7 +1893,7 @@ function raycastObject(
 
     if (yaw !== 0.0) {
       const cosY = math.cos(0.0 - yaw);
-      const sinY = math.sin(0.0 - yaw);
+      const sinY = math.sin(yaw);
       rox = (ox - cx) * cosY - (oz - cz) * sinY;
       roz = (ox - cx) * sinY + (oz - cz) * cosY;
       rdx = ndx * cosY - ndz * sinY;
@@ -1952,7 +1966,7 @@ function raycastObject(
     let nz = hitNormZ;
     if (yaw !== 0.0) {
       const cosY = math.cos(yaw);
-      const sinY = math.sin(yaw);
+      const sinY = math.sin(0.0 - yaw);
       nx = hitNormX * cosY - hitNormZ * sinY;
       nz = hitNormX * sinY + hitNormZ * cosY;
     }
@@ -1991,7 +2005,7 @@ function raycastObject(
 
     if (yaw !== 0.0) {
       const cosY = math.cos(0.0 - yaw);
-      const sinY = math.sin(0.0 - yaw);
+      const sinY = math.sin(yaw);
       rox = (ox - cx) * cosY - (oz - cz) * sinY;
       roz = (ox - cx) * sinY + (oz - cz) * cosY;
       rdx = ndx * cosY - ndz * sinY;
@@ -2050,7 +2064,7 @@ function raycastObject(
     let wnx = hitNx; let wny = hitNy; let wnz = hitNz;
     if (yaw !== 0.0) {
       const cosY = math.cos(yaw);
-      const sinY = math.sin(yaw);
+      const sinY = math.sin(0.0 - yaw);
       wnx = hitNx * cosY - hitNz * sinY;
       wnz = hitNx * sinY + hitNz * cosY;
     }
@@ -2487,7 +2501,7 @@ function raycastDynamicsDDA(
 
                       if (yaw !== 0.0) {
                         const cosY = math.cos(0.0 - yaw);
-                        const sinY = math.sin(0.0 - yaw);
+                        const sinY = math.sin(yaw);
                         rox = (ox - cx) * cosY - (oz - cz) * sinY;
                         roz = (ox - cx) * sinY + (oz - cz) * cosY;
                         rdx = ndx * cosY - ndz * sinY;
@@ -2564,7 +2578,7 @@ function raycastDynamicsDDA(
                             if (closestDist < tEndLoop) tEndLoop = closestDist;
                             let nxBox = hitNormX; let nyBox = hitNormY; let nzBox = hitNormZ;
                             if (yaw !== 0.0) {
-                              const cosY = math.cos(yaw); const sinY = math.sin(yaw);
+                              const cosY = math.cos(yaw); const sinY = math.sin(0.0 - yaw);
                               nxBox = hitNormX * cosY - hitNormZ * sinY;
                               nzBox = hitNormX * sinY + hitNormZ * cosY;
                             }
@@ -2723,7 +2737,7 @@ function overlapSphereObject(
 
     if (yaw !== 0.0) {
       const cosY = math.cos(0.0 - yaw);
-      const sinY = math.sin(0.0 - yaw);
+      const sinY = math.sin(yaw);
       rx = (cx - tcx) * cosY - (cz - tcz) * sinY;
       rz = (cx - tcx) * sinY + (cz - tcz) * cosY;
     }
@@ -2771,7 +2785,7 @@ function overlapSphereObject(
     let wnx = lnx; let wny = lny; let wnz = lnz;
     if (yaw !== 0.0) {
       const cosY = math.cos(yaw);
-      const sinY = math.sin(yaw);
+      const sinY = math.sin(0.0 - yaw);
       wnx = lnx * cosY - lnz * sinY;
       wnz = lnx * sinY + lnz * cosY;
     }
@@ -2801,7 +2815,7 @@ function overlapSphereObject(
 
     if (yaw !== 0.0) {
       const cosY = math.cos(0.0 - yaw);
-      const sinY = math.sin(0.0 - yaw);
+      const sinY = math.sin(yaw);
       rx = (cx - tcx) * cosY - (cz - tcz) * sinY;
       rz = (cx - tcx) * sinY + (cz - tcz) * cosY;
     }
@@ -2816,7 +2830,7 @@ function overlapSphereObject(
     let wnz = sHullContactOut.nz;
     if (yaw !== 0.0) {
       const cosY = math.cos(yaw);
-      const sinY = math.sin(yaw);
+      const sinY = math.sin(0.0 - yaw);
       wnx = sHullContactOut.nx * cosY - sHullContactOut.nz * sinY;
       wnz = sHullContactOut.nx * sinY + sHullContactOut.nz * cosY;
     }
@@ -2865,7 +2879,7 @@ function testOverlapSphereObject(
 
     if (yaw !== 0.0) {
       const cosY = math.cos(0.0 - yaw);
-      const sinY = math.sin(0.0 - yaw);
+      const sinY = math.sin(yaw);
       rx = (cx - tcx) * cosY - (cz - tcz) * sinY;
       rz = (cx - tcx) * sinY + (cz - tcz) * cosY;
     }
@@ -2899,7 +2913,7 @@ function testOverlapSphereObject(
 
     if (yaw !== 0.0) {
       const cosY = math.cos(0.0 - yaw);
-      const sinY = math.sin(0.0 - yaw);
+      const sinY = math.sin(yaw);
       rx = (cx - tcx) * cosY - (cz - tcz) * sinY;
       rz = (cx - tcx) * sinY + (cz - tcz) * cosY;
     }
@@ -3164,7 +3178,7 @@ if (storedCount < maxHits) {
                     let lrz = rz;
                     if (yaw !== 0.0) {
                       const cosY = math.cos(0.0 - yaw);
-                      const sinY = math.sin(0.0 - yaw);
+                      const sinY = math.sin(yaw);
                       lrx = rx * cosY - rz * sinY;
                       lrz = rx * sinY + rz * cosY;
                     }
@@ -3209,7 +3223,7 @@ if (storedCount < maxHits) {
                           let wnz = lnz;
                           if (yaw !== 0.0) {
                             const cosY = math.cos(yaw);
-                            const sinY = math.sin(yaw);
+                            const sinY = math.sin(0.0 - yaw);
                             wnx = lnx * cosY - lnz * sinY;
                             wnz = lnx * sinY + lnz * cosY;
                           }
@@ -3439,7 +3453,7 @@ function overlapBoxObject(
     if (dy >= 0.0) return false;
 
     const cosY = math.cos(yaw);
-    const sinY = math.sin(yaw);
+    const sinY = math.sin(0.0 - yaw);
 
     // Eixos a testar em XZ:
     // Eixo 1: (1, 0)
@@ -3553,7 +3567,7 @@ function testOverlapBoxObject(
     if (dy >= 0.0) return false;
 
     const cosY = math.cos(yaw);
-    const sinY = math.sin(yaw);
+    const sinY = math.sin(0.0 - yaw);
 
     const ax1 = math.abs(cosY) * thx + math.abs(sinY) * thz + hx;
     if (ax1 - math.abs(tcx - cx) <= 0.0) return false;
@@ -3590,7 +3604,7 @@ function testOverlapBoxObject(
 
     if (yaw !== 0.0) {
       const cosY = math.cos(0.0 - yaw);
-      const sinY = math.sin(0.0 - yaw);
+      const sinY = math.sin(yaw);
       rx = (cx - tcx) * cosY - (cz - tcz) * sinY;
       rz = (cx - tcx) * sinY + (cz - tcz) * cosY;
     }
