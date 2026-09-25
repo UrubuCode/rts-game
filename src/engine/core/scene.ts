@@ -24,6 +24,13 @@ export const DYN_OP_REMOVE = 2;
 /// Limite máximo de operações dinâmicas pendentes antes de descartar a fila para evitar retenção de memória
 export const MAX_PENDING_DYNAMIC_OPS = 256;
 
+/// O que a cena precisa saber do seu índice espacial: só o sinal de que a
+/// próxima consulta deve reindexar os estáticos. O resto é da classe
+/// `SpatialIndex` em spatial_queries.ts.
+export interface SceneSpatialIndex {
+  forceStaticRebuild: boolean;
+}
+
 export class Scene {
   name: string;
   objects: GameObject[];
@@ -99,6 +106,10 @@ export class Scene {
   /// frame; lê-lo de um array direto custa ~4x menos. Mantido em sincronia por
   /// `add`/`removeAt`/`moveSubtree` — as três únicas mutações da lista.
   trs: Transform[];
+  /// Índice espacial próprio desta cena, instanciado sob demanda por
+  /// `spatial_queries.getSpatialIndex`. Tipado pela interface mínima abaixo
+  /// (e não pela classe) para não criar ciclo de import com spatial_queries.
+  spatialIndex: SceneSpatialIndex | null;
 
   constructor(name: string) {
     this.name = name;
@@ -115,6 +126,7 @@ export class Scene {
     this.lastZ = [];
     this.done = [];
     this.trs = [];
+    this.spatialIndex = null;
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
@@ -137,6 +149,9 @@ export class Scene {
     this.pendingDynamicOps.length = 0;
     this.pendingDynamicObjs.length = 0;
     this.pendingDynamicOverflow = false;
+    if (this.spatialIndex !== null) {
+      this.spatialIndex.forceStaticRebuild = true;
+    }
   }
 
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.

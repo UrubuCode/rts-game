@@ -79,8 +79,8 @@ export function createOverlapHit(): OverlapHit {
 }
 
 // ── ÍNDICE ESPACIAL PRÓPRIO (GRID NO HOST) ──────────────────────────────────
-const SGRID_CAP = 8192;
-const SGRID_MASK = 8191;
+const SGRID_CAP = 1024;
+const SGRID_MASK = 1023;
 const HASH_X = 73856093;
 const HASH_Y = 19349663;
 const HASH_Z = 83492791;
@@ -99,163 +99,41 @@ function insertHitSorted(outHits: OverlapHit[], startIndex: number, target: Over
   outHits[p] = target;
 }
 
+/// Escrita de um hit em duas funções de 4 parâmetros, sem função de 9 e sem
+/// `const target = outHits[i]`: no RTS atual, uma função com 5+ parâmetros que
+/// escreve propriedades num elemento de array aloca um bloco de spill por
+/// chamada (medido com RTS_GC_DEBUG: 20.000 overlaps = 23 coletas / 1 M
+/// células; nesta forma, zero). Ver repro em scratch/repro_params.ts.
+function writeHitCore(target: OverlapHit, candId: number, depth: f64, curStepId: number): void {
+  target.hit = true;
+  target.bodyId = candId;
+  target.depth = depth;
+  target.stepId = curStepId;
+}
+function writeHitNormal(target: OverlapHit, nx: f64, ny: f64, nz: f64): void {
+  target.normal[0] = nx;
+  target.normal[1] = ny;
+  target.normal[2] = nz;
+}
+
 let sActiveScene: Scene | null = null;
-let sObjCap = 4096;
-let sDynHead: number[] = new Array(SGRID_CAP).fill(-1);
-let sDynNext: number[] = new Array(sObjCap).fill(-1);
-let sDynCell: number[] = new Array(sObjCap).fill(0);
-let sPrevDynCount = 0;
-let sDynamicMaxHalfExtent = 0.5;
-let sDynCellSize = 2.0;
-let sDynInvCellSize = 0.5;
-let sBucketStamp: number[] = new Array(SGRID_CAP).fill(0);
-let sHasDynamicLocalOffset = 0;
+let sCandCx: f64 = 0.0;
+let sCandCy: f64 = 0.0;
+let sCandCz: f64 = 0.0;
+let sCandYaw: f64 = 0.0;
+const sHullContactOut: Contact = new Contact();
+const sSharedBucketStamp: number[] = new Array(SGRID_CAP).fill(0);
+const sSharedVisitedStamp: number[] = new Array(8192).fill(0);
+const sSharedStaticIndices: number[] = [];
+const sSharedStaticCoarseIndices: number[] = [];
+const sSharedExtentBuffer: f64[] = [];
+const sSharedDynCollectObjs: GameObject[] = [];
+let sSharedDynCollectCount: number = 0;
+let sQueryStamp: number = 0;
 
-let sStaticHead: number[] = new Array(SGRID_CAP).fill(-1);
-let sStaticUsedBuckets: number[] = new Array(SGRID_CAP).fill(0);
-let sStaticUsedBucketsCount = 0;
-let sStaticEntriesCap = 32768;
-let sStaticEntriesObj: number[] = new Array(sStaticEntriesCap).fill(0);
-let sStaticEntriesNext: number[] = new Array(sStaticEntriesCap).fill(0);
-let sStaticEntriesCount = 0;
-let sStaticCellSize = 2.0;
-let sStaticInvCellSize = 0.5;
-let sStaticMaxHalfExtent = 0.5;
-
-function growStaticEntries(): void {
-  const newCap = sStaticEntriesCap * 2;
-  while (sStaticEntriesObj.length < newCap) {
-    sStaticEntriesObj.push(0);
-    sStaticEntriesNext.push(0);
-  }
-  sStaticEntriesCap = newCap;
+function ensureSharedVisitedCapacity(cap: number): void {
+  while (sSharedVisitedStamp.length < cap) sSharedVisitedStamp.push(0);
 }
-
-let sObjs: GameObject[] = [];
-let sTrs: Transform[] = [];
-
-let sLocalHx: number[] = new Array(sObjCap).fill(0.5);
-let sLocalHy: number[] = new Array(sObjCap).fill(0.5);
-let sLocalHz: number[] = new Array(sObjCap).fill(0.5);
-let sLocalCx: number[] = new Array(sObjCap).fill(0.0);
-let sLocalCy: number[] = new Array(sObjCap).fill(0.0);
-let sLocalCz: number[] = new Array(sObjCap).fill(0.0);
-
-let sWorldCx: number[] = new Array(sObjCap).fill(0.0);
-let sWorldCy: number[] = new Array(sObjCap).fill(0.0);
-let sWorldCz: number[] = new Array(sObjCap).fill(0.0);
-let sWorldHx: number[] = new Array(sObjCap).fill(0.5);
-let sWorldHy: number[] = new Array(sObjCap).fill(0.5);
-let sWorldHz: number[] = new Array(sObjCap).fill(0.5);
-let sWorldRadius: number[] = new Array(sObjCap).fill(0.5);
-
-let sShape: number[] = new Array(sObjCap).fill(0);
-let sTrigger: number[] = new Array(sObjCap).fill(0);
-let sHullId: number[] = new Array(sObjCap).fill(0);
-let sIsStatic: number[] = new Array(sObjCap).fill(0);
-let sLayer: number[] = new Array(sObjCap).fill(0);
-let sMask: number[] = new Array(sObjCap).fill(0);
-
-let sBodyId: number[] = new Array(sObjCap).fill(0);
-let sYaw: number[] = new Array(sObjCap).fill(0.0);
-
-let sStaticIndices: number[] = new Array(sObjCap).fill(0);
-let sStaticCount = 0;
-let sDynamicIndices: number[] = new Array(sObjCap).fill(0);
-let sDynamicCount = 0;
-
-// ── TIER 2: GRID COARSE PARA ESTÁTICOS MÉDIOS/GRANDES ─────────────────────
-let sStaticCoarseHead: number[] = new Array(SGRID_CAP).fill(-1);
-let sStaticCoarseUsedBuckets: number[] = new Array(SGRID_CAP).fill(0);
-let sStaticCoarseUsedBucketsCount = 0;
-let sStaticCoarseEntriesCap = 32768;
-let sStaticCoarseEntriesObj: number[] = new Array(sStaticCoarseEntriesCap).fill(0);
-let sStaticCoarseEntriesNext: number[] = new Array(sStaticCoarseEntriesCap).fill(0);
-let sStaticCoarseEntriesCount = 0;
-let sStaticCoarseCellSize = 32.0;
-let sStaticCoarseInvCellSize = 1.0 / 32.0;
-let sStaticCoarseCount = 0;
-let sStaticCoarseIndices: number[] = new Array(sObjCap).fill(0);
-let sStaticCoarseSceneMinX = 0.0; let sStaticCoarseSceneMaxX = 0.0;
-let sStaticCoarseSceneMinY = 0.0; let sStaticCoarseSceneMaxY = 0.0;
-let sStaticCoarseSceneMinZ = 0.0; let sStaticCoarseSceneMaxZ = 0.0;
-
-function growStaticCoarseEntries(): void {
-  const newCap = sStaticCoarseEntriesCap * 2;
-  while (sStaticCoarseEntriesObj.length < newCap) {
-    sStaticCoarseEntriesObj.push(0);
-    sStaticCoarseEntriesNext.push(0);
-  }
-  sStaticCoarseEntriesCap = newCap;
-}
-
-// ── CORPOS COLOSSAIS (TERRENOS GIGANTES DE MAPA E CHEFES DINÂMICOS) ────────
-let sColossalStaticCap = 256;
-let sColossalStaticObjs: number[] = new Array(sColossalStaticCap).fill(0);
-let sColossalStaticCount = 0;
-
-let sColossalDynamicCap = 256;
-let sColossalDynamicObjs: number[] = new Array(sColossalDynamicCap).fill(0);
-let sColossalDynamicCount = 0;
-
-function addColossalStatic(k: number): void {
-  if (sColossalStaticCount >= sColossalStaticCap) {
-    const newCap = sColossalStaticCap * 2;
-    while (sColossalStaticObjs.length < newCap) sColossalStaticObjs.push(0);
-    sColossalStaticCap = newCap;
-  }
-  sColossalStaticObjs[sColossalStaticCount] = k;
-  sColossalStaticCount = sColossalStaticCount + 1;
-}
-
-function addColossalDynamic(k: number): void {
-  if (sColossalDynamicCount >= sColossalDynamicCap) {
-    const newCap = sColossalDynamicCap * 2;
-    while (sColossalDynamicObjs.length < newCap) sColossalDynamicObjs.push(0);
-    sColossalDynamicCap = newCap;
-  }
-  sColossalDynamicObjs[sColossalDynamicCount] = k;
-  sColossalDynamicCount = sColossalDynamicCount + 1;
-}
-
-function removeColossalDynamicBySlot(k: number): void {
-  let ci = 0;
-  while (ci < sColossalDynamicCount) {
-    if (sColossalDynamicObjs[ci] === k) {
-      const lastCi = sColossalDynamicCount - 1;
-      if (ci < lastCi) {
-        sColossalDynamicObjs[ci] = sColossalDynamicObjs[lastCi];
-      }
-      sColossalDynamicCount = sColossalDynamicCount - 1;
-      return;
-    }
-    ci = ci + 1;
-  }
-}
-
-function updateColossalDynamicSlot(oldK: number, newK: number): void {
-  let ci = 0;
-  while (ci < sColossalDynamicCount) {
-    if (sColossalDynamicObjs[ci] === oldK) {
-      sColossalDynamicObjs[ci] = newK;
-      return;
-    }
-    ci = ci + 1;
-  }
-}
-
-let sStaticCacheWx: f64[] = new Array(sObjCap).fill(0.0);
-let sStaticCacheWy: f64[] = new Array(sObjCap).fill(0.0);
-let sStaticCacheWz: f64[] = new Array(sObjCap).fill(0.0);
-let sStaticCacheSx: f64[] = new Array(sObjCap).fill(1.0);
-let sStaticCacheWry: f64[] = new Array(sObjCap).fill(0.0);
-
-// Buffer reutilizado para coleta de dinâmicos no único passe de staticDirty
-const sDynCollectObjs: GameObject[] = [];
-let sDynCollectCount = 0;
-
-// Buffer reutilizado para cálculo de mediana sem alocações no heap
-let sExtentBuffer: f64[] = new Array(sObjCap).fill(0.0);
 
 function quickselect(arr: f64[], left: number, right: number, k: number): f64 {
   while (left < right) {
@@ -283,180 +161,1466 @@ function quickselect(arr: f64[], left: number, right: number, k: number): f64 {
   return arr[left];
 }
 
-let sMinX: number[] = new Array(sObjCap).fill(0.0);
-let sMaxX: number[] = new Array(sObjCap).fill(0.0);
-let sMinY: number[] = new Array(sObjCap).fill(0.0);
-let sMaxY: number[] = new Array(sObjCap).fill(0.0);
-let sMinZ: number[] = new Array(sObjCap).fill(0.0);
-let sMaxZ: number[] = new Array(sObjCap).fill(0.0);
-
-let sStaticSceneMinX = 0.0; let sStaticSceneMaxX = 0.0;
-let sStaticSceneMinY = 0.0; let sStaticSceneMaxY = 0.0;
-let sStaticSceneMinZ = 0.0; let sStaticSceneMaxZ = 0.0;
-
-let sDynSceneMinX = 0.0; let sDynSceneMaxX = 0.0;
-let sDynSceneMinY = 0.0; let sDynSceneMaxY = 0.0;
-let sDynSceneMinZ = 0.0; let sDynSceneMaxZ = 0.0;
-
-let sCellSize = 2.0;
-let sInvCellSize = 0.5;
-let sLastRebuildStep = -1;
-let sLastStaticVersion = -1;
-let sLastCompVersion = -1;
-let sStaticTotal = 0;
-let sForceStaticRebuild = false;
-
-let sQueryStamp = 0;
-let sVisitedStamp: number[] = new Array(sObjCap).fill(0);
-
-
-function ensureObjCapacity(cap: number): void {
-  if (sObjCap >= cap) return;
-  let newCap = sObjCap * 2;
-  while (newCap < cap) newCap = newCap * 2;
-  while (sLocalHx.length < newCap) {
-    sLocalHx.push(0.5); sLocalHy.push(0.5); sLocalHz.push(0.5);
-    sLocalCx.push(0.0); sLocalCy.push(0.0); sLocalCz.push(0.0);
-    sWorldCx.push(0.0); sWorldCy.push(0.0); sWorldCz.push(0.0);
-    sWorldHx.push(0.5); sWorldHy.push(0.5); sWorldHz.push(0.5);
-    sWorldRadius.push(0.5);
-    sShape.push(0); sTrigger.push(0); sHullId.push(0); sIsStatic.push(0);
-    sLayer.push(0); sMask.push(0);
-    sBodyId.push(0); sYaw.push(0.0);
-    sStaticIndices.push(0); sDynamicIndices.push(0);
-    sStaticCoarseIndices.push(0);
-    sExtentBuffer.push(0.0);
-    sMinX.push(0.0); sMaxX.push(0.0);
-    sMinY.push(0.0); sMaxY.push(0.0);
-    sMinZ.push(0.0); sMaxZ.push(0.0);
-    sVisitedStamp.push(0);
-    sDynNext.push(-1);
-    sDynCell.push(0);
-    sStaticCacheWx.push(0.0);
-    sStaticCacheWy.push(0.0);
-    sStaticCacheWz.push(0.0);
-    sStaticCacheSx.push(1.0);
-    sStaticCacheWry.push(0.0);
-  }
-  sObjCap = newCap;
-}
-
-// Instância única reusada para testes de casca sem alocação
-const sHullContactOut: Contact = new Contact();
-
-export function setSpatialScene(sc: Scene | null): void {
-  sActiveScene = sc;
-  sLastRebuildStep = -1;
-  sLastStaticVersion = -1;
-  sLastCompVersion = -1;
-  sStaticTotal = 0;
-  sForceStaticRebuild = false;
-  let b = 0;
-  while (b < sStaticUsedBucketsCount) {
-    sStaticHead[sStaticUsedBuckets[b]] = -1;
-    b = b + 1;
-  }
-  sStaticUsedBucketsCount = 0;
-  sStaticEntriesCount = 0;
-
-  let cb = 0;
-  while (cb < sStaticCoarseUsedBucketsCount) {
-    sStaticCoarseHead[sStaticCoarseUsedBuckets[cb]] = -1;
-    cb = cb + 1;
-  }
-  sStaticCoarseUsedBucketsCount = 0;
-  sStaticCoarseEntriesCount = 0;
-  sStaticCoarseCount = 0;
-
-  let di = 0;
-  while (di < sPrevDynCount) {
-    const b = sDynCell[di];
-    if (b >= 0) sDynHead[b] = -1;
-    di = di + 1;
-  }
-  sPrevDynCount = 0;
-  sColossalStaticCount = 0;
-  sColossalDynamicCount = 0;
-}
-
-export function getSpatialScene(): Scene | null {
-  return sActiveScene;
-}
-
 function mfloor(v: f64): number {
   const t = v | 0;
   if (v < 0.0 && (t * 1.0) !== v) return t - 1;
   return t;
 }
 
-
-let sCandCx: f64 = 0.0;
-let sCandCy: f64 = 0.0;
-let sCandCz: f64 = 0.0;
-let sCandYaw: f64 = 0.0;
-
-function resolveCandidateTransform(k: number): void {
-  if (sIsStatic[k] !== 0) {
-    sCandCx = sWorldCx[k];
-    sCandCy = sWorldCy[k];
-    sCandCz = sWorldCz[k];
-    sCandYaw = sYaw[k];
-    return;
+export function getSpatialStepId(): number {
+  if (pbActiveBackend() === 1) {
+    return pbGpuLastReadbackStep();
   }
-  const t = sTrs[k];
-  sCandYaw = t.wry;
-  if (sHasDynamicLocalOffset === 0) {
-    sCandCx = t.wx;
-    sCandCy = t.wy;
-    sCandCz = t.wz;
-    return;
-  }
-  let cx = t.wx;
-  let cy = t.wy;
-  let cz = t.wz;
-  const lcx = sLocalCx[k];
-  const lcy = sLocalCy[k];
-  const lcz = sLocalCz[k];
-  if (lcx !== 0.0 || lcz !== 0.0) {
-    const ox = lcx * t.sx;
-    const oz = lcz * t.sz;
-    if (t.wry === 0.0) {
-      cx = cx + ox;
-      cz = cz + oz;
-    } else {
-      const cs = math.cos(t.wry);
-      const sn = math.sin(t.wry);
-      cx = cx + (ox * cs + oz * sn);
-      cz = cz + (0.0 - ox * sn + oz * cs);
-    }
-  }
-  if (lcy !== 0.0) {
-    cy = cy + lcy * t.sy;
-  }
-  sCandCx = cx;
-  sCandCy = cy;
-  sCandCz = cz;
+  return stepCount();
 }
 
-/// ARQUITETURA DO GRID DINÂMICO (Centro Único + Expansão de Consulta):
-/// Os corpos dinâmicos são indexados em célula única determinada pelo seu centro (reduzindo
-/// inserções de 16.000 para 2.000 e viabilizando o rebuild em ~0.33 ms a 60 Hz).
-/// As consultas de overlap expandem a AABB de busca por `sDynamicMaxHalfExtent`, e o DDA de raycast
-/// engorda o raio pela mesma meia-extensão máxima.
-///
-/// LIMITAÇÃO CONHECIDA (Corpos Dinâmicos Grandes):
-/// Como a região de busca é expandida pela MAIOR meia-extensão dinâmica presente na cena, se um
-/// único corpo dinâmico for excepcionalmente grande (ex: um veículo ou chefe com meia-extensão de 50 u),
-/// todas as consultas de overlap dinâmico passam a varrer uma vizinhança expandida em 50 u, aumentando
-/// o número de células e corpos candidatos testados. Caso uma cena futura necessite de múltiplos corpos
-/// dinâmicos colossais coexistindo com milhares de corpos pequenos, uma partição em camadas hierárquicas
-/// ou multi-célula dedicada para corpos grandes deverá ser introduzida.
-///
-/// Reconstrução dos objetos dinâmicos no índice espacial como FUNÇÃO LIVRE de parâmetros TIPADOS.
-///
-/// Segue o mesmo padrão de `computeWorldInto` e `buildSceneGrid` em `scene.ts`:
-/// parâmetros com anotações explícitas de array tipado (`f64[]`, `number[]`, `Transform[]`)
-/// e constantes de máscara/multiplicadores locais evitam o caminho dinâmico do runtime.
+// ═══════════════════════════════════════════════════════════════════════════
+// CLASSE DO ÍNDICE ESPACIAL POR CENA (§8 e §8.3 item 4)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export class SpatialIndex {
+  scene: Scene;
+
+  objCap: number = 64;
+  dynHead: number[];
+  dynNext: number[];
+  dynCell: number[];
+  prevDynCount: number = 0;
+  dynamicMaxHalfExtent: number = 0.5;
+  dynCellSize: number = 2.0;
+  dynInvCellSize: number = 0.5;
+  hasDynamicLocalOffset: number = 0;
+
+  staticHead: number[];
+  staticUsedBuckets: number[];
+  staticEntriesCap: number = 0;
+  staticEntriesObj: number[] = [];
+  staticEntriesNext: number[] = [];
+  staticEntriesCount: number = 0;
+  staticCellSize: number = 2.0;
+  staticInvCellSize: number = 0.5;
+  staticMaxHalfExtent: number = 0.5;
+
+  objs: GameObject[] = [];
+  trs: Transform[] = [];
+
+  localCx: number[] = [];
+  localCy: number[] = [];
+  localCz: number[] = [];
+
+  worldCx: number[] = [];
+  worldCy: number[] = [];
+  worldCz: number[] = [];
+  worldHx: number[] = [];
+  worldHy: number[] = [];
+  worldHz: number[] = [];
+  worldRadius: number[] = [];
+
+  shape: number[] = [];
+  yaw: number[] = [];
+  hasTriggers: number = 0;
+  hasStaticTriggers: number = 0;
+  hasDynamicTriggers: number = 0;
+
+  staticCount: number = 0;
+  dynamicIndices: number[] = [];
+  dynamicCount: number = 0;
+
+  staticCoarseHead: number[] = [];
+  staticCoarseUsedBuckets: number[] = [];
+  staticCoarseEntriesCap: number = 0;
+  staticCoarseEntriesObj: number[] = [];
+  staticCoarseEntriesNext: number[] = [];
+  staticCoarseEntriesCount: number = 0;
+  staticCoarseCellSize: number = 32.0;
+  staticCoarseInvCellSize: number = 1.0 / 32.0;
+  staticCoarseCount: number = 0;
+  staticCoarseSceneMinX: number = 0.0; staticCoarseSceneMaxX: number = 0.0;
+  staticCoarseSceneMinY: number = 0.0; staticCoarseSceneMaxY: number = 0.0;
+  staticCoarseSceneMinZ: number = 0.0; staticCoarseSceneMaxZ: number = 0.0;
+
+  colossalStaticCap: number = 0;
+  colossalStaticObjs: number[] = [];
+  colossalStaticCount: number = 0;
+
+  colossalDynamicCap: number = 0;
+  colossalDynamicObjs: number[] = [];
+  colossalDynamicCount: number = 0;
+
+  minX: number[] = [];
+  maxX: number[] = [];
+  minY: number[] = [];
+  maxY: number[] = [];
+  minZ: number[] = [];
+  maxZ: number[] = [];
+
+  staticSceneMinX: number = 0.0; staticSceneMaxX: number = 0.0;
+  staticSceneMinY: number = 0.0; staticSceneMaxY: number = 0.0;
+  staticSceneMinZ: number = 0.0; staticSceneMaxZ: number = 0.0;
+
+  dynSceneMinX: number = 0.0; dynSceneMaxX: number = 0.0;
+  dynSceneMinY: number = 0.0; dynSceneMaxY: number = 0.0;
+  dynSceneMinZ: number = 0.0; dynSceneMaxZ: number = 0.0;
+
+  lastRebuildStep: number = -1;
+  lastStaticVersion: number = -1;
+  lastCompVersion: number = -1;
+  staticTotal: number = 0;
+  forceStaticRebuild: boolean = false;
+
+  tempRayHit: RaycastHit = createRaycastHit();
+  candidateOverlapHit: OverlapHit = createOverlapHit();
+
+  constructor(scene: Scene) {
+    this.scene = scene;
+    const n = scene.objects.length;
+    let cap = n < 64 ? 64 : n + 64;
+    this.objCap = cap;
+
+    this.dynHead = new Array(SGRID_CAP).fill(-1);
+    this.dynNext = new Array(cap).fill(-1);
+    this.dynCell = [];
+
+    this.staticHead = [];
+    this.staticUsedBuckets = [];
+    this.staticEntriesCap = 0;
+    this.staticEntriesObj = [];
+    this.staticEntriesNext = [];
+
+    this.localCx = [];
+    this.localCy = [];
+    this.localCz = [];
+
+    // Linhas por objeto já com a capacidade da cena, via `new Array(cap).fill`:
+    // elementos de array vivem fora do heap de células (Vec no host), então
+    // isto não custa células, e `fill` é muito mais barato que crescer por
+    // `push` no primeiro rebuild (~2.000 objetos: 5,5 ms -> ver first_rebuild.ts).
+    this.worldCx = new Array(cap).fill(0.0);
+    this.worldCy = new Array(cap).fill(0.0);
+    this.worldCz = new Array(cap).fill(0.0);
+    this.worldHx = new Array(cap).fill(0.5);
+    this.worldHy = new Array(cap).fill(0.5);
+    this.worldHz = new Array(cap).fill(0.5);
+    this.worldRadius = new Array(cap).fill(0.5);
+
+    this.shape = new Array(cap).fill(0);
+    this.yaw = new Array(cap).fill(0.0);
+    this.dynamicIndices = [];
+
+    this.minX = new Array(cap).fill(0.0);
+    this.maxX = new Array(cap).fill(0.0);
+    this.minY = new Array(cap).fill(0.0);
+    this.maxY = new Array(cap).fill(0.0);
+    this.minZ = new Array(cap).fill(0.0);
+    this.maxZ = new Array(cap).fill(0.0);
+  }
+
+  growLocalCenter(): void {
+    const cap = this.objCap;
+    while (this.localCx.length < cap) {
+      this.localCx.push(0.0);
+      this.localCy.push(0.0);
+      this.localCz.push(0.0);
+    }
+  }
+
+  growStatic(cap: number): void {
+    while (this.worldCx.length < cap) {
+      this.worldCx.push(0.0);
+      this.worldCy.push(0.0);
+      this.worldCz.push(0.0);
+      this.worldHx.push(0.5);
+      this.worldHy.push(0.5);
+      this.worldHz.push(0.5);
+      this.worldRadius.push(0.5);
+      this.shape.push(0);
+      this.yaw.push(0.0);
+      this.minX.push(0.0);
+      this.maxX.push(0.0);
+      this.minY.push(0.0);
+      this.maxY.push(0.0);
+      this.minZ.push(0.0);
+      this.maxZ.push(0.0);
+    }
+  }
+
+  ensureObjCapacity(cap: number): void {
+    if (this.objCap >= cap) return;
+    let newCap = this.objCap < 64 ? 64 : (this.objCap + (this.objCap >> 1));
+    if (newCap < cap) newCap = cap;
+    if (newCap < this.objCap + 32) newCap = this.objCap + 32;
+    ensureSharedVisitedCapacity(newCap);
+    while (this.dynNext.length < newCap) {
+      this.dynNext.push(-1);
+    }
+    if (this.localCx.length > 0 && this.localCx.length < newCap) {
+      while (this.localCx.length < newCap) {
+        this.localCx.push(0.0);
+        this.localCy.push(0.0);
+        this.localCz.push(0.0);
+      }
+    }
+    this.objCap = newCap;
+  }
+
+  growStaticEntries(): void {
+    if (this.staticEntriesCap === 0) {
+      this.staticEntriesCap = 128;
+      this.staticEntriesObj = new Array(128).fill(0);
+      this.staticEntriesNext = new Array(128).fill(0);
+      return;
+    }
+    const newCap = this.staticEntriesCap * 2;
+    while (this.staticEntriesObj.length < newCap) {
+      this.staticEntriesObj.push(0);
+      this.staticEntriesNext.push(0);
+    }
+    this.staticEntriesCap = newCap;
+  }
+
+  growStaticCoarseEntries(): void {
+    if (this.staticCoarseEntriesCap === 0) {
+      this.staticCoarseEntriesCap = 128;
+      this.staticCoarseEntriesObj = new Array(128).fill(0);
+      this.staticCoarseEntriesNext = new Array(128).fill(0);
+      return;
+    }
+    const newCap = this.staticCoarseEntriesCap * 2;
+    while (this.staticCoarseEntriesObj.length < newCap) {
+      this.staticCoarseEntriesObj.push(0);
+      this.staticCoarseEntriesNext.push(0);
+    }
+    this.staticCoarseEntriesCap = newCap;
+  }
+
+  addColossalStatic(k: number): void {
+    if (this.colossalStaticCap === 0) {
+      this.colossalStaticCap = 16;
+      this.colossalStaticObjs = new Array(16).fill(0);
+    } else if (this.colossalStaticCount >= this.colossalStaticCap) {
+      const newCap = this.colossalStaticCap * 2;
+      while (this.colossalStaticObjs.length < newCap) this.colossalStaticObjs.push(0);
+      this.colossalStaticCap = newCap;
+    }
+    this.colossalStaticObjs[this.colossalStaticCount] = k;
+    this.colossalStaticCount = this.colossalStaticCount + 1;
+  }
+
+  addColossalDynamic(k: number): void {
+    if (this.colossalDynamicCap === 0) {
+      this.colossalDynamicCap = 16;
+      this.colossalDynamicObjs = new Array(16).fill(0);
+    } else if (this.colossalDynamicCount >= this.colossalDynamicCap) {
+      const newCap = this.colossalDynamicCap * 2;
+      while (this.colossalDynamicObjs.length < newCap) this.colossalDynamicObjs.push(0);
+      this.colossalDynamicCap = newCap;
+    }
+    this.colossalDynamicObjs[this.colossalDynamicCount] = k;
+    this.colossalDynamicCount = this.colossalDynamicCount + 1;
+  }
+
+  removeColossalDynamicBySlot(k: number): void {
+    let ci = 0;
+    while (ci < this.colossalDynamicCount) {
+      if (this.colossalDynamicObjs[ci] === k) {
+        const lastCi = this.colossalDynamicCount - 1;
+        if (ci < lastCi) {
+          this.colossalDynamicObjs[ci] = this.colossalDynamicObjs[lastCi];
+        }
+        this.colossalDynamicCount = this.colossalDynamicCount - 1;
+        return;
+      }
+      ci = ci + 1;
+    }
+  }
+
+  updateColossalDynamicSlot(oldK: number, newK: number): void {
+    let ci = 0;
+    while (ci < this.colossalDynamicCount) {
+      if (this.colossalDynamicObjs[ci] === oldK) {
+        this.colossalDynamicObjs[ci] = newK;
+        return;
+      }
+      ci = ci + 1;
+    }
+  }
+
+  clear(): void {
+    if (this.staticHead.length > 0) {
+      let b = 0;
+      while (b < this.staticUsedBuckets.length) {
+        this.staticHead[this.staticUsedBuckets[b]] = -1;
+        b = b + 1;
+      }
+      this.staticUsedBuckets.length = 0;
+      this.staticEntriesCount = 0;
+    }
+
+    if (this.staticCoarseHead.length > 0) {
+      let cb = 0;
+      while (cb < this.staticCoarseUsedBuckets.length) {
+        this.staticCoarseHead[this.staticCoarseUsedBuckets[cb]] = -1;
+        cb = cb + 1;
+      }
+      this.staticCoarseUsedBuckets.length = 0;
+      this.staticCoarseEntriesCount = 0;
+      this.staticCoarseCount = 0;
+    }
+
+    let di = 0;
+    while (di < this.prevDynCount) {
+      this.dynHead[this.dynCell[di]] = -1;
+      di = di + 1;
+    }
+    this.prevDynCount = 0;
+    this.colossalStaticCount = 0;
+    this.colossalDynamicCount = 0;
+    this.lastRebuildStep = -1;
+    this.lastStaticVersion = -1;
+    this.lastCompVersion = -1;
+    this.staticTotal = 0;
+    this.forceStaticRebuild = false;
+    this.objs.length = 0;
+    this.trs.length = 0;
+    this.dynamicCount = 0;
+    this.worldCx.length = 0;
+    this.worldCy.length = 0;
+    this.worldCz.length = 0;
+    this.yaw.length = 0;
+    this.minX.length = 0;
+    this.maxX.length = 0;
+    this.minY.length = 0;
+    this.maxY.length = 0;
+    this.minZ.length = 0;
+    this.maxZ.length = 0;
+    this.hasTriggers = 0;
+    this.hasStaticTriggers = 0;
+    this.hasDynamicTriggers = 0;
+  }
+
+  resolveCandidateTransform(k: number): void {
+    if (k < this.staticTotal) {
+      sCandCx = this.worldCx[k];
+      sCandCy = this.worldCy[k];
+      sCandCz = this.worldCz[k];
+      sCandYaw = this.yaw[k];
+      return;
+    }
+    const t = this.trs[k];
+    sCandYaw = t.wry;
+    if (this.hasDynamicLocalOffset === 0) {
+      sCandCx = t.wx;
+      sCandCy = t.wy;
+      sCandCz = t.wz;
+      return;
+    }
+    let cx = t.wx;
+    let cy = t.wy;
+    let cz = t.wz;
+    const lcx = this.localCx[k];
+    const lcy = this.localCy[k];
+    const lcz = this.localCz[k];
+    if (lcx !== 0.0 || lcz !== 0.0) {
+      const ox = lcx * t.sx;
+      const oz = lcz * t.sz;
+      if (t.wry === 0.0) {
+        cx = cx + ox;
+        cz = cz + oz;
+      } else {
+        const cs = math.cos(t.wry);
+        const sn = math.sin(t.wry);
+        cx = cx + (ox * cs + oz * sn);
+        cz = cz + (0.0 - ox * sn + oz * cs);
+      }
+    }
+    if (lcy !== 0.0) {
+      cy = cy + lcy * t.sy;
+    }
+    sCandCx = cx;
+    sCandCy = cy;
+    sCandCz = cz;
+  }
+
+  fillObjectRow(k: number, o: GameObject): number {
+    const t = o.transform;
+    const isStatic = bodyTypeOf(o) === BODY_STATIC ? 1 : 0;
+    const shp = shapeOf(o);
+    const trig = triggerOf(o);
+    if (trig !== 0) {
+      if (isStatic !== 0) this.hasStaticTriggers = 1;
+      else this.hasDynamicTriggers = 1;
+    }
+    const lhx = halfLocalX(o);
+    const lhy = halfLocalY(o);
+    const lhz = halfLocalZ(o);
+    const lcx = centerLocalX(o);
+    const lcy = centerLocalY(o);
+    const lcz = centerLocalZ(o);
+
+    this.shape[k] = shp;
+    if (lcx !== 0.0 || lcy !== 0.0 || lcz !== 0.0) {
+      if (this.localCx.length < this.objCap) this.growLocalCenter();
+      this.localCx[k] = lcx;
+      this.localCy[k] = lcy;
+      this.localCz[k] = lcz;
+      this.hasDynamicLocalOffset = 1;
+    } else if (this.localCx.length > 0) {
+      this.localCx[k] = 0.0;
+      this.localCy[k] = 0.0;
+      this.localCz[k] = 0.0;
+    }
+
+    const hx = lhx * t.sx;
+    const hy = lhy * t.sy;
+    const hz = lhz * t.sz;
+
+    this.worldHx[k] = hx;
+    this.worldHy[k] = hy;
+    this.worldHz[k] = hz;
+    this.worldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
+    const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+
+    if (isStatic !== 0) {
+      if (this.worldCx.length <= k) this.growStatic(k + 1);
+      this.yaw[k] = t.wry;
+      let cx = t.wx; let cy = t.wy; let cz = t.wz;
+      if (lcx !== 0.0 || lcz !== 0.0) {
+        const ox = lcx * t.sx; const oz = lcz * t.sz;
+        if (t.wry === 0.0) {
+          cx = cx + ox; cz = cz + oz;
+        } else {
+          const cs = math.cos(t.wry); const sn = math.sin(t.wry);
+          cx = cx + (ox * cs + oz * sn);
+          cz = cz + (0.0 - ox * sn + oz * cs);
+        }
+      }
+      if (lcy !== 0.0) cy = cy + lcy * t.sy;
+      this.worldCx[k] = cx; this.worldCy[k] = cy; this.worldCz[k] = cz;
+
+      const minX = cx - hx; const maxX = cx + hx;
+      const minY = cy - hy; const maxY = cy + hy;
+      const minZ = cz - hz; const maxZ = cz + hz;
+      this.minX[k] = minX; this.maxX[k] = maxX;
+      this.minY[k] = minY; this.maxY[k] = maxY;
+      this.minZ[k] = minZ; this.maxZ[k] = maxZ;
+    }
+
+    return maxH;
+  }
+
+  passesFilter(
+    queryMask: number,
+    queryLayer: number,
+    includeTriggers: boolean,
+    k: number,
+  ): boolean {
+    const o = this.objs[k];
+    if (o.active === 0) return false;
+    if ((queryMask & o.layer) === 0) return false;
+    if ((o.mask & queryLayer) === 0) return false;
+    if (!includeTriggers && this.hasTriggers !== 0 && triggerOf(o) !== 0) {
+      return false;
+    }
+    return true;
+  }
+
+  rebuild(): void {
+    const targetScene = this.scene;
+    const statVer = targetScene.staticVersion;
+    const compVer = targetScene.compVersion;
+
+    const staticDirty = (this.lastStaticVersion !== statVer || this.forceStaticRebuild);
+    const compDirty = (this.lastCompVersion !== compVer || staticDirty);
+
+    if (staticDirty) {
+      this.forceStaticRebuild = false;
+      this.hasStaticTriggers = 0;
+      const allObjs = targetScene.objects;
+      const n = allObjs.length;
+      this.ensureObjCapacity(n);
+
+      this.objs.length = 0;
+      this.trs.length = 0;
+      let allStaticCount = 0;
+      this.dynCollectCount = 0;
+
+      let i = 0;
+      while (i < n) {
+        const o = allObjs[i];
+        if (o.collideFlag !== 0 || o.colIdx >= 0) {
+          if (bodyTypeOf(o) === BODY_STATIC) {
+            if (o.active !== 0) {
+              const k = this.objs.length;
+              this.objs.push(o);
+              const t = o.transform;
+              this.trs.push(t);
+              o.spatialSlot = k;
+              o.spatialDynSlot = 0 - 1;
+
+              const maxH = this.fillObjectRow(k, o);
+
+              if (sSharedStaticIndices.length < allStaticCount + 1) sSharedStaticIndices.push(k);
+              else sSharedStaticIndices[allStaticCount] = k;
+              if (sSharedExtentBuffer.length < allStaticCount + 1) sSharedExtentBuffer.push(maxH);
+              else sSharedExtentBuffer[allStaticCount] = maxH;
+              allStaticCount = allStaticCount + 1;
+            }
+          } else {
+            if (sSharedDynCollectCount >= sSharedDynCollectObjs.length) {
+              sSharedDynCollectObjs.push(o);
+            } else {
+              sSharedDynCollectObjs[sSharedDynCollectCount] = o;
+            }
+            sSharedDynCollectCount = sSharedDynCollectCount + 1;
+          }
+        }
+        i = i + 1;
+      }
+
+      this.staticTotal = this.objs.length;
+
+      // Célula estática Tier 1 dimensionada pela MEDIANA das meias-extensões características
+      let statCellSize = 2.0;
+      if (allStaticCount > 0) {
+        const medianExtent = quickselect(sSharedExtentBuffer, 0, allStaticCount - 1, allStaticCount >> 1);
+        statCellSize = medianExtent * 2.0;
+      }
+      if (statCellSize < 2.0) statCellSize = 2.0;
+      this.staticCellSize = statCellSize;
+      this.staticInvCellSize = 1.0 / this.staticCellSize;
+
+      // Limiar relativo à célula (§Item 1 do Claude)
+      const tier1Threshold = 2.0 * this.staticCellSize;
+
+      this.staticCount = 0;
+      this.staticCoarseCount = 0;
+      this.colossalStaticCount = 0;
+
+      let coarseCandidatesCount = 0;
+      let si = 0;
+      while (si < allStaticCount) {
+        const k = sSharedStaticIndices[si];
+        const hx = this.worldHx[k];
+        const hy = this.worldHy[k];
+        const hz = this.worldHz[k];
+        const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+        if (maxH <= tier1Threshold) {
+          if (sSharedStaticIndices.length < this.staticCount + 1) sSharedStaticIndices.push(k);
+          else sSharedStaticIndices[this.staticCount] = k;
+          this.staticCount = this.staticCount + 1;
+        } else {
+          if (sSharedStaticCoarseIndices.length < coarseCandidatesCount + 1) sSharedStaticCoarseIndices.push(k);
+          else sSharedStaticCoarseIndices[coarseCandidatesCount] = k;
+          if (sSharedExtentBuffer.length < coarseCandidatesCount + 1) sSharedExtentBuffer.push(maxH);
+          else sSharedExtentBuffer[coarseCandidatesCount] = maxH;
+          coarseCandidatesCount = coarseCandidatesCount + 1;
+        }
+        si = si + 1;
+      }
+
+      // Dimensiona Tier 2 (Coarse Grid) se houver candidatos
+      let coarseCellSize = this.staticCellSize * 4.0;
+      if (coarseCandidatesCount > 0) {
+        const medianCoarse = quickselect(sSharedExtentBuffer, 0, coarseCandidatesCount - 1, coarseCandidatesCount >> 1);
+        coarseCellSize = medianCoarse * 2.0;
+        if (coarseCellSize < this.staticCellSize * 4.0) coarseCellSize = this.staticCellSize * 4.0;
+      }
+      this.staticCoarseCellSize = coarseCellSize;
+      this.staticCoarseInvCellSize = 1.0 / this.staticCoarseCellSize;
+      const tier2Threshold = 2.0 * this.staticCoarseCellSize;
+
+      let cci = 0;
+      let finalCoarseCount = 0;
+      while (cci < coarseCandidatesCount) {
+        const k = sSharedStaticCoarseIndices[cci];
+        const hx = this.worldHx[k];
+        const hy = this.worldHy[k];
+        const hz = this.worldHz[k];
+        const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
+        if (maxH <= tier2Threshold && maxH <= 128.0) {
+          if (sSharedStaticCoarseIndices.length < finalCoarseCount + 1) sSharedStaticCoarseIndices.push(k);
+          else sSharedStaticCoarseIndices[finalCoarseCount] = k;
+          finalCoarseCount = finalCoarseCount + 1;
+        } else {
+          this.addColossalStatic(k);
+        }
+        cci = cci + 1;
+      }
+      this.staticCoarseCount = finalCoarseCount;
+
+      // Limpa e popula buckets estáticos Tier 1 (Grid Fino)
+      if (this.staticCount > 0) {
+        if (this.staticHead.length === 0) {
+          this.staticHead = new Array(SGRID_CAP).fill(-1);
+          this.staticUsedBuckets = [];
+          this.staticEntriesCap = Math.max(128, this.staticCount * 4);
+          this.staticEntriesObj = new Array(this.staticEntriesCap).fill(0);
+          this.staticEntriesNext = new Array(this.staticEntriesCap).fill(0);
+        }
+        let b = 0;
+        while (b < this.staticUsedBuckets.length) {
+          this.staticHead[this.staticUsedBuckets[b]] = -1;
+          b = b + 1;
+        }
+        this.staticUsedBuckets.length = 0;
+        this.staticEntriesCount = 0;
+
+        let bMinX = 1e30; let bMaxX = -1e30;
+        let bMinY = 1e30; let bMaxY = -1e30;
+        let bMinZ = 1e30; let bMaxZ = -1e30;
+
+        let ti = 0;
+        while (ti < this.staticCount) {
+          const k = sSharedStaticIndices[ti];
+          const minX = this.minX[k]; const maxX = this.maxX[k];
+          const minY = this.minY[k]; const maxY = this.maxY[k];
+          const minZ = this.minZ[k]; const maxZ = this.maxZ[k];
+
+          if (minX < bMinX) bMinX = minX;
+          if (maxX > bMaxX) bMaxX = maxX;
+          if (minY < bMinY) bMinY = minY;
+          if (maxY > bMaxY) bMaxY = maxY;
+          if (minZ < bMinZ) bMinZ = minZ;
+          if (maxZ > bMaxZ) bMaxZ = maxZ;
+
+          const minGx = mfloor(minX * this.staticInvCellSize);
+          const maxGx = mfloor(maxX * this.staticInvCellSize);
+          const minGy = mfloor(minY * this.staticInvCellSize);
+          const maxGy = mfloor(maxY * this.staticInvCellSize);
+          const minGz = mfloor(minZ * this.staticInvCellSize);
+          const maxGz = mfloor(maxZ * this.staticInvCellSize);
+
+          let gx = minGx;
+          while (gx <= maxGx) {
+            const hashX = gx * HASH_X;
+            let gy = minGy;
+            while (gy <= maxGy) {
+              const gxy = hashX ^ (gy * HASH_Y);
+              let gz = minGz;
+              while (gz <= maxGz) {
+                const bucket = (gxy ^ (gz * HASH_Z)) & SGRID_MASK;
+                if (this.staticHead[bucket] === -1) {
+                  this.staticUsedBuckets.push(bucket);
+                }
+                const entryIdx = this.staticEntriesCount;
+                this.staticEntriesCount = this.staticEntriesCount + 1;
+                if (this.staticEntriesCount >= this.staticEntriesCap) this.growStaticEntries();
+                this.staticEntriesObj[entryIdx] = k;
+                this.staticEntriesNext[entryIdx] = this.staticHead[bucket];
+                this.staticHead[bucket] = entryIdx;
+                gz = gz + 1;
+              }
+              gy = gy + 1;
+            }
+            gx = gx + 1;
+          }
+          ti = ti + 1;
+        }
+        this.staticSceneMinX = bMinX; this.staticSceneMaxX = bMaxX;
+        this.staticSceneMinY = bMinY; this.staticSceneMaxY = bMaxY;
+        this.staticSceneMinZ = bMinZ; this.staticSceneMaxZ = bMaxZ;
+      }
+
+      // Limpa e popula buckets estáticos Tier 2 (Grid Coarse)
+      if (this.staticCoarseCount > 0) {
+        if (this.staticCoarseHead.length === 0) {
+          this.staticCoarseHead = new Array(SGRID_CAP).fill(-1);
+          this.staticCoarseUsedBuckets = [];
+          this.staticCoarseEntriesCap = Math.max(128, this.staticCoarseCount * 4);
+          this.staticCoarseEntriesObj = new Array(this.staticCoarseEntriesCap).fill(0);
+          this.staticCoarseEntriesNext = new Array(this.staticCoarseEntriesCap).fill(0);
+        }
+        let cb = 0;
+        while (cb < this.staticCoarseUsedBuckets.length) {
+          this.staticCoarseHead[this.staticCoarseUsedBuckets[cb]] = -1;
+          cb = cb + 1;
+        }
+        this.staticCoarseUsedBuckets.length = 0;
+        this.staticCoarseEntriesCount = 0;
+
+        let bcMinX = 1e30; let bcMaxX = -1e30;
+        let bcMinY = 1e30; let bcMaxY = -1e30;
+        let bcMinZ = 1e30; let bcMaxZ = -1e30;
+
+        let cii = 0;
+        while (cii < this.staticCoarseCount) {
+          const k = sSharedStaticCoarseIndices[cii];
+          const minX = this.minX[k]; const maxX = this.maxX[k];
+          const minY = this.minY[k]; const maxY = this.maxY[k];
+          const minZ = this.minZ[k]; const maxZ = this.maxZ[k];
+
+          if (minX < bcMinX) bcMinX = minX;
+          if (maxX > bcMaxX) bcMaxX = maxX;
+          if (minY < bcMinY) bcMinY = minY;
+          if (maxY > bcMaxY) bcMaxY = maxY;
+          if (minZ < bcMinZ) bcMinZ = minZ;
+          if (maxZ > bcMaxZ) bcMaxZ = maxZ;
+
+          const minGx = mfloor(minX * this.staticCoarseInvCellSize);
+          const maxGx = mfloor(maxX * this.staticCoarseInvCellSize);
+          const minGy = mfloor(minY * this.staticCoarseInvCellSize);
+          const maxGy = mfloor(maxY * this.staticCoarseInvCellSize);
+          const minGz = mfloor(minZ * this.staticCoarseInvCellSize);
+          const maxGz = mfloor(maxZ * this.staticCoarseInvCellSize);
+
+          let gx = minGx;
+          while (gx <= maxGx) {
+            const hashX = gx * HASH_X;
+            let gy = minGy;
+            while (gy <= maxGy) {
+              const gxy = hashX ^ (gy * HASH_Y);
+              let gz = minGz;
+              while (gz <= maxGz) {
+                const bucket = (gxy ^ (gz * HASH_Z)) & SGRID_MASK;
+                if (this.staticCoarseHead[bucket] === -1) {
+                  this.staticCoarseUsedBuckets.push(bucket);
+                }
+                const entryIdx = this.staticCoarseEntriesCount;
+                this.staticCoarseEntriesCount = this.staticCoarseEntriesCount + 1;
+                if (this.staticCoarseEntriesCount >= this.staticCoarseEntriesCap) this.growStaticCoarseEntries();
+                this.staticCoarseEntriesObj[entryIdx] = k;
+                this.staticCoarseEntriesNext[entryIdx] = this.staticCoarseHead[bucket];
+                this.staticCoarseHead[bucket] = entryIdx;
+                gz = gz + 1;
+              }
+              gy = gy + 1;
+            }
+            gx = gx + 1;
+          }
+          cii = cii + 1;
+        }
+        this.staticCoarseSceneMinX = bcMinX; this.staticCoarseSceneMaxX = bcMaxX;
+        this.staticCoarseSceneMinY = bcMinY; this.staticCoarseSceneMaxY = bcMaxY;
+        this.staticCoarseSceneMinZ = bcMinZ; this.staticCoarseSceneMaxZ = bcMaxZ;
+      }
+
+      this.lastStaticVersion = statVer;
+    }
+
+    // 2. SINCRONIZAÇÃO DA COMPOSIÇÃO DINÂMICA (quando compVersion mudar)
+    if (compDirty) {
+      if (!staticDirty && !targetScene.pendingDynamicOverflow && targetScene.pendingDynamicOps.length > 0) {
+        const ops = targetScene.pendingDynamicOps;
+        const objs = targetScene.pendingDynamicObjs;
+        const numOps = ops.length;
+        let oi = 0;
+        while (oi < numOps) {
+          const op = ops[oi];
+          const o = objs[oi];
+          if (op === DYN_OP_ADD) {
+            if ((o.collideFlag !== 0 || o.colIdx >= 0) && bodyTypeOf(o) !== BODY_STATIC) {
+              this.ensureObjCapacity(this.objs.length + 1);
+              const k = this.objs.length;
+              this.objs.push(o);
+              const t = o.transform;
+              this.trs.push(t);
+
+              const maxH = this.fillObjectRow(k, o);
+
+              if (this.localCx.length > 0 && (this.localCx[k] !== 0.0 || this.localCy[k] !== 0.0 || this.localCz[k] !== 0.0)) this.hasDynamicLocalOffset = 1;
+              o.spatialSlot = k;
+
+              if (maxH > 16.0) {
+                this.addColossalDynamic(k);
+                o.spatialDynSlot = 0 - 1;
+              } else {
+                o.spatialDynSlot = this.dynamicCount;
+                if (this.dynamicIndices.length <= this.dynamicCount) this.dynamicIndices.push(k); else if (this.dynamicIndices.length <= this.dynamicCount) this.dynamicIndices.push(k); else this.dynamicIndices[this.dynamicCount] = k;
+                this.dynamicCount = this.dynamicCount + 1;
+                if (maxH > this.dynamicMaxHalfExtent) this.dynamicMaxHalfExtent = maxH;
+              }
+            }
+          } else if (op === DYN_OP_REMOVE) {
+            const k = o.spatialSlot;
+            if (k >= 0 && k < this.staticTotal) {
+              if (this.objs[k] === o) {
+                this.forceStaticRebuild = true;
+                o.spatialSlot = 0 - 1;
+                o.spatialDynSlot = 0 - 1;
+                this.rebuild();
+                return;
+              }
+              oi = oi + 1;
+              continue;
+            }
+            if (k >= this.staticTotal && k < this.objs.length && this.objs[k] === o) {
+              const dynSlot = o.spatialDynSlot;
+              if (dynSlot >= 0 && dynSlot < this.dynamicCount && this.dynamicIndices[dynSlot] === k) {
+                const lastDynSlot = this.dynamicCount - 1;
+                if (dynSlot < lastDynSlot) {
+                  const movedK = this.dynamicIndices[lastDynSlot];
+                  this.dynamicIndices[dynSlot] = movedK;
+                  this.objs[movedK].spatialDynSlot = dynSlot;
+                }
+                this.dynamicCount = this.dynamicCount - 1;
+              } else {
+                this.removeColossalDynamicBySlot(k);
+              }
+              o.spatialDynSlot = 0 - 1;
+
+              const lastK = this.objs.length - 1;
+              if (k < lastK) {
+                const lastObj = this.objs[lastK];
+                this.objs[k] = lastObj;
+                this.trs[k] = this.trs[lastK];
+                if (k < this.shape.length && lastK < this.shape.length) {
+                  this.shape[k] = this.shape[lastK];
+                  this.worldHx[k] = this.worldHx[lastK];
+                  this.worldHy[k] = this.worldHy[lastK];
+                  this.worldHz[k] = this.worldHz[lastK];
+                  this.worldRadius[k] = this.worldRadius[lastK];
+                }
+                if (this.localCx.length > 0 && lastK < this.localCx.length) {
+                  this.localCx[k] = this.localCx[lastK];
+                  this.localCy[k] = this.localCy[lastK];
+                  this.localCz[k] = this.localCz[lastK];
+                }
+                if (lastK < this.worldCx.length) {
+                  this.yaw[k] = this.yaw[lastK];
+                  this.worldCx[k] = this.worldCx[lastK];
+                  this.worldCy[k] = this.worldCy[lastK];
+                  this.worldCz[k] = this.worldCz[lastK];
+                }
+
+                lastObj.spatialSlot = k;
+                if (lastObj.spatialDynSlot >= 0) {
+                  this.dynamicIndices[lastObj.spatialDynSlot] = k;
+                } else {
+                  this.updateColossalDynamicSlot(lastK, k);
+                }
+              }
+              this.objs.pop();
+              this.trs.pop();
+              o.spatialSlot = 0 - 1;
+            }
+          }
+          oi = oi + 1;
+        }
+        ops.length = 0;
+        objs.length = 0;
+        this.hasTriggers = this.hasStaticTriggers | this.hasDynamicTriggers;
+      } else if (staticDirty) {
+        this.objs.length = this.staticTotal;
+        this.trs.length = this.staticTotal;
+        this.dynamicCount = 0;
+        this.colossalDynamicCount = 0;
+        this.hasDynamicTriggers = 0;
+        let maxDynamicHalfExtent: f64 = 0.5;
+        let hasDynLocalOffset = 0;
+        let dynMinX = 1e30; let dynMaxX = -1e30;
+        let dynMinY = 1e30; let dynMaxY = -1e30;
+        let dynMinZ = 1e30; let dynMaxZ = -1e30;
+
+        let i = 0;
+        while (i < sSharedDynCollectCount) {
+          const o = sSharedDynCollectObjs[i];
+          const k = this.objs.length;
+          this.objs.push(o);
+          const t = o.transform;
+          this.trs.push(t);
+          o.spatialSlot = k;
+
+          const maxH = this.fillObjectRow(k, o);
+
+          if (this.localCx.length > 0 && (this.localCx[k] !== 0.0 || this.localCy[k] !== 0.0 || this.localCz[k] !== 0.0)) hasDynLocalOffset = 1;
+          if (maxH > 16.0) {
+            this.addColossalDynamic(k);
+            o.spatialDynSlot = 0 - 1;
+          } else {
+            if (maxH > maxDynamicHalfExtent) maxDynamicHalfExtent = maxH;
+            if (t.wx < dynMinX) dynMinX = t.wx;
+            if (t.wx > dynMaxX) dynMaxX = t.wx;
+            if (t.wy < dynMinY) dynMinY = t.wy;
+            if (t.wy > dynMaxY) dynMaxY = t.wy;
+            if (t.wz < dynMinZ) dynMinZ = t.wz;
+            if (t.wz > dynMaxZ) dynMaxZ = t.wz;
+            o.spatialDynSlot = this.dynamicCount;
+            if (this.dynamicIndices.length <= this.dynamicCount) this.dynamicIndices.push(k); else if (this.dynamicIndices.length <= this.dynamicCount) this.dynamicIndices.push(k); else this.dynamicIndices[this.dynamicCount] = k;
+            this.dynamicCount = this.dynamicCount + 1;
+          }
+          i = i + 1;
+        }
+
+        let ci = 0;
+        while (ci < sSharedDynCollectCount) {
+          sSharedDynCollectObjs[ci] = null as unknown as GameObject;
+          ci = ci + 1;
+        }
+        sSharedDynCollectCount = 0;
+
+        this.hasDynamicLocalOffset = hasDynLocalOffset;
+        this.dynamicMaxHalfExtent = maxDynamicHalfExtent;
+        this.hasTriggers = this.hasStaticTriggers | this.hasDynamicTriggers;
+
+        targetScene.pendingDynamicOps.length = 0;
+        targetScene.pendingDynamicObjs.length = 0;
+        targetScene.pendingDynamicOverflow = false;
+      } else {
+        const allObjs = targetScene.objects;
+        const n = allObjs.length;
+        this.ensureObjCapacity(n);
+
+        this.objs.length = this.staticTotal;
+        this.trs.length = this.staticTotal;
+        this.dynamicCount = 0;
+        this.colossalDynamicCount = 0;
+        this.hasDynamicTriggers = 0;
+        let maxDynamicHalfExtent: f64 = 0.5;
+        let hasDynLocalOffset = 0;
+        let dynMinX = 1e30; let dynMaxX = -1e30;
+        let dynMinY = 1e30; let dynMaxY = -1e30;
+        let dynMinZ = 1e30; let dynMaxZ = -1e30;
+
+        let i = 0;
+        while (i < n) {
+          const o = allObjs[i];
+          if (o.collideFlag !== 0 || o.colIdx >= 0) {
+            if (bodyTypeOf(o) !== BODY_STATIC) {
+              const k = this.objs.length;
+              this.objs.push(o);
+              const t = o.transform;
+              this.trs.push(t);
+              o.spatialSlot = k;
+
+              const maxH = this.fillObjectRow(k, o);
+
+              if (this.localCx.length > 0 && (this.localCx[k] !== 0.0 || this.localCy[k] !== 0.0 || this.localCz[k] !== 0.0)) hasDynLocalOffset = 1;
+              if (maxH > 16.0) {
+                this.addColossalDynamic(k);
+                o.spatialDynSlot = 0 - 1;
+              } else {
+                if (maxH > maxDynamicHalfExtent) maxDynamicHalfExtent = maxH;
+                if (t.wx < dynMinX) dynMinX = t.wx;
+                if (t.wx > dynMaxX) dynMaxX = t.wx;
+                if (t.wy < dynMinY) dynMinY = t.wy;
+                if (t.wy > dynMaxY) dynMaxY = t.wy;
+                if (t.wz < dynMinZ) dynMinZ = t.wz;
+                if (t.wz > dynMaxZ) dynMaxZ = t.wz;
+                o.spatialDynSlot = this.dynamicCount;
+                if (this.dynamicIndices.length <= this.dynamicCount) this.dynamicIndices.push(k); else if (this.dynamicIndices.length <= this.dynamicCount) this.dynamicIndices.push(k); else this.dynamicIndices[this.dynamicCount] = k;
+                this.dynamicCount = this.dynamicCount + 1;
+              }
+            }
+          }
+          i = i + 1;
+        }
+
+        this.hasDynamicLocalOffset = hasDynLocalOffset;
+        this.dynamicMaxHalfExtent = maxDynamicHalfExtent;
+        this.hasTriggers = this.hasStaticTriggers | this.hasDynamicTriggers;
+
+        targetScene.pendingDynamicOps.length = 0;
+        targetScene.pendingDynamicObjs.length = 0;
+        targetScene.pendingDynamicOverflow = false;
+      }
+
+      this.dynCellSize = this.dynamicMaxHalfExtent * 2.0;
+      if (this.dynCellSize < 2.0) this.dynCellSize = 2.0;
+      this.dynInvCellSize = 1.0 / this.dynCellSize;
+
+      this.lastCompVersion = compVer;
+    }
+
+    // 3. Atualiza apenas os objetos dinâmicos através de FUNÇÃO LIVRE TIPADA
+    while (this.dynCell.length < this.dynamicCount) this.dynCell.push(0);
+    rebuildDynamicsInto(
+      this.dynamicCount, this.dynamicIndices, this.trs,
+      this.localCx, this.localCy, this.localCz,
+      this.dynInvCellSize, this.dynHead, this.dynNext, this.dynCell,
+      this.prevDynCount,
+      this.hasDynamicLocalOffset,
+      this.dynamicMaxHalfExtent,
+      this,
+    );
+
+    this.prevDynCount = this.dynamicCount;
+    this.lastRebuildStep = getSpatialStepId();
+  }
+
+  ensureIndex(): void {
+    const curStep = getSpatialStepId();
+    if (this.lastRebuildStep !== curStep ||
+        this.lastCompVersion !== this.scene.compVersion ||
+        this.lastStaticVersion !== this.scene.staticVersion ||
+        this.forceStaticRebuild) {
+      this.rebuild();
+    }
+  }
+
+  raycastNonAlloc(
+    ox: number, oy: number, oz: number,
+    dx: number, dy: number, dz: number,
+    maxDistance: number,
+    outHit: RaycastHit,
+    mask: number = MASK_ALL,
+    layer: number = LAYER_DEFAULT,
+    includeTriggers: boolean = false,
+  ): boolean {
+    if (maxDistance <= 0.0 || maxDistance !== maxDistance) return false;
+    this.ensureIndex();
+
+    const len2 = dx * dx + dy * dy + dz * dz;
+    if (len2 < 0.000000000001) return false;
+    const invLen = 1.0 / math.sqrt(len2);
+    const ndx = dx * invLen;
+    const ndy = dy * invLen;
+    const ndz = dz * invLen;
+
+    sQueryStamp = (sQueryStamp + 1) | 0;
+    if (sQueryStamp >= 2000000000) {
+      sQueryStamp = 1;
+      sSharedBucketStamp.fill(0);
+      sSharedVisitedStamp.fill(0);
+    }
+    const stamp = sQueryStamp;
+    const curStepId = getSpatialStepId();
+
+    let closestDist = maxDistance;
+    let found = false;
+
+    // 1. Raycast contra estáticos Tier 1 (Grid Fino)
+    if (this.staticCount > 0) {
+      if (raycastStaticGridDDA(
+        this,
+        ox, oy, oz, ndx, ndy, ndz, closestDist, outHit,
+        mask, layer, includeTriggers, curStepId, stamp,
+        this.staticCellSize, this.staticInvCellSize,
+        this.staticSceneMinX, this.staticSceneMaxX,
+        this.staticSceneMinY, this.staticSceneMaxY,
+        this.staticSceneMinZ, this.staticSceneMaxZ,
+        this.staticHead, this.staticEntriesObj, this.staticEntriesNext,
+      )) {
+        closestDist = outHit.distance;
+        found = true;
+      }
+    }
+
+    // 2. Raycast contra estáticos Tier 2 (Grid Coarse)
+    if (this.staticCoarseCount > 0) {
+      if (raycastStaticGridDDA(
+        this,
+        ox, oy, oz, ndx, ndy, ndz, closestDist, outHit,
+        mask, layer, includeTriggers, curStepId, stamp,
+        this.staticCoarseCellSize, this.staticCoarseInvCellSize,
+        this.staticCoarseSceneMinX, this.staticCoarseSceneMaxX,
+        this.staticCoarseSceneMinY, this.staticCoarseSceneMaxY,
+        this.staticCoarseSceneMinZ, this.staticCoarseSceneMaxZ,
+        this.staticCoarseHead, this.staticCoarseEntriesObj, this.staticCoarseEntriesNext,
+      )) {
+        closestDist = outHit.distance;
+        found = true;
+      }
+    }
+
+    // 3. Raycast contra dinâmicos (DDA do raio engordado em maiorMeiaExtensãoDinâmica)
+    if (this.dynamicCount > 0) {
+      if (raycastDynamicsDDA(
+        this,
+        ox, oy, oz, ndx, ndy, ndz, closestDist, outHit,
+        mask, layer, includeTriggers, curStepId, stamp,
+        this.dynCellSize, this.dynInvCellSize, this.dynamicMaxHalfExtent,
+        this.dynHead, this.dynNext, sSharedVisitedStamp, sSharedBucketStamp, this.tempRayHit,
+        this.trs, this.localCx, this.localCy, this.localCz, this.hasDynamicLocalOffset,
+        this.shape,
+        this.worldHx, this.worldHy, this.worldHz, this.worldRadius,
+      )) {
+        closestDist = outHit.distance;
+        found = true;
+      }
+    }
+
+    // 4. Raycast contra estáticos colossais (terrenos gigantes)
+    if (this.colossalStaticCount > 0) {
+      let li = 0;
+      while (li < this.colossalStaticCount) {
+        const k = this.colossalStaticObjs[li];
+        if (this.passesFilter(mask, layer, includeTriggers, k)) {
+          if (raycastObject(this, k, ox, oy, oz, ndx, ndy, ndz, closestDist, this.tempRayHit, includeTriggers, curStepId)) {
+            if (this.tempRayHit.distance < closestDist) {
+              closestDist = this.tempRayHit.distance;
+              outHit.hit = true;
+              outHit.bodyId = this.tempRayHit.bodyId;
+              outHit.point[0] = this.tempRayHit.point[0];
+              outHit.point[1] = this.tempRayHit.point[1];
+              outHit.point[2] = this.tempRayHit.point[2];
+              outHit.normal[0] = this.tempRayHit.normal[0];
+              outHit.normal[1] = this.tempRayHit.normal[1];
+              outHit.normal[2] = this.tempRayHit.normal[2];
+              outHit.distance = this.tempRayHit.distance;
+              outHit.stepId = this.tempRayHit.stepId;
+              found = true;
+            }
+          }
+        }
+        li = li + 1;
+      }
+    }
+
+    // 5. Raycast contra dinâmicos colossais (chefes gigantes)
+    if (this.colossalDynamicCount > 0) {
+      let li = 0;
+      while (li < this.colossalDynamicCount) {
+        const k = this.colossalDynamicObjs[li];
+        if (this.passesFilter(mask, layer, includeTriggers, k)) {
+          if (raycastObject(this, k, ox, oy, oz, ndx, ndy, ndz, closestDist, this.tempRayHit, includeTriggers, curStepId)) {
+            if (this.tempRayHit.distance < closestDist) {
+              closestDist = this.tempRayHit.distance;
+              outHit.hit = true;
+              outHit.bodyId = this.tempRayHit.bodyId;
+              outHit.point[0] = this.tempRayHit.point[0];
+              outHit.point[1] = this.tempRayHit.point[1];
+              outHit.point[2] = this.tempRayHit.point[2];
+              outHit.normal[0] = this.tempRayHit.normal[0];
+              outHit.normal[1] = this.tempRayHit.normal[1];
+              outHit.normal[2] = this.tempRayHit.normal[2];
+              outHit.distance = this.tempRayHit.distance;
+              outHit.stepId = this.tempRayHit.stepId;
+              found = true;
+            }
+          }
+        }
+        li = li + 1;
+      }
+    }
+
+    if (!found) {
+      outHit.hit = false;
+    }
+    return found;
+  }
+
+  overlapSphereNonAlloc(
+    cx: number, cy: number, cz: number,
+    radius: number,
+    outHits: OverlapHit[],
+    maxHits: number,
+    mask: number = MASK_ALL,
+    layer: number = LAYER_DEFAULT,
+    includeTriggers: boolean = false,
+  ): number {
+    let effectiveMaxHits = maxHits;
+    if (outHits.length < effectiveMaxHits) {
+      effectiveMaxHits = outHits.length;
+    }
+    if (effectiveMaxHits <= 0) return 0;
+
+    this.ensureIndex();
+
+    sQueryStamp = (sQueryStamp + 1) | 0;
+    if (sQueryStamp >= 2000000000) {
+      sQueryStamp = 1;
+      sSharedBucketStamp.fill(0);
+      sSharedVisitedStamp.fill(0);
+    }
+    const stamp = sQueryStamp;
+    const curStepId = getSpatialStepId();
+
+    const minQx = cx - radius;
+    const maxQx = cx + radius;
+    const minQy = cy - radius;
+    const maxQy = cy + radius;
+    const minQz = cz - radius;
+    const maxQz = cz + radius;
+
+    let storedCount = 0;
+    let totalFound = 0;
+
+    // 1. Estáticos Tier 1 (Grid Fino)
+    if (this.staticCount > 0 && maxQx >= this.staticSceneMinX && minQx <= this.staticSceneMaxX &&
+        maxQy >= this.staticSceneMinY && minQy <= this.staticSceneMaxY &&
+        maxQz >= this.staticSceneMinZ && minQz <= this.staticSceneMaxZ) {
+      const minGx = mfloor(minQx * this.staticInvCellSize);
+      const maxGx = mfloor(maxQx * this.staticInvCellSize);
+      const minGy = mfloor(minQy * this.staticInvCellSize);
+      const maxGy = mfloor(maxQy * this.staticInvCellSize);
+      const minGz = mfloor(minQz * this.staticInvCellSize);
+      const maxGz = mfloor(maxQz * this.staticInvCellSize);
+
+      totalFound = overlapSphereInto(
+        this,
+        cx, cy, cz, radius,
+        minGx, maxGx, minGy, maxGy, minGz, maxGz,
+        minQx, maxQx, minQy, maxQy, minQz, maxQz,
+        outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+        this.staticHead, this.staticEntriesObj, this.staticEntriesNext,
+        sSharedVisitedStamp, stamp,
+        this.minX, this.maxX, this.minY, this.maxY, this.minZ, this.maxZ,
+        this.candidateOverlapHit,
+        0, 0,
+      );
+      storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+    }
+
+    // 2. Estáticos Tier 2 (Grid Coarse)
+    if (this.staticCoarseCount > 0 && maxQx >= this.staticCoarseSceneMinX && minQx <= this.staticCoarseSceneMaxX &&
+        maxQy >= this.staticCoarseSceneMinY && minQy <= this.staticCoarseSceneMaxY &&
+        maxQz >= this.staticCoarseSceneMinZ && minQz <= this.staticCoarseSceneMaxZ) {
+      const minGx = mfloor(minQx * this.staticCoarseInvCellSize);
+      const maxGx = mfloor(maxQx * this.staticCoarseInvCellSize);
+      const minGy = mfloor(minQy * this.staticCoarseInvCellSize);
+      const maxGy = mfloor(maxQy * this.staticCoarseInvCellSize);
+      const minGz = mfloor(minQz * this.staticCoarseInvCellSize);
+      const maxGz = mfloor(maxQz * this.staticCoarseInvCellSize);
+
+      totalFound = overlapSphereInto(
+        this,
+        cx, cy, cz, radius,
+        minGx, maxGx, minGy, maxGy, minGz, maxGz,
+        minQx, maxQx, minQy, maxQy, minQz, maxQz,
+        outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+        this.staticCoarseHead, this.staticCoarseEntriesObj, this.staticCoarseEntriesNext,
+        sSharedVisitedStamp, stamp,
+        this.minX, this.maxX, this.minY, this.maxY, this.minZ, this.maxZ,
+        this.candidateOverlapHit,
+        storedCount, totalFound,
+      );
+      storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+    }
+
+    // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
+    if (this.dynamicCount > 0 && maxQx >= this.dynSceneMinX && minQx <= this.dynSceneMaxX &&
+        maxQy >= this.dynSceneMinY && minQy <= this.dynSceneMaxY &&
+        maxQz >= this.dynSceneMinZ && minQz <= this.dynSceneMaxZ) {
+      const dynH = this.dynamicMaxHalfExtent;
+      const minGx = mfloor((minQx - dynH) * this.dynInvCellSize);
+      const maxGx = mfloor((maxQx + dynH) * this.dynInvCellSize);
+      const minGy = mfloor((minQy - dynH) * this.dynInvCellSize);
+      const maxGy = mfloor((maxQy + dynH) * this.dynInvCellSize);
+      const minGz = mfloor((minQz - dynH) * this.dynInvCellSize);
+      const maxGz = mfloor((maxQz + dynH) * this.dynInvCellSize);
+
+      totalFound = overlapSphereDynamicsInto(
+        this,
+        cx, cy, cz, radius,
+        minGx, maxGx, minGy, maxGy, minGz, maxGz,
+        minQx, maxQx, minQy, maxQy, minQz, maxQz,
+        outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+        this.dynHead, this.dynNext, sSharedBucketStamp, stamp,
+        this.candidateOverlapHit,
+        storedCount, totalFound,
+        this.trs, this.localCx, this.localCy, this.localCz, this.hasDynamicLocalOffset,
+        this.shape, this.worldHx, this.worldHy, this.worldHz, this.worldRadius,
+      );
+      storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+    }
+
+    // 4. Objetos colossais (estáticos e dinâmicos)
+    if (this.colossalStaticCount > 0 || this.colossalDynamicCount > 0) {
+      let colIdx = 0;
+      const totalCol = this.colossalStaticCount + this.colossalDynamicCount;
+      while (colIdx < totalCol) {
+        const k = colIdx < this.colossalStaticCount
+          ? this.colossalStaticObjs[colIdx]
+          : this.colossalDynamicObjs[colIdx - this.colossalStaticCount];
+        colIdx = colIdx + 1;
+
+        if (this.passesFilter(mask, layer, includeTriggers, k)) {
+          const candId = this.objs[k].id;
+          if (storedCount < effectiveMaxHits) {
+            if (overlapSphereObject(this, k, cx, cy, cz, radius, outHits[storedCount], includeTriggers, curStepId)) {
+              totalFound = totalFound + 1;
+              insertHitSorted(outHits, storedCount, outHits[storedCount]);
+              storedCount = storedCount + 1;
+            }
+          } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
+            if (overlapSphereObject(this, k, cx, cy, cz, radius, this.candidateOverlapHit, includeTriggers, curStepId)) {
+              totalFound = totalFound + 1;
+              copyOverlapHit(outHits[effectiveMaxHits - 1], this.candidateOverlapHit);
+              insertHitSorted(outHits, effectiveMaxHits - 1, outHits[effectiveMaxHits - 1]);
+            }
+          } else if (testOverlapSphereObject(this, k, cx, cy, cz, radius)) {
+            totalFound = totalFound + 1;
+          }
+        }
+      }
+    }
+
+    return totalFound;
+  }
+
+  overlapBoxNonAlloc(
+    cx: number, cy: number, cz: number,
+    hx: number, hy: number, hz: number,
+    outHits: OverlapHit[],
+    maxHits: number,
+    mask: number = MASK_ALL,
+    layer: number = LAYER_DEFAULT,
+    includeTriggers: boolean = false,
+  ): number {
+    let effectiveMaxHits = maxHits;
+    if (outHits.length < effectiveMaxHits) {
+      effectiveMaxHits = outHits.length;
+    }
+    if (effectiveMaxHits <= 0) return 0;
+
+    this.ensureIndex();
+
+    sQueryStamp = (sQueryStamp + 1) | 0;
+    if (sQueryStamp >= 2000000000) {
+      sQueryStamp = 1;
+      sSharedBucketStamp.fill(0);
+      sSharedVisitedStamp.fill(0);
+    }
+    const stamp = sQueryStamp;
+    const curStepId = getSpatialStepId();
+
+    const minQx = cx - hx;
+    const maxQx = cx + hx;
+    const minQy = cy - hy;
+    const maxQy = cy + hy;
+    const minQz = cz - hz;
+    const maxQz = cz + hz;
+
+    let storedCount = 0;
+    let totalFound = 0;
+
+    // 1. Estáticos Tier 1 (Grid Fino)
+    if (this.staticCount > 0 && maxQx >= this.staticSceneMinX && minQx <= this.staticSceneMaxX &&
+        maxQy >= this.staticSceneMinY && minQy <= this.staticSceneMaxY &&
+        maxQz >= this.staticSceneMinZ && minQz <= this.staticSceneMaxZ) {
+      const minGx = mfloor(minQx * this.staticInvCellSize);
+      const maxGx = mfloor(maxQx * this.staticInvCellSize);
+      const minGy = mfloor(minQy * this.staticInvCellSize);
+      const maxGy = mfloor(maxQy * this.staticInvCellSize);
+      const minGz = mfloor(minQz * this.staticInvCellSize);
+      const maxGz = mfloor(maxQz * this.staticInvCellSize);
+
+      totalFound = overlapBoxInto(
+        this,
+        cx, cy, cz, hx, hy, hz,
+        minGx, maxGx, minGy, maxGy, minGz, maxGz,
+        minQx, maxQx, minQy, maxQy, minQz, maxQz,
+        outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+        this.staticHead, this.staticEntriesObj, this.staticEntriesNext,
+        sSharedVisitedStamp, stamp,
+        this.minX, this.maxX, this.minY, this.maxY, this.minZ, this.maxZ,
+        this.candidateOverlapHit,
+        0, 0,
+      );
+      storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+    }
+
+    // 2. Estáticos Tier 2 (Grid Coarse)
+    if (this.staticCoarseCount > 0 && maxQx >= this.staticCoarseSceneMinX && minQx <= this.staticCoarseSceneMaxX &&
+        maxQy >= this.staticCoarseSceneMinY && minQy <= this.staticCoarseSceneMaxY &&
+        maxQz >= this.staticCoarseSceneMinZ && minQz <= this.staticCoarseSceneMaxZ) {
+      const minGx = mfloor(minQx * this.staticCoarseInvCellSize);
+      const maxGx = mfloor(maxQx * this.staticCoarseInvCellSize);
+      const minGy = mfloor(minQy * this.staticCoarseInvCellSize);
+      const maxGy = mfloor(maxQy * this.staticCoarseInvCellSize);
+      const minGz = mfloor(minQz * this.staticCoarseInvCellSize);
+      const maxGz = mfloor(maxQz * this.staticCoarseInvCellSize);
+
+      totalFound = overlapBoxInto(
+        this,
+        cx, cy, cz, hx, hy, hz,
+        minGx, maxGx, minGy, maxGy, minGz, maxGz,
+        minQx, maxQx, minQy, maxQy, minQz, maxQz,
+        outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+        this.staticCoarseHead, this.staticCoarseEntriesObj, this.staticCoarseEntriesNext,
+        sSharedVisitedStamp, stamp,
+        this.minX, this.maxX, this.minY, this.maxY, this.minZ, this.maxZ,
+        this.candidateOverlapHit,
+        storedCount, totalFound,
+      );
+      storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+    }
+
+    // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
+    if (this.dynamicCount > 0 && maxQx >= this.dynSceneMinX && minQx <= this.dynSceneMaxX &&
+        maxQy >= this.dynSceneMinY && minQy <= this.dynSceneMaxY &&
+        maxQz >= this.dynSceneMinZ && minQz <= this.dynSceneMaxZ) {
+      const dynH = this.dynamicMaxHalfExtent;
+      const minGx = mfloor((minQx - dynH) * this.dynInvCellSize);
+      const maxGx = mfloor((maxQx + dynH) * this.dynInvCellSize);
+      const minGy = mfloor((minQy - dynH) * this.dynInvCellSize);
+      const maxGy = mfloor((maxQy + dynH) * this.dynInvCellSize);
+      const minGz = mfloor((minQz - dynH) * this.dynInvCellSize);
+      const maxGz = mfloor((maxQz + dynH) * this.dynInvCellSize);
+
+      totalFound = overlapBoxDynamicsInto(
+        this,
+        cx, cy, cz, hx, hy, hz,
+        minGx, maxGx, minGy, maxGy, minGz, maxGz,
+        minQx, maxQx, minQy, maxQy, minQz, maxQz,
+        outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
+        this.dynHead, this.dynNext, sSharedBucketStamp, stamp,
+        this.candidateOverlapHit,
+        storedCount, totalFound,
+        this.trs, this.localCx, this.localCy, this.localCz, this.hasDynamicLocalOffset,
+        this.shape, this.worldHx, this.worldHy, this.worldHz, this.worldRadius,
+      );
+      storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
+    }
+
+    // 4. Objetos colossais (estáticos e dinâmicos)
+    if (this.colossalStaticCount > 0 || this.colossalDynamicCount > 0) {
+      let colIdx = 0;
+      const totalCol = this.colossalStaticCount + this.colossalDynamicCount;
+      while (colIdx < totalCol) {
+        const k = colIdx < this.colossalStaticCount
+          ? this.colossalStaticObjs[colIdx]
+          : this.colossalDynamicObjs[colIdx - this.colossalStaticCount];
+        colIdx = colIdx + 1;
+
+        if (this.passesFilter(mask, layer, includeTriggers, k)) {
+          const candId = this.objs[k].id;
+          if (storedCount < effectiveMaxHits) {
+            if (overlapBoxObject(this, k, cx, cy, cz, hx, hy, hz, outHits[storedCount], includeTriggers, curStepId)) {
+              totalFound = totalFound + 1;
+              insertHitSorted(outHits, storedCount, outHits[storedCount]);
+              storedCount = storedCount + 1;
+            }
+          } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
+            if (overlapBoxObject(this, k, cx, cy, cz, hx, hy, hz, this.candidateOverlapHit, includeTriggers, curStepId)) {
+              totalFound = totalFound + 1;
+              copyOverlapHit(outHits[effectiveMaxHits - 1], this.candidateOverlapHit);
+              insertHitSorted(outHits, effectiveMaxHits - 1, outHits[effectiveMaxHits - 1]);
+            }
+          } else if (testOverlapBoxObject(this, k, cx, cy, cz, hx, hy, hz)) {
+            totalFound = totalFound + 1;
+          }
+        }
+      }
+    }
+
+    return totalFound;
+  }
+}
+
+export function getSpatialIndex(sc: Scene): SpatialIndex {
+  if (sc.spatialIndex === null || sc.spatialIndex === undefined) {
+    sc.spatialIndex = new SpatialIndex(sc);
+  }
+  return sc.spatialIndex as SpatialIndex;
+}
+
+export function setSpatialScene(sc: Scene | null): void {
+  sActiveScene = sc;
+}
+
+export function getSpatialScene(): Scene | null {
+  return sActiveScene;
+}
+
+export function spatialRebuildIndex(sc?: Scene): void {
+  const targetScene = sc !== undefined && sc !== null ? sc : sActiveScene;
+  if (targetScene === null) return;
+  getSpatialIndex(targetScene).rebuild();
+}
+
+export function spatialGridRebuildCost(sc: Scene): { timeMs: f64; cellCount: number; objCount: number } {
+  const idx = getSpatialIndex(sc);
+  const t0 = performance.now();
+  idx.rebuild();
+  const timeMs = performance.now() - t0;
+  return {
+    timeMs: timeMs,
+    cellCount: idx.dynamicCount,
+    objCount: idx.objs.length,
+  };
+}
+
 function rebuildDynamicsInto(
   dynamicCount: number,
   dynamicIndices: number[],
@@ -468,6 +1632,8 @@ function rebuildDynamicsInto(
   dynCell: number[],
   prevDynCount: number,
   hasLocalOffset: number,
+  maxExtent: f64,
+  idx: SpatialIndex,
 ): void {
   const mask = SGRID_MASK;
   const hxMult = HASH_X;
@@ -626,688 +1792,22 @@ function rebuildDynamicsInto(
   }
 
   if (dynamicCount > 0) {
-    const dynH = sDynamicMaxHalfExtent + 0.01;
-    sDynSceneMinX = minX - dynH;
-    sDynSceneMaxX = maxX + dynH;
-    sDynSceneMinY = minY - dynH;
-    sDynSceneMaxY = maxY + dynH;
-    sDynSceneMinZ = minZ - dynH;
-    sDynSceneMaxZ = maxZ + dynH;
+    const dynH = maxExtent + 0.01;
+    idx.dynSceneMinX = minX - dynH;
+    idx.dynSceneMaxX = maxX + dynH;
+    idx.dynSceneMinY = minY - dynH;
+    idx.dynSceneMaxY = maxY + dynH;
+    idx.dynSceneMinZ = minZ - dynH;
+    idx.dynSceneMaxZ = maxZ + dynH;
   } else {
-    sDynSceneMinX = 0.0; sDynSceneMaxX = 0.0;
-    sDynSceneMinY = 0.0; sDynSceneMaxY = 0.0;
-    sDynSceneMinZ = 0.0; sDynSceneMaxZ = 0.0;
+    idx.dynSceneMinX = 0.0; idx.dynSceneMaxX = 0.0;
+    idx.dynSceneMinY = 0.0; idx.dynSceneMaxY = 0.0;
+    idx.dynSceneMinZ = 0.0; idx.dynSceneMaxZ = 0.0;
   }
 }
-
-function dynPassesAABB(k: number, minQx: f64, maxQx: f64, minQy: f64, maxQy: f64, minQz: f64, maxQz: f64): boolean {
-  const t = sTrs[k];
-  if (sHasDynamicLocalOffset === 0) {
-    const hx = sWorldHx[k];
-    if (t.wx - hx > maxQx || t.wx + hx < minQx) return false;
-    const hy = sWorldHy[k];
-    if (t.wy - hy > maxQy || t.wy + hy < minQy) return false;
-    const hz = sWorldHz[k];
-    if (t.wz - hz > maxQz || t.wz + hz < minQz) return false;
-    return true;
-  }
-  let cx = t.wx;
-  const lcx = sLocalCx[k];
-  const lcz = sLocalCz[k];
-  if (lcx !== 0.0 || lcz !== 0.0) {
-    const ox = lcx * t.sx; const oz = lcz * t.sz;
-    if (t.wry === 0.0) {
-      cx = cx + ox;
-    } else {
-      cx = cx + (ox * math.cos(t.wry) + oz * math.sin(t.wry));
-    }
-  }
-  const hx = sWorldHx[k];
-  if (cx - hx > maxQx || cx + hx < minQx) return false;
-
-  let cy = t.wy;
-  const lcy = sLocalCy[k];
-  if (lcy !== 0.0) cy = cy + lcy * t.sy;
-  const hy = sWorldHy[k];
-  if (cy - hy > maxQy || cy + hy < minQy) return false;
-
-  let cz = t.wz;
-  if (lcx !== 0.0 || lcz !== 0.0) {
-    const ox = lcx * t.sx; const oz = lcz * t.sz;
-    if (t.wry === 0.0) {
-      cz = cz + oz;
-    } else {
-      cz = cz + (0.0 - ox * math.sin(t.wry) + oz * math.cos(t.wry));
-    }
-  }
-  const hz = sWorldHz[k];
-  if (cz - hz > maxQz || cz + hz < minQz) return false;
-
-  return true;
-}
-
-
-/// Obtém o stepId correto para consultas espaciais segundo o backend ativo.
-export function getSpatialStepId(): number {
-  if (pbActiveBackend() === 1) {
-    return pbGpuLastReadbackStep();
-  }
-  return stepCount();
-}
-
-/// Verificação rápida de drift dos estáticos como função livre com parâmetros tipados.
-/// Executada UMA VEZ por passo dentro de spatialRebuildIndex (e NÃO por consulta).
-function fillObjectRow(k: number, o: GameObject): number {
-  const t = o.transform;
-  const isStatic = bodyTypeOf(o) === BODY_STATIC ? 1 : 0;
-  const shp = shapeOf(o);
-  const trig = triggerOf(o);
-  const hid = hullIdOf(o);
-  const lhx = halfLocalX(o);
-  const lhy = halfLocalY(o);
-  const lhz = halfLocalZ(o);
-  const lcx = centerLocalX(o);
-  const lcy = centerLocalY(o);
-  const lcz = centerLocalZ(o);
-
-  sShape[k] = shp;
-  sTrigger[k] = trig;
-  sHullId[k] = hid;
-  sLocalHx[k] = lhx;
-  sLocalHy[k] = lhy;
-  sLocalHz[k] = lhz;
-  sLocalCx[k] = lcx;
-  sLocalCy[k] = lcy;
-  sLocalCz[k] = lcz;
-  sIsStatic[k] = isStatic;
-  sLayer[k] = o.layer;
-  sMask[k] = o.mask;
-  sBodyId[k] = o.id;
-
-  const hx = lhx * t.sx;
-  const hy = lhy * t.sy;
-  const hz = lhz * t.sz;
-
-  sWorldHx[k] = hx;
-  sWorldHy[k] = hy;
-  sWorldHz[k] = hz;
-  sWorldRadius[k] = hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz);
-  const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
-
-  sYaw[k] = t.wry;
-  if (isStatic !== 0) {
-    let cx = t.wx; let cy = t.wy; let cz = t.wz;
-    if (lcx !== 0.0 || lcz !== 0.0) {
-      const ox = lcx * t.sx; const oz = lcz * t.sz;
-      if (t.wry === 0.0) {
-        cx = cx + ox; cz = cz + oz;
-      } else {
-        const cs = math.cos(t.wry); const sn = math.sin(t.wry);
-        cx = cx + (ox * cs + oz * sn);
-        cz = cz + (0.0 - ox * sn + oz * cs);
-      }
-    }
-    if (lcy !== 0.0) cy = cy + lcy * t.sy;
-    sWorldCx[k] = cx; sWorldCy[k] = cy; sWorldCz[k] = cz;
-
-    sStaticCacheWx[k] = t.wx;
-    sStaticCacheWy[k] = t.wy;
-    sStaticCacheWz[k] = t.wz;
-    sStaticCacheSx[k] = t.sx;
-    sStaticCacheWry[k] = t.wry;
-
-    const minX = cx - hx; const maxX = cx + hx;
-    const minY = cy - hy; const maxY = cy + hy;
-    const minZ = cz - hz; const maxZ = cz + hz;
-    sMinX[k] = minX; sMaxX[k] = maxX;
-    sMinY[k] = minY; sMaxY[k] = maxY;
-    sMinZ[k] = minZ; sMaxZ[k] = maxZ;
-  }
-
-  return maxH;
-}
-
-/// Reconstrói o índice espacial no host a partir da cena.
-export function spatialRebuildIndex(sc?: Scene): void {
-  const targetScene = sc !== undefined ? sc : sActiveScene;
-  if (targetScene === null) return;
-
-  const statVer = targetScene.staticVersion;
-  const compVer = targetScene.compVersion;
-
-  const staticDirty = (sLastStaticVersion !== statVer || sForceStaticRebuild);
-  const compDirty = (sLastCompVersion !== compVer || staticDirty);
-
-  if (staticDirty) {
-    sForceStaticRebuild = false;
-    const allObjs = targetScene.objects;
-    const n = allObjs.length;
-    ensureObjCapacity(n);
-
-    sObjs.length = 0;
-    sTrs.length = 0;
-    let allStaticCount = 0;
-    sDynCollectCount = 0;
-
-    let i = 0;
-    while (i < n) {
-      const o = allObjs[i];
-      if (o.collideFlag !== 0 || o.colIdx >= 0) {
-        if (bodyTypeOf(o) === BODY_STATIC) {
-          if (o.active !== 0) {
-            const k = sObjs.length;
-            sObjs.push(o);
-            const t = o.transform;
-            sTrs.push(t);
-            o.spatialSlot = k;
-            o.spatialDynSlot = 0 - 1;
-
-            const maxH = fillObjectRow(k, o);
-
-            sStaticIndices[allStaticCount] = k;
-            sExtentBuffer[allStaticCount] = maxH;
-            allStaticCount = allStaticCount + 1;
-          }
-        } else {
-          if (sDynCollectCount >= sDynCollectObjs.length) {
-            sDynCollectObjs.push(o);
-          } else {
-            sDynCollectObjs[sDynCollectCount] = o;
-          }
-          sDynCollectCount = sDynCollectCount + 1;
-        }
-      }
-      i = i + 1;
-    }
-
-    sStaticTotal = sObjs.length;
-
-    // Célula estática Tier 1 dimensionada pela MEDIANA das meias-extensões características
-    let statCellSize = 2.0;
-    if (allStaticCount > 0) {
-      const medianExtent = quickselect(sExtentBuffer, 0, allStaticCount - 1, allStaticCount >> 1);
-      statCellSize = medianExtent * 2.0;
-    }
-    if (statCellSize < 2.0) statCellSize = 2.0;
-    sStaticCellSize = statCellSize;
-    sStaticInvCellSize = 1.0 / sStaticCellSize;
-
-    // Limiar relativo à célula (§Item 1 do Claude)
-    const tier1Threshold = 2.0 * sStaticCellSize;
-
-    sStaticCount = 0;
-    sStaticCoarseCount = 0;
-    sColossalStaticCount = 0;
-
-    let coarseCandidatesCount = 0;
-    let si = 0;
-    while (si < allStaticCount) {
-      const k = sStaticIndices[si];
-      const hx = sWorldHx[k];
-      const hy = sWorldHy[k];
-      const hz = sWorldHz[k];
-      const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
-      if (maxH <= tier1Threshold) {
-        sStaticIndices[sStaticCount] = k;
-        sStaticCount = sStaticCount + 1;
-      } else {
-        sStaticCoarseIndices[coarseCandidatesCount] = k;
-        sExtentBuffer[coarseCandidatesCount] = maxH;
-        coarseCandidatesCount = coarseCandidatesCount + 1;
-      }
-      si = si + 1;
-    }
-
-    // Dimensiona Tier 2 (Coarse Grid) se houver candidatos
-    let coarseCellSize = sStaticCellSize * 4.0;
-    if (coarseCandidatesCount > 0) {
-      const medianCoarse = quickselect(sExtentBuffer, 0, coarseCandidatesCount - 1, coarseCandidatesCount >> 1);
-      coarseCellSize = medianCoarse * 2.0;
-      if (coarseCellSize < sStaticCellSize * 4.0) coarseCellSize = sStaticCellSize * 4.0;
-    }
-    sStaticCoarseCellSize = coarseCellSize;
-    sStaticCoarseInvCellSize = 1.0 / sStaticCoarseCellSize;
-    const tier2Threshold = 2.0 * sStaticCoarseCellSize;
-
-    let cci = 0;
-    let finalCoarseCount = 0;
-    while (cci < coarseCandidatesCount) {
-      const k = sStaticCoarseIndices[cci];
-      const hx = sWorldHx[k];
-      const hy = sWorldHy[k];
-      const hz = sWorldHz[k];
-      const maxH = hx > hy ? (hx > hz ? hx : hz) : (hy > hz ? hy : hz);
-      if (maxH <= tier2Threshold && maxH <= 128.0) {
-        sStaticCoarseIndices[finalCoarseCount] = k;
-        finalCoarseCount = finalCoarseCount + 1;
-      } else {
-        addColossalStatic(k);
-      }
-      cci = cci + 1;
-    }
-    sStaticCoarseCount = finalCoarseCount;
-
-    // Limpa e popula buckets estáticos Tier 1 (Grid Fino)
-    let b = 0;
-    while (b < sStaticUsedBucketsCount) {
-      sStaticHead[sStaticUsedBuckets[b]] = -1;
-      b = b + 1;
-    }
-    sStaticUsedBucketsCount = 0;
-    sStaticEntriesCount = 0;
-
-    sStaticSceneMinX = 1e30; sStaticSceneMaxX = -1e30;
-    sStaticSceneMinY = 1e30; sStaticSceneMaxY = -1e30;
-    sStaticSceneMinZ = 1e30; sStaticSceneMaxZ = -1e30;
-
-    let ti = 0;
-    while (ti < sStaticCount) {
-      const k = sStaticIndices[ti];
-      const minX = sMinX[k]; const maxX = sMaxX[k];
-      const minY = sMinY[k]; const maxY = sMaxY[k];
-      const minZ = sMinZ[k]; const maxZ = sMaxZ[k];
-
-      if (minX < sStaticSceneMinX) sStaticSceneMinX = minX;
-      if (maxX > sStaticSceneMaxX) sStaticSceneMaxX = maxX;
-      if (minY < sStaticSceneMinY) sStaticSceneMinY = minY;
-      if (maxY > sStaticSceneMaxY) sStaticSceneMaxY = maxY;
-      if (minZ < sStaticSceneMinZ) sStaticSceneMinZ = minZ;
-      if (maxZ > sStaticSceneMaxZ) sStaticSceneMaxZ = maxZ;
-
-      const minGx = mfloor(minX * sStaticInvCellSize);
-      const maxGx = mfloor(maxX * sStaticInvCellSize);
-      const minGy = mfloor(minY * sStaticInvCellSize);
-      const maxGy = mfloor(maxY * sStaticInvCellSize);
-      const minGz = mfloor(minZ * sStaticInvCellSize);
-      const maxGz = mfloor(maxZ * sStaticInvCellSize);
-
-      let gx = minGx;
-      while (gx <= maxGx) {
-        const hashX = gx * HASH_X;
-        let gy = minGy;
-        while (gy <= maxGy) {
-          const gxy = hashX ^ (gy * HASH_Y);
-          let gz = minGz;
-          while (gz <= maxGz) {
-            const bucket = (gxy ^ (gz * HASH_Z)) & SGRID_MASK;
-            if (sStaticHead[bucket] === -1) {
-              sStaticUsedBuckets[sStaticUsedBucketsCount] = bucket;
-              sStaticUsedBucketsCount = sStaticUsedBucketsCount + 1;
-            }
-            const entryIdx = sStaticEntriesCount;
-            sStaticEntriesCount = sStaticEntriesCount + 1;
-            if (sStaticEntriesCount >= sStaticEntriesCap) growStaticEntries();
-            sStaticEntriesObj[entryIdx] = k;
-            sStaticEntriesNext[entryIdx] = sStaticHead[bucket];
-            sStaticHead[bucket] = entryIdx;
-            gz = gz + 1;
-          }
-          gy = gy + 1;
-        }
-        gx = gx + 1;
-      }
-      ti = ti + 1;
-    }
-
-    // Limpa e popula buckets estáticos Tier 2 (Grid Coarse)
-    let cb = 0;
-    while (cb < sStaticCoarseUsedBucketsCount) {
-      sStaticCoarseHead[sStaticCoarseUsedBuckets[cb]] = -1;
-      cb = cb + 1;
-    }
-    sStaticCoarseUsedBucketsCount = 0;
-    sStaticCoarseEntriesCount = 0;
-
-    sStaticCoarseSceneMinX = 1e30; sStaticCoarseSceneMaxX = -1e30;
-    sStaticCoarseSceneMinY = 1e30; sStaticCoarseSceneMaxY = -1e30;
-    sStaticCoarseSceneMinZ = 1e30; sStaticCoarseSceneMaxZ = -1e30;
-
-    let cii = 0;
-    while (cii < sStaticCoarseCount) {
-      const k = sStaticCoarseIndices[cii];
-      const minX = sMinX[k]; const maxX = sMaxX[k];
-      const minY = sMinY[k]; const maxY = sMaxY[k];
-      const minZ = sMinZ[k]; const maxZ = sMaxZ[k];
-
-      if (minX < sStaticCoarseSceneMinX) sStaticCoarseSceneMinX = minX;
-      if (maxX > sStaticCoarseSceneMaxX) sStaticCoarseSceneMaxX = maxX;
-      if (minY < sStaticCoarseSceneMinY) sStaticCoarseSceneMinY = minY;
-      if (maxY > sStaticCoarseSceneMaxY) sStaticCoarseSceneMaxY = maxY;
-      if (minZ < sStaticCoarseSceneMinZ) sStaticCoarseSceneMinZ = minZ;
-      if (maxZ > sStaticCoarseSceneMaxZ) sStaticCoarseSceneMaxZ = maxZ;
-
-      const minGx = mfloor(minX * sStaticCoarseInvCellSize);
-      const maxGx = mfloor(maxX * sStaticCoarseInvCellSize);
-      const minGy = mfloor(minY * sStaticCoarseInvCellSize);
-      const maxGy = mfloor(maxY * sStaticCoarseInvCellSize);
-      const minGz = mfloor(minZ * sStaticCoarseInvCellSize);
-      const maxGz = mfloor(maxZ * sStaticCoarseInvCellSize);
-
-      let gx = minGx;
-      while (gx <= maxGx) {
-        const hashX = gx * HASH_X;
-        let gy = minGy;
-        while (gy <= maxGy) {
-          const gxy = hashX ^ (gy * HASH_Y);
-          let gz = minGz;
-          while (gz <= maxGz) {
-            const bucket = (gxy ^ (gz * HASH_Z)) & SGRID_MASK;
-            if (sStaticCoarseHead[bucket] === -1) {
-              sStaticCoarseUsedBuckets[sStaticCoarseUsedBucketsCount] = bucket;
-              sStaticCoarseUsedBucketsCount = sStaticCoarseUsedBucketsCount + 1;
-            }
-            const entryIdx = sStaticCoarseEntriesCount;
-            sStaticCoarseEntriesCount = sStaticCoarseEntriesCount + 1;
-            if (sStaticCoarseEntriesCount >= sStaticCoarseEntriesCap) growStaticCoarseEntries();
-            sStaticCoarseEntriesObj[entryIdx] = k;
-            sStaticCoarseEntriesNext[entryIdx] = sStaticCoarseHead[bucket];
-            sStaticCoarseHead[bucket] = entryIdx;
-            gz = gz + 1;
-          }
-          gy = gy + 1;
-        }
-        gx = gx + 1;
-      }
-      cii = cii + 1;
-    }
-
-    sLastStaticVersion = statVer;
-  }
-
-  // 2. SINCRONIZAÇÃO DA COMPOSIÇÃO DINÂMICA (quando compVersion mudar)
-  if (compDirty) {
-    // Se a malha estática NÃO mudou e há mutações incrementais pendentes na fila da cena,
-    // processa estritamente a fila em O(K), sem percorrer os N objetos da cena.
-    if (!staticDirty && !targetScene.pendingDynamicOverflow && targetScene.pendingDynamicOps.length > 0) {
-      const ops = targetScene.pendingDynamicOps;
-      const objs = targetScene.pendingDynamicObjs;
-      const numOps = ops.length;
-      let oi = 0;
-      while (oi < numOps) {
-        const op = ops[oi];
-        const o = objs[oi];
-        if (op === DYN_OP_ADD) {
-          if ((o.collideFlag !== 0 || o.colIdx >= 0) && bodyTypeOf(o) !== BODY_STATIC) {
-            ensureObjCapacity(sObjs.length + 1);
-            const k = sObjs.length;
-            sObjs.push(o);
-            const t = o.transform;
-            sTrs.push(t);
-
-            const maxH = fillObjectRow(k, o);
-
-            if (sLocalCx[k] !== 0.0 || sLocalCy[k] !== 0.0 || sLocalCz[k] !== 0.0) sHasDynamicLocalOffset = 1;
-            o.spatialSlot = k;
-
-            if (maxH > 16.0) {
-              addColossalDynamic(k);
-              o.spatialDynSlot = 0 - 1;
-            } else {
-              o.spatialDynSlot = sDynamicCount;
-              sDynamicIndices[sDynamicCount] = k;
-              sDynamicCount = sDynamicCount + 1;
-              if (maxH > sDynamicMaxHalfExtent) sDynamicMaxHalfExtent = maxH;
-            }
-          }
-        } else if (op === DYN_OP_REMOVE) {
-          const k = o.spatialSlot;
-          if (k >= 0 && k < sStaticTotal) {
-            if (sObjs[k] === o) {
-              sForceStaticRebuild = true;
-              o.spatialSlot = 0 - 1;
-              o.spatialDynSlot = 0 - 1;
-              spatialRebuildIndex(targetScene);
-              return;
-            }
-            oi = oi + 1;
-            continue;
-          }
-          if (k >= sStaticTotal && k < sObjs.length && sObjs[k] === o) {
-            // 1. Remover de sDynamicIndices ou sColossalDynamicObjs
-            const dynSlot = o.spatialDynSlot;
-            if (dynSlot >= 0 && dynSlot < sDynamicCount && sDynamicIndices[dynSlot] === k) {
-              const lastDynSlot = sDynamicCount - 1;
-              if (dynSlot < lastDynSlot) {
-                const movedK = sDynamicIndices[lastDynSlot];
-                sDynamicIndices[dynSlot] = movedK;
-                sObjs[movedK].spatialDynSlot = dynSlot;
-              }
-              sDynamicCount = sDynamicCount - 1;
-            } else {
-              removeColossalDynamicBySlot(k);
-            }
-            o.spatialDynSlot = 0 - 1;
-
-            // 2. Swap-with-last em sObjs e arrays paralelos
-            const lastK = sObjs.length - 1;
-            if (k < lastK) {
-              const lastObj = sObjs[lastK];
-              sObjs[k] = lastObj;
-              sTrs[k] = sTrs[lastK];
-              sShape[k] = sShape[lastK];
-              sTrigger[k] = sTrigger[lastK];
-              sHullId[k] = sHullId[lastK];
-              sLocalHx[k] = sLocalHx[lastK];
-              sLocalHy[k] = sLocalHy[lastK];
-              sLocalHz[k] = sLocalHz[lastK];
-              sLocalCx[k] = sLocalCx[lastK];
-              sLocalCy[k] = sLocalCy[lastK];
-              sLocalCz[k] = sLocalCz[lastK];
-              sIsStatic[k] = sIsStatic[lastK];
-              sLayer[k] = sLayer[lastK];
-              sMask[k] = sMask[lastK];
-              sBodyId[k] = sBodyId[lastK];
-              sWorldHx[k] = sWorldHx[lastK];
-              sWorldHy[k] = sWorldHy[lastK];
-              sWorldHz[k] = sWorldHz[lastK];
-              sWorldRadius[k] = sWorldRadius[lastK];
-              sYaw[k] = sYaw[lastK];
-              sWorldCx[k] = sWorldCx[lastK];
-              sWorldCy[k] = sWorldCy[lastK];
-              sWorldCz[k] = sWorldCz[lastK];
-
-              lastObj.spatialSlot = k;
-              if (lastObj.spatialDynSlot >= 0) {
-                sDynamicIndices[lastObj.spatialDynSlot] = k;
-              } else {
-                updateColossalDynamicSlot(lastK, k);
-              }
-            }
-            sObjs.pop();
-            sTrs.pop();
-            o.spatialSlot = 0 - 1;
-          }
-        }
-        oi = oi + 1;
-      }
-      ops.length = 0;
-      objs.length = 0;
-    } else if (staticDirty) {
-      // Quando staticDirty foi true, sDynCollectObjs já coletou exatamente os dinâmicos
-      // no único passe da cena, sem precisar chamar bodyTypeOf nem verificar os estáticos novamente!
-      sObjs.length = sStaticTotal;
-      sTrs.length = sStaticTotal;
-      sDynamicCount = 0;
-      sColossalDynamicCount = 0;
-      let maxDynamicHalfExtent: f64 = 0.5;
-      let hasDynLocalOffset = 0;
-      let dynMinX = 1e30; let dynMaxX = -1e30;
-      let dynMinY = 1e30; let dynMaxY = -1e30;
-      let dynMinZ = 1e30; let dynMaxZ = -1e30;
-
-      let i = 0;
-      while (i < sDynCollectCount) {
-        const o = sDynCollectObjs[i];
-        const k = sObjs.length;
-        sObjs.push(o);
-        const t = o.transform;
-        sTrs.push(t);
-        o.spatialSlot = k;
-
-        const maxH = fillObjectRow(k, o);
-
-        if (sLocalCx[k] !== 0.0 || sLocalCy[k] !== 0.0 || sLocalCz[k] !== 0.0) hasDynLocalOffset = 1;
-        if (maxH > 16.0) {
-          addColossalDynamic(k);
-          o.spatialDynSlot = 0 - 1;
-        } else {
-          if (maxH > maxDynamicHalfExtent) maxDynamicHalfExtent = maxH;
-          if (t.wx < dynMinX) dynMinX = t.wx;
-          if (t.wx > dynMaxX) dynMaxX = t.wx;
-          if (t.wy < dynMinY) dynMinY = t.wy;
-          if (t.wy > dynMaxY) dynMaxY = t.wy;
-          if (t.wz < dynMinZ) dynMinZ = t.wz;
-          if (t.wz > dynMaxZ) dynMaxZ = t.wz;
-          o.spatialDynSlot = sDynamicCount;
-          sDynamicIndices[sDynamicCount] = k;
-          sDynamicCount = sDynamicCount + 1;
-        }
-        i = i + 1;
-      }
-
-      let ci = 0;
-      while (ci < sDynCollectCount) {
-        sDynCollectObjs[ci] = null as unknown as GameObject;
-        ci = ci + 1;
-      }
-      sDynCollectCount = 0;
-
-      sHasDynamicLocalOffset = hasDynLocalOffset;
-      sDynamicMaxHalfExtent = maxDynamicHalfExtent;
-
-      targetScene.pendingDynamicOps.length = 0;
-      targetScene.pendingDynamicObjs.length = 0;
-      targetScene.pendingDynamicOverflow = false;
-    } else {
-      // Reconstrução dinâmica completa (fallback quando compVersion foi alterado manualmente sem fila)
-      const allObjs = targetScene.objects;
-      const n = allObjs.length;
-      ensureObjCapacity(n);
-
-      sObjs.length = sStaticTotal;
-      sTrs.length = sStaticTotal;
-      sDynamicCount = 0;
-      sColossalDynamicCount = 0;
-      let maxDynamicHalfExtent: f64 = 0.5;
-      let hasDynLocalOffset = 0;
-      let dynMinX = 1e30; let dynMaxX = -1e30;
-      let dynMinY = 1e30; let dynMaxY = -1e30;
-      let dynMinZ = 1e30; let dynMaxZ = -1e30;
-
-      let i = 0;
-      while (i < n) {
-        const o = allObjs[i];
-        if (o.collideFlag !== 0 || o.colIdx >= 0) {
-          if (bodyTypeOf(o) !== BODY_STATIC) {
-            const k = sObjs.length;
-            sObjs.push(o);
-            const t = o.transform;
-            sTrs.push(t);
-            o.spatialSlot = k;
-
-            const maxH = fillObjectRow(k, o);
-
-            if (sLocalCx[k] !== 0.0 || sLocalCy[k] !== 0.0 || sLocalCz[k] !== 0.0) hasDynLocalOffset = 1;
-            if (maxH > 16.0) {
-              addColossalDynamic(k);
-              o.spatialDynSlot = 0 - 1;
-            } else {
-              if (maxH > maxDynamicHalfExtent) maxDynamicHalfExtent = maxH;
-              if (t.wx < dynMinX) dynMinX = t.wx;
-              if (t.wx > dynMaxX) dynMaxX = t.wx;
-              if (t.wy < dynMinY) dynMinY = t.wy;
-              if (t.wy > dynMaxY) dynMaxY = t.wy;
-              if (t.wz < dynMinZ) dynMinZ = t.wz;
-              if (t.wz > dynMaxZ) dynMaxZ = t.wz;
-              o.spatialDynSlot = sDynamicCount;
-              sDynamicIndices[sDynamicCount] = k;
-              sDynamicCount = sDynamicCount + 1;
-            }
-          }
-        }
-        i = i + 1;
-      }
-
-      sHasDynamicLocalOffset = hasDynLocalOffset;
-      sDynamicMaxHalfExtent = maxDynamicHalfExtent;
-
-      targetScene.pendingDynamicOps.length = 0;
-      targetScene.pendingDynamicObjs.length = 0;
-      targetScene.pendingDynamicOverflow = false;
-    }
-
-    // Célula dinâmica dimensionada para 2 * maiorMeiaExtensão dinâmica
-    sDynCellSize = sDynamicMaxHalfExtent * 2.0;
-    if (sDynCellSize < 2.0) sDynCellSize = 2.0;
-    sDynInvCellSize = 1.0 / sDynCellSize;
-    sCellSize = sDynCellSize;
-    sInvCellSize = sDynInvCellSize;
-
-    sLastCompVersion = compVer;
-  }
-
-  // 3. Atualiza apenas os objetos dinâmicos através de FUNÇÃO LIVRE TIPADA
-  rebuildDynamicsInto(
-    sDynamicCount, sDynamicIndices, sTrs,
-    sLocalCx, sLocalCy, sLocalCz,
-    sDynInvCellSize, sDynHead, sDynNext, sDynCell,
-    sPrevDynCount,
-    sHasDynamicLocalOffset,
-  );
-
-  sPrevDynCount = sDynamicCount;
-  sLastRebuildStep = getSpatialStepId();
-}
-
-
-function ensureIndex(sc?: Scene): Scene | null {
-  const targetScene = sc !== undefined ? sc : sActiveScene;
-  if (targetScene === null) return null;
-  const curStep = getSpatialStepId();
-
-  if (sLastRebuildStep !== curStep ||
-      sLastCompVersion !== targetScene.compVersion ||
-      sLastStaticVersion !== targetScene.staticVersion ||
-      sForceStaticRebuild) {
-    spatialRebuildIndex(targetScene);
-  }
-  return targetScene;
-}
-
-
-/// Mede o custo de reconstrução do índice espacial do executor no host (Aceite 8).
-export function spatialGridRebuildCost(sc: Scene): { timeMs: f64; cellCount: number; objCount: number } {
-  const t0 = performance.now();
-  spatialRebuildIndex(sc);
-  const timeMs = performance.now() - t0;
-  return {
-    timeMs: timeMs,
-    cellCount: sDynamicCount,
-    objCount: sObjs.length,
-  };
-}
-
-// ── FILTRO SIMÉTRICO E TRIGGERS (§5.2) ──────────────────────────────────────
-function passesFilter(
-  queryMask: number,
-  queryLayer: number,
-  includeTriggers: boolean,
-  k: number,
-): boolean {
-  if (!includeTriggers && sTrigger[k] !== 0) {
-    return false;
-  }
-  const targetLayer = sLayer[k];
-  const targetMask = sMask[k];
-  if ((queryMask & targetLayer) === 0) return false;
-  if ((targetMask & queryLayer) === 0) return false;
-  if (sObjs[k].active === 0) return false;
-  return true;
-}
-
-// ── GEOMETRIA DE RAYCAST ───────────────────────────────────────────────────
 
 function raycastObject(
+  idx: SpatialIndex,
   k: number,
   ox: f64, oy: f64, oz: f64,
   ndx: f64, ndy: f64, ndz: f64,
@@ -1316,15 +1816,15 @@ function raycastObject(
   includeTriggers: boolean,
   curStepId: number,
 ): boolean {
-  resolveCandidateTransform(k);
+  idx.resolveCandidateTransform(k);
   const cx = sCandCx;
   const cy = sCandCy;
   const cz = sCandCz;
   const yaw = sCandYaw;
-  const shape = sShape[k];
+  const shape = idx.shape[k];
 
   if (shape === COL_SPHERE) {
-    const r = sWorldRadius[k];
+    const r = idx.worldRadius[k];
     const vx = ox - cx;
     const vy = oy - cy;
     const vz = oz - cz;
@@ -1340,7 +1840,7 @@ function raycastObject(
         // Origem dentro da esfera
         hitDist = 0.0;
         outHit.hit = true;
-        outHit.bodyId = sBodyId[k];
+        outHit.bodyId = idx.objs[k].id;
         outHit.point[0] = ox; outHit.point[1] = oy; outHit.point[2] = oz;
         outHit.normal[0] = 0.0 - ndx; outHit.normal[1] = 0.0 - ndy; outHit.normal[2] = 0.0 - ndz;
         outHit.distance = 0.0;
@@ -1355,7 +1855,7 @@ function raycastObject(
     const py = oy + ndy * hitDist;
     const pz = oz + ndz * hitDist;
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.point[0] = px; outHit.point[1] = py; outHit.point[2] = pz;
     outHit.normal[0] = (px - cx) / r;
     outHit.normal[1] = (py - cy) / r;
@@ -1366,9 +1866,9 @@ function raycastObject(
   }
 
   if (shape === COL_BOX) {
-    const hx = sWorldHx[k];
-    const hy = sWorldHy[k];
-    const hz = sWorldHz[k];
+    const hx = idx.worldHx[k];
+    const hy = idx.worldHy[k];
+    const hz = idx.worldHz[k];
 
     let rox = ox - cx;
     let roy = oy - cy;
@@ -1389,7 +1889,7 @@ function raycastObject(
     // Origem dentro da caixa
     if (rox >= 0.0 - hx && rox <= hx && roy >= 0.0 - hy && roy <= hy && roz >= 0.0 - hz && roz <= hz) {
       outHit.hit = true;
-      outHit.bodyId = sBodyId[k];
+      outHit.bodyId = idx.objs[k].id;
       outHit.point[0] = ox; outHit.point[1] = oy; outHit.point[2] = oz;
       outHit.normal[0] = 0.0 - ndx; outHit.normal[1] = 0.0 - ndy; outHit.normal[2] = 0.0 - ndz;
       outHit.distance = 0.0;
@@ -1458,7 +1958,7 @@ function raycastObject(
     }
 
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.point[0] = ox + ndx * tmin;
     outHit.point[1] = oy + ndy * tmin;
     outHit.point[2] = oz + ndz * tmin;
@@ -1471,13 +1971,13 @@ function raycastObject(
   }
 
   if (shape === COL_HULL) {
-    const hid = sHullId[k];
+    const hid = hullIdOf(idx.objs[k]);
     const hull = hullAt(hid);
     if (hull === null) {
       // Degenera para caixa
       return false;
     }
-    const t = sTrs[k];
+    const t = idx.trs[k];
     const sx = t.sx !== 0.0 ? t.sx : 1.0;
     const sy = t.sy !== 0.0 ? t.sy : 1.0;
     const sz = t.sz !== 0.0 ? t.sz : 1.0;
@@ -1538,7 +2038,7 @@ function raycastObject(
     if (tenter < 0.0) {
       // Origem dentro da casca
       outHit.hit = true;
-      outHit.bodyId = sBodyId[k];
+      outHit.bodyId = idx.objs[k].id;
       outHit.point[0] = ox; outHit.point[1] = oy; outHit.point[2] = oz;
       outHit.normal[0] = 0.0 - ndx; outHit.normal[1] = 0.0 - ndy; outHit.normal[2] = 0.0 - ndz;
       outHit.distance = 0.0;
@@ -1556,7 +2056,7 @@ function raycastObject(
     }
 
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.point[0] = ox + ndx * tenter;
     outHit.point[1] = oy + ndy * tenter;
     outHit.point[2] = oz + ndz * tenter;
@@ -1580,11 +2080,8 @@ function copyRaycastHit(dst: RaycastHit, src: RaycastHit): void {
   dst.stepId = src.stepId;
 }
 
-// ── RAYCAST NON-ALLOC COM PARÂMETROS ESCALARES (§5.5) ───────────────────────
-
-const sTempRayHit: RaycastHit = createRaycastHit();
-
 function raycastStaticGridDDA(
+  idx: SpatialIndex,
   ox: f64, oy: f64, oz: f64,
   ndx: f64, ndy: f64, ndz: f64,
   maxDistance: f64,
@@ -1697,24 +2194,24 @@ function raycastStaticGridDDA(
     let entry = head[bucket];
     while (entry !== -1) {
       const k = entriesObj[entry];
-      if (sVisitedStamp[k] !== stamp) {
-        sVisitedStamp[k] = stamp;
-        if (passesFilter(mask, layer, includeTriggers, k)) {
-          const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId);
+      if (sSharedVisitedStamp[k] !== stamp) {
+        sSharedVisitedStamp[k] = stamp;
+        if (idx.passesFilter(mask, layer, includeTriggers, k)) {
+          const hit = raycastObject(idx, k, ox, oy, oz, ndx, ndy, ndz, closestDist, idx.tempRayHit, includeTriggers, curStepId);
           if (hit) {
-            if (sTempRayHit.distance < closestDist) {
-              closestDist = sTempRayHit.distance;
+            if (idx.tempRayHit.distance < closestDist) {
+              closestDist = idx.tempRayHit.distance;
               if (closestDist < tEndLoop) tEndLoop = closestDist;
               outHit.hit = true;
-              outHit.bodyId = sTempRayHit.bodyId;
-              outHit.point[0] = sTempRayHit.point[0];
-              outHit.point[1] = sTempRayHit.point[1];
-              outHit.point[2] = sTempRayHit.point[2];
-              outHit.normal[0] = sTempRayHit.normal[0];
-              outHit.normal[1] = sTempRayHit.normal[1];
-              outHit.normal[2] = sTempRayHit.normal[2];
-              outHit.distance = sTempRayHit.distance;
-              outHit.stepId = sTempRayHit.stepId;
+              outHit.bodyId = idx.tempRayHit.bodyId;
+              outHit.point[0] = idx.tempRayHit.point[0];
+              outHit.point[1] = idx.tempRayHit.point[1];
+              outHit.point[2] = idx.tempRayHit.point[2];
+              outHit.normal[0] = idx.tempRayHit.normal[0];
+              outHit.normal[1] = idx.tempRayHit.normal[1];
+              outHit.normal[2] = idx.tempRayHit.normal[2];
+              outHit.distance = idx.tempRayHit.distance;
+              outHit.stepId = idx.tempRayHit.stepId;
               found = true;
             }
           }
@@ -1741,53 +2238,8 @@ function raycastStaticGridDDA(
   return found;
 }
 
-function raycastStaticDDA(
-  ox: f64, oy: f64, oz: f64,
-  ndx: f64, ndy: f64, ndz: f64,
-  maxDistance: f64,
-  outHit: RaycastHit,
-  mask: number,
-  layer: number,
-  includeTriggers: boolean,
-  curStepId: number,
-  stamp: number,
-): boolean {
-  if (sStaticCount === 0) return false;
-  return raycastStaticGridDDA(
-    ox, oy, oz, ndx, ndy, ndz, maxDistance, outHit,
-    mask, layer, includeTriggers, curStepId, stamp,
-    sStaticCellSize, sStaticInvCellSize,
-    sStaticSceneMinX, sStaticSceneMaxX,
-    sStaticSceneMinY, sStaticSceneMaxY,
-    sStaticSceneMinZ, sStaticSceneMaxZ,
-    sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
-  );
-}
-
-function raycastStaticCoarseDDA(
-  ox: f64, oy: f64, oz: f64,
-  ndx: f64, ndy: f64, ndz: f64,
-  maxDistance: f64,
-  outHit: RaycastHit,
-  mask: number,
-  layer: number,
-  includeTriggers: boolean,
-  curStepId: number,
-  stamp: number,
-): boolean {
-  if (sStaticCoarseCount === 0) return false;
-  return raycastStaticGridDDA(
-    ox, oy, oz, ndx, ndy, ndz, maxDistance, outHit,
-    mask, layer, includeTriggers, curStepId, stamp,
-    sStaticCoarseCellSize, sStaticCoarseInvCellSize,
-    sStaticCoarseSceneMinX, sStaticCoarseSceneMaxX,
-    sStaticCoarseSceneMinY, sStaticCoarseSceneMaxY,
-    sStaticCoarseSceneMinZ, sStaticCoarseSceneMaxZ,
-    sStaticCoarseHead, sStaticCoarseEntriesObj, sStaticCoarseEntriesNext,
-  );
-}
-
 function raycastDynamicsDDA(
+  idx: SpatialIndex,
   ox: f64, oy: f64, oz: f64,
   ndx: f64, ndy: f64, ndz: f64,
   maxDistance: f64,
@@ -1809,19 +2261,14 @@ function raycastDynamicsDDA(
   localCxArr: f64[], localCyArr: f64[], localCzArr: f64[],
   hasLocalOffset: number,
   shapeArr: number[],
-  triggerArr: number[],
-  layerArr: number[],
-  maskArr: number[],
-  bodyIdArr: number[],
   worldHxArr: f64[], worldHyArr: f64[], worldHzArr: f64[],
   worldRadiusArr: f64[],
-  hullIdArr: number[],
 ): boolean {
   let tMin = 0.0;
   let tMax = maxDistance;
 
-  const dynMinX = sDynSceneMinX;
-  const dynMaxX = sDynSceneMaxX;
+  const dynMinX = idx.dynSceneMinX;
+  const dynMaxX = idx.dynSceneMaxX;
   if (math.abs(ndx) < 0.000000001) {
     if (ox < dynMinX || ox > dynMaxX) return false;
   } else {
@@ -1834,8 +2281,8 @@ function raycastDynamicsDDA(
     if (tMin > tMax) return false;
   }
 
-  const dynMinY = sDynSceneMinY;
-  const dynMaxY = sDynSceneMaxY;
+  const dynMinY = idx.dynSceneMinY;
+  const dynMaxY = idx.dynSceneMaxY;
   if (math.abs(ndy) < 0.000000001) {
     if (oy < dynMinY || oy > dynMaxY) return false;
   } else {
@@ -1848,8 +2295,8 @@ function raycastDynamicsDDA(
     if (tMin > tMax) return false;
   }
 
-  const dynMinZ = sDynSceneMinZ;
-  const dynMaxZ = sDynSceneMaxZ;
+  const dynMinZ = idx.dynSceneMinZ;
+  const dynMaxZ = idx.dynSceneMaxZ;
   if (math.abs(ndz) < 0.000000001) {
     if (oz < dynMinZ || oz > dynMaxZ) return false;
   } else {
@@ -1953,10 +2400,17 @@ function raycastDynamicsDDA(
             while (k !== -1) {
               if (visitedStamp[k] !== stamp) {
                 visitedStamp[k] = stamp;
-                if (includeTriggers || triggerArr[k] === 0) {
-                  if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
-                    const shp = shapeArr[k];
+                if (includeTriggers || idx.hasTriggers === 0 || triggerOf(idx.objs[k]) === 0) {
+                  if ((mask & idx.objs[k].layer) !== 0 && (idx.objs[k].mask & layer) !== 0) {
+                    const o = idx.objs[k];
                     const t = trsArr[k];
+                    const shp = shapeOf(o);
+                    const lhx = halfLocalX(o);
+                    const lhy = halfLocalY(o);
+                    const lhz = halfLocalZ(o);
+                    const hx = lhx * t.sx;
+                    const hy = lhy * t.sy;
+                    const hz = lhz * t.sz;
                     let cx = t.wx;
                     let cy = t.wy;
                     let cz = t.wz;
@@ -1979,18 +2433,18 @@ function raycastDynamicsDDA(
                     }
 
                     if (shp === 0) { // COL_SPHERE
-                      const tr = worldRadiusArr[k];
+                      const tr = shp === 0 ? radiusOfCol(o, t) : (hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz));
                       const ocX = ox - cx;
                       const ocY = oy - cy;
                       const ocZ = oz - cz;
                       const b = ocX * ndx + ocY * ndy + ocZ * ndz;
                       const c = ocX * ocX + ocY * ocY + ocZ * ocZ - tr * tr;
                       if (c <= 0.0) { // Origem dentro da esfera
-                        if (sObjs[k].active !== 0) {
+                        if (idx.objs[k].active !== 0) {
                           closestDist = 0.0;
                           if (closestDist < tEndLoop) tEndLoop = closestDist;
                           outHit.hit = true;
-                          outHit.bodyId = bodyIdArr[k];
+                          outHit.bodyId = idx.objs[k].id;
                           outHit.point[0] = ox; outHit.point[1] = oy; outHit.point[2] = oz;
                           outHit.normal[0] = 0.0 - ndx; outHit.normal[1] = 0.0 - ndy; outHit.normal[2] = 0.0 - ndz;
                           outHit.distance = 0.0;
@@ -2002,14 +2456,14 @@ function raycastDynamicsDDA(
                         if (disc >= 0.0) {
                           const dist = (0.0 - b) - math.sqrt(disc);
                           if (dist >= 0.0 && dist < closestDist) {
-                            if (sObjs[k].active !== 0) {
+                            if (idx.objs[k].active !== 0) {
                               closestDist = dist;
                               if (closestDist < tEndLoop) tEndLoop = closestDist;
                               const hxPoint = ox + ndx * dist;
                               const hyPoint = oy + ndy * dist;
                               const hzPoint = oz + ndz * dist;
                               outHit.hit = true;
-                              outHit.bodyId = bodyIdArr[k];
+                              outHit.bodyId = idx.objs[k].id;
                               outHit.point[0] = hxPoint; outHit.point[1] = hyPoint; outHit.point[2] = hzPoint;
                               const nxSph = (hxPoint - cx) / tr;
                               const nySph = (hyPoint - cy) / tr;
@@ -2023,9 +2477,7 @@ function raycastDynamicsDDA(
                         }
                       }
                     } else if (shp === 1) { // COL_BOX
-                      const hx = worldHxArr[k];
-                      const hy = worldHyArr[k];
-                      const hz = worldHzArr[k];
+                      // hx, hy, hz computed above
                       let rox = ox - cx;
                       let roy = oy - cy;
                       let roz = oz - cz;
@@ -2043,11 +2495,11 @@ function raycastDynamicsDDA(
                       }
 
                       if (rox >= 0.0 - hx && rox <= hx && roy >= 0.0 - hy && roy <= hy && roz >= 0.0 - hz && roz <= hz) {
-                        if (sObjs[k].active !== 0) {
+                        if (idx.objs[k].active !== 0) {
                           closestDist = 0.0;
                           if (closestDist < tEndLoop) tEndLoop = closestDist;
                           outHit.hit = true;
-                          outHit.bodyId = bodyIdArr[k];
+                          outHit.bodyId = idx.objs[k].id;
                           outHit.point[0] = ox; outHit.point[1] = oy; outHit.point[2] = oz;
                           outHit.normal[0] = 0.0 - ndx; outHit.normal[1] = 0.0 - ndy; outHit.normal[2] = 0.0 - ndz;
                           outHit.distance = 0.0;
@@ -2107,7 +2559,7 @@ function raycastDynamicsDDA(
                         }
 
                         if (ok && tmin >= 0.0 && tmin < closestDist) {
-                          if (sObjs[k].active !== 0) {
+                          if (idx.objs[k].active !== 0) {
                             closestDist = tmin;
                             if (closestDist < tEndLoop) tEndLoop = closestDist;
                             let nxBox = hitNormX; let nyBox = hitNormY; let nzBox = hitNormZ;
@@ -2117,7 +2569,7 @@ function raycastDynamicsDDA(
                               nzBox = hitNormX * sinY + hitNormZ * cosY;
                             }
                             outHit.hit = true;
-                            outHit.bodyId = bodyIdArr[k];
+                            outHit.bodyId = idx.objs[k].id;
                             outHit.point[0] = ox + ndx * tmin;
                             outHit.point[1] = oy + ndy * tmin;
                             outHit.point[2] = oz + ndz * tmin;
@@ -2129,9 +2581,9 @@ function raycastDynamicsDDA(
                         }
                       }
                     } else { // Fallback para COL_HULL
-                      const hit = raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, tempHit, includeTriggers, curStepId);
+                      const hit = raycastObject(idx, k, ox, oy, oz, ndx, ndy, ndz, closestDist, tempHit, includeTriggers, curStepId);
                       if (hit && tempHit.distance < closestDist) {
-                        if (sObjs[k].active !== 0) {
+                        if (idx.objs[k].active !== 0) {
                           closestDist = tempHit.distance;
                           if (closestDist < tEndLoop) tEndLoop = closestDist;
                           outHit.hit = true;
@@ -2193,113 +2645,9 @@ export function raycastNonAlloc(
   sc?: Scene,
 ): boolean {
   if (maxDistance <= 0.0 || maxDistance !== maxDistance) return false;
-  const targetScene = ensureIndex(sc);
+  const targetScene = sc !== undefined && sc !== null ? sc : sActiveScene;
   if (targetScene === null) return false;
-
-  const len2 = dx * dx + dy * dy + dz * dz;
-  if (len2 < 0.000000000001) return false;
-  const invLen = 1.0 / math.sqrt(len2);
-  const ndx = dx * invLen;
-  const ndy = dy * invLen;
-  const ndz = dz * invLen;
-
-  sQueryStamp = sQueryStamp + 1;
-  const stamp = sQueryStamp;
-  const curStepId = getSpatialStepId();
-
-  let closestDist = maxDistance;
-  let found = false;
-
-  // 1. Raycast contra estáticos Tier 1 (Grid Fino)
-  if (sStaticCount > 0) {
-    if (raycastStaticDDA(ox, oy, oz, ndx, ndy, ndz, closestDist, outHit, mask, layer, includeTriggers, curStepId, stamp)) {
-      closestDist = outHit.distance;
-      found = true;
-    }
-  }
-
-  // 2. Raycast contra estáticos Tier 2 (Grid Coarse)
-  if (sStaticCoarseCount > 0) {
-    if (raycastStaticCoarseDDA(ox, oy, oz, ndx, ndy, ndz, closestDist, outHit, mask, layer, includeTriggers, curStepId, stamp)) {
-      closestDist = outHit.distance;
-      found = true;
-    }
-  }
-
-  // 3. Raycast contra dinâmicos (DDA do raio engordado em maiorMeiaExtensãoDinâmica)
-  if (sDynamicCount > 0) {
-    if (raycastDynamicsDDA(
-      ox, oy, oz, ndx, ndy, ndz, closestDist, outHit,
-      mask, layer, includeTriggers, curStepId, stamp,
-      sDynCellSize, sDynInvCellSize, sDynamicMaxHalfExtent,
-      sDynHead, sDynNext, sVisitedStamp, sBucketStamp, sTempRayHit,
-      sTrs, sLocalCx, sLocalCy, sLocalCz, sHasDynamicLocalOffset,
-      sShape, sTrigger, sLayer, sMask, sBodyId,
-      sWorldHx, sWorldHy, sWorldHz, sWorldRadius, sHullId,
-    )) {
-      closestDist = outHit.distance;
-      found = true;
-    }
-  }
-
-  // 4. Raycast contra estáticos colossais (terrenos gigantes)
-  if (sColossalStaticCount > 0) {
-    let li = 0;
-    while (li < sColossalStaticCount) {
-      const k = sColossalStaticObjs[li];
-      if (passesFilter(mask, layer, includeTriggers, k)) {
-        if (raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId)) {
-          if (sTempRayHit.distance < closestDist) {
-            closestDist = sTempRayHit.distance;
-            outHit.hit = true;
-            outHit.bodyId = sTempRayHit.bodyId;
-            outHit.point[0] = sTempRayHit.point[0];
-            outHit.point[1] = sTempRayHit.point[1];
-            outHit.point[2] = sTempRayHit.point[2];
-            outHit.normal[0] = sTempRayHit.normal[0];
-            outHit.normal[1] = sTempRayHit.normal[1];
-            outHit.normal[2] = sTempRayHit.normal[2];
-            outHit.distance = sTempRayHit.distance;
-            outHit.stepId = sTempRayHit.stepId;
-            found = true;
-          }
-        }
-      }
-      li = li + 1;
-    }
-  }
-
-  // 5. Raycast contra dinâmicos colossais (chefes gigantes)
-  if (sColossalDynamicCount > 0) {
-    let li = 0;
-    while (li < sColossalDynamicCount) {
-      const k = sColossalDynamicObjs[li];
-      if (passesFilter(mask, layer, includeTriggers, k)) {
-        if (raycastObject(k, ox, oy, oz, ndx, ndy, ndz, closestDist, sTempRayHit, includeTriggers, curStepId)) {
-          if (sTempRayHit.distance < closestDist) {
-            closestDist = sTempRayHit.distance;
-            outHit.hit = true;
-            outHit.bodyId = sTempRayHit.bodyId;
-            outHit.point[0] = sTempRayHit.point[0];
-            outHit.point[1] = sTempRayHit.point[1];
-            outHit.point[2] = sTempRayHit.point[2];
-            outHit.normal[0] = sTempRayHit.normal[0];
-            outHit.normal[1] = sTempRayHit.normal[1];
-            outHit.normal[2] = sTempRayHit.normal[2];
-            outHit.distance = sTempRayHit.distance;
-            outHit.stepId = sTempRayHit.stepId;
-            found = true;
-          }
-        }
-      }
-      li = li + 1;
-    }
-  }
-
-  if (!found) {
-    outHit.hit = false;
-  }
-  return found;
+  return getSpatialIndex(targetScene).raycastNonAlloc(ox, oy, oz, dx, dy, dz, maxDistance, outHit, mask, layer, includeTriggers);
 }
 
 export function raycast(
@@ -2320,9 +2668,8 @@ export function raycast(
   return null;
 }
 
-// ── OVERLAP SPHERE GEOMETRIA E IMPLEMENTAÇÃO ───────────────────────────────
-
 function overlapSphereObject(
+  idx: SpatialIndex,
   k: number,
   cx: f64, cy: f64, cz: f64,
   radius: f64,
@@ -2330,16 +2677,16 @@ function overlapSphereObject(
   includeTriggers: boolean,
   curStepId: number,
 ): boolean {
-  resolveCandidateTransform(k);
+  idx.resolveCandidateTransform(k);
   const tcx = sCandCx;
   const tcy = sCandCy;
   const tcz = sCandCz;
   const yaw = sCandYaw;
-  const shape = sShape[k];
-  const isTrigger = sTrigger[k] !== 0;
+  const shape = idx.shape[k];
+  const isTrigger = idx.hasTriggers !== 0 && triggerOf(idx.objs[k]) !== 0;
 
   if (shape === COL_SPHERE) {
-    const tr = sWorldRadius[k];
+    const tr = idx.worldRadius[k];
     const dx = tcx - cx;
     const dy = tcy - cy;
     const dz = tcz - cz;
@@ -2349,7 +2696,7 @@ function overlapSphereObject(
 
     const dist = math.sqrt(dist2);
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.depth = isTrigger ? 0.0 : (rSum - dist);
     const norm = outHit.normal;
     if (dist > 0.0000001) {
@@ -2366,9 +2713,9 @@ function overlapSphereObject(
   }
 
   if (shape === COL_BOX) {
-    const thx = sWorldHx[k];
-    const thy = sWorldHy[k];
-    const thz = sWorldHz[k];
+    const thx = idx.worldHx[k];
+    const thy = idx.worldHy[k];
+    const thz = idx.worldHz[k];
 
     let rx = cx - tcx;
     let ry = cy - tcy;
@@ -2430,7 +2777,7 @@ function overlapSphereObject(
     }
 
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.depth = isTrigger ? 0.0 : depth;
     const norm = outHit.normal;
     norm[0] = wnx; norm[1] = wny; norm[2] = wnz;
@@ -2439,11 +2786,11 @@ function overlapSphereObject(
   }
 
   if (shape === COL_HULL) {
-    const hid = sHullId[k];
+    const hid = hullIdOf(idx.objs[k]);
     const hull = hullAt(hid);
     if (hull === null) return false;
 
-    const t = sTrs[k];
+    const t = idx.trs[k];
     const sx = t.sx !== 0.0 ? t.sx : 1.0;
     const sy = t.sy !== 0.0 ? t.sy : 1.0;
     const sz = t.sz !== 0.0 ? t.sz : 1.0;
@@ -2475,7 +2822,7 @@ function overlapSphereObject(
     }
 
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.depth = isTrigger ? 0.0 : sHullContactOut.depth;
     outHit.normal[0] = wnx; outHit.normal[1] = wny; outHit.normal[2] = wnz;
     outHit.stepId = curStepId;
@@ -2486,19 +2833,20 @@ function overlapSphereObject(
 }
 
 function testOverlapSphereObject(
+  idx: SpatialIndex,
   k: number,
   cx: number, cy: number, cz: number,
   radius: number,
 ): boolean {
-  resolveCandidateTransform(k);
-  const shape = sShape[k];
+  idx.resolveCandidateTransform(k);
+  const shape = idx.shape[k];
   const tcx = sCandCx;
   const tcy = sCandCy;
   const tcz = sCandCz;
   const yaw = sCandYaw;
 
   if (shape === COL_SPHERE) {
-    const rTarget = sWorldRadius[k];
+    const rTarget = idx.worldRadius[k];
     const dx = tcx - cx;
     const dy = tcy - cy;
     const dz = tcz - cz;
@@ -2507,9 +2855,9 @@ function testOverlapSphereObject(
   }
 
   if (shape === COL_BOX) {
-    const thx = sWorldHx[k];
-    const thy = sWorldHy[k];
-    const thz = sWorldHz[k];
+    const thx = idx.worldHx[k];
+    const thy = idx.worldHy[k];
+    const thz = idx.worldHz[k];
 
     let rx = cx - tcx;
     let ry = cy - tcy;
@@ -2536,11 +2884,11 @@ function testOverlapSphereObject(
   }
 
   if (shape === COL_HULL) {
-    const hid = sHullId[k];
+    const hid = hullIdOf(idx.objs[k]);
     const hull = hullAt(hid);
     if (hull === null) return false;
 
-    const t = sTrs[k];
+    const t = idx.trs[k];
     const sx = t.sx !== 0.0 ? t.sx : 1.0;
     const sy = t.sy !== 0.0 ? t.sy : 1.0;
     const sz = t.sz !== 0.0 ? t.sz : 1.0;
@@ -2563,7 +2911,6 @@ function testOverlapSphereObject(
   return false;
 }
 
-const sCandidateOverlapHit: OverlapHit = createOverlapHit();
 const sAllocScratchHits: OverlapHit[] = [];
 
 function ensureAllocScratch(required: number): void {
@@ -2589,6 +2936,7 @@ function copyOverlapHit(dst: OverlapHit, src: OverlapHit): void {
 }
 
 function overlapSphereInto(
+  idx: SpatialIndex,
   cx: f64, cy: f64, cz: f64,
   radius: f64,
   minGx: number, maxGx: number,
@@ -2608,13 +2956,9 @@ function overlapSphereInto(
   entriesNext: number[],
   visitedStamp: number[],
   stamp: number,
-  triggerArr: number[],
-  layerArr: number[],
-  maskArr: number[],
   minXArr: f64[], maxXArr: f64[],
   minYArr: f64[], maxYArr: f64[],
   minZArr: f64[], maxZArr: f64[],
-  bodyIdArr: number[],
   candHit: OverlapHit,
   startStoredCount: number,
   startTotalFound: number,
@@ -2641,41 +2985,33 @@ function overlapSphereInto(
           const k = entriesObj[entry];
           if (visitedStamp[k] !== stamp) {
             visitedStamp[k] = stamp;
-            if (includeTriggers || triggerArr[k] === 0) {
-              if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
+            if (includeTriggers || idx.hasTriggers === 0 || triggerOf(idx.objs[k]) === 0) {
+              if ((mask & idx.objs[k].layer) !== 0 && (idx.objs[k].mask & layer) !== 0) {
                 if (minXArr[k] <= maxQx && maxXArr[k] >= minQx &&
                     minYArr[k] <= maxQy && maxYArr[k] >= minQy &&
                     minZArr[k] <= maxQz && maxZArr[k] >= minQz) {
                   if (storedCount < maxHits) {
-                    const target = outHits[storedCount];
-                    if (overlapSphereObject(k, cx, cy, cz, radius, target, includeTriggers, curStepId)) {
-                      if (sObjs[k].active !== 0) {
+                    if (overlapSphereObject(idx, k, cx, cy, cz, radius, outHits[storedCount], includeTriggers, curStepId)) {
+                      if (idx.objs[k].active !== 0) {
                         totalFound = totalFound + 1;
-                        const candId = target.bodyId;
-                        insertHitSorted(outHits, storedCount, target);
+                        const candId = outHits[storedCount].bodyId;
+                        insertHitSorted(outHits, storedCount, outHits[storedCount]);
                         storedCount = storedCount + 1;
                       }
                     }
                   } else {
-                    const candId = bodyIdArr[k];
+                    const candId = idx.objs[k].id;
                     if (candId < outHits[maxHits - 1].bodyId) {
-                      if (overlapSphereObject(k, cx, cy, cz, radius, candHit, includeTriggers, curStepId)) {
-                        if (sObjs[k].active !== 0) {
+                      if (overlapSphereObject(idx, k, cx, cy, cz, radius, candHit, includeTriggers, curStepId)) {
+                        if (idx.objs[k].active !== 0) {
                           totalFound = totalFound + 1;
-                          const target = outHits[maxHits - 1];
-                          target.hit = true;
-                          target.bodyId = candId;
-                          target.depth = candHit.depth;
-                          const tn = target.normal;
-                          const sn = candHit.normal;
-                          tn[0] = sn[0]; tn[1] = sn[1]; tn[2] = sn[2];
-                          target.stepId = curStepId;
-                          insertHitSorted(outHits, maxHits - 1, target);
+                          copyOverlapHit(outHits[maxHits - 1], candHit);
+                          insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
                         }
                       }
                     } else {
-                      if (testOverlapSphereObject(k, cx, cy, cz, radius)) {
-                        if (sObjs[k].active !== 0) {
+                      if (testOverlapSphereObject(idx, k, cx, cy, cz, radius)) {
+                        if (idx.objs[k].active !== 0) {
                           totalFound = totalFound + 1;
                         }
                       }
@@ -2697,7 +3033,9 @@ function overlapSphereInto(
   return totalFound;
 }
 
+
 function overlapSphereDynamicsInto(
+  idx: SpatialIndex,
   cx: f64, cy: f64, cz: f64,
   radius: f64,
   minGx: number, maxGx: number,
@@ -2712,14 +3050,10 @@ function overlapSphereDynamicsInto(
   layer: number,
   includeTriggers: boolean,
   curStepId: number,
-  head: number[],
-  next: number[],
+  dynHead: number[],
+  dynNext: number[],
   bucketStamp: number[],
   stamp: number,
-  triggerArr: number[],
-  layerArr: number[],
-  maskArr: number[],
-  bodyIdArr: number[],
   candHit: OverlapHit,
   startStoredCount: number,
   startTotalFound: number,
@@ -2729,7 +3063,6 @@ function overlapSphereDynamicsInto(
   shapeArr: number[],
   worldHxArr: f64[], worldHyArr: f64[], worldHzArr: f64[],
   worldRadiusArr: f64[],
-  hullIdArr: number[],
 ): number {
   const gridMask = SGRID_MASK;
   const hxMult = HASH_X;
@@ -2741,209 +3074,196 @@ function overlapSphereDynamicsInto(
   const r2 = radius * radius;
 
   let gx = minGx;
-  let hashX = minGx * hxMult;
   while (gx <= maxGx) {
+    const hashX = gx * hxMult;
     let gy = minGy;
-    let hashY = minGy * hyMult;
     while (gy <= maxGy) {
-      const gxy = hashX ^ hashY;
+      const gxy = hashX ^ (gy * hyMult);
       let gz = minGz;
-      let hashZ = minGz * hzMult;
       while (gz <= maxGz) {
-        const bucket = (gxy ^ hashZ) & gridMask;
+        const bucket = (gxy ^ (gz * hzMult)) & gridMask;
         if (bucketStamp[bucket] !== stamp) {
           bucketStamp[bucket] = stamp;
-          let k = head[bucket];
+          let k = dynHead[bucket];
           while (k !== -1) {
-            const isTrig = triggerArr[k] !== 0;
+            const isTrig = idx.hasTriggers !== 0 && triggerOf(idx.objs[k]) !== 0;
             if (includeTriggers || !isTrig) {
-              if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
+              const o = idx.objs[k];
+              if ((mask & o.layer) !== 0 && (o.mask & layer) !== 0) {
                 const t = trsArr[k];
                 let cxObj = t.wx;
                 let cyObj = t.wy;
                 let czObj = t.wz;
                 const yaw = t.wry;
+
                 if (hasLocalOffset !== 0) {
                   const lcx = localCxArr[k];
                   const lcy = localCyArr[k];
                   const lcz = localCzArr[k];
                   if (lcx !== 0.0 || lcz !== 0.0) {
-                    const oxLocal = lcx * t.sx; const ozLocal = lcz * t.sz;
+                    const ox = lcx * t.sx; const oz = lcz * t.sz;
                     if (yaw === 0.0) {
-                      cxObj = cxObj + oxLocal; czObj = czObj + ozLocal;
+                      cxObj = cxObj + ox; czObj = czObj + oz;
                     } else {
                       const cs = math.cos(yaw); const sn = math.sin(yaw);
-                      cxObj = cxObj + (oxLocal * cs + ozLocal * sn);
-                      czObj = czObj + (0.0 - oxLocal * sn + ozLocal * cs);
+                      cxObj = cxObj + (ox * cs + oz * sn);
+                      czObj = czObj + (0.0 - ox * sn + oz * cs);
                     }
                   }
                   if (lcy !== 0.0) cyObj = cyObj + lcy * t.sy;
                 }
 
-                const hx = worldHxArr[k];
-                const rx = cx - cxObj;
-                const absRx = rx < 0.0 ? 0.0 - rx : rx;
-                if (absRx <= radius + hx) {
-                  const hy = worldHyArr[k];
-                  const ry = cy - cyObj;
-                  const absRy = ry < 0.0 ? 0.0 - ry : ry;
-                  if (absRy <= radius + hy) {
-                    const hz = worldHzArr[k];
-                    const rz = cz - czObj;
-                    const absRz = rz < 0.0 ? 0.0 - rz : rz;
-                    if (absRz <= radius + hz) {
-                      const shp = shapeArr[k];
-                      const candId = bodyIdArr[k];
-                      const needsFullHit = storedCount < maxHits || candId < outHits[maxHits - 1].bodyId;
+                const lhx = halfLocalX(o);
+                const lhy = halfLocalY(o);
+                const lhz = halfLocalZ(o);
+                const hx = lhx * t.sx;
+                const hy = lhy * t.sy;
+                const hz = lhz * t.sz;
 
-                      if (shp === 0) { // COL_SPHERE
-                        const tr = worldRadiusArr[k];
-                        const d2 = rx * rx + ry * ry + rz * rz;
-                        const rSum = radius + tr;
-                        if (d2 < rSum * rSum) {
-                          if (sObjs[k].active !== 0) {
-                            totalFound = totalFound + 1;
-                          if (needsFullHit) {
-                            const dist = math.sqrt(d2);
-                            const depth = isTrig ? 0.0 : (rSum - dist);
-                            let nx = 0.0; let ny = 1.0; let nz = 0.0;
-                            if (dist > 0.0000001) {
-                              const inv = 1.0 / dist;
-                              nx = (0.0 - rx) * inv; ny = (0.0 - ry) * inv; nz = (0.0 - rz) * inv;
-                            }
-                            if (storedCount < maxHits) {
-                              const target = outHits[storedCount];
-                              target.hit = true; target.bodyId = candId; target.depth = depth;
-                              target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
-                              target.stepId = curStepId;
-                              insertHitSorted(outHits, storedCount, target);
-                              storedCount = storedCount + 1;
-                            } else {
-                              const target = outHits[maxHits - 1];
-                              target.hit = true; target.bodyId = candId; target.depth = depth;
-                              target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
-                              target.stepId = curStepId;
-                              insertHitSorted(outHits, maxHits - 1, target);
-                            }
+                if (cxObj + hx >= minQx && cxObj - hx <= maxQx &&
+                    cyObj + hy >= minQy && cyObj - hy <= maxQy &&
+                    czObj + hz >= minQz && czObj - hz <= maxQz) {
+                  const rx = cx - cxObj;
+                  const ry = cy - cyObj;
+                  const rz = cz - czObj;
+                  const shp = shapeOf(o);
+                  const candId = o.id;
+                  const needsFullHit = storedCount < maxHits || candId < outHits[maxHits - 1].bodyId;
+
+                  if (shp === 0) { // COL_SPHERE
+                    const tr = radiusOfCol(o, t);
+                    const d2 = rx * rx + ry * ry + rz * rz;
+                    const rSum = radius + tr;
+                    if (d2 < rSum * rSum) {
+                      if (o.active !== 0) {
+                        totalFound = totalFound + 1;
+                        if (needsFullHit) {
+                          const dist = math.sqrt(d2);
+                          const depth = isTrig ? 0.0 : (rSum - dist);
+                          let nx = 0.0; let ny = 1.0; let nz = 0.0;
+                          if (dist > 0.0000001) {
+                            const inv = 1.0 / dist;
+                            nx = (0.0 - rx) * inv; ny = (0.0 - ry) * inv; nz = (0.0 - rz) * inv;
                           }
+if (storedCount < maxHits) {
+  writeHitCore(outHits[storedCount], candId, depth, curStepId);
+  writeHitNormal(outHits[storedCount], nx, ny, nz);
+  insertHitSorted(outHits, storedCount, outHits[storedCount]);
+  storedCount = storedCount + 1;
+} else {
+  writeHitCore(outHits[maxHits - 1], candId, depth, curStepId);
+  writeHitNormal(outHits[maxHits - 1], nx, ny, nz);
+  insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
+}
                         }
                       }
-                    } else if (shp === 1) { // COL_BOX
-                        let lrx = rx;
-                        let lry = ry;
-                        let lrz = rz;
-                        if (yaw !== 0.0) {
-                          const cosY = math.cos(0.0 - yaw);
-                          const sinY = math.sin(0.0 - yaw);
-                          lrx = rx * cosY - rz * sinY;
-                          lrz = rx * sinY + rz * cosY;
-                        }
+                    }
+                  } else if (shp === 1) { // COL_BOX
+                    let lrx = rx;
+                    let lry = ry;
+                    let lrz = rz;
+                    if (yaw !== 0.0) {
+                      const cosY = math.cos(0.0 - yaw);
+                      const sinY = math.sin(0.0 - yaw);
+                      lrx = rx * cosY - rz * sinY;
+                      lrz = rx * sinY + rz * cosY;
+                    }
 
-                        let vx = 0.0;
-                        if (lrx > hx) vx = lrx - hx; else if (lrx < -hx) vx = lrx + hx;
-                        let vy = 0.0;
-                        if (lry > hy) vy = lry - hy; else if (lry < -hy) vy = lry + hy;
-                        let vz = 0.0;
-                        if (lrz > hz) vz = lrz - hz; else if (lrz < -hz) vz = lrz + hz;
+                    let vx = 0.0;
+                    if (lrx > hx) vx = lrx - hx; else if (lrx < -hx) vx = lrx + hx;
+                    let vy = 0.0;
+                    if (lry > hy) vy = lry - hy; else if (lry < -hy) vy = lry + hy;
+                    let vz = 0.0;
+                    if (lrz > hz) vz = lrz - hz; else if (lrz < -hz) vz = lrz + hz;
 
-                        const vd2 = vx * vx + vy * vy + vz * vz;
-                        if (vd2 < r2) {
-                          if (sObjs[k].active !== 0) {
-                            totalFound = totalFound + 1;
-                            if (needsFullHit) {
-                              const dist = math.sqrt(vd2);
-                              let lnx = 0.0; let lny = 0.0; let lnz = 0.0;
-                              let depth = 0.0;
-                              if (dist > 0.0000001) {
-                                depth = isTrig ? 0.0 : (radius - dist);
-                                const inv = 1.0 / dist;
-                                lnx = 0.0 - vx * inv; lny = 0.0 - vy * inv; lnz = 0.0 - vz * inv;
-                              } else {
-                                const penX = hx - (lrx < 0.0 ? 0.0 - lrx : lrx);
-                                const penY = hy - (lry < 0.0 ? 0.0 - lry : lry);
-                                const penZ = hz - (lrz < 0.0 ? 0.0 - lrz : lrz);
-                                if (penX <= penY && penX <= penZ) {
-                                  lnx = lrx >= 0.0 ? 0.0 - 1.0 : 1.0;
-                                  depth = isTrig ? 0.0 : (radius + penX);
-                                } else if (penY <= penX && penY <= penZ) {
-                                  lny = lry >= 0.0 ? 0.0 - 1.0 : 1.0;
-                                  depth = isTrig ? 0.0 : (radius + penY);
-                                } else {
-                                  lnz = lrz >= 0.0 ? 0.0 - 1.0 : 1.0;
-                                  depth = isTrig ? 0.0 : (radius + penZ);
-                                }
-                              }
-
-                              let wnx = lnx; let wny = lny; let wnz = lnz;
-                              if (yaw !== 0.0) {
-                                const cosY = math.cos(yaw); const sinY = math.sin(yaw);
-                                wnx = lnx * cosY - lnz * sinY;
-                                wnz = lnx * sinY + lnz * cosY;
-                              }
-
-                              if (storedCount < maxHits) {
-                                const target = outHits[storedCount];
-                                target.hit = true; target.bodyId = candId; target.depth = depth;
-                                target.normal[0] = wnx; target.normal[1] = wny; target.normal[2] = wnz;
-                                target.stepId = curStepId;
-                                insertHitSorted(outHits, storedCount, target);
-                                storedCount = storedCount + 1;
-                              } else {
-                                const target = outHits[maxHits - 1];
-                                target.hit = true; target.bodyId = candId; target.depth = depth;
-                                target.normal[0] = wnx; target.normal[1] = wny; target.normal[2] = wnz;
-                                target.stepId = curStepId;
-                                insertHitSorted(outHits, maxHits - 1, target);
-                              }
+                    const vd2 = vx * vx + vy * vy + vz * vz;
+                    if (vd2 < r2) {
+                      if (o.active !== 0) {
+                        totalFound = totalFound + 1;
+                        if (needsFullHit) {
+                          const dist = math.sqrt(vd2);
+                          let lnx = 0.0; let lny = 0.0; let lnz = 0.0;
+                          let depth = 0.0;
+                          if (dist > 0.0000001) {
+                            depth = isTrig ? 0.0 : (radius - dist);
+                            const inv = 1.0 / dist;
+                            lnx = 0.0 - vx * inv; lny = 0.0 - vy * inv; lnz = 0.0 - vz * inv;
+                          } else {
+                            const penX = hx - (lrx < 0.0 ? 0.0 - lrx : lrx);
+                            const penY = hy - (lry < 0.0 ? 0.0 - lry : lry);
+                            const penZ = hz - (lrz < 0.0 ? 0.0 - lrz : lrz);
+                            if (penX <= penY && penX <= penZ) {
+                              lnx = lrx >= 0.0 ? 0.0 - 1.0 : 1.0;
+                              depth = isTrig ? 0.0 : (radius + penX);
+                            } else if (penY <= penX && penY <= penZ) {
+                              lny = lry >= 0.0 ? 0.0 - 1.0 : 1.0;
+                              depth = isTrig ? 0.0 : (radius + penY);
+                            } else {
+                              lnz = lrz >= 0.0 ? 0.0 - 1.0 : 1.0;
+                              depth = isTrig ? 0.0 : (radius + penZ);
                             }
                           }
+
+                          let wnx = lnx;
+                          let wny = lny;
+                          let wnz = lnz;
+                          if (yaw !== 0.0) {
+                            const cosY = math.cos(yaw);
+                            const sinY = math.sin(yaw);
+                            wnx = lnx * cosY - lnz * sinY;
+                            wnz = lnx * sinY + lnz * cosY;
+                          }
+if (storedCount < maxHits) {
+  writeHitCore(outHits[storedCount], candId, depth, curStepId);
+  writeHitNormal(outHits[storedCount], wnx, wny, wnz);
+  insertHitSorted(outHits, storedCount, outHits[storedCount]);
+  storedCount = storedCount + 1;
+} else {
+  writeHitCore(outHits[maxHits - 1], candId, depth, curStepId);
+  writeHitNormal(outHits[maxHits - 1], wnx, wny, wnz);
+  insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
+}
                         }
-                      } else { // Fallback para COL_HULL
-                        if (storedCount < maxHits) {
-                          const target = outHits[storedCount];
-                          if (overlapSphereObject(k, cx, cy, cz, radius, target, includeTriggers, curStepId)) {
-                            if (sObjs[k].active !== 0) {
-                              totalFound = totalFound + 1;
-                              insertHitSorted(outHits, storedCount, target);
-                              storedCount = storedCount + 1;
-                            }
-                          }
-                        } else if (candId < outHits[maxHits - 1].bodyId) {
-                          if (overlapSphereObject(k, cx, cy, cz, radius, candHit, includeTriggers, curStepId)) {
-                            if (sObjs[k].active !== 0) {
-                              totalFound = totalFound + 1;
-                              const target = outHits[maxHits - 1];
-                              copyOverlapHit(target, candHit);
-                              insertHitSorted(outHits, maxHits - 1, target);
-                            }
-                          }
-                        } else if (testOverlapSphereObject(k, cx, cy, cz, radius)) {
-                          if (sObjs[k].active !== 0) {
-                            totalFound = totalFound + 1;
-                          }
+                      }
+                    }
+                  } else { // Fallback para COL_HULL
+                    if (storedCount < maxHits) {
+                      if (overlapSphereObject(idx, k, cx, cy, cz, radius, outHits[storedCount], includeTriggers, curStepId)) {
+                        if (o.active !== 0) {
+                          totalFound = totalFound + 1;
+                          insertHitSorted(outHits, storedCount, outHits[storedCount]);
+                          storedCount = storedCount + 1;
                         }
+                      }
+                    } else if (candId < outHits[maxHits - 1].bodyId) {
+                      if (overlapSphereObject(idx, k, cx, cy, cz, radius, candHit, includeTriggers, curStepId)) {
+                        if (o.active !== 0) {
+                          totalFound = totalFound + 1;
+                          copyOverlapHit(outHits[maxHits - 1], candHit);
+                          insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
+                        }
+                      }
+                    } else if (testOverlapSphereObject(idx, k, cx, cy, cz, radius)) {
+                      if (o.active !== 0) {
+                        totalFound = totalFound + 1;
                       }
                     }
                   }
                 }
               }
             }
-            k = next[k];
+            k = dynNext[k];
           }
         }
-        hashZ = hashZ + hzMult;
         gz = gz + 1;
       }
-      hashY = hashY + hyMult;
       gy = gy + 1;
     }
-    hashX = hashX + hxMult;
     gx = gx + 1;
   }
 
   return totalFound;
 }
-
 export function overlapSphereNonAlloc(
   cx: number, cy: number, cz: number,
   radius: number,
@@ -2960,135 +3280,9 @@ export function overlapSphereNonAlloc(
   }
   if (effectiveMaxHits <= 0) return 0;
 
-  const targetScene = ensureIndex(sc);
+  const targetScene = sc !== undefined && sc !== null ? sc : sActiveScene;
   if (targetScene === null) return 0;
-
-  sQueryStamp = sQueryStamp + 1;
-  const stamp = sQueryStamp;
-  const curStepId = getSpatialStepId();
-
-  const minQx = cx - radius;
-  const maxQx = cx + radius;
-  const minQy = cy - radius;
-  const maxQy = cy + radius;
-  const minQz = cz - radius;
-  const maxQz = cz + radius;
-
-  let storedCount = 0;
-  let totalFound = 0;
-
-  // 1. Estáticos Tier 1 (Grid Fino)
-  if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
-      maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
-      maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
-    const minGx = mfloor(minQx * sStaticInvCellSize);
-    const maxGx = mfloor(maxQx * sStaticInvCellSize);
-    const minGy = mfloor(minQy * sStaticInvCellSize);
-    const maxGy = mfloor(maxQy * sStaticInvCellSize);
-    const minGz = mfloor(minQz * sStaticInvCellSize);
-    const maxGz = mfloor(maxQz * sStaticInvCellSize);
-
-    totalFound = overlapSphereInto(
-      cx, cy, cz, radius,
-      minGx, maxGx, minGy, maxGy, minGz, maxGz,
-      minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
-      sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
-      sVisitedStamp, stamp,
-      sTrigger, sLayer, sMask,
-      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
-      sBodyId, sCandidateOverlapHit,
-      0, 0,
-    );
-    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
-  }
-
-  // 2. Estáticos Tier 2 (Grid Coarse)
-  if (sStaticCoarseCount > 0 && maxQx >= sStaticCoarseSceneMinX && minQx <= sStaticCoarseSceneMaxX &&
-      maxQy >= sStaticCoarseSceneMinY && minQy <= sStaticCoarseSceneMaxY &&
-      maxQz >= sStaticCoarseSceneMinZ && minQz <= sStaticCoarseSceneMaxZ) {
-    const minGx = mfloor(minQx * sStaticCoarseInvCellSize);
-    const maxGx = mfloor(maxQx * sStaticCoarseInvCellSize);
-    const minGy = mfloor(minQy * sStaticCoarseInvCellSize);
-    const maxGy = mfloor(maxQy * sStaticCoarseInvCellSize);
-    const minGz = mfloor(minQz * sStaticCoarseInvCellSize);
-    const maxGz = mfloor(maxQz * sStaticCoarseInvCellSize);
-
-    totalFound = overlapSphereInto(
-      cx, cy, cz, radius,
-      minGx, maxGx, minGy, maxGy, minGz, maxGz,
-      minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
-      sStaticCoarseHead, sStaticCoarseEntriesObj, sStaticCoarseEntriesNext,
-      sVisitedStamp, stamp,
-      sTrigger, sLayer, sMask,
-      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
-      sBodyId, sCandidateOverlapHit,
-      storedCount, totalFound,
-    );
-    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
-  }
-
-  // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
-  if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
-      maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
-      maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
-    const dynH = sDynamicMaxHalfExtent;
-    const minGx = mfloor((minQx - dynH) * sDynInvCellSize);
-    const maxGx = mfloor((maxQx + dynH) * sDynInvCellSize);
-    const minGy = mfloor((minQy - dynH) * sDynInvCellSize);
-    const maxGy = mfloor((maxQy + dynH) * sDynInvCellSize);
-    const minGz = mfloor((minQz - dynH) * sDynInvCellSize);
-    const maxGz = mfloor((maxQz + dynH) * sDynInvCellSize);
-
-    totalFound = overlapSphereDynamicsInto(
-      cx, cy, cz, radius,
-      minGx, maxGx, minGy, maxGy, minGz, maxGz,
-      minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
-      sDynHead, sDynNext, sBucketStamp, stamp,
-      sTrigger, sLayer, sMask, sBodyId, sCandidateOverlapHit,
-      storedCount, totalFound,
-      sTrs, sLocalCx, sLocalCy, sLocalCz, sHasDynamicLocalOffset,
-      sShape, sWorldHx, sWorldHy, sWorldHz, sWorldRadius, sHullId,
-    );
-    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
-  }
-
-  // 4. Objetos colossais (estáticos e dinâmicos)
-  if (sColossalStaticCount > 0 || sColossalDynamicCount > 0) {
-    let colIdx = 0;
-    const totalCol = sColossalStaticCount + sColossalDynamicCount;
-    while (colIdx < totalCol) {
-      const k = colIdx < sColossalStaticCount
-        ? sColossalStaticObjs[colIdx]
-        : sColossalDynamicObjs[colIdx - sColossalStaticCount];
-      colIdx = colIdx + 1;
-
-      if (passesFilter(mask, layer, includeTriggers, k)) {
-        const candId = sBodyId[k];
-        if (storedCount < effectiveMaxHits) {
-          const target = outHits[storedCount];
-          if (overlapSphereObject(k, cx, cy, cz, radius, target, includeTriggers, curStepId)) {
-            totalFound = totalFound + 1;
-            insertHitSorted(outHits, storedCount, target);
-            storedCount = storedCount + 1;
-          }
-        } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
-          if (overlapSphereObject(k, cx, cy, cz, radius, sCandidateOverlapHit, includeTriggers, curStepId)) {
-            totalFound = totalFound + 1;
-            const target = outHits[effectiveMaxHits - 1];
-            copyOverlapHit(target, sCandidateOverlapHit);
-            insertHitSorted(outHits, effectiveMaxHits - 1, target);
-          }
-        } else if (testOverlapSphereObject(k, cx, cy, cz, radius)) {
-          totalFound = totalFound + 1;
-        }
-      }
-    }
-  }
-
-  return totalFound;
+  return getSpatialIndex(targetScene).overlapSphereNonAlloc(cx, cy, cz, radius, outHits, effectiveMaxHits, mask, layer, includeTriggers);
 }
 
 export function overlapSphere(
@@ -3097,16 +3291,17 @@ export function overlapSphere(
   filter?: SpatialFilter,
   sc?: Scene,
 ): OverlapHit[] {
-  ensureAllocScratch(256);
   const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : MASK_ALL;
   const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : LAYER_DEFAULT;
   const includeTriggers = filter !== undefined && filter.includeTriggers !== undefined ? filter.includeTriggers : false;
 
+  ensureAllocScratch(64);
   let totalFound = overlapSphereNonAlloc(
     cx, cy, cz, radius,
     sAllocScratchHits,
     sAllocScratchHits.length,
-    mask, layer, includeTriggers, sc,
+    mask, layer, includeTriggers,
+    sc,
   );
 
   if (totalFound > sAllocScratchHits.length) {
@@ -3115,7 +3310,8 @@ export function overlapSphere(
       cx, cy, cz, radius,
       sAllocScratchHits,
       sAllocScratchHits.length,
-      mask, layer, includeTriggers, sc,
+      mask, layer, includeTriggers,
+      sc,
     );
   }
 
@@ -3129,9 +3325,8 @@ export function overlapSphere(
   return result;
 }
 
-// ── OVERLAP BOX GEOMETRIA E IMPLEMENTAÇÃO ──────────────────────────────────
-
 function overlapBoxObject(
+  idx: SpatialIndex,
   k: number,
   cx: f64, cy: f64, cz: f64,
   hx: f64, hy: f64, hz: f64,
@@ -3139,17 +3334,17 @@ function overlapBoxObject(
   includeTriggers: boolean,
   curStepId: number,
 ): boolean {
-  resolveCandidateTransform(k);
+  idx.resolveCandidateTransform(k);
   const tcx = sCandCx;
   const tcy = sCandCy;
   const tcz = sCandCz;
   const yaw = sCandYaw;
-  const shape = sShape[k];
-  const isTrigger = sTrigger[k] !== 0;
+  const shape = idx.shape[k];
+  const isTrigger = idx.hasTriggers !== 0 && triggerOf(idx.objs[k]) !== 0;
 
   if (shape === COL_SPHERE) {
     // Esfera contra caixa (simétrico a overlapSphereObject)
-    const tr = sWorldRadius[k];
+    const tr = idx.worldRadius[k];
     let rx = tcx - cx;
     let ry = tcy - cy;
     let rz = tcz - cz;
@@ -3193,7 +3388,7 @@ function overlapBoxObject(
     }
 
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.depth = isTrigger ? 0.0 : depth;
     outHit.normal[0] = nx; outHit.normal[1] = ny; outHit.normal[2] = nz;
     outHit.stepId = curStepId;
@@ -3201,9 +3396,9 @@ function overlapBoxObject(
   }
 
   if (shape === COL_BOX) {
-    const thx = sWorldHx[k];
-    const thy = sWorldHy[k];
-    const thz = sWorldHz[k];
+    const thx = idx.worldHx[k];
+    const thy = idx.worldHy[k];
+    const thz = idx.worldHz[k];
 
     // Se o alvo não tem rotação (ou muito próxima de zero), AABB vs AABB direto
     if (math.abs(yaw) < 0.00001) {
@@ -3232,7 +3427,7 @@ function overlapBoxObject(
       }
 
       outHit.hit = true;
-      outHit.bodyId = sBodyId[k];
+      outHit.bodyId = idx.objs[k].id;
       outHit.depth = isTrigger ? 0.0 : depth;
       outHit.normal[0] = nx; outHit.normal[1] = ny; outHit.normal[2] = nz;
       outHit.stepId = curStepId;
@@ -3299,7 +3494,7 @@ function overlapBoxObject(
     }
 
     outHit.hit = true;
-    outHit.bodyId = sBodyId[k];
+    outHit.bodyId = idx.objs[k].id;
     outHit.depth = isTrigger ? 0.0 : minPen;
     outHit.normal[0] = nx; outHit.normal[1] = ny; outHit.normal[2] = nz;
     outHit.stepId = curStepId;
@@ -3309,20 +3504,22 @@ function overlapBoxObject(
   return false;
 }
 
+
 function testOverlapBoxObject(
+  idx: SpatialIndex,
   k: number,
   cx: number, cy: number, cz: number,
   hx: number, hy: number, hz: number,
 ): boolean {
-  resolveCandidateTransform(k);
-  const shape = sShape[k];
+  idx.resolveCandidateTransform(k);
+  const shape = idx.shape[k];
   const tcx = sCandCx;
   const tcy = sCandCy;
   const tcz = sCandCz;
   const yaw = sCandYaw;
 
   if (shape === COL_SPHERE) {
-    const rTarget = sWorldRadius[k];
+    const rTarget = idx.worldRadius[k];
     let rx = tcx - cx;
     let ry = tcy - cy;
     let rz = tcz - cz;
@@ -3341,9 +3538,9 @@ function testOverlapBoxObject(
   }
 
   if (shape === COL_BOX) {
-    const thx = sWorldHx[k];
-    const thy = sWorldHy[k];
-    const thz = sWorldHz[k];
+    const thx = idx.worldHx[k];
+    const thy = idx.worldHy[k];
+    const thz = idx.worldHz[k];
 
     if (math.abs(yaw) < 0.00001) {
       const dx = math.abs(tcx - cx) - (hx + thx);
@@ -3378,11 +3575,11 @@ function testOverlapBoxObject(
   }
 
   if (shape === COL_HULL) {
-    const hid = sHullId[k];
+    const hid = hullIdOf(idx.objs[k]);
     const hull = hullAt(hid);
     if (hull === null) return false;
 
-    const t = sTrs[k];
+    const t = idx.trs[k];
     const sx = t.sx !== 0.0 ? t.sx : 1.0;
     const sy = t.sy !== 0.0 ? t.sy : 1.0;
     const sz = t.sz !== 0.0 ? t.sz : 1.0;
@@ -3405,7 +3602,9 @@ function testOverlapBoxObject(
   return false;
 }
 
+
 function overlapBoxInto(
+  idx: SpatialIndex,
   cx: f64, cy: f64, cz: f64,
   hx: f64, hy: f64, hz: f64,
   minGx: number, maxGx: number,
@@ -3425,13 +3624,9 @@ function overlapBoxInto(
   entriesNext: number[],
   visitedStamp: number[],
   stamp: number,
-  triggerArr: number[],
-  layerArr: number[],
-  maskArr: number[],
   minXArr: f64[], maxXArr: f64[],
   minYArr: f64[], maxYArr: f64[],
   minZArr: f64[], maxZArr: f64[],
-  bodyIdArr: number[],
   candHit: OverlapHit,
   startStoredCount: number,
   startTotalFound: number,
@@ -3458,35 +3653,33 @@ function overlapBoxInto(
           const k = entriesObj[entry];
           if (visitedStamp[k] !== stamp) {
             visitedStamp[k] = stamp;
-            if (includeTriggers || triggerArr[k] === 0) {
-              if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
+            if (includeTriggers || idx.hasTriggers === 0 || triggerOf(idx.objs[k]) === 0) {
+              if ((mask & idx.objs[k].layer) !== 0 && (idx.objs[k].mask & layer) !== 0) {
                 if (minXArr[k] <= maxQx && maxXArr[k] >= minQx &&
                     minYArr[k] <= maxQy && maxYArr[k] >= minQy &&
                     minZArr[k] <= maxQz && maxZArr[k] >= minQz) {
                   if (storedCount < maxHits) {
-                    const target = outHits[storedCount];
-                    if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
-                      if (sObjs[k].active !== 0) {
+                    if (overlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz, outHits[storedCount], includeTriggers, curStepId)) {
+                      if (idx.objs[k].active !== 0) {
                         totalFound = totalFound + 1;
-                        const candId = target.bodyId;
-                        insertHitSorted(outHits, storedCount, target);
+                        const candId = outHits[storedCount].bodyId;
+                        insertHitSorted(outHits, storedCount, outHits[storedCount]);
                         storedCount = storedCount + 1;
                       }
                     }
                   } else {
-                    const candId = bodyIdArr[k];
+                    const candId = idx.objs[k].id;
                     if (candId < outHits[maxHits - 1].bodyId) {
-                      if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, candHit, includeTriggers, curStepId)) {
-                        if (sObjs[k].active !== 0) {
+                      if (overlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz, candHit, includeTriggers, curStepId)) {
+                        if (idx.objs[k].active !== 0) {
                           totalFound = totalFound + 1;
-                          const target = outHits[maxHits - 1];
-                          copyOverlapHit(target, candHit);
-                          insertHitSorted(outHits, maxHits - 1, target);
+                          copyOverlapHit(outHits[maxHits - 1], candHit);
+                          insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
                         }
                       }
                     } else {
-                      if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
-                        if (sObjs[k].active !== 0) {
+                      if (testOverlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz)) {
+                        if (idx.objs[k].active !== 0) {
                           totalFound = totalFound + 1;
                         }
                       }
@@ -3508,7 +3701,9 @@ function overlapBoxInto(
   return totalFound;
 }
 
+
 function overlapBoxDynamicsInto(
+  idx: SpatialIndex,
   cx: f64, cy: f64, cz: f64,
   hx: f64, hy: f64, hz: f64,
   minGx: number, maxGx: number,
@@ -3523,14 +3718,10 @@ function overlapBoxDynamicsInto(
   layer: number,
   includeTriggers: boolean,
   curStepId: number,
-  head: number[],
-  next: number[],
+  dynHead: number[],
+  dynNext: number[],
   bucketStamp: number[],
   stamp: number,
-  triggerArr: number[],
-  layerArr: number[],
-  maskArr: number[],
-  bodyIdArr: number[],
   candHit: OverlapHit,
   startStoredCount: number,
   startTotalFound: number,
@@ -3540,7 +3731,6 @@ function overlapBoxDynamicsInto(
   shapeArr: number[],
   worldHxArr: f64[], worldHyArr: f64[], worldHzArr: f64[],
   worldRadiusArr: f64[],
-  hullIdArr: number[],
 ): number {
   const gridMask = SGRID_MASK;
   const hxMult = HASH_X;
@@ -3551,221 +3741,205 @@ function overlapBoxDynamicsInto(
   let totalFound = startTotalFound;
 
   let gx = minGx;
-  let hashX = minGx * hxMult;
   while (gx <= maxGx) {
+    const hashX = gx * hxMult;
     let gy = minGy;
-    let hashY = minGy * hyMult;
     while (gy <= maxGy) {
-      const gxy = hashX ^ hashY;
+      const gxy = hashX ^ (gy * hyMult);
       let gz = minGz;
-      let hashZ = minGz * hzMult;
       while (gz <= maxGz) {
-        const bucket = (gxy ^ hashZ) & gridMask;
+        const bucket = (gxy ^ (gz * hzMult)) & gridMask;
         if (bucketStamp[bucket] !== stamp) {
           bucketStamp[bucket] = stamp;
-          let k = head[bucket];
+          let k = dynHead[bucket];
           while (k !== -1) {
-            const isTrig = triggerArr[k] !== 0;
+            const isTrig = idx.hasTriggers !== 0 && triggerOf(idx.objs[k]) !== 0;
             if (includeTriggers || !isTrig) {
-              if ((mask & layerArr[k]) !== 0 && (maskArr[k] & layer) !== 0) {
+              const o = idx.objs[k];
+              if ((mask & o.layer) !== 0 && (o.mask & layer) !== 0) {
                 const t = trsArr[k];
                 let cxObj = t.wx;
                 let cyObj = t.wy;
                 let czObj = t.wz;
                 const yaw = t.wry;
+
                 if (hasLocalOffset !== 0) {
                   const lcx = localCxArr[k];
                   const lcy = localCyArr[k];
                   const lcz = localCzArr[k];
                   if (lcx !== 0.0 || lcz !== 0.0) {
-                    const oxLocal = lcx * t.sx; const ozLocal = lcz * t.sz;
+                    const ox = lcx * t.sx; const oz = lcz * t.sz;
                     if (yaw === 0.0) {
-                      cxObj = cxObj + oxLocal; czObj = czObj + ozLocal;
+                      cxObj = cxObj + ox; czObj = czObj + oz;
                     } else {
                       const cs = math.cos(yaw); const sn = math.sin(yaw);
-                      cxObj = cxObj + (oxLocal * cs + ozLocal * sn);
-                      czObj = czObj + (0.0 - oxLocal * sn + ozLocal * cs);
+                      cxObj = cxObj + (ox * cs + oz * sn);
+                      czObj = czObj + (0.0 - ox * sn + oz * cs);
                     }
                   }
                   if (lcy !== 0.0) cyObj = cyObj + lcy * t.sy;
                 }
 
-                const thx = worldHxArr[k];
-                const rx = cxObj - cx;
-                const absRx = rx < 0.0 ? 0.0 - rx : rx;
-                if (absRx <= hx + thx) {
-                  const thy = worldHyArr[k];
+                const lhx = halfLocalX(o);
+                const lhy = halfLocalY(o);
+                const lhz = halfLocalZ(o);
+                const thx = lhx * t.sx;
+                const thy = lhy * t.sy;
+                const thz = lhz * t.sz;
+
+                if (cxObj + thx >= minQx && cxObj - thx <= maxQx &&
+                    cyObj + thy >= minQy && cyObj - thy <= maxQy &&
+                    czObj + thz >= minQz && czObj - thz <= maxQz) {
+                  const rx = cxObj - cx;
                   const ry = cyObj - cy;
-                  const absRy = ry < 0.0 ? 0.0 - ry : ry;
-                  if (absRy <= hy + thy) {
-                    const thz = worldHzArr[k];
-                    const rz = czObj - cz;
-                    const absRz = rz < 0.0 ? 0.0 - rz : rz;
-                    if (absRz <= hz + thz) {
-                      const shp = shapeArr[k];
-                      const candId = bodyIdArr[k];
+                  const rz = czObj - cz;
+                  const absRx = math.abs(rx);
+                  const absRy = math.abs(ry);
+                  const absRz = math.abs(rz);
+                  const shp = shapeOf(o);
+                  const candId = o.id;
 
-                      if (shp === 0) { // COL_SPHERE (esfera vs caixa)
-                        const tr = worldRadiusArr[k];
-                        let qx = rx;
-                        if (qx < 0.0 - hx) qx = 0.0 - hx; else if (qx > hx) qx = hx;
-                        let qy = ry;
-                        if (qy < 0.0 - hy) qy = 0.0 - hy; else if (qy > hy) qy = hy;
-                        let qz = rz;
-                        if (qz < 0.0 - hz) qz = 0.0 - hz; else if (qz > hz) qz = hz;
+                  if (shp === 0) { // COL_SPHERE (caixa query vs esfera dyn)
+                    const tr = radiusOfCol(o, t);
+                    let qx = rx;
+                    if (qx < 0.0 - hx) qx = 0.0 - hx; else if (qx > hx) qx = hx;
+                    let qy = ry;
+                    if (qy < 0.0 - hy) qy = 0.0 - hy; else if (qy > hy) qy = hy;
+                    let qz = rz;
+                    if (qz < 0.0 - hz) qz = 0.0 - hz; else if (qz > hz) qz = hz;
 
-                        const vx = rx - qx;
-                        const vy = ry - qy;
-                        const vz = rz - qz;
-                        const dist2 = vx * vx + vy * vy + vz * vz;
-                        if (dist2 < tr * tr) {
-                          if (sObjs[k].active !== 0) {
-                            totalFound = totalFound + 1;
+                    const vx = rx - qx; const vy = ry - qy; const vz = rz - qz;
+                    const d2 = vx * vx + vy * vy + vz * vz;
+                    const r2 = tr * tr;
+                    if (d2 < r2) {
+                      if (o.active !== 0) {
+                        totalFound = totalFound + 1;
+                        const needsFull = storedCount < maxHits || candId < outHits[maxHits - 1].bodyId;
+                        if (needsFull) {
+                          const dist = math.sqrt(d2);
+                          let depth = 0.0;
+                          let nx = 0.0; let ny = 0.0; let nz = 0.0;
+                          if (dist > 0.0000001) {
+                            depth = tr - dist;
+                            nx = vx / dist; ny = vy / dist; nz = vz / dist;
+                          } else {
+                            const penX = hx - absRx;
+                            const penY = hy - absRy;
+                            const penZ = hz - absRz;
+                            if (penX <= penY && penX <= penZ) {
+                              nx = rx >= 0.0 ? 1.0 : 0.0 - 1.0; depth = tr + penX;
+                            } else if (penY <= penX && penY <= penZ) {
+                              ny = ry >= 0.0 ? 1.0 : 0.0 - 1.0; depth = tr + penY;
+                            } else {
+                              nz = rz >= 0.0 ? 1.0 : 0.0 - 1.0; depth = tr + penZ;
+                            }
+                          }
+if (storedCount < maxHits) {
+  writeHitCore(outHits[storedCount], candId, isTrig ? 0.0 : depth, curStepId);
+  writeHitNormal(outHits[storedCount], nx, ny, nz);
+  insertHitSorted(outHits, storedCount, outHits[storedCount]);
+  storedCount = storedCount + 1;
+} else {
+  writeHitCore(outHits[maxHits - 1], candId, isTrig ? 0.0 : depth, curStepId);
+  writeHitNormal(outHits[maxHits - 1], nx, ny, nz);
+  insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
+}
+                        }
+                      }
+                    }
+                  } else if (shp === 1) { // COL_BOX (caixa vs caixa)
+                    if (yaw === 0.0) { // AABB vs AABB direto
+                      const dx = absRx - (hx + thx);
+                      const dy = absRy - (hy + thy);
+                      const dz = absRz - (hz + thz);
+                      if (dx < 0.0 && dy < 0.0 && dz < 0.0) {
+                        if (o.active !== 0) {
+                          totalFound = totalFound + 1;
                           const needsFull = storedCount < maxHits || candId < outHits[maxHits - 1].bodyId;
                           if (needsFull) {
-                            const dist = math.sqrt(dist2);
-                            let depth = 0.0;
-                            let nx = 0.0; let ny = 0.0; let nz = 0.0;
-                            if (dist > 0.0000001) {
-                              depth = tr - dist;
-                              const inv = 1.0 / dist;
-                              nx = vx * inv; ny = vy * inv; nz = vz * inv;
-                            } else {
-                              const penX = hx - (rx < 0.0 ? 0.0 - rx : rx);
-                              const penY = hy - (ry < 0.0 ? 0.0 - ry : ry);
-                              const penZ = hz - (rz < 0.0 ? 0.0 - rz : rz);
-                              if (penX <= penY && penX <= penZ) {
-                                nx = rx >= 0.0 ? 1.0 : 0.0 - 1.0; depth = tr + penX;
-                              } else if (penY <= penX && penY <= penZ) {
-                                ny = ry >= 0.0 ? 1.0 : 0.0 - 1.0; depth = tr + penY;
-                              } else {
-                                nz = rz >= 0.0 ? 1.0 : 0.0 - 1.0; depth = tr + penZ;
-                              }
+                            let depth = 0.0 - dx;
+                            let nx = cxObj >= cx ? 1.0 : 0.0 - 1.0;
+                            let ny = 0.0; let nz = 0.0;
+                            if ((0.0 - dy) < depth) {
+                              depth = 0.0 - dy; nx = 0.0; ny = cyObj >= cy ? 1.0 : 0.0 - 1.0; nz = 0.0;
                             }
-                            if (storedCount < maxHits) {
-                              const target = outHits[storedCount];
-                              target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
-                              target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
-                              target.stepId = curStepId;
-                              insertHitSorted(outHits, storedCount, target);
-                              storedCount = storedCount + 1;
-                            } else {
-                              const target = outHits[maxHits - 1];
-                              target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
-                              target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
-                              target.stepId = curStepId;
-                              insertHitSorted(outHits, maxHits - 1, target);
+                            if ((0.0 - dz) < depth) {
+                              depth = 0.0 - dz; nx = 0.0; ny = 0.0; nz = czObj >= cz ? 1.0 : 0.0 - 1.0;
                             }
+if (storedCount < maxHits) {
+  writeHitCore(outHits[storedCount], candId, isTrig ? 0.0 : depth, curStepId);
+  writeHitNormal(outHits[storedCount], nx, ny, nz);
+  insertHitSorted(outHits, storedCount, outHits[storedCount]);
+  storedCount = storedCount + 1;
+} else {
+  writeHitCore(outHits[maxHits - 1], candId, isTrig ? 0.0 : depth, curStepId);
+  writeHitNormal(outHits[maxHits - 1], nx, ny, nz);
+  insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
+}
                           }
                         }
                       }
-                    } else if (shp === 1) { // COL_BOX (caixa vs caixa)
-                        if (yaw === 0.0) { // AABB vs AABB direto
-                          const dx = absRx - (hx + thx);
-                          const dy = absRy - (hy + thy);
-                          const dz = absRz - (hz + thz);
-                          if (dx < 0.0 && dy < 0.0 && dz < 0.0) {
-                            if (sObjs[k].active !== 0) {
-                              totalFound = totalFound + 1;
-                              const needsFull = storedCount < maxHits || candId < outHits[maxHits - 1].bodyId;
-                              if (needsFull) {
-                                let depth = 0.0 - dx;
-                                let nx = cxObj >= cx ? 1.0 : 0.0 - 1.0;
-                                let ny = 0.0; let nz = 0.0;
-                                if ((0.0 - dy) < depth) {
-                                  depth = 0.0 - dy; nx = 0.0; ny = cyObj >= cy ? 1.0 : 0.0 - 1.0; nz = 0.0;
-                                }
-                                if ((0.0 - dz) < depth) {
-                                  depth = 0.0 - dz; nx = 0.0; ny = 0.0; nz = czObj >= cz ? 1.0 : 0.0 - 1.0;
-                                }
-                                if (storedCount < maxHits) {
-                                  const target = outHits[storedCount];
-                                  target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
-                                  target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
-                                  target.stepId = curStepId;
-                                  insertHitSorted(outHits, storedCount, target);
-                                  storedCount = storedCount + 1;
-                                } else {
-                                  const target = outHits[maxHits - 1];
-                                  target.hit = true; target.bodyId = candId; target.depth = isTrig ? 0.0 : depth;
-                                  target.normal[0] = nx; target.normal[1] = ny; target.normal[2] = nz;
-                                  target.stepId = curStepId;
-                                  insertHitSorted(outHits, maxHits - 1, target);
-                                }
-                              }
-                            }
-                          }
-                        } else { // Caixa rotacionada -> overlapBoxObject
-                          if (storedCount < maxHits) {
-                            const target = outHits[storedCount];
-                            if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
-                              if (sObjs[k].active !== 0) {
-                                totalFound = totalFound + 1;
-                                insertHitSorted(outHits, storedCount, target);
-                                storedCount = storedCount + 1;
-                              }
-                            }
-                          } else if (candId < outHits[maxHits - 1].bodyId) {
-                            if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, candHit, includeTriggers, curStepId)) {
-                              if (sObjs[k].active !== 0) {
-                                totalFound = totalFound + 1;
-                                const target = outHits[maxHits - 1];
-                                copyOverlapHit(target, candHit);
-                                insertHitSorted(outHits, maxHits - 1, target);
-                              }
-                            }
-                          } else if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
-                            if (sObjs[k].active !== 0) {
-                              totalFound = totalFound + 1;
-                            }
-                          }
-                        }
-                      } else { // Fallback COL_HULL
-                        if (storedCount < maxHits) {
-                          const target = outHits[storedCount];
-                          if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
-                            if (sObjs[k].active !== 0) {
-                              totalFound = totalFound + 1;
-                              insertHitSorted(outHits, storedCount, target);
-                              storedCount = storedCount + 1;
-                            }
-                          }
-                        } else if (candId < outHits[maxHits - 1].bodyId) {
-                          if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, candHit, includeTriggers, curStepId)) {
-                            if (sObjs[k].active !== 0) {
-                              totalFound = totalFound + 1;
-                              const target = outHits[maxHits - 1];
-                              copyOverlapHit(target, candHit);
-                              insertHitSorted(outHits, maxHits - 1, target);
-                            }
-                          }
-                        } else if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
-                          if (sObjs[k].active !== 0) {
+                    } else { // Caixa rotacionada -> overlapBoxObject
+                      if (storedCount < maxHits) {
+                        if (overlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz, outHits[storedCount], includeTriggers, curStepId)) {
+                          if (o.active !== 0) {
                             totalFound = totalFound + 1;
+                            insertHitSorted(outHits, storedCount, outHits[storedCount]);
+                            storedCount = storedCount + 1;
                           }
                         }
+                      } else if (candId < outHits[maxHits - 1].bodyId) {
+                        if (overlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz, candHit, includeTriggers, curStepId)) {
+                          if (o.active !== 0) {
+                            totalFound = totalFound + 1;
+                            copyOverlapHit(outHits[maxHits - 1], candHit);
+                            insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
+                          }
+                        }
+                      } else if (testOverlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz)) {
+                        if (o.active !== 0) {
+                          totalFound = totalFound + 1;
+                        }
+                      }
+                    }
+                  } else { // Fallback COL_HULL
+                    if (storedCount < maxHits) {
+                      if (overlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz, outHits[storedCount], includeTriggers, curStepId)) {
+                        if (o.active !== 0) {
+                          totalFound = totalFound + 1;
+                          insertHitSorted(outHits, storedCount, outHits[storedCount]);
+                          storedCount = storedCount + 1;
+                        }
+                      }
+                    } else if (candId < outHits[maxHits - 1].bodyId) {
+                      if (overlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz, candHit, includeTriggers, curStepId)) {
+                        if (o.active !== 0) {
+                          totalFound = totalFound + 1;
+                          copyOverlapHit(outHits[maxHits - 1], candHit);
+                          insertHitSorted(outHits, maxHits - 1, outHits[maxHits - 1]);
+                        }
+                      }
+                    } else if (testOverlapBoxObject(idx, k, cx, cy, cz, hx, hy, hz)) {
+                      if (o.active !== 0) {
+                        totalFound = totalFound + 1;
                       }
                     }
                   }
                 }
               }
             }
-            k = next[k];
+            k = dynNext[k];
           }
         }
-        hashZ = hashZ + hzMult;
         gz = gz + 1;
       }
-      hashY = hashY + hyMult;
       gy = gy + 1;
     }
-    hashX = hashX + hxMult;
     gx = gx + 1;
   }
 
   return totalFound;
 }
-
 export function overlapBoxNonAlloc(
   cx: number, cy: number, cz: number,
   hx: number, hy: number, hz: number,
@@ -3782,135 +3956,9 @@ export function overlapBoxNonAlloc(
   }
   if (effectiveMaxHits <= 0) return 0;
 
-  const targetScene = ensureIndex(sc);
+  const targetScene = sc !== undefined && sc !== null ? sc : sActiveScene;
   if (targetScene === null) return 0;
-
-  sQueryStamp = sQueryStamp + 1;
-  const stamp = sQueryStamp;
-  const curStepId = getSpatialStepId();
-
-  const minQx = cx - hx;
-  const maxQx = cx + hx;
-  const minQy = cy - hy;
-  const maxQy = cy + hy;
-  const minQz = cz - hz;
-  const maxQz = cz + hz;
-
-  let storedCount = 0;
-  let totalFound = 0;
-
-  // 1. Estáticos Tier 1 (Grid Fino)
-  if (sStaticCount > 0 && maxQx >= sStaticSceneMinX && minQx <= sStaticSceneMaxX &&
-      maxQy >= sStaticSceneMinY && minQy <= sStaticSceneMaxY &&
-      maxQz >= sStaticSceneMinZ && minQz <= sStaticSceneMaxZ) {
-    const minGx = mfloor(minQx * sStaticInvCellSize);
-    const maxGx = mfloor(maxQx * sStaticInvCellSize);
-    const minGy = mfloor(minQy * sStaticInvCellSize);
-    const maxGy = mfloor(maxQy * sStaticInvCellSize);
-    const minGz = mfloor(minQz * sStaticInvCellSize);
-    const maxGz = mfloor(maxQz * sStaticInvCellSize);
-
-    totalFound = overlapBoxInto(
-      cx, cy, cz, hx, hy, hz,
-      minGx, maxGx, minGy, maxGy, minGz, maxGz,
-      minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
-      sStaticHead, sStaticEntriesObj, sStaticEntriesNext,
-      sVisitedStamp, stamp,
-      sTrigger, sLayer, sMask,
-      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
-      sBodyId, sCandidateOverlapHit,
-      0, 0,
-    );
-    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
-  }
-
-  // 2. Estáticos Tier 2 (Grid Coarse)
-  if (sStaticCoarseCount > 0 && maxQx >= sStaticCoarseSceneMinX && minQx <= sStaticCoarseSceneMaxX &&
-      maxQy >= sStaticCoarseSceneMinY && minQy <= sStaticCoarseSceneMaxY &&
-      maxQz >= sStaticCoarseSceneMinZ && minQz <= sStaticCoarseSceneMaxZ) {
-    const minGx = mfloor(minQx * sStaticCoarseInvCellSize);
-    const maxGx = mfloor(maxQx * sStaticCoarseInvCellSize);
-    const minGy = mfloor(minQy * sStaticCoarseInvCellSize);
-    const maxGy = mfloor(maxQy * sStaticCoarseInvCellSize);
-    const minGz = mfloor(minQz * sStaticCoarseInvCellSize);
-    const maxGz = mfloor(maxQz * sStaticCoarseInvCellSize);
-
-    totalFound = overlapBoxInto(
-      cx, cy, cz, hx, hy, hz,
-      minGx, maxGx, minGy, maxGy, minGz, maxGz,
-      minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
-      sStaticCoarseHead, sStaticCoarseEntriesObj, sStaticCoarseEntriesNext,
-      sVisitedStamp, stamp,
-      sTrigger, sLayer, sMask,
-      sMinX, sMaxX, sMinY, sMaxY, sMinZ, sMaxZ,
-      sBodyId, sCandidateOverlapHit,
-      storedCount, totalFound,
-    );
-    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
-  }
-
-  // 3. Dinâmicos: região expandida em maiorMeiaExtensãoDinâmica; sem duplicatas, sem visitedStamp (§5.3)
-  if (sDynamicCount > 0 && maxQx >= sDynSceneMinX && minQx <= sDynSceneMaxX &&
-      maxQy >= sDynSceneMinY && minQy <= sDynSceneMaxY &&
-      maxQz >= sDynSceneMinZ && minQz <= sDynSceneMaxZ) {
-    const dynH = sDynamicMaxHalfExtent;
-    const minGx = mfloor((minQx - dynH) * sDynInvCellSize);
-    const maxGx = mfloor((maxQx + dynH) * sDynInvCellSize);
-    const minGy = mfloor((minQy - dynH) * sDynInvCellSize);
-    const maxGy = mfloor((maxQy + dynH) * sDynInvCellSize);
-    const minGz = mfloor((minQz - dynH) * sDynInvCellSize);
-    const maxGz = mfloor((maxQz + dynH) * sDynInvCellSize);
-
-    totalFound = overlapBoxDynamicsInto(
-      cx, cy, cz, hx, hy, hz,
-      minGx, maxGx, minGy, maxGy, minGz, maxGz,
-      minQx, maxQx, minQy, maxQy, minQz, maxQz,
-      outHits, effectiveMaxHits, mask, layer, includeTriggers, curStepId,
-      sDynHead, sDynNext, sBucketStamp, stamp,
-      sTrigger, sLayer, sMask, sBodyId, sCandidateOverlapHit,
-      storedCount, totalFound,
-      sTrs, sLocalCx, sLocalCy, sLocalCz, sHasDynamicLocalOffset,
-      sShape, sWorldHx, sWorldHy, sWorldHz, sWorldRadius, sHullId,
-    );
-    storedCount = totalFound < effectiveMaxHits ? totalFound : effectiveMaxHits;
-  }
-
-  // 4. Objetos colossais (estáticos e dinâmicos)
-  if (sColossalStaticCount > 0 || sColossalDynamicCount > 0) {
-    let colIdx = 0;
-    const totalCol = sColossalStaticCount + sColossalDynamicCount;
-    while (colIdx < totalCol) {
-      const k = colIdx < sColossalStaticCount
-        ? sColossalStaticObjs[colIdx]
-        : sColossalDynamicObjs[colIdx - sColossalStaticCount];
-      colIdx = colIdx + 1;
-
-      if (passesFilter(mask, layer, includeTriggers, k)) {
-        const candId = sBodyId[k];
-        if (storedCount < effectiveMaxHits) {
-          const target = outHits[storedCount];
-          if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, target, includeTriggers, curStepId)) {
-            totalFound = totalFound + 1;
-            insertHitSorted(outHits, storedCount, target);
-            storedCount = storedCount + 1;
-          }
-        } else if (candId < outHits[effectiveMaxHits - 1].bodyId) {
-          if (overlapBoxObject(k, cx, cy, cz, hx, hy, hz, sCandidateOverlapHit, includeTriggers, curStepId)) {
-            totalFound = totalFound + 1;
-            const target = outHits[effectiveMaxHits - 1];
-            copyOverlapHit(target, sCandidateOverlapHit);
-            insertHitSorted(outHits, effectiveMaxHits - 1, target);
-          }
-        } else if (testOverlapBoxObject(k, cx, cy, cz, hx, hy, hz)) {
-          totalFound = totalFound + 1;
-        }
-      }
-    }
-  }
-
-  return totalFound;
+  return getSpatialIndex(targetScene).overlapBoxNonAlloc(cx, cy, cz, hx, hy, hz, outHits, effectiveMaxHits, mask, layer, includeTriggers);
 }
 
 export function overlapBox(
@@ -3919,16 +3967,17 @@ export function overlapBox(
   filter?: SpatialFilter,
   sc?: Scene,
 ): OverlapHit[] {
-  ensureAllocScratch(256);
   const mask = filter !== undefined && filter.mask !== undefined ? filter.mask : MASK_ALL;
   const layer = filter !== undefined && filter.layer !== undefined ? filter.layer : LAYER_DEFAULT;
   const includeTriggers = filter !== undefined && filter.includeTriggers !== undefined ? filter.includeTriggers : false;
 
+  ensureAllocScratch(64);
   let totalFound = overlapBoxNonAlloc(
     cx, cy, cz, hx, hy, hz,
     sAllocScratchHits,
     sAllocScratchHits.length,
-    mask, layer, includeTriggers, sc,
+    mask, layer, includeTriggers,
+    sc,
   );
 
   if (totalFound > sAllocScratchHits.length) {
@@ -3937,7 +3986,8 @@ export function overlapBox(
       cx, cy, cz, hx, hy, hz,
       sAllocScratchHits,
       sAllocScratchHits.length,
-      mask, layer, includeTriggers, sc,
+      mask, layer, includeTriggers,
+      sc,
     );
   }
 

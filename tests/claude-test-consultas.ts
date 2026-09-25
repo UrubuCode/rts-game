@@ -28,6 +28,7 @@ import {
   overlapSphereNonAlloc,
   overlapBox,
   overlapBoxNonAlloc,
+  spatialGridRebuildCost,
   RaycastHit,
   OverlapHit,
 } from "../src/engine/core/spatial_queries";
@@ -656,6 +657,7 @@ check("Remoção dinâmica: raio não atinge mais o projétil removido", !hitOld
 // 13.3 Mutação estática explícita: markStaticDirty incrementa staticVersion
 scMulti.markStaticDirty();
 check("Mutação estática: markStaticDirty incrementa staticVersion", scMulti.staticVersion > initialStatVer);
+scMulti.spatialIndex = null;
 
 // ── 14. Regressões e Integridade da Revisão 1 (Trocas de Categoria e Movimento) ──
 const scRev = new Scene("SceneRev1");
@@ -834,6 +836,7 @@ while (rci < 1000) {
 }
 const avgRayUs = ((performance.now() - t0RayBench) / 1000.0) * 1000.0;
 check("Revisão 2: raycast com 2.100 estáticos rápido (<= 25 µs)", avgRayUs <= 25.0, "tempo=" + avgRayUs.toFixed(2) + " µs");
+scBenchInc.spatialIndex = null;
 
 // 15.2 Object Pooling: objetos com active = 0 não entram em consultas; ao ativar entram; ao desativar saem
 const scPool = new Scene("ScenePool");
@@ -1281,6 +1284,7 @@ for (let step = 0; step < 50; step++) {
 }
 
 check("Revisão 3: oráculo de força bruta (" + oracleTotalQueries + " queries sob mutação contínua) zero divergências", oracleDivergences === 0, "divergências=" + oracleDivergences);
+scOracle.spatialIndex = null;
 
 // ── 17. Sonda Revisão 5: Estático passa para stationary = 0 sem aviso e depois é removido ──
 const scGhost = new Scene("SceneGhost");
@@ -1302,6 +1306,107 @@ spatialRebuildIndex(scGhost);
 const gHits: OverlapHit[] = [createOverlapHit()];
 const cGhost = overlapSphereNonAlloc(10.0, 1.0, 10.0, 2.0, gHits, 1, 0xFFFFFFFF, 1, false, scGhost);
 check("Revisão 5: estático que virou dinâmico sem aviso e foi removido não é encontrado em overlap", cGhost === 0);
+scGhost.spatialIndex = null;
+setSpatialScene(null);
+
+// ── 18. SpatialIndex por cena: isolamento e custo zero de alternância (§8 e §8.3 item 4) ──
+const scA = new Scene("SceneA");
+const scB = new Scene("SceneB");
+
+// Popula Scene A com 25 estáticos e 25 dinâmicos em Z = [ -20, 20 ]
+for (let i = 0; i < 25; i++) {
+  const o = new GameObject("a_stat_" + i);
+  o.stationary = 1;
+  o.setMesh(1, 1, 1, 1);
+  const px = (i % 5) * 4.0 - 8.0;
+  const pz = (((i / 5) | 0) * 4.0) - 8.0;
+  o.transform.setPosition(px, 1.0, pz);
+  scA.add(o);
+}
+for (let i = 0; i < 25; i++) {
+  const o = new GameObject("a_dyn_" + i);
+  o.stationary = 0;
+  o.setMesh(1, 1, 1, 1);
+  const px = (i % 5) * 4.0 - 8.0;
+  const pz = (((i / 5) | 0) * 4.0) - 8.0;
+  o.transform.setPosition(px, 1.0, pz);
+  scA.add(o);
+}
+scA.computeWorld();
+
+// Popula Scene B com 25 estáticos e 25 dinâmicos em Z = [ 490, 510 ]
+for (let i = 0; i < 25; i++) {
+  const o = new GameObject("b_stat_" + i);
+  o.stationary = 1;
+  o.setMesh(1, 1, 1, 1);
+  const px = (i % 5) * 4.0 - 8.0;
+  const pz = 500.0 + (((i / 5) | 0) * 4.0) - 8.0;
+  o.transform.setPosition(px, 1.0, pz);
+  scB.add(o);
+}
+for (let i = 0; i < 25; i++) {
+  const o = new GameObject("b_dyn_" + i);
+  o.stationary = 0;
+  o.setMesh(1, 1, 1, 1);
+  const px = (i % 5) * 4.0 - 8.0;
+  const pz = 500.0 + (((i / 5) | 0) * 4.0) - 8.0;
+  o.transform.setPosition(px, 1.0, pz);
+  scB.add(o);
+}
+scB.computeWorld();
+
+spatialRebuildIndex(scA);
+spatialRebuildIndex(scB);
+
+// 100 consultas alternadas entre scA e scB
+let crossPollutionA = 0;
+let crossPollutionB = 0;
+const hitA = createRaycastHit();
+const hitB = createRaycastHit();
+const bufA: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOverlapHit(), createOverlapHit()];
+const bufB: OverlapHit[] = [createOverlapHit(), createOverlapHit(), createOverlapHit(), createOverlapHit()];
+
+for (let round = 0; round < 100; round++) {
+  // Query em A
+  const rA = raycastNonAlloc(0.0, 1.0, -50.0, 0.0, 0.0, 1.0, 100.0, hitA, 0xFFFFFFFF, 1, false, scA);
+  if (!rA || hitA.point[2] > 100.0) crossPollutionA++;
+  const ovA = overlapSphereNonAlloc(0.0, 1.0, 0.0, 5.0, bufA, 4, 0xFFFFFFFF, 1, false, scA);
+  if (ovA === 0) crossPollutionA++;
+  // Overlap em A no local da cena B deve retornar 0
+  const ovAatB = overlapSphereNonAlloc(0.0, 1.0, 500.0, 10.0, bufA, 4, 0xFFFFFFFF, 1, false, scA);
+  if (ovAatB !== 0) crossPollutionA++;
+
+  // Query em B
+  const rB = raycastNonAlloc(0.0, 1.0, 450.0, 0.0, 0.0, 1.0, 100.0, hitB, 0xFFFFFFFF, 1, false, scB);
+  if (!rB || hitB.point[2] < 400.0) crossPollutionB++;
+  const ovB = overlapSphereNonAlloc(0.0, 1.0, 500.0, 5.0, bufB, 4, 0xFFFFFFFF, 1, false, scB);
+  if (ovB === 0) crossPollutionB++;
+  // Overlap em B no local da cena A deve retornar 0
+  const ovBatA = overlapSphereNonAlloc(0.0, 1.0, 0.0, 10.0, bufB, 4, 0xFFFFFFFF, 1, false, scB);
+  if (ovBatA !== 0) crossPollutionB++;
+}
+
+check("SpatialIndex §18: consultas alternadas em Scene A sem poluição de Scene B", crossPollutionA === 0, "erros=" + crossPollutionA);
+check("SpatialIndex §18: consultas alternadas em Scene B sem poluição de Scene A", crossPollutionB === 0, "erros=" + crossPollutionB);
+
+// Custo de alternância: mover dinâmicos em A e B alternadamente não deve causar rebuild estático
+for (let step = 0; step < 5; step++) {
+  for (let i = 25; i < 50; i++) {
+    const oA = scA.objects[i];
+    oA.transform.setPosition(oA.transform.wx + 0.1, oA.transform.wy, oA.transform.wz);
+    const oB = scB.objects[i];
+    oB.transform.setPosition(oB.transform.wx + 0.1, oB.transform.wy, oB.transform.wz);
+  }
+  scA.computeWorld();
+  scB.computeWorld();
+  spatialGridRebuildCost(scA);
+  spatialGridRebuildCost(scB);
+}
+
+const costA = spatialGridRebuildCost(scA);
+const costB = spatialGridRebuildCost(scB);
+check("SpatialIndex §18: rebuild de Scene A alternada mantém estáticos intocados (tempo <= 0.35 ms)", costA.timeMs <= 0.35, "tempo=" + costA.timeMs.toFixed(3) + " ms");
+check("SpatialIndex §18: rebuild de Scene B alternada mantém estáticos intocados (tempo <= 0.35 ms)", costB.timeMs <= 0.35, "tempo=" + costB.timeMs.toFixed(3) + " ms");
 
 if (falhas === 0) {
   io.print("[PASSOU] Todas as verificacoes de consultas espaciais passaram!");
