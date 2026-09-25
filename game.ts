@@ -41,6 +41,9 @@ const FOV: f64 = 1.05;
 // Cena a carregar: a que o editor salvou. Fallback pros demos do repo, pro
 // runtime rodar mesmo num checkout limpo.
 let sceneFile = "assets/scene.json";
+// Sem cena salva, a build abre na VITRINE: física com blocos girados, eventos
+// de contato, gatilho e HUD — o que o RTS entrega hoje (tools/gerar-vitrine.ts).
+if (!fs.exists(sceneFile)) sceneFile = "scenes/vitrine.json";
 if (!fs.exists(sceneFile)) sceneFile = "scenes/shadowdemo.json";
 if (!fs.exists(sceneFile)) sceneFile = "scenes/solar.json";
 

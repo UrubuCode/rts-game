@@ -8,6 +8,20 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/animator.ts"
   },
   {
+    "name": "VitrineContador",
+    "category": "Demo",
+    "description": "Conta os contatos e gatilhos que este objeto recebe (cena vitrine).",
+    "keywords": "demo vitrine contato evento",
+    "source": "assets/scripts/VitrineContador.ts"
+  },
+  {
+    "name": "VitrineHud",
+    "category": "Demo",
+    "description": "HUD da cena vitrine: fps, objetos, contatos e backend; o botao \"Derrubar\" empurra as caixas.",
+    "keywords": "demo vitrine hud fps",
+    "source": "assets/scripts/VitrineHud.ts"
+  },
+  {
     "name": "Collider",
     "category": "Física",
     "description": "Define a forma usada na colisão.",
