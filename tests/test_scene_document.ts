@@ -1,0 +1,51 @@
+import io from "@compat/io.ts";
+import fs from "@compat/fs";
+import { scene, S } from "@editor/control/session";
+import { SceneDocument } from "@editor/scene_document";
+import { sceneFromJSON, sceneToJSON } from "@editor/sceneio";
+import { history } from "@editor/undo";
+import { Spinner } from "@scripts/spinner";
+import { setLogEcho } from "@engine/core/logger";
+
+function check(ok: boolean, message: string): void { if (!ok) throw new Error(message); }
+setLogEcho(0);
+const directory = "build/document-test-" + Date.now();
+fs.create_dir_all(directory);
+scene.clear(); S.simulating = 0;
+const object = scene.createGameObject("Author");
+object.active = 0; object.transform.rz = 0.75;
+const spin = new Spinner(); spin.enabled = 0; spin.collapsed = 1; object.addBehavior(spin);
+const doc = new SceneDocument(); doc.initialize("");
+S.camX = S.camX + 1; doc.refresh(); check(!doc.dirty, "fly camera is not authored edit");
+object.name = "Changed"; doc.refresh(); check(doc.dirty, "object edit marks document dirty");
+check(!doc.request("new") && doc.pending === "new" && scene.objects[0] === object, "new requires confirmation");
+doc.cancel(); check(scene.objects[0] === object && doc.dirty, "cancel preserves authored objects");
+const path = directory + "/scene.json";
+check(doc.save(path) && !doc.dirty && doc.path === path, "save establishes baseline");
+object.name = "Second";
+check(doc.save(path), "atomic replacement supports existing destination");
+check(JSON.parse(fs.read_text(path)).objects[0].name === "Second", "latest contents on disk");
+object.name = "Unsaved"; doc.refresh();
+check(!doc.save(directory + "/missing/scene.json") && doc.dirty && doc.path === path, "save failure keeps dirty baseline and path");
+check(JSON.parse(fs.read_text(path)).objects[0].name === "Second", "save failure preserves saved file");
+S.simulating = 1;
+check(!doc.save(path) && !doc.request("new"), "play cannot save or replace document");
+S.simulating = 0;
+const badPath = directory + "/invalid.json"; fs.write(badPath, "{broken");
+doc.request("open", badPath);
+check(!doc.complete() && scene.objects[0] === object && doc.dirty && doc.path === path, "invalid JSON preserves scene and baseline");
+const badVector = JSON.parse(sceneToJSON()); badVector.objects[0].pos = [null, 0, 0];
+let rejected = false; try { sceneFromJSON(JSON.stringify(badVector)); } catch { rejected = true; }
+check(rejected && scene.objects[0] === object, "invalid transform rejected before scene clear");
+const cycle = JSON.parse(sceneToJSON()); cycle.objects.push(cycle.objects[0]); cycle.objects[0].parent = 1;
+rejected = false; try { sceneFromJSON(JSON.stringify(cycle)); } catch { rejected = true; }
+check(rejected && scene.objects[0] === object, "invalid hierarchy cannot destroy scene");
+history.snapshot(); doc.request("open", path); check(doc.complete(), "discard and open valid file");
+const restored = scene.objects[0];
+check(restored.name === "Second" && restored.active === 0 && restored.transform.rz === 0.75, "object active and roll roundtrip");
+check(restored.behaviors[0].enabled === 0 && restored.behaviors[0].collapsed === 1, "component state roundtrip");
+check(!doc.dirty && history.undoDepth() === 0, "open resets dirty and old undo history");
+restored.name = "Save then new"; doc.request("new");
+check(doc.save(path) && doc.complete() && scene.count() === 0 && doc.path === "", "save and continue retains pending transition");
+check(JSON.parse(fs.read_text(path)).objects[0].name === "Save then new", "save before new keeps authored edit");
+io.print("[PASSOU] SceneDocument: dirty, cancel, overwrite, failure, play, validation and roundtrip");

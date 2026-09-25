@@ -9,7 +9,8 @@
 
 import { scene, S } from "./control/session";
 import { GameObject } from "../engine/core/gameobject";
-import { instantiatePrefab, loadSceneFrom } from "./sceneio";
+import { instantiatePrefab } from "./sceneio";
+import { sceneDocument } from "./scene_document";
 import { loadTexture } from "../engine/render/gpu3d";
 import { loadModel, isModelPath, SubMesh } from "../engine/render/model";
 import { screenToPlane, screenToForward, snapv } from "./gizmo";
@@ -170,8 +171,7 @@ export function instantiateAt(kind: string, path: string, wx: f64, wy: f64, wz: 
     }
   } else if (kind === "scene") {
     // cena arrastada = abrir (mesma semântica do duplo-clique no Project)
-    loadSceneFrom(path);
-    S.selected = 0;
+    sceneDocument.request("open", path);
   }
   // "other"/pasta/script: sem efeito na cena
   return 0 - 1;

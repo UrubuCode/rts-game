@@ -9,12 +9,19 @@ import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
 
 import { scene, S } from "../session";
+import { sceneDocument } from "@editor/scene_document";
 import { kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "@editor/dnd";
 import { isModelPath } from "@engine/render/model";
 import { thumbReport, TH_IMAGE, TH_MODEL, TH_PREFAB, TH_SCENE } from "@editor/thumbs";
 import { subStr } from "@editor/widgets";
 
 const FOV: f64 = 1.0472;
+
+function sceneDropResult(path: string): string {
+  if (sceneDocument.pending.length > 0) return "[pendente] confirme a troca de cena no editor";
+  if (sceneDocument.error.length > 0) return "[erro] " + sceneDocument.error;
+  return "[ok] cena carregada: " + path;
+}
 
 // componentes da câmera usados pela projeção (mesma decomposição do main).
 function focal(h: number): f64 { return (h * 0.5) / math.tan(FOV * 0.5); }
@@ -47,7 +54,7 @@ export function cmdDrop(parts: string[], w: number, h: number): string {
   const before = scene.objects.length;
   const idx = instantiateAt(kind, path, wx, wy, wz, placed, S.win);
   if (idx < 0) {
-    if (kind === "scene") return "[ok] drop " + path + " -> cena carregada (" + scene.objects.length + " objs)";
+    if (kind === "scene") return sceneDropResult(path);
     return "[erro] falha ao instanciar: " + path;
   }
   return "[ok] drop " + path + " [" + kind + "] -> #" + idx + " " + scene.objects[idx].name +
@@ -67,7 +74,7 @@ export function cmdDropAt(parts: string[]): string {
   const z = parseFloat(parts[4]);
   const idx = instantiateAt(kind, path, x, y, z, 1, S.win);
   if (idx < 0) {
-    if (kind === "scene") return "[ok] dropat " + path + " -> cena carregada";
+    if (kind === "scene") return sceneDropResult(path);
     return "[erro] falha ao instanciar: " + path;
   }
   return "[ok] dropat " + path + " [" + kind + "] -> #" + idx + " em (" + x + "," + y + "," + z + ")";

@@ -10,6 +10,13 @@ try {
   const candidates = [process.env.RTS_COMPILER, path.join(projectRoot, 'rts.exe'),
     process.env.RTS_MOTOR && path.join(process.env.RTS_MOTOR, 'target/release/rts.exe'),
     path.resolve(projectRoot, '../rts/target/release/rts.exe')].filter(Boolean);
+  // Git worktrees can live under build/. Walk ancestors to find the sibling
+  // motor checkout too; explicit environment/local overrides keep priority.
+  let ancestor = projectRoot;
+  while (path.dirname(ancestor) !== ancestor) {
+    candidates.push(path.join(ancestor, 'rts', 'target', 'release', 'rts.exe'));
+    ancestor = path.dirname(ancestor);
+  }
   const compiler = candidates.find(candidate => fs.existsSync(candidate));
   if (!compiler) throw new Error('Defina RTS_COMPILER com o caminho do rts.exe, ou coloque o CLI na raiz do projeto.');
   console.log(`[components] ${generateComponents().length} classes descobertas`);

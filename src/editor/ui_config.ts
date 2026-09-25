@@ -106,7 +106,7 @@ export const UI_CONTROL_H = 28;
 export const UI_MENU_NAMES: string[] = ["Arquivo", "Editar", "Criar", "Configurações", "Ajuda"];
 export const UI_MENU_BUTTON_W: number[] = [66, 56, 54, 120, 52];
 export const UI_TOOLS: string[] = ["Mover", "Girar", "Escala", "Grade"];
-export const UI_FILE_ACTIONS: string[] = ["Abrir cenas no Project", "Nova cena", "Salvar cena    Ctrl+S", "Build do jogo"];
+export const UI_FILE_ACTIONS: string[] = ["Abrir cena...", "Nova cena", "Salvar cena    Ctrl+S", "Salvar como...", "Build do jogo"];
 export const UI_EDIT_ACTIONS: string[] = ["Desfazer    Ctrl+Z", "Refazer    Ctrl+Y", "Duplicar    Ctrl+D", "Excluir    Delete"];
 export const UI_CONTEXT_ACTIONS: string[] = ["Duplicar", "Excluir"];
 export const UI_HELP_ACTIONS: string[] = ["Atalhos e navegação"];
@@ -130,7 +130,42 @@ export const UI_CODE_EDITOR = {
   buttonW: 90, gap: 10, fieldId: 78000,
 };
 
+export const UI_CONSOLE = {
+  padding: 8, gap: 4, toolbarH: 30, buttonH: 22, rowH: 22, detailH: 68,
+  detailHeaderH: 22, detailLineH: 16, footerH: 20, clearW: 80, collapseW: 90,
+  counterW: 60, iconButtonW: 30, iconSize: 16, iconGap: 6, scrollbarW: 4, repeatW: 40,
+  charW: 7, font: 12, smallFont: 11, textY: 4, border: 1, radius: 2,
+  narrowW: 510, searchId: 78100, scrollStep: 3,
+  clear: "Limpar", collapse: "Agrupar", search: "Buscar mensagens...",
+  levels: ["Informacoes", "Avisos", "Erros"], icons: ["info", "warning", "error"],
+  empty: "Nenhuma mensagem no Console", emptyFiltered: "Nenhuma mensagem corresponde aos filtros",
+  hint: "Selecione uma mensagem para ver os detalhes", open: "Abrir fonte", details: "DETALHES",
+  follow: "Acompanhar novas mensagens", paused: "Rolagem pausada", count: " mensagens",
+};
+export const UI_ICONS = {
+  directory: "assets/editor/icons/", maxPixels: 256,
+  names: ["info", "warning", "error", "clear", "collapse", "search", "follow"],
+};
+export const UI_WORKSPACE = {
+  tabs: ["Cena", "Jogo"], bottomTabs: ["Project", "Console"], tabW: 90, tabH: 24,
+  gap: 4, padding: 6, noCamera: "Nenhuma Camera ativa. Adicione Camera a um GameObject.",
+  gameHint: "Jogo: camera da cena, sem ferramentas de edicao",
+  buildRunning: "Compilando jogo... acompanhe no Console", buildResult: "Build: resultado e caminho no Console",
+};
+export const UI_DOCUMENT = {
+  width: 540, height: 194, padding: 16, rowH: 28, gap: 8,
+  title: "Alteracoes nao salvas", hint: "Deseja salvar antes de continuar?",
+  save: "Salvar e continuar", discard: "Descartar", cancel: "Cancelar",
+  untitled: "Sem titulo", pollMs: 750,
+};
+
 export const UI_C = {
+  consoleBackground: 0x26282CFF, consoleToolbar: 0x303237FF,
+  consoleRowAlternate: 0x2B2D31FF, consoleHover: 0x383C43FF,
+  consoleSelected: 0x344D68FF, consoleActive: 0x414A55FF,
+  consoleBorder: 0x1F2125FF, consoleDetail: 0x222428FF,
+  consoleText: 0xD2D5DBFF, consoleMuted: 0x8F969FFF,
+  consoleAccent: 0x80B7E2FF, consoleScroll: 0x666D76FF,
   white: 0xFFFFFFFF,
   axisSelected: 0xFFFFFFCC,
   axisX: 0xE05A5AFF,

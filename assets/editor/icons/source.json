@@ -1,0 +1,15 @@
+{
+  "size": 16,
+  "scale": 2,
+  "samples": 4,
+  "palette": { "neutral": "#BEC5CE", "info": "#86B9E3", "warning": "#E7B75A", "error": "#E87878", "ink": "#25282D" },
+  "icons": {
+    "info": [{"kind":"circle","cx":8,"cy":8,"r":6,"color":"info"},{"kind":"line","x1":8,"y1":7,"x2":8,"y2":11,"width":1.5,"color":"ink"},{"kind":"circle","cx":8,"cy":4.8,"r":0.85,"color":"ink"}],
+    "warning": [{"kind":"polygon","points":[[8,1],[15,14],[1,14]],"color":"warning"},{"kind":"line","x1":8,"y1":5.5,"x2":8,"y2":9,"width":1.5,"color":"ink"},{"kind":"circle","cx":8,"cy":11.5,"r":0.85,"color":"ink"}],
+    "error": [{"kind":"circle","cx":8,"cy":8,"r":6,"color":"error"},{"kind":"line","x1":5.8,"y1":5.8,"x2":10.2,"y2":10.2,"width":1.5,"color":"ink"},{"kind":"line","x1":10.2,"y1":5.8,"x2":5.8,"y2":10.2,"width":1.5,"color":"ink"}],
+    "clear": [{"kind":"line","x1":3,"y1":4,"x2":13,"y2":4,"width":1.3,"color":"neutral"},{"kind":"line","x1":6,"y1":2,"x2":10,"y2":2,"width":1.3,"color":"neutral"},{"kind":"line","x1":4,"y1":6,"x2":5,"y2":13,"width":1.3,"color":"neutral"},{"kind":"line","x1":5,"y1":13,"x2":11,"y2":13,"width":1.3,"color":"neutral"},{"kind":"line","x1":11,"y1":13,"x2":12,"y2":6,"width":1.3,"color":"neutral"},{"kind":"line","x1":8,"y1":6,"x2":8,"y2":11,"width":1.2,"color":"neutral"}],
+    "collapse": [{"kind":"line","x1":3,"y1":3,"x2":13,"y2":3,"width":1.3,"color":"neutral"},{"kind":"line","x1":5,"y1":6,"x2":11,"y2":6,"width":1.3,"color":"neutral"},{"kind":"line","x1":3,"y1":9,"x2":13,"y2":9,"width":1.3,"color":"neutral"},{"kind":"line","x1":5,"y1":12,"x2":11,"y2":12,"width":1.3,"color":"neutral"}],
+    "search": [{"kind":"ring","cx":6.5,"cy":6.5,"r":4,"width":1.4,"color":"neutral"},{"kind":"line","x1":9.5,"y1":9.5,"x2":13.5,"y2":13.5,"width":1.5,"color":"neutral"}],
+    "follow": [{"kind":"line","x1":8,"y1":2,"x2":8,"y2":11,"width":1.4,"color":"neutral"},{"kind":"line","x1":4.5,"y1":7.5,"x2":8,"y2":11,"width":1.4,"color":"neutral"},{"kind":"line","x1":11.5,"y1":7.5,"x2":8,"y2":11,"width":1.4,"color":"neutral"},{"kind":"line","x1":3,"y1":14,"x2":13,"y2":14,"width":1.3,"color":"neutral"}]
+  }
+}

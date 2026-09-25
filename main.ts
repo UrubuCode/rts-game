@@ -32,11 +32,18 @@ import { PreferencesPanel } from "@editor/preferences_panel";
 import { PlayToolbar } from "@editor/play_toolbar";
 import { playMode } from "@editor/play_mode";
 import { UI_PLAY } from "@editor/ui_config";
+import { UI_WORKSPACE, UI_DOCUMENT } from "@editor/ui_config";
+import { ConsolePanel } from "@editor/console_panel";
+import { WorkspaceViews } from "@editor/workspace_views";
+import { sceneDocument } from "@editor/scene_document";
+import { DocumentPanel, saveDocument } from "@editor/document_panel";
+import { chooseSceneFile } from "@editor/scene_dialog";
+import { EditorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
 import { scene, S } from "@editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "@editor/gizmo";
-import { loadSceneFrom, instantiatePrefab, saveScene, cloneObject } from "@editor/sceneio";
+import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "@editor/dnd";
 import { history } from "@editor/undo";
 import { rigidStep, rigidBackendName } from "@engine/core/physics_backend";
@@ -67,7 +74,7 @@ const P_UI_PROJ = profSection("  ui:project");
 const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
 import { initAudio, pumpAudio } from "@engine/audio/audio";
-import { logInfo, logTick } from "@engine/core/logger";
+import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
 import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_PROJECT_DEFAULT,
          UI_HIER_MIN, UI_INSP_MIN, UI_PROJECT_MIN, UI_SCENE_MIN_W, UI_SCENE_MIN_H,
@@ -138,7 +145,8 @@ if (!fs.exists(sceneFile)) {
   io.print("[AVISO] nenhuma cena encontrada (" + sceneFile + ") — a pasta 'scenes/'");
   io.print("        precisa ficar AO LADO do executavel. Abrindo cena vazia.");
 } else {
-  loadSceneFrom(sceneFile);
+  try { loadSceneFrom(sceneFile); }
+  catch (error) { logError("Falha ao abrir cena inicial: " + String(error)); sceneFile = ""; }
 }
 
 // ── estado do editor ────────────────────────────────────────────────────────
@@ -155,6 +163,12 @@ const preferencesPanel = new PreferencesPanel(app);
 let scriptNotice = "";
 let scriptNoticeFrames = 0;
 const playToolbar = new PlayToolbar(app);
+const workspaceViews = new WorkspaceViews(app);
+const consolePanel = new ConsolePanel(app);
+const documentPanel = new DocumentPanel(app);
+const editorBuild = new EditorBuild();
+sceneDocument.initialize(fs.exists(sceneFile) ? sceneFile : "");
+let documentPoll = 0;
 
 // conversão rad↔graus + wrap [0,360) pra rotação no inspector
 const RAD2DEG: f64 = 57.2957795;
@@ -246,16 +260,10 @@ function syncSelFlags(): void {
 }
 
 // ── BUILD DO JOGO ───────────────────────────────────────────────────────────
-// Dispara tools/build.bat, que compila game.ts (o RUNTIME — não este editor)
-// num .exe e copia os assets pra build/. Roda em BACKGROUND (`start`) porque a
-// compilação leva ~1 min e process.wait() bloquearia o editor inteiro.
-let buildMsgFrames = 0;   // frames restantes do aviso na barra de status
+// Compila game.ts em segundo plano, a partir de um snapshot isolado da cena.
 
 function startBuild(): void {
-  // SEM aspas no `start`: process.spawn não passa por shell, então as aspas
-  // chegam literais e o cmd trata "Build do jogo" como o ARQUIVO a abrir
-  // ("O sistema não pode encontrar o arquivo Build do jogo").
-  process.spawn("cmd", "/c start cmd /c tools\\build.bat");
+  editorBuild.start(); workspaceViews.console = true;
 }
 
 // formata um f64 com 1 casa decimal (só pro HUD do drop — nada de toFixed).
@@ -417,6 +425,7 @@ function frame(): void {
   profFrameBegin();
   secBegin(P_CTRL);
   ctrlPoll(W, H);   // ← controle da LLM por WebSocket (não-bloqueante)
+  if (sceneDocument.pending.length > 0) helpOpen = 3;
   secEnd(P_CTRL);
   let dt: f64 = app.delta();
   if (dt > 100) dt = 100;
@@ -433,7 +442,7 @@ function frame(): void {
   // ── input de câmera (fly): WASD move, setas olham, espaço sobe ────────────
   const textEditing = app.hasTextFocus();
   const ctrlHeld = input.modCtrl(WIN);
-  const flyInput = textEditing || ctrlHeld || addMenuOpen !== 0 ? 0 : 1;
+  const flyInput = textEditing || ctrlHeld || addMenuOpen !== 0 || helpOpen !== 0 || workspaceViews.game ? 0 : 1;
   const kW = flyInput !== 0 ? app.keyDown(122) : 0;
   const kS = flyInput !== 0 ? app.keyDown(118) : 0;
   const kA = flyInput !== 0 ? app.keyDown(100) : 0;
@@ -454,7 +463,7 @@ function frame(): void {
   const mvdy: f64 = input.mouseDeltaY(WIN);
   if (input.mouseDown(WIN, 1) && input.mouseX(WIN) > HIER_W &&
       input.mouseX(WIN) < W - INSP_W && input.mouseY(WIN) > BAR_H + 27 &&
-      input.mouseY(WIN) < H - UI_STATUS_H - ASSET_H && menuOpen === 0 && helpOpen === 0) {
+      input.mouseY(WIN) < H - UI_STATUS_H - ASSET_H && menuOpen === 0 && helpOpen === 0 && !workspaceViews.game) {
     S.camYaw = S.camYaw + mvdx * 0.005;
     S.camPitch = S.camPitch - mvdy * 0.005;
   }
@@ -481,7 +490,7 @@ function frame(): void {
   // E=104 R=117 F=105 (mapa do motor em rts-egui/render_backend.rs).
   if (addMenuOpen === 0 && menuOpen === 0 && helpOpen === 0 && nfEditing() === 0 && !textEditing) {
     if (ctrlHeld) {
-      if (app.keyPressed(118) !== 0) saveScene("assets/scene.json");
+      if (app.keyPressed(118) !== 0 && S.simulating === 0) saveDocument();
       if (app.keyPressed(125) !== 0) history.undo();
       if (app.keyPressed(124) !== 0) history.redo();
       if (app.keyPressed(103) !== 0 && S.selected >= 0 && S.selected < scene.objects.length) {
@@ -537,7 +546,8 @@ function frame(): void {
       // velocidades diferentes conforme o frame — o tremor que a interpolação
       // existe para tirar. Custa um `computeWorld` a mais só nesses frames.
       if (p > 0 && p === passos - 1) { scene.computeWorld(); snapshotWorld(scene); }
-      scene.update(FIXED_DT);
+      try { scene.update(FIXED_DT); }
+      catch (error) { logError("Erro durante simulacao: " + String(error)); playMode.pause(); workspaceViews.console = true; break; }
       // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
       // passo — e aí a varredura de pares da CPU não roda, porque seriam duas
       // físicas sobre o mesmo estado, a segunda vendo o que a primeira mexeu.
@@ -599,7 +609,7 @@ function frame(): void {
   input.setCursor(WIN, resizeCursor);
   const inSceneTools = mx >= HIER_W + UI_TOOL_X && mx < HIER_W + UI_TOOL_X + UI_TOOL_W + 12 &&
                        my >= BAR_H + UI_TOOL_Y && my < BAR_H + UI_TOOL_Y + UI_TOOL_H + 2;
-  const inViewport = layoutDrag === 0 && helpOpen === 0 && !inMenuSurface && !inSceneTools &&
+  const inViewport = !workspaceViews.game && layoutDrag === 0 && helpOpen === 0 && !inMenuSurface && !inSceneTools &&
                      mx > HIER_W + 5 && mx < W - INSP_W - 5 &&
                      my > BAR_H + UI_SCENE_HEADER_H && my < H - UI_STATUS_H - ASSET_H - 5;
   // Arrastando um asset do Project? Então o botão esquerdo pertence AO DRAG:
@@ -806,7 +816,8 @@ function frame(): void {
   // ALGO MOVEU depois (gizmo, arrasto, preview de drop). Antes era incondicional
   // — o segundo passe custava um laço sobre a cena inteira todo frame à toa.
   if (worldDirty !== 0) { scene.computeWorld(); worldDirty = 0; }
-  setCam(WIN, S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
+  workspaceViews.camera(FOV);
+  setCam(WIN, workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
   setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);   // luz PONTUAL (posição) — controlável via ws `light`
   // Shadow map: a direção vem da POSIÇÃO REAL da luz (luz -> centro da cena).
   // Antes era um vetor fixo (-7,-12,-5) desconectado de S.light*, então mover a
@@ -814,11 +825,12 @@ function frame(): void {
   setShadow(WIN, 0.0 - S.lightX, 0.0 - S.lightY, 0.0 - S.lightZ, 0.0, 1.0, 0.0, 24.0);
   // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
   secBegin(P_MUNDO3D);
-  frustumBegin(S.camX, S.camY, S.camZ, S.camYaw, S.camPitch, FOV, W / H);
+  frustumBegin(workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
   // Sincroniza a flag de seleção UMA vez por frame (custo O(n + |seleção|)),
   // em vez de o render varrer a lista inteira por objeto visível (O(n × |sel|)).
   // Feito aqui, num ponto só, porque a seleção é mexida em vários lugares.
   syncSelFlags();
+  if (workspaceViews.game) { let i = 0; while (i < scene.objects.length) { scene.objects[i].selFlag = 0; i = i + 1; } }
   // Sem `oi`/`drawnN` aqui: o laço inteiro virou UMA função livre tipada
   // (`drawSceneObjects`, no topo do módulo) e o contador volta pelo retorno.
   // A nota longa que estava aqui — hoistar o array, anotar `GameObject[]` para
@@ -830,7 +842,7 @@ function frame(): void {
   // por frame para um array reaproveitado (ver `frustumParams` em gpu3d.ts).
   frustumParams(fParams);
   const drawnN = drawSceneObjects(
-    objs, trs, objs.length, scene, WIN, S.selected, alphaR,
+    objs, trs, workspaceViews.game && !workspaceViews.hasCamera ? 0 : objs.length, scene, WIN, workspaceViews.game ? -1 : S.selected, alphaR,
     fParams[0], fParams[1], fParams[2],
     fParams[3], fParams[4], fParams[5], fParams[6],
     fParams[7], fParams[8]);
@@ -841,7 +853,7 @@ function frame(): void {
 
   // ── GIZMO 2D: eixos X/Y/Z coloridos sobre a viewport (over o 3D, sob a UI). O
   // eixo pego fica destacado (branco). Move/Rotate/Scale usam os mesmos eixos. ──
-  if (gzOK !== 0) {
+  if (gzOK !== 0 && !workspaceViews.game) {
     const cX = gizmoAxis === 0 ? UI_C.white : UI_C.axisX;   // X vermelho
     const cY = gizmoAxis === 1 ? UI_C.white : UI_C.axisY;   // Y verde
     const cZ = gizmoAxis === 2 ? UI_C.white : UI_C.axisZ;   // Z azul
@@ -917,25 +929,22 @@ function frame(): void {
     menuButtonX = menuButtonX + UI_MENU_BUTTON_W[mt] + UI_MENU_GAP;
     mt = mt + 1;
   }
-  app.text(14, 39, "RTS • " + scene.name, UI_C.brandText, 16);
+  app.text(14, 39, "RTS • " + scene.name + (sceneDocument.dirty ? " *" : ""), UI_C.brandText, 16);
 
   playToolbar.render(W, menuOpen !== 0 || helpOpen !== 0 || addMenuOpen !== 0);
 
   // — BUILD: gera o .exe do JOGO (game.ts + assets), não o editor —
-  // A compilação leva ~1min e process.wait BLOQUEIA, então dispara em background
-  // (cmd /c start) e só reporta; o resultado aparece em build/.
+  // Acompanhe resultado e pasta do pacote pelo Console.
   const bxBuild = W - 260;
   const stBuild = S.simulating === 0 ? app.clickable(924, bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H) : 0;
   let fBuild = UI_C.buildIdle;                       // verde: é a ação de "publicar"
   if (stBuild === 1) fBuild = UI_C.buildHover;
-  if (buildMsgFrames > 0) fBuild = UI_C.controlActive;   // azul enquanto mostra o aviso
+  if (editorBuild.running) fBuild = UI_C.controlActive;
   if (S.simulating !== 0) fBuild = UI_C.controlIdle;
   app.box(bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H, fBuild, 1, UI_C.border, 3);
   app.text(bxBuild + 8, 39, "Build", S.simulating === 0 ? UI_C.buildText : UI_C.disabledText, 12);
   if (stBuild === 3 && menuOpen === 0 && helpOpen === 0 && S.simulating === 0) {
-    saveScene("assets/scene.json");   // o jogo carrega esta cena: salva antes
     startBuild();
-    buildMsgFrames = 420;             // ~7s de aviso na barra de status
   }
 
   // Ações de arquivo e histórico ficam juntas à direita.
@@ -943,7 +952,7 @@ function frame(): void {
   const stSave = S.simulating === 0 ? app.clickable(920, bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H) : 0;
   app.box(bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H, stSave === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3);
   app.text(bxSave + 7, 39, "Salvar", S.simulating === 0 ? UI_C.primaryText : UI_C.disabledText, 11);
-  if (stSave === 3 && menuOpen === 0 && helpOpen === 0 && S.simulating === 0) saveScene("assets/scene.json");
+  if (stSave === 3 && menuOpen === 0 && helpOpen === 0 && S.simulating === 0) saveDocument();
   const bxUndo = W - 152;
   const stUndoB = app.clickable(922, bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H);
   app.box(bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H, stUndoB === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3);
@@ -962,8 +971,7 @@ function frame(): void {
   const sceneX = HIER_W;
   const sceneW = W - HIER_W - INSP_W;
   app.box(sceneX, BAR_H, sceneW, UI_SCENE_HEADER_H, UI_C.sceneHeader, 0, 0, 0);
-  app.box(sceneX + 4, BAR_H + 3, 58, 22, UI_C.sceneTab, 0, 0, 3);
-  app.text(sceneX + 14, BAR_H + 7, "Cena", UI_C.sceneTabText, 12);
+  if (!workspaceViews.game) {
   app.box(sceneX + UI_TOOL_X, BAR_H + UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H,
           UI_C.toolBack, 1, UI_C.toolBackBorder, 5);
   let ti = 0;
@@ -989,6 +997,7 @@ function frame(): void {
     ti = ti + 1;
   }
 
+  }
   secEnd(P_UI_BAR);
   secBegin(P_UI_HIER);
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
@@ -1189,11 +1198,9 @@ function frame(): void {
   if (S.simulating !== 0) modeTxt = S.playing !== 0 ? UI_PLAY.running : UI_PLAY.paused;
   if (playMode.error.length > 0) modeTxt = playMode.error;
   app.text(vpx + 10, H - 19, modeTxt + "  •  " + scene.objects.length + " objetos", UI_C.statusText, 12);
-  // Barra de status: normalmente a dica de controles; após clicar em Build,
-  // o aviso do build por alguns segundos (a compilação roda em outra janela).
-  if (buildMsgFrames > 0) {
-    buildMsgFrames = buildMsgFrames - 1;
-    if (vpw > 520 && S.simulating === 0) app.text(vpx + 185, H - 19, "Build iniciado • saída em build/RTSGame.exe", UI_C.dropMarker, 11);
+  // O resultado detalhado do build fica no Console, sem cobrir o Inspector.
+  if (editorBuild.status.length > 0) {
+    if (vpw > 520 && S.simulating === 0) app.text(vpx + 185, H - 19, editorBuild.running ? UI_WORKSPACE.buildRunning : UI_WORKSPACE.buildResult, UI_C.dropMarker, 11);
   } else if (vpw > 600 && S.simulating === 0 && playMode.error.length === 0) {
     app.text(vpx + 185, H - 19, "WASD câmera • F enquadra • arraste assets do Project", UI_C.hint, 11);
   }
@@ -1203,7 +1210,12 @@ function frame(): void {
   const apY = H - UI_STATUS_H - ASSET_H;
   const apW = W - HIER_W - INSP_W;
   secBegin(P_UI_PROJ);
-  const assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, helpOpen === 0 ? mPressed : 0, mDownNow, frames);
+  let assetAct = "";
+  if (workspaceViews.console) consolePanel.render(apX, apY + UI_WORKSPACE.tabH, apW, ASSET_H - UI_WORKSPACE.tabH, helpOpen !== 0 || menuOpen !== 0);
+  else assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, helpOpen === 0 ? mPressed : 0, mDownNow, frames);
+  app.box(apX, apY, workspaceViews.console ? apW : UI_WORKSPACE.padding + UI_WORKSPACE.bottomTabs.length * (UI_WORKSPACE.tabW + UI_WORKSPACE.gap), UI_WORKSPACE.tabH, workspaceViews.console ? UI_C.consoleToolbar : UI_C.sceneHeader, 0, 0, 0);
+  workspaceViews.tabs(sceneX, BAR_H, apY, helpOpen !== 0 || menuOpen !== 0);
+  if (workspaceViews.game) app.text(sceneX + UI_WORKSPACE.padding, BAR_H + UI_SCENE_HEADER_H + UI_WORKSPACE.padding, workspaceViews.hasCamera ? UI_WORKSPACE.gameHint : UI_WORKSPACE.noCamera, UI_C.primaryText, 12);
   secEnd(P_UI_PROJ);
   const splitLeft = layoutDrag === 1 || (mx >= HIER_W - 5 && mx <= HIER_W + 5 && my > BAR_H);
   const splitRight = layoutDrag === 2 || (mx >= W - INSP_W - 5 && mx <= W - INSP_W + 5 && my > BAR_H);
@@ -1217,9 +1229,7 @@ function frame(): void {
     if (assetAct.indexOf("script:") === 0) {
       scriptEditor.open(path);
     } else if (c0 === 115) {                          // "scene:" → recarrega a cena
-      playMode.stop();
-      loadSceneFrom(path);
-      S.selected = 0;
+      sceneDocument.request("open", path);
     } else if (c0 === 116) {                   // "tex:" → aplica no obj selecionado
       if (S.selected >= 0 && S.selected < scene.objects.length) {
         const tid = loadTexture(WIN, path) | 0;
@@ -1246,7 +1256,9 @@ function frame(): void {
     const kind = subStr(pay, 0, cut);
     const dpath = subStr(pay, cut + 1, pay.length);
 
-    if (kind === "script") {
+    if (kind === "scene") {
+      if (inViewport || (mx < HIER_W && my > BAR_H)) sceneDocument.request("open", dpath);
+    } else if (kind === "script") {
       const error = dropScriptOnObject(dpath, scriptTarget);
       scriptNotice = error.length > 0 ? error : "Componente adicionado em " + scene.objects[scriptTarget].name;
       scriptNoticeFrames = UI_SCRIPT_DROP.noticeFrames;
@@ -1425,13 +1437,12 @@ function frame(): void {
       menuOpen = 0;
       app.setFocus(0 - 1);
       if (activeMenu === 1) {
-        if (chosen === 0) { assetsOpenScenes(); ASSET_H = math.max(ASSET_H, UI_PROJECT_DEFAULT + 30); }
+        if (chosen === 0) { try { const path = chooseSceneFile(false); if (path.length > 0) sceneDocument.request("open", path); } catch (error) { logError(String(error)); workspaceViews.console = true; } }
         else if (chosen === 1) {
-          playMode.stop(); history.snapshot(); scene.clear(); scene.name = "Nova cena";
-          S.selected = 0 - 1; S.selection = []; S.playing = 0;
-          hierFilter = ""; hierScroll = 0; S.hierScroll = 0;
-        } else if (chosen === 2) saveScene("assets/scene.json");
-        else if (chosen === 3 && S.simulating === 0) { saveScene("assets/scene.json"); startBuild(); buildMsgFrames = 420; }
+          sceneDocument.request("new");
+        } else if (chosen === 2) saveDocument();
+        else if (chosen === 3 && S.simulating === 0) saveDocument(true);
+        else if (chosen === 4 && S.simulating === 0) startBuild();
       } else if (activeMenu === 2) {
         if (chosen === 0) history.undo();
         else if (chosen === 1) history.redo();
@@ -1475,6 +1486,11 @@ function frame(): void {
     if (app.button(hx + hw - 94, hy + 171, 76, 25, "Fechar") || app.keyPressed(2) !== 0) helpOpen = 0;
   }
   if (menuOpen !== 0 && app.keyPressed(2) !== 0) menuOpen = 0;
+  if (sceneDocument.pending.length > 0) { helpOpen = 3; documentPanel.render(W, H); }
+  if (helpOpen === 3 && sceneDocument.pending.length === 0) helpOpen = 0;
+  if (sceneDocument.error.length > 0) workspaceViews.console = true;
+  if (Date.now() - documentPoll > UI_DOCUMENT.pollMs) { sceneDocument.refresh(); documentPoll = Date.now(); }
+  editorBuild.poll();
 
   pumpAudio();
 

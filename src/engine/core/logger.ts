@@ -33,6 +33,9 @@ const CAP = 512;
 
 let msgs: string[] = [];
 let lvls: number[] = [];
+let lgSources: string[] = [];
+let lgLines: number[] = [];
+let lgIds: number[] = [];
 /// Frame em que cada mensagem foi gravada. Nome com prefixo `lg` porque um
 /// `let` de topo COLIDE em silêncio entre módulos neste runtime: chamando-se
 /// `frames`, ele batia com o `let frames` do main.ts e o carimbo saía
@@ -42,6 +45,7 @@ let lgFrames: number[] = [];
 /// forma estável mesmo depois de dar a volta).
 let head = 0;
 let total = 0;
+let lgRevision = 0;
 /// Abaixo disto a mensagem é descartada na origem.
 let minLevel = LOG_INFO;
 /// 1 = também escreve no stdout. Ligado por padrão: em execução headless
@@ -60,15 +64,18 @@ export function setLogEcho(on: number): void { echo = on; }
 /// mesmo módulo que o consome contorna isso.
 export function logTick(): void { lgCurFrame = lgCurFrame + 1; }
 
-function push(level: number, msg: string): void {
+function push(level: number, msg: string, source: string = "", line: number = 0): void {
   if (level < minLevel) return;
-  while (msgs.length < CAP) { msgs.push(""); lvls.push(0); lgFrames.push(0); }
+  while (msgs.length < CAP) { msgs.push(""); lvls.push(0); lgFrames.push(0); lgSources.push(""); lgLines.push(0); lgIds.push(0); }
   msgs[head] = msg;
   lvls[head] = level;
   lgFrames[head] = lgCurFrame;
+  lgSources[head] = source; lgLines[head] = line;
+  lgIds[head] = total + 1;
   head = head + 1;
   if (head >= CAP) head = 0;
   total = total + 1;
+  lgRevision = lgRevision + 1;
   if (echo !== 0) io.print(tag(level) + " " + msg);
 }
 
@@ -82,10 +89,35 @@ function tag(level: number): string {
 export function logDebug(m: string): void { push(LOG_DEBUG, m); }
 export function logInfo(m: string): void { push(LOG_INFO, m); }
 export function logWarn(m: string): void { push(LOG_WARN, m); }
-export function logError(m: string): void { push(LOG_ERROR, m); }
+export function logError(m: string, source: string = "", line: number = 0): void { push(LOG_ERROR, m, source, line); }
+
+export class LogEntry {
+  id: number = 0;
+  message: string; level: number; frame: number; source: string; line: number;
+  constructor(message: string, level: number, frame: number, source: string, line: number) {
+    this.message = message; this.level = level; this.frame = frame; this.source = source; this.line = line;
+  }
+}
+
+// Structured snapshot for editor consumers; never expose the mutable ring.
+export function logEntries(level: number = LOG_INFO, query: string = ""): LogEntry[] {
+  const result: LogEntry[] = [];
+  const start = total > CAP ? head : 0;
+  let i = 0;
+  while (i < msgs.length) {
+    const index = (start + i) % CAP;
+    if (msgs[index].length > 0 && lvls[index] >= level && msgs[index].toLowerCase().indexOf(query.toLowerCase()) >= 0) {
+      const entry = new LogEntry(msgs[index], lvls[index], lgFrames[index], lgSources[index], lgLines[index]);
+      entry.id = lgIds[index]; result.push(entry);
+    }
+    i = i + 1;
+  }
+  return result;
+}
 
 /// Quantas mensagens já passaram pelo log (não o que cabe no anel).
 export function logCount(): number { return total; }
+export function logRevision(): number { return lgRevision; }
 
 /// Quantas foram gravadas com nível >= `level`. É o resumo que responde "deu
 /// erro em algum momento?" sem ler o histórico inteiro.
@@ -154,6 +186,7 @@ function contains(hay: string, needle: string): number {
 
 /// Esvazia o histórico (não o total acumulado, que segue contando).
 export function logClear(): void {
+  lgRevision = lgRevision + 1;
   let i = 0;
   while (i < msgs.length) { msgs[i] = ""; i = i + 1; }
   head = 0;

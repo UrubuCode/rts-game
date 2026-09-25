@@ -53,6 +53,25 @@ componente.mount(); // objeto já pertence à cena
 O registro cria a classe real, sem wrapper. `new MinhaNave()` também funciona
 no editor/jogo inicializado: os campos são reconhecidos pelo provider gerado.
 
+## Logs de scripts
+
+Use a API familiar do Unity, ligada ao logger único da engine:
+
+```ts
+import { Debug } from "@engine/debug";
+
+Debug.Log("Nave criada");
+Debug.LogWarning("Sem alvo selecionado");
+Debug.LogError("Falha ao carregar o mapa");
+Debug.Log({ vida: 100, energia: 40 });
+```
+
+No editor, as mensagens aparecem no Console com tipo, ícone e contador. No
+jogo separado, ficam no histórico em memória e no stdout; ainda não há arquivo
+persistente nem transmissão para o editor. As funções `logInfo`, `logWarn` e
+`logError` continuam compatíveis. A API não promete ainda o parâmetro `context`
+GameObject nem captura automática de stack trace da classe Debug do Unity.
+
 ## Gerar e compilar
 
 Na primeira vez, execute `npm ci`. Depois:

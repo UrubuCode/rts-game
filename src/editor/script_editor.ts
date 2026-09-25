@@ -10,7 +10,7 @@ export function scriptOpenCommand(path: string): string {
 
 export class ScriptEditor {
   message: string = "";
-  open(path: string): void {
+  open(path: string, line: number = 0): void {
     if (!fs.exists(path) || fs.is_dir(path)) { this.message = "Script nao encontrado: " + path; return; }
     this.message = "Abrir script: use Abrir com no Windows para escolher o editor .ts.";
     try {
@@ -19,7 +19,8 @@ export class ScriptEditor {
           this.message = "Editor nao encontrado. Confira Configuracoes > Editor de codigo.";
           return;
         }
-        const editor = spawn(editorPreferences.codeEditor, [resolve(path)], { stdio: "ignore" });
+        const args = scriptEditorArguments(editorPreferences.codeEditor, resolve(path), line);
+        const editor = spawn(editorPreferences.codeEditor, args, { stdio: "ignore" });
         editor.unref();
         this.message = "Abertura solicitada ao editor de codigo configurado.";
         return;
@@ -28,4 +29,12 @@ export class ScriptEditor {
       child.unref();
     } catch { this.message = "Nao foi possivel abrir o editor de codigo."; }
   }
+}
+
+export function scriptEditorArguments(editor: string, path: string, line: number): string[] {
+  const name = editor.split("\\").join("/").split("/").pop().toLowerCase();
+  if (line > 0 && (name === "code.exe" || name === "code - insiders.exe" || name === "cursor.exe" || name === "windsurf.exe" || name === "antigravity.exe")) return ["--goto", path + ":" + Math.floor(line)];
+  if (line > 0 && name === "notepad++.exe") return ["-n" + Math.floor(line), path];
+  if (line > 0 && name === "sublime_text.exe") return [path + ":" + Math.floor(line)];
+  return [path];
 }

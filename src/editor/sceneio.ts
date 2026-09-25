@@ -3,6 +3,7 @@
 // `scene` singleton. Campos opcionais: parent, stationary, emissive, tex,
 // scale3 [x,y,z], scripts [].
 import fs from "../compat/fs.ts";
+import { writeFileSync, renameSync, unlinkSync, openSync, closeSync } from "node:fs";
 
 import { scene, S } from "./control/session";
 import { GameObject } from "../engine/core/gameobject";
@@ -37,6 +38,8 @@ import { MissingScript } from "../engine/core/missing_script";
 export function recreateBehavior(sd: any): Behavior {
   const component = recreateBehaviorInner(sd);
   componentMetadata.provider.restoreLegacyFields(component, sd.componentFields);
+  if (sd._enabled !== undefined) component.enabled = sd._enabled !== 0 ? 1 : 0;
+  if (sd._collapsed !== undefined) component.collapsed = sd._collapsed !== 0 ? 1 : 0;
   return component;
 }
 
@@ -138,16 +141,17 @@ export function objectToData(go: GameObject): any {
   let i = 0;
   while (i < go.behaviors.length) {
     const d = componentToData(go.behaviors[i]);
-    if (d !== null) scripts.push(d);
+    if (d !== null) { d._enabled = go.behaviors[i].enabled; d._collapsed = go.behaviors[i].collapsed; scripts.push(d); }
     i = i + 1;
   }
   const t = go.transform;
   return {
     name: go.name,
+    active: go.active,
     mesh: go.meshKind,
     color: [go.cr, go.cg, go.cb],
     pos: [t.px, t.py, t.pz],
-    rot: [t.rx, t.ry],
+    rot: [t.rx, t.ry, t.rz],
     scale3: [t.sx, t.sy, t.sz],
     parent: go.parent,
     stationary: go.stationary,
@@ -171,6 +175,7 @@ export function sceneToJSON(): string {
   // então ele abre exatamente no ponto de vista que o autor deixou salvo.
   // Também guarda a luz, que é estado de cena e não do editor.
   const data = {
+    name: scene.name,
     objects: objs,
     camera: [S.camX, S.camY, S.camZ, S.camYaw, S.camPitch],
     light: [S.lightX, S.lightY, S.lightZ, S.lightAmb]
@@ -180,26 +185,85 @@ export function sceneToJSON(): string {
 
 /// Restaura a cena a partir de um string JSON (SUBSTITUI a atual). Base do load E
 /// do undo/redo.
-export function sceneFromJSON(s: string): void {
-  scene.clear();
-  const data = JSON.parse(s);
-  const arr = data.objects;
-  if (arr === undefined) return;
+function validateVector(value: any, size: number, label: string): void {
+  if (!Array.isArray(value) || value.length < size) throw new Error("Vetor invalido: " + label);
   let i = 0;
-  while (i < arr.length) { scene.add(buildObject(arr[i])); i = i + 1; }
+  while (i < value.length) {
+    if (typeof value[i] !== "number" || !Number.isFinite(value[i])) throw new Error("Numero invalido: " + label);
+    i = i + 1;
+  }
+}
+
+export function sceneFromJSON(s: string): void {
+  const data = JSON.parse(s);
+  if (data === null || !Array.isArray(data.objects)) throw new Error("Cena invalida: objects deve ser uma lista.");
+  const arr = data.objects;
+  if (data.camera !== undefined) validateVector(data.camera, 5, "camera");
+  if (data.light !== undefined) validateVector(data.light, 4, "light");
+  const next: GameObject[] = [];
+  let i = 0;
+  while (i < arr.length) {
+    const item = arr[i];
+    if (item === null || typeof item.name !== "string" || !Array.isArray(item.pos) || !Array.isArray(item.rot) || !Array.isArray(item.color)) throw new Error("Objeto invalido na cena: " + i);
+    if (item.pos.length < 3 || item.rot.length < 2 || item.color.length < 3) throw new Error("Transform ou cor incompletos: " + i);
+    validateVector(item.pos, 3, "pos"); validateVector(item.rot, 2, "rot"); validateVector(item.color, 3, "color");
+    if (item.scale3 !== undefined) validateVector(item.scale3, 3, "scale3");
+    if (item.scale !== undefined && (typeof item.scale !== "number" || !Number.isFinite(item.scale))) throw new Error("Escala invalida: " + i);
+    if (item.scripts !== undefined && !Array.isArray(item.scripts)) throw new Error("Scripts invalidos: " + i);
+    if (item.parent !== undefined && (typeof item.parent !== "number" || item.parent < -1 || item.parent >= arr.length || item.parent === i || item.parent !== Math.floor(item.parent))) throw new Error("Pai invalido: " + i);
+    next.push(buildObject(item)); i = i + 1;
+  }
+  // Validate ancestry before touching the live scene.
+  i = 0;
+  while (i < next.length) {
+    let parent = next[i].parent; let depth = 0;
+    while (parent >= 0) { if (depth >= next.length) throw new Error("Hierarquia ciclica."); parent = next[parent].parent; depth = depth + 1; }
+    i = i + 1;
+  }
+  const previous = scene.objects.slice();
+  scene.clear();
+  try {
+    i = 0; while (i < next.length) { scene.add(next[i]); i = i + 1; }
+  } catch (error) {
+    scene.clear(); i = 0; while (i < previous.length) { scene.add(previous[i], false); i = i + 1; }
+    throw error;
+  }
+  if (typeof data.name === "string") scene.name = data.name;
+  if (Array.isArray(data.camera) && data.camera.length >= 5) {
+    S.camX = data.camera[0]; S.camY = data.camera[1]; S.camZ = data.camera[2]; S.camYaw = data.camera[3]; S.camPitch = data.camera[4];
+  }
+  if (Array.isArray(data.light) && data.light.length >= 4) {
+    S.lightX = data.light[0]; S.lightY = data.light[1]; S.lightZ = data.light[2]; S.lightAmb = data.light[3];
+  }
 }
 
 /// SALVA a cena inteira num arquivo JSON — fecha o loop com loadSceneFrom.
+const sceneSaveSequence = { next: 0 };
 export function saveScene(path: string): number {
   // A simulacao e descartavel; nunca sobrescreva o arquivo de autoria com ela.
   if (S.simulating !== 0) return 0 - 1;
-  fs.write(path, sceneToJSON());
+  sceneSaveSequence.next = sceneSaveSequence.next + 1;
+  const temporary = path + ".rts-saving-" + Date.now() + "-" + sceneSaveSequence.next;
+  const contents = sceneToJSON();
+  // RTS reports some native filesystem failures as undefined, not exceptions.
+  // Reserve our own temporary file, verify bytes, then replace the destination.
+  const fd = openSync(temporary, "wx");
+  if (typeof fd !== "number") throw new Error("Nao foi possivel criar arquivo temporario: " + temporary);
+  closeSync(fd);
+  try {
+    writeFileSync(temporary, contents, "utf8");
+    if (fs.read_text(temporary) !== contents) throw new Error("Falha ao verificar escrita: " + temporary);
+    renameSync(temporary, path);
+    if (fs.exists(temporary) || fs.read_text(path) !== contents) throw new Error("Falha ao substituir cena: " + path);
+  }
+  catch (error) { try { unlinkSync(temporary); } catch {} throw error; }
   return scene.objects.length;
 }
 
 /// Constrói 1 GameObject a partir de um descritor JSON.
 export function buildObject(od: any): GameObject {
   const go = new GameObject(od.name);
+  if (od.active !== undefined) go.active = od.active;
   if (od.parent !== undefined) go.parent = od.parent;
   if (od.stationary !== undefined) go.stationary = od.stationary;
   if (od.layer !== undefined) go.layer = od.layer;
@@ -228,11 +292,12 @@ export function buildObject(od: any): GameObject {
   go.transform.setPosition(p[0], p[1], p[2]);
   go.transform.rx = r[0];
   go.transform.ry = r[1];
+  if (r.length > 2) go.transform.rz = r[2];
   if (od.scale3 !== undefined) {
     const s3 = od.scale3;
     go.transform.sx = s3[0]; go.transform.sy = s3[1]; go.transform.sz = s3[2];
   } else {
-    go.transform.setScale(od.scale);
+    go.transform.setScale(od.scale !== undefined ? od.scale : 1);
   }
   const scr = od.scripts;
   if (scr !== undefined) {
@@ -278,13 +343,9 @@ export function instantiateSceneUnder(path: string, hostIdx: number): number {
 
 /// Carrega uma cena inteira ({ objects: [...] }), SUBSTITUINDO a atual.
 export function loadSceneFrom(path: string): void {
-  if (!fs.exists(path)) return;
-  scene.clear();
+  if (!fs.exists(path)) throw new Error("Cena nao encontrada: " + path);
+  sceneFromJSON(fs.read_text(path));
   S.selected = 0;
-  const data = JSON.parse(fs.read_text(path));
-  const arr = data.objects;
-  let ci = 0;
-  while (ci < arr.length) { scene.add(buildObject(arr[ci])); ci = ci + 1; }
   setLight(0.35, 1.0, 0.25);
   setAmbient(0.2);
   let ei = 0;

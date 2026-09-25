@@ -2,6 +2,8 @@
   "name": "rts-game-tools",
   "private": true,
   "scripts": {
+    "icons": "node tools/generate-editor-icons.mjs",
+    "icons:check": "node tools/generate-editor-icons.mjs --check",
     "components": "node tools/generate-components.mjs",
     "components:check": "node tools/generate-components.mjs --check",
     "test:components": "node --test tests/component-generation.test.mjs",

@@ -12,7 +12,7 @@ import fs from "../compat/fs.ts";
 import { PANEL, PANEL_DK, HEADER, BORDER, FIELD, TEXT, TEXT_DIM, SEL, HOVER, button, subStr } from "./widgets";
 import { drawThumb } from "./thumbs";
 import { ProjectTree } from "./project_tree";
-import { UI_C, UI_PROJECT_HEADER_H, UI_PROJECT_PATH_Y, UI_PROJECT_PATH_H,
+import { UI_C, UI_WORKSPACE, UI_PROJECT_HEADER_H, UI_PROJECT_PATH_Y, UI_PROJECT_PATH_H,
          UI_PROJECT_TOOL_W, UI_PROJECT_GRID_Y, UI_PROJECT_TILE_W, UI_PROJECT_TILE_H,
          UI_PROJECT_ICON_SIZE, UI_PROJECT_TILE_GAP, UI_PROJECT_DRAG_DISTANCE_SQ,
          UI_PROJECT_THUMB_MIN_H, UI_PROJECT_TREE_W, UI_PROJECT_TREE_FRACTION,
@@ -367,7 +367,7 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
   if (deleteArmed !== 0 && selIdx >= 0 && selIdx < count) {
     let target = names[selIdx];
     if (target.length > 22) target = subStr(target, 0, 21) + "…";
-    render.text(win, px + 92, py + 5, "Excluir " + target + "?", UI_C.assetDeleteWarning, 12, 0);
+    render.text(win, px + UI_WORKSPACE.padding + UI_WORKSPACE.bottomTabs.length * (UI_WORKSPACE.tabW + UI_WORKSPACE.gap), py + 5, "Excluir " + target + "?", UI_C.assetDeleteWarning, 12, 0);
   }
   // barra de caminho + botão subir
   const barY = py + UI_PROJECT_PATH_Y;

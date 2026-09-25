@@ -16,6 +16,7 @@ import io from "@compat/io.ts";
 import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
 import input from "rts:input";
+import { logTick } from "@engine/core/logger";
 // `createAppAt` era um GLOBAL do motor antigo, e este arquivo era o ultimo a
 // ainda contar com isso — `main.ts` ja importava do shim. No motor novo nada e
 // global sem alguem instalar.
@@ -58,6 +59,7 @@ if (fs.exists(sceneFile)) {
 let frames = 0;
 
 function frame(): void {
+  logTick();
   const nw = winWidth(WIN);
   const nh = winHeight(WIN);
   if (nw > 400) W = nw;

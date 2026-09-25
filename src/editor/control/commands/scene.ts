@@ -4,7 +4,8 @@ import { playTone, activeVoices, audioReady, audioRate } from "@engine/audio/aud
 import { logTail, logClear, logCount, logCountAtLeast, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_DEBUG } from "@engine/core/logger";
 import { Fluid } from "@scripts/fluid";
 import { scene, S } from "../session";
-import { loadSceneFrom, instantiateSceneUnder, cloneObject, saveScene } from "@editor/sceneio";
+import { loadSceneFrom, instantiateSceneUnder, cloneObject } from "@editor/sceneio";
+import { sceneDocument } from "@editor/scene_document";
 import { GameObject } from "@engine/core/gameobject";
 import { playMode } from "@editor/play_mode";
 
@@ -277,6 +278,7 @@ export function cmdClear(): string {
 export function cmdLoad(parts: string[]): string {
   playMode.stop();
   loadSceneFrom(parts[1]);
+  sceneDocument.initialize(parts[1]);
   return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length;
 }
 
@@ -284,8 +286,8 @@ export function cmdLoad(parts: string[]): string {
 export function cmdSaveScene(parts: string[]): string {
   if (S.simulating !== 0) return "[erro] pare a simulacao antes de salvar";
   if (parts.length < 2) return "[erro] uso: savescene <path>";
-  const n = saveScene(parts[1]) | 0;
-  return "[ok] savescene " + parts[1] + " <- " + n + " objs";
+  if (!sceneDocument.save(parts[1])) return "[erro] " + sceneDocument.error;
+  return "[ok] savescene " + parts[1] + " <- " + scene.objects.length + " objs";
 }
 
 /// dup [i] — duplica o objeto (default = selecionado), deslocado em +1 no X, e

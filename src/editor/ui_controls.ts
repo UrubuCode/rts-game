@@ -2,7 +2,11 @@ import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { UIScene } from "@engine/ui/uiscene";
 import { GameObject } from "@engine/core/gameobject";
 import { numField, propertyField, assetField } from "./widgets";
-import { UI_C, UI_INSPECTOR as L, UI_NUMERIC as N } from "./ui_config";
+import { UI_C, UI_INSPECTOR as L, UI_NUMERIC as N, UI_CONSOLE as C } from "./ui_config";
+import { drawEditorIcon } from "./icon_images";
+
+// Shared identities across all panels: native focus/click state is window-wide.
+const editorControlIds = { next: L.controlId };
 
 // Um controle e um componente real: Transform guarda seu retangulo, active
 // controla visibilidade, enabled controla o componente, inputEnabled o input.
@@ -10,6 +14,8 @@ export class EditorControl extends Behavior {
   app: any;
   mode: string = "label";
   label: string = "";
+  icon: string = "";
+  trailing: string = "";
   textValue: string = "";
   value: number = 0;
   id: number = 0;
@@ -29,6 +35,23 @@ export class EditorControl extends Behavior {
     const w = this.host.sx; const h = this.host.sy;
     const app = this.app;
     this.clicked = false;
+    if (this.mode === "surface") { app.box(x, y, w, h, this.fill, 0, 0, 0); return; }
+    if (this.mode === "icon") { drawEditorIcon(win, this.icon, x, y, w); return; }
+    if (this.mode === "flat" || this.mode === "row") {
+      this.hot = this.inputEnabled ? app.clickable(this.id, x, y, w, h) : 0;
+      app.box(x, y, w, h, this.hot === 1 || this.hot === 2 ? UI_C.consoleHover : this.fill, 0, 0, this.mode === "row" ? 0 : C.radius);
+      let textX = x + C.padding;
+      if (this.icon.length > 0) {
+        drawEditorIcon(win, this.icon, textX, y + (h - C.iconSize) / 2, C.iconSize);
+        textX = textX + C.iconSize + C.iconGap;
+      }
+      const trailingW = this.trailing.length > 0 ? C.repeatW : 0;
+      const available = Math.max(0, Math.floor((x + w - trailingW - C.gap - textX) / C.charW));
+      const caption = this.label.length > available ? this.label.slice(0, Math.max(0, available - 1)) + "…" : this.label;
+      app.text(textX, y + C.textY, caption, this.color, C.font);
+      if (trailingW > 0) app.text(x + w - trailingW, y + C.textY, this.trailing, UI_C.consoleMuted, C.font);
+      this.clicked = this.hot === 3; return;
+    }
     if (this.mode === "panel") { app.box(x, y, w, h, this.fill, L.border, UI_C.border, L.radius); return; }
     if (this.mode === "number" || this.mode === "axis") {
       this.value = this.mode === "number" ?
@@ -92,7 +115,7 @@ export class EditorUI {
     if (index < 0) {
       const object = this.scene.createGameObject(this.root.name + "/" + name, 0);
       const component = new EditorControl(this.app);
-      component.id = L.controlId + this.controls.length;
+      component.id = editorControlIds.next; editorControlIds.next = editorControlIds.next + 1;
       component.sceneIndex = this.scene.count() - 1;
       object.addBehavior(component);
       this.names.push(name); this.controls.push(component);
@@ -104,6 +127,8 @@ export class EditorUI {
     control.host.px = x; control.host.py = y; control.host.sx = w; control.host.sy = h;
     control.mx = this.mx; control.my = this.my; control.down = this.down; control.pressed = this.pressed;
     control.clicked = false; control.hot = 0;
+    control.icon = "";
+    control.trailing = "";
     control.color = UI_C.primaryText; control.fill = UI_C.controlIdle;
     return control;
   }
