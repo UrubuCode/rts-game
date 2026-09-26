@@ -60,7 +60,7 @@ executarItemDeMenu(indiceDoCaminho("Janela/Ambiente"), 0 - 1);
 const vistas = new VistasDeCamera(); const area = new Float64Array(4); const luzCam = new Float64Array(3);
 area[0] = 250.0; area[1] = 97.0; area[2] = 660.0; area[3] = 400.0;
 vistas.tela[0] = 1200.0; vistas.tela[1] = 720.0;
-S.gameView = 1; views.game = true; S.gameAspect = 1; S.gameCamera = 0 - 1;
+S.gameView = 1; views.game = true; S.gameAspect = 1; S.gameCamera = null;
 
 const dt = 1.0 / 60.0;
 // aquece fora das fases

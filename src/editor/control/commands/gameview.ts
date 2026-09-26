@@ -6,7 +6,7 @@ export function cmdGameView(parts: string[]): string {
   let out = "";
   if (acao === "") {
     out = "[gameview] aba=" + (S.gameView !== 0 ? "jogo" : "cena") + " proporcao=" + G.aspectTokens[S.gameAspect] +
-      " camera=" + (S.gameCamera >= 0 ? "#" + S.gameCamera : "todas") + " previa=" + (S.cameraPreview !== 0 ? "on" : "off");
+      " camera=" + (S.gameCamera !== null && scene.objects.indexOf(S.gameCamera) >= 0 ? "#" + scene.objects.indexOf(S.gameCamera) : "todas") + " previa=" + (S.cameraPreview !== 0 ? "on" : "off");
   } else if (acao === "jogo" || acao === "cena") { S.gameView = acao === "jogo" ? 1 : 0; out = "[ok] aba " + acao; }
   else if (acao === "proporcao") {
     const k = G.aspectTokens.indexOf(parts.length > 2 ? parts[2] : "");
@@ -15,8 +15,8 @@ export function cmdGameView(parts: string[]): string {
   } else if (acao === "camera") {
     const alvo = parts.length > 2 ? parts[2] : "";
     const i = parseFloat(alvo);
-    if (alvo === "todas") { S.gameCamera = 0 - 1; out = "[ok] camera todas"; }
-    else if (i === i && i === Math.floor(i) && i >= 0 && i < scene.objects.length && scene.objects[i].camIdx >= 0) { S.gameCamera = i; out = "[ok] camera #" + i; }
+    if (alvo === "todas") { S.gameCamera = null; out = "[ok] camera todas"; }
+    else if (i === i && i === Math.floor(i) && i >= 0 && i < scene.objects.length && scene.objects[i].camIdx >= 0) { S.gameCamera = scene.objects[i]; out = "[ok] camera #" + i; }
     else out = "[erro] camera: use todas ou o índice de um objeto com Camera";
   } else if (acao === "previa") {
     const v = parts.length > 2 ? parts[2] : "";

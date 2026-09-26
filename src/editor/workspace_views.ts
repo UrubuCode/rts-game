@@ -30,12 +30,12 @@ export class WorkspaceViews extends Behavior {
     this.x = S.camX; this.y = S.camY; this.z = S.camZ; this.yaw = S.camYaw; this.pitch = S.camPitch; this.fov = defaultFov;
   }
   /// Câmera única escolhida na aba Jogo (S.gameCamera), ou null = todas. Um
-  /// índice que deixou de ter Camera volta a "todas".
+  /// objeto que saiu da cena ou deixou de ter Camera volta a "todas".
   cameraEscolhida(): Camera | null {
     let c: Camera | null = null;
-    const i = S.gameCamera;
-    if (i >= 0 && i < scene.objects.length && scene.objects[i].camIdx >= 0) c = scene.objects[i].behaviors[scene.objects[i].camIdx] as Camera;
-    else S.gameCamera = 0 - 1;
+    const go = S.gameCamera;
+    if (go !== null && go.uiOwner === scene && go.camIdx >= 0) c = go.behaviors[go.camIdx] as Camera;
+    else S.gameCamera = null;
     return c;
   }
   /// Todas → 1ª câmera (por profundidade) → … → última → Todas.
@@ -44,12 +44,12 @@ export class WorkspaceViews extends Behavior {
     const atual = this.cameraEscolhida();
     let k = atual === null ? 0 - 1 : lista.indexOf(atual);
     k = k + 1;
-    S.gameCamera = k < lista.length ? scene.objects.indexOf(lista[k].owner as GameObject) : 0 - 1;
+    S.gameCamera = k < lista.length ? lista[k].owner : null;
   }
   /// "Câmera: <nome>" refeito só quando o nome muda.
   textoCamera(): string {
     const c = this.cameraEscolhida();
-    const nome = c === null ? G.cameraAll : scene.objects[S.gameCamera].name;
+    const nome = c === null ? G.cameraAll : (c.owner as GameObject).name;
     if (nome !== this.rotuloCameraDe) { this.rotuloCameraDe = nome; this.rotuloCamera = G.cameraPrefix + nome; }
     return this.rotuloCamera;
   }

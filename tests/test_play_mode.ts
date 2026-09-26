@@ -61,7 +61,13 @@ check(original.name === "Original" && original.transform.px === 12 && original.t
 check(original.behaviors[original.matIdx] === material, "original component identity restored");
 check(scene.name === "Autoria" && S.selected === 0 && S.selection.length === 2 && S.lightX === 3, "editor state restored");
 check(history.u === undo && history.r === redo, "original undo and redo restored");
-check(playMode.play(), "second play works"); playMode.stop(); playMode.stop();
+// a câmera da aba Jogo (referência) segue para a cópia no Play e volta ao original no Parar
+S.gameCamera = child;
+check(playMode.play(), "second play works");
+check(S.gameCamera === scene.objects[1] && S.gameCamera !== child, "câmera da aba Jogo passa à cópia");
+playMode.stop(); playMode.stop();
+check(S.gameCamera === child, "câmera da aba Jogo volta ao original");
+S.gameCamera = null;
 original.addBehavior(new Behavior());
 check(!playMode.play() && playMode.error.length > 0, "unsupported component refused explicitly");
 check(scene.objects[0] === original && history.u === undo && S.simulating === 0, "failed play is atomic");

@@ -28,18 +28,27 @@ const b = scene.createGameObject("B"); const cb = new Camera(); cb.isMain = 0; c
 check(cmdGameView(["gameview", "jogo"]).indexOf("[ok]") === 0 && S.gameView === 1, "gameview jogo");
 check(cmdGameView(["gameview", "proporcao", "16:9"]).indexOf("[ok]") === 0 && S.gameAspect === 1, "proporção");
 check(cmdGameView(["gameview", "proporcao", "21:9"]).indexOf("[erro]") === 0, "proporção inválida");
-check(cmdGameView(["gameview", "camera", "1"]).indexOf("[ok]") === 0 && S.gameCamera === 1, "câmera escolhida");
+check(cmdGameView(["gameview", "camera", "1"]).indexOf("[ok]") === 0 && S.gameCamera === b, "câmera escolhida");
 check(cmdGameView(["gameview", "camera", "5"]).indexOf("[erro]") === 0, "objeto sem câmera");
 check(cmdGameView(["gameview", "previa", "on"]).indexOf("[ok]") === 0 && S.cameraPreview === 1, "prévia");
 check(cmdGameView(["gameview"]).indexOf("aba=jogo proporcao=16:9 camera=#1 previa=on") > 0, "consulta: " + cmdGameView(["gameview"]));
 const views = new WorkspaceViews({ _win: 0 });
 check(views.cameraEscolhida() === cb, "cameraEscolhida resolve o índice");
 views.proximaCamera();
-check(S.gameCamera === 0 - 1 && views.cameraEscolhida() === null, "depois da última: Todas");
+check(S.gameCamera === null && views.cameraEscolhida() === null, "depois da última: Todas");
 views.proximaCamera();
-check(S.gameCamera === 0, "Todas → a primeira por profundidade");
+check(S.gameCamera === a, "Todas → a primeira por profundidade");
+// referência, não índice: apagar um objeto antes dela não troca a câmera escolhida
+const antes = scene.createGameObject("Antes");
+cmdGameView(["gameview", "camera", "" + scene.objects.indexOf(b)]);
+scene.removeAt(scene.objects.indexOf(a));
+check(views.cameraEscolhida() === cb && views.textoCamera().indexOf("B") >= 0, "apagar outro objeto não troca a escolha: " + views.textoCamera());
+scene.removeAt(scene.objects.indexOf(b));
+check(views.cameraEscolhida() === null && S.gameCamera === null, "objeto da câmera removido: volta a Todas");
+scene.removeAt(scene.objects.indexOf(antes));
+scene.add(a); scene.add(b);
 cmdGameView(["gameview", "camera", "todas"]); cmdGameView(["gameview", "cena"]); cmdGameView(["gameview", "previa", "off"]);
-check(S.gameCamera === 0 - 1 && S.gameView === 0 && S.cameraPreview === 0, "volta ao padrão");
+check(S.gameCamera === null && S.gameView === 0 && S.cameraPreview === 0, "volta ao padrão");
 // prévia: desenha a câmera no canto SEM trocar o retângulo de runtime dela (o da aba Jogo)
 scene.computeWorld();
 const jogo = new VistasDeCamera(); jogo.area[0] = 250.0; jogo.area[1] = 97.0; jogo.area[2] = 660.0; jogo.area[3] = 400.0;

@@ -28,7 +28,6 @@ import {
   overlapSphereNonAlloc,
   overlapBox,
   overlapBoxNonAlloc,
-  spatialGridRebuildCost,
   RaycastHit,
   OverlapHit,
 } from "../src/engine/core/spatial_queries";

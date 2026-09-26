@@ -4,7 +4,7 @@
 import { Editor, registerCommand, registerGizmo, Gizmos } from "@editor/api";
 import type { GameObject } from "@engine/core/gameobject";
 import type { Behavior } from "@engine/core/behavior";
-import { Camera, FUNDOS_CAMERA } from "@engine/core/camera";
+import { Camera, FUNDOS_CAMERA, GRAUS_POR_RAD, FOV_MIN_GRAUS, FOV_MAX_GRAUS } from "@engine/core/camera";
 import { corHex, lerCorHex } from "@engine/core/cor";
 import { definirPoseDeMundo } from "@engine/core/pose";
 
@@ -15,10 +15,6 @@ const CANTOS: number = 4;
 /// Cantos do viewport na ordem (0,0), (1,0), (1,1), (0,1): u e v.
 const CANTO_U: number[] = [0.0, 1.0, 1.0, 0.0];
 const CANTO_V: number[] = [0.0, 0.0, 1.0, 1.0];
-const GRAUS_POR_RAD: number = 57.29577951308232;
-/// Faixa do FOV aceita pelo comando, em graus (a do slider do Inspector).
-const FOV_MIN_GRAUS: number = 10.0;
-const FOV_MAX_GRAUS: number = 150.0;
 const NOME_CAMERA: string = "Câmera";
 const CASAS: number = 3;
 

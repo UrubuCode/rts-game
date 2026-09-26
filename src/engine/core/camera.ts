@@ -30,10 +30,10 @@ export const CAMERA_VIEWPORT_MIN: number = 0.01;
 /// Índices no Inspector (ordem de declaração dos campos): FOV em graus e Main como caixa.
 export const CAMERA_CAMPO_FOV: number = 0;
 export const CAMERA_CAMPO_MAIN: number = 1;
-const GRAUS_POR_RAD: number = 57.29577951308232;
-/// Faixa do slider de FOV no Inspector próprio, em graus.
-const FOV_MIN_GRAUS: number = 10;
-const FOV_MAX_GRAUS: number = 150;
+export const GRAUS_POR_RAD: number = 57.29577951308232;
+/// Faixa do FOV editável, em graus: slider do Inspector próprio e comando `camera`.
+export const FOV_MIN_GRAUS: number = 10;
+export const FOV_MAX_GRAUS: number = 150;
 /// Rótulos do Inspector próprio (onInspectorGUI), como os `@label` dos campos.
 const ROTULO_FOV: string = "Campo de visão";
 const ROTULO_PRINCIPAL: string = "Principal";
