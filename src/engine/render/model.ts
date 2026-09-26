@@ -364,29 +364,32 @@ export function loadGltfParts(win: i64, path: string): SubMesh[] {
   return out;
 }
 
-/// PARSE puro do glTF (sem GPU) — mesma separação do parseObj, pra testar
-/// headless que os accessors foram lidos certo.
-export function parseGltf(path: string): Part[] {
-  const empty: Part[] = [];
-  if (!fs.exists(path)) return empty;
+/// Lê o `.glb` (header + chunk JSON + chunk BIN) ou o `.gltf` (JSON + `.bin`
+/// externo referenciado por `buffers[0].uri`) e devolve o JSON já parseado +
+/// o buffer com os bytes do BIN (deixa `binOff` (var de módulo) certo pros
+/// leitores de accessor). Lança com o motivo em vez de devolver algo parcial:
+/// um `.glb` truncado/sem BIN não deveria virar uma malha vazia silenciosa em
+/// quem só quer nós/animações (gltf_anim.ts). `parseGltf` abaixo é quem
+/// tolera arquivo ausente/inválido devolvendo `[]`, capturando o throw.
+export function glbChunks(path: string): { json: any, bin: Buf } {
+  if (!fs.exists(path)) throw new Error("glbChunks: arquivo nao encontrado: " + path);
   const baseDir = dirOf(path);
 
   let js = "";
   let binBuf: Buf | null = null;      // buffer com o chunk BIN (null = nenhum)
-  let binLen = 0;
   let fileBuf: Buf | null = null;     // bytes do arquivo inteiro (.glb)
 
   if (isGlb(path)) {
     const sz = fs.size(path) | 0;
-    if (sz < 20) return empty;
+    if (sz < 20) throw new Error("glbChunks: .glb menor que o header (20 bytes): " + path);
     // `fs.read_all(path)` DEVOLVE os bytes: nao ha buffer a alocar nem
     // endereco a passar. A forma antiga — alocar, entregar o ponteiro, receber
     // a contagem — era a superficie que `compat/buffer.ts` documenta ter
     // acabado, e `compat/fs.ts` ja tinha migrado sozinho.
     fileBuf = fs.read_all(path);
     const got = fileBuf.length | 0;
-    if (got < 20) { buffer.free(fileBuf); return empty; }
-    if (buffer.read_i32(fileBuf, 0) !== GLB_MAGIC) { buffer.free(fileBuf); return empty; }
+    if (got < 20) { buffer.free(fileBuf); throw new Error("glbChunks: leitura truncada: " + path); }
+    if (buffer.read_i32(fileBuf, 0) !== GLB_MAGIC) { buffer.free(fileBuf); throw new Error("glbChunks: magic 'glTF' ausente (nao e um .glb valido): " + path); }
     // header: magic(4) version(4) length(4), depois chunks: len(4) type(4) data
     let off = 12;
     while (off + 8 <= got) {
@@ -395,7 +398,7 @@ export function parseGltf(path: string): Part[] {
       const cdata = off + 8;
       if (clen < 0 || cdata + clen > got) break;      // chunk corrompido
       if (ctype === CHUNK_JSON) js = sliceUtf8(fileBuf, cdata, clen);
-      else if (ctype === CHUNK_BIN) { binBuf = fileBuf; binLen = clen; binOff = cdata; }
+      else if (ctype === CHUNK_BIN) { binBuf = fileBuf; binOff = cdata; }
       off = cdata + clen;
       if ((off % 4) !== 0) off = off + (4 - (off % 4));   // chunks são alinhados a 4
     }
@@ -403,31 +406,40 @@ export function parseGltf(path: string): Part[] {
     js = fs.read_text(path);
     binOff = 0;
   }
-  if (js.length === 0) { if (fileBuf !== null) buffer.free(fileBuf); return empty; }
+  if (js.length === 0) { if (fileBuf !== null) buffer.free(fileBuf); throw new Error("glbChunks: sem chunk JSON: " + path); }
 
   const g = JSON.parse(js);
-  const out: Part[] = [];
-  const meshes = g.meshes;
-  if (meshes === undefined) { if (fileBuf !== null) buffer.free(fileBuf); return empty; }
 
-  // .gltf externo: carrega os buffers referenciados (uri) sob demanda
-  let extBuf: Buf | null = null;
-  let extLen = 0;
+  // .gltf externo: carrega o buffer referenciado (uri) sob demanda
   if (binBuf === null) {
     const bufs = g.buffers;
     if (bufs !== undefined && bufs.length > 0 && bufs[0].uri !== undefined) {
       const bp = resolveRel(baseDir, bufs[0].uri);
       if (fs.exists(bp)) {
         const bsz = fs.size(bp) | 0;
-        if (bsz > 0) {
-          extBuf = fs.read_all(bp);
-          extLen = extBuf.length | 0;
-          binBuf = extBuf; binLen = extLen; binOff = 0;
-        }
+        if (bsz > 0) { binBuf = fs.read_all(bp); binOff = 0; }
       }
     }
   }
-  if (binBuf === null) { if (fileBuf !== null) buffer.free(fileBuf); return empty; }
+  if (binBuf === null) { if (fileBuf !== null) buffer.free(fileBuf); throw new Error("glbChunks: sem chunk/buffer BIN: " + path); }
+  return { json: g, bin: binBuf };
+}
+
+/// PARSE puro do glTF (sem GPU) — mesma separação do parseObj, pra testar
+/// headless que os accessors foram lidos certo. Arquivo ausente/inválido
+/// devolve `[]` (comportamento preservado; quem precisa do motivo do erro
+/// usa `glbChunks` direto, como gltf_anim.ts).
+export function parseGltf(path: string): Part[] {
+  const empty: Part[] = [];
+  let chunks: { json: any, bin: Buf };
+  try { chunks = glbChunks(path); } catch (e) { return empty; }
+  const g = chunks.json;
+  const bin = chunks.bin;
+  const baseDir = dirOf(path);
+
+  const out: Part[] = [];
+  const meshes = g.meshes;
+  if (meshes === undefined) { buffer.free(bin); return empty; }
 
   let mi = 0;
   while (mi < meshes.length) {
@@ -438,15 +450,14 @@ export function parseGltf(path: string): Part[] {
     if (prims !== undefined) {
       let pi = 0;
       while (pi < prims.length) {
-        const sm = buildPrimitive(g, prims[pi], binBuf, mname, baseDir, prims.length > 1 ? pi : 0 - 1);
+        const sm = buildPrimitive(g, prims[pi], bin, mname, baseDir, prims.length > 1 ? pi : 0 - 1);
         if (sm !== null) out.push(sm);
         pi = pi + 1;
       }
     }
     mi = mi + 1;
   }
-  if (fileBuf !== null) buffer.free(fileBuf);
-  if (extBuf !== null && extBuf !== fileBuf) buffer.free(extBuf);
+  buffer.free(bin);
   return out;
 }
 
@@ -460,7 +471,8 @@ function isGlb(path: string): boolean {
 }
 
 // Monta UMA primitive (= uma submesh) lendo os accessors POSITION/NORMAL/TEXCOORD_0.
-function buildPrimitive(g: any, prim: any, bin: Buf, mname: string,
+// Exportada pra gltf_anim.ts reusar (peças por osso, sem duplicar o parse).
+export function buildPrimitive(g: any, prim: any, bin: Buf, mname: string,
                         baseDir: string, primIdx: number): Part {
   const attrs = prim.attributes;
   if (attrs === undefined || attrs.POSITION === undefined) return null;
@@ -533,7 +545,8 @@ function applyGltfMaterial(g: any, prim: any, sm: Part, baseDir: string): void {
 }
 
 // Lê um accessor FLOAT (posição/normal/uv) como array plano de f64.
-function readAccessor(g: any, bin: Buf, ai: number): f64[] {
+// Exportada pra gltf_anim.ts reusar na leitura de input/output dos samplers.
+export function readAccessor(g: any, bin: Buf, ai: number): f64[] {
   const out: f64[] = [];
   const accs = g.accessors;
   if (accs === undefined) return out;
