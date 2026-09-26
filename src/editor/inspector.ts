@@ -9,6 +9,7 @@ import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopA
 import type { Animator } from "@engine/core/animator";
 import { PARAM_FLOAT, PARAM_BOOL } from "@engine/core/animator_controller";
 import { ComponentPicker } from "./component_picker";
+import { InspectorGUIEditor } from "./inspector_gui";
 import { beginBoneEdit, boneDegreesInto, boneRotationFromDegreesInto, selectBone } from "./bone_gizmo";
 import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
@@ -29,6 +30,8 @@ const ANIMATOR_TIME_SCALE = Math.pow(10, A.timeDigits);
 // Nenhum desses objetos entra na cena editada ou no arquivo do jogo.
 export class Inspector extends Behavior {
   ui: EditorUI;
+  /// `onInspectorGUI(ui)` de cada componente desenha por aqui (controles da mesma UIScene).
+  gui: InspectorGUIEditor;
   picker: ComponentPicker = new ComponentPicker();
   scroll: number = 0;
   contentHeight: number = 0;
@@ -83,6 +86,7 @@ export class Inspector extends Behavior {
   constructor(app: any) {
     super();
     this.ui = new EditorUI(app, "Editor/Inspector");
+    this.gui = new InspectorGUIEditor(this);
     this.ui.root.addBehavior(this);
     const browser = this.ui.scene.createGameObject("Editor/Inspector/ComponentPicker", 0);
     browser.addBehavior(this.picker);
@@ -104,6 +108,22 @@ export class Inspector extends Behavior {
     header.fill = UI_C.componentHeader;
     this.ui.draw(header);
     return header.clicked ? !expanded : expanded;
+  }
+  /// Linha automática do campo `fieldIndex` (número, caixa ou texto), chave
+  /// `key + "/Field/" + fieldIndex`. Usada pela lista automática e por `ui.field(nome)`.
+  fieldRow(component: Behavior, key: string, fieldIndex: number, rowY: number): void {
+    const fieldType = component.fieldType(fieldIndex);
+    const field = this.ui.control(key + "/Field/" + fieldIndex, fieldType === "boolean" ? "toggle" : fieldType === "string" ? "propertyText" : "number",
+      this.x + L.padding + L.gap, rowY, this.width - L.padding * 2 - L.gap, L.rowH, component.fieldLabel(fieldIndex), this.enabledInput);
+    if (fieldType === "string") {
+      const before = component.fieldStringGet(fieldIndex);
+      field.textValue = before; this.ui.draw(field);
+      if (field.textValue !== before) { this.snapshot(); component.fieldStringSet(fieldIndex, field.textValue); }
+    } else {
+      const before = component.fieldGet(fieldIndex);
+      field.value = before; this.ui.draw(field);
+      if (field.value !== before) { this.snapshot(); component.fieldSet(fieldIndex, field.value); scene.markCollidersDirty(); }
+    }
   }
   vector(key: string, y: number, label: string, values: number[], namesArg?: string[]): number[] {
     const names = namesArg !== undefined ? namesArg : UI_AXIS_NAMES;
@@ -551,24 +571,17 @@ export class Inspector extends Behavior {
           if (enabled.value !== component.enabled) { this.snapshot(); component.enabled = enabled.value; scene.markCollidersDirty(); }
         }
         rowY = rowY + L.rowH;
-        let fieldIndex = 0;
-        while (fieldIndex < component.fieldCount()) {
-          if (this.visible(rowY, L.rowH)) {
-            const fieldType = component.fieldType(fieldIndex);
-            const field = this.ui.control(key + "/Field/" + fieldIndex, fieldType === "boolean" ? "toggle" : fieldType === "string" ? "propertyText" : "number",
-              x + L.padding + L.gap, rowY, width - L.padding * 2 - L.gap, L.rowH, component.fieldLabel(fieldIndex), this.enabledInput);
-            if (fieldType === "string") {
-              const before = component.fieldStringGet(fieldIndex);
-              field.textValue = before; this.ui.draw(field);
-              if (field.textValue !== before) { this.snapshot(); component.fieldStringSet(fieldIndex, field.textValue); }
-            } else {
-              const before = component.fieldGet(fieldIndex);
-              field.value = before; this.ui.draw(field);
-              if (field.value !== before) { this.snapshot(); component.fieldSet(fieldIndex, field.value); scene.markCollidersDirty(); }
-            }
+        // GUI própria do componente; sem nenhum controle pedido, a lista automática.
+        this.gui.begin(component, key, rowY);
+        component.onInspectorGUI(this.gui);
+        if (this.gui.usos > 0) rowY = this.gui.y;
+        else {
+          let fieldIndex = 0;
+          while (fieldIndex < component.fieldCount()) {
+            if (this.visible(rowY, L.rowH)) this.fieldRow(component, key, fieldIndex, rowY);
+            rowY = rowY + L.rowH;
+            fieldIndex = fieldIndex + 1;
           }
-          rowY = rowY + L.rowH;
-          fieldIndex = fieldIndex + 1;
         }
         rowY = rowY + L.gap;
       }

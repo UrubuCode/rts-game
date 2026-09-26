@@ -180,6 +180,7 @@ function renderRegistry(entries, marker) {
   provider += method('name', '', 'string', '"Script"', entry => `      return ${quote(entry.name)};`);
   provider += method('fieldCount', '', 'number', '0', entry => `      return ${visible(entry).length};`);
   provider += method('fieldLabel', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.label), '""'));
+  provider += method('fieldName', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.name), '""'));
   provider += method('fieldType', ', index: number', 'string', '"number"', entry => lookup(visible(entry), field => quote(field.kind), '"number"'));
   provider += method('fieldGet', ', index: number', 'f64', '0', entry => lookup(visible(entry), field => field.kind === 'string' ? '0' : field.kind === 'boolean' ? `(${access(field)} ? 1 : 0)` : access(field), '0'));
   provider += method('fieldStringGet', ', index: number', 'string', '""', entry => lookup(visible(entry), field => field.kind === 'string' ? access(field) : '""', '""'));
@@ -218,15 +219,53 @@ const fromGenerated = source => {
   const r = slash(path.posix.relative('src/engine/generated', source)).replace(/\.ts$/, '');
   return r.startsWith('.') ? r : './' + r;
 };
+/// Valor de `@menuItem` nos comentarios antes do membro, ou null. Lido do texto
+/// porque a API de JSDoc do TS ignora o comentario na mesma linha do codigo anterior.
+function menuTag(member) {
+  const text = member.getSourceFile().text;
+  // "trailing" = os comentarios ainda na linha anterior ao membro; "leading" = os das linhas seguintes.
+  const achados = [...(ts.getTrailingCommentRanges(text, member.pos) ?? []), ...(ts.getLeadingCommentRanges(text, member.pos) ?? [])]
+    .map(r => /@menuItem\b[ \t]*([^\r\n*]*)/.exec(text.slice(r.pos, r.end))).filter(Boolean);
+  return achados.length > 0 ? achados[achados.length - 1][1].trim() : null;
+}
 /// Arquivos `@editorOnly` (componentes ou não): só o editor os importa.
 export function discoverEditorExtensions(root = projectRoot, project = createProject(root)) {
-  const { files, program } = project;
+  const { files, program, fail } = project;
   const editorFiles = files.filter(f => isEditorOnly(program.getSourceFile(f))).map(f => slash(path.relative(root, f))).sort(compare);
-  return { editorFiles, menuItems: [] };
+  // `/** @menuItem Criar/Luz/Pontual */` num metodo static sem argumentos obrigatorios.
+  const menuItems = [];
+  for (const file of files) {
+    const source = program.getSourceFile(file);
+    for (const node of source.statements) {
+      if (!ts.isClassDeclaration(node) || !node.name || !hasModifier(node, ts.SyntaxKind.ExportKeyword)) continue;
+      for (const member of node.members) {
+        const caminho = ts.isMethodDeclaration(member) ? menuTag(member) : null;
+        if (caminho === null) continue;
+        if (!hasModifier(member, ts.SyntaxKind.StaticKeyword)) fail(member, '@menuItem precisa de um metodo static.');
+        if (!member.parameters.every(p => p.initializer || p.questionToken)) fail(member, '@menuItem precisa de um metodo static sem argumentos obrigatorios.');
+        const partes = caminho.split('/');
+        if (partes.length < 2 || partes.some(p => p.trim().length === 0) || !MENU_ROOTS.includes(partes[0])) fail(member, `@menuItem "${caminho}": comece com Criar ou Janela e nomeie o item (Criar/Luz/Pontual).`);
+        if (menuItems.some(i => i.caminho === caminho)) fail(member, `@menuItem "${caminho}" repetido.`);
+        menuItems.push({ caminho, source: slash(path.relative(root, file)), classe: node.name.text, metodo: member.name.getText() });
+      }
+    }
+  }
+  menuItems.sort((a, b) => compare(a.caminho, b.caminho));
+  return { editorFiles, menuItems };
 }
 export function renderEditorExtensions(ext) {
   const header = '// GERADO por tools/generate-components.mjs. Só o editor (main.ts) importa este arquivo.\n';
-  return { 'src/engine/generated/editor_extensions.ts': header + ext.editorFiles.map(f => 'import ' + quote(fromGenerated(f)) + ';').join('\n') + '\n' };
+  let text = header + ext.editorFiles.map(f => 'import ' + quote(fromGenerated(f)) + ';').join('\n') + '\n';
+  // Uma importacao por classe com @menuItem; o indice segue a ordem de MENU_ITEMS.
+  const chave = i => i.source + '#' + i.classe;
+  const classes = [...new Map(ext.menuItems.map(i => [chave(i), i])).values()];
+  const alias = new Map(classes.map((i, k) => [chave(i), 'Menu' + k]));
+  text += classes.map(i => `import { ${i.classe} as ${alias.get(chave(i))} } from ${quote(fromGenerated(i.source))};\n`).join('');
+  text += 'export const MENU_ITEMS: string[] = ' + JSON.stringify(ext.menuItems.map(i => i.caminho)) + ';\n';
+  text += 'export function runMenuItem(index: number): void {\n' +
+    ext.menuItems.map((i, k) => `  if (index === ${k}) { ${alias.get(chave(i))}.${i.metodo}(); return; }\n`).join('') +
+    '  throw new Error("Item de menu inexistente: " + index);\n}\n';
+  return { 'src/engine/generated/editor_extensions.ts': text };
 }
 
 export function generateComponents(root = projectRoot, check = false) {

@@ -13,6 +13,7 @@ import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadOb
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc } from "./commands/doc";
 import { cmdGizmoAt } from "./commands/gizmo";
+import { cmdMenu } from "./commands/menu";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { scene, S } from "./session";
 import { history } from "../undo";
@@ -238,6 +239,8 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "pickat": return cmdPickAt(parts, w, h);
     // seleção não é mutação da cena: fora de isMutating (sem snapshot)
     case "gizmoat": return cmdGizmoAt(parts);
+    // fora de isMutating: o executor tira o proprio snapshot, so para "Criar/"
+    case "menu": return cmdMenu(parts);
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);

@@ -50,6 +50,11 @@ export const UI_INSPECTOR = {
   changeMesh: "Próxima primitiva", noComponents: "Sem componentes adicionais",
   parent: "Pai: ", unparent: "Desaninhar", charWidth: 7,
 };
+// onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
+// "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
+export const UI_INSPECTOR_GUI = {
+  guiKey: "/GUI/", valueSeparator: ": ", digits: 1, unknownField: "Campo desconhecido: ",
+};
 export const UI_PLAY = {
   buttonW: 66, gap: 4, textY: 7, radius: 3, id: 5000,
   labels: ["Rodar", "Pausar", "Parar"],
@@ -110,6 +115,11 @@ export const UI_FILE_ACTIONS: string[] = ["Abrir cena...", "Nova cena", "Salvar 
 export const UI_EDIT_ACTIONS: string[] = ["Desfazer    Ctrl+Z", "Refazer    Ctrl+Y", "Duplicar    Ctrl+D", "Excluir    Delete"];
 export const UI_CONTEXT_ACTIONS: string[] = ["Duplicar", "Excluir"];
 export const UI_HELP_ACTIONS: string[] = ["Atalhos e navegação"];
+// Menu Configurações: as duas primeiras linhas trocam de rótulo com o estado.
+export const UI_SETTINGS = {
+  gridOn: "Grade: ligada", gridOff: "Grade: desligada", vsyncOn: "VSync: ligado", vsyncOff: "VSync: desligado",
+  resetLayout: "Restaurar layout",
+};
 
 // Paleta compartilhada pelos paineis legados e pelos gizmos. Os nomes descrevem
 // o papel visual; nao codificam RGB nos consumidores.

@@ -13,6 +13,7 @@ import { componentMetadata } from "./component_metadata";
 // ser ciclo se não fosse `import type` (apagado na compilação).
 import type { GameObject } from "./gameobject";
 import type { Gizmos } from "./gizmos";
+import type { InspectorUI } from "./inspector_ui";
 
 // TIPOS de component (tag numérica) — o primitivo do modelo uniforme "tudo é
 // GameObject + componentes". Systems e o render acham um component por kind()
@@ -83,6 +84,9 @@ export class Behavior {
   onDrawGizmos(g: Gizmos): void {}
   /// EDITOR: como onDrawGizmos, só quando o objeto está selecionado.
   onDrawGizmosSelected(g: Gizmos): void {}
+  /// EDITOR: desenha o Inspector deste componente no lugar da lista automática
+  /// de campos. Sem controles desenhados (o padrão), vale a lista automática.
+  onInspectorGUI(ui: InspectorUI): void {}
 
   /// Um backend EXTERNO (GPU ou o solver em Rust) assumiu (`1`) ou devolveu
   /// (`0`) a simulação do corpo dono. Quem INTEGRA movimento sobrescreve e para
@@ -131,6 +135,8 @@ export class Behavior {
   fieldType(i: number): string { return componentMetadata.provider.fieldType(this, i); }
   /// Rótulo curto do campo `i` (ex.: "SpdY").
   fieldLabel(i: number): string { return componentMetadata.provider.fieldLabel(this, i); }
+  /// Nome do campo `i` na classe (ex.: "velocidade"); usado por `InspectorUI.field(nome)`.
+  fieldName(i: number): string { return componentMetadata.provider.fieldName(this, i); }
   /// Valor atual do campo `i`.
   fieldGet(i: number): f64 { return componentMetadata.provider.fieldGet(this, i); }
   /// Grava `v` no campo `i` (chamado pelo inspector ao arrastar/editar).

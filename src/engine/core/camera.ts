@@ -16,6 +16,7 @@ import math from "@compat/math.ts";
 import { Behavior, KIND_CAMERA } from "./behavior";
 import { GameObject, activeInScene } from "./gameobject";
 import { activeScene } from "./active_scene";
+import type { InspectorUI } from "./inspector_ui";
 
 export const FUNDOS_CAMERA: string[] = ["ceu", "cor", "nada"];
 /// Retângulo (pixels) de uma câmera que ainda não foi desenhada.
@@ -30,6 +31,15 @@ export const CAMERA_VIEWPORT_MIN: number = 0.01;
 export const CAMERA_CAMPO_FOV: number = 0;
 export const CAMERA_CAMPO_MAIN: number = 1;
 const GRAUS_POR_RAD: number = 57.29577951308232;
+/// Faixa do slider de FOV no Inspector próprio, em graus.
+const FOV_MIN_GRAUS: number = 10;
+const FOV_MAX_GRAUS: number = 150;
+/// Rótulos do Inspector próprio (onInspectorGUI), como os `@label` dos campos.
+const ROTULO_FOV: string = "Campo de visão";
+const ROTULO_PRINCIPAL: string = "Principal";
+const ROTULO_FUNDO: string = "Fundo";
+const ROTULO_COR_FUNDO: string = "Cor do fundo";
+const ROTULO_ALINHAR: string = "Alinhar com a vista";
 /// FOV vertical aceito (radianos): 1° a 179°, fora disso tan(fov/2) degenera.
 export const CAMERA_FOV_MIN: number = 0.017453292519943295;
 export const CAMERA_FOV_MAX: number = 3.12413936106985;
@@ -107,6 +117,22 @@ export class Camera extends Behavior {
     }
     if (i === CAMERA_CAMPO_MAIN) { this.isMain = v !== 0.0 ? 1 : 0; this.onValidate("isMain"); return; }
     super.fieldSet(i, v);
+  }
+  /// FOV em graus num slider, Principal como caixa, fundo como lista e
+  /// "Alinhar com a vista" (pose da câmera do editor, também numa filha).
+  onInspectorGUI(ui: InspectorUI): void {
+    const graus = this.fov * GRAUS_POR_RAD;
+    const novo = ui.slider(ROTULO_FOV, graus, FOV_MIN_GRAUS, FOV_MAX_GRAUS);
+    if (novo !== graus) this.fov = novo / GRAUS_POR_RAD;
+    this.isMain = ui.toggle(ROTULO_PRINCIPAL, this.isMain !== 0) ? 1 : 0;
+    ui.field("ortografica");
+    if (this.ortografica) ui.field("tamanhoOrto");
+    ui.field("near"); ui.field("far");
+    this.fundo = FUNDOS_CAMERA[ui.dropdown(ROTULO_FUNDO, FUNDOS_CAMERA, Math.max(0, FUNDOS_CAMERA.indexOf(this.fundo)))];
+    if (this.fundo === "cor") this.corFundo = ui.color(ROTULO_COR_FUNDO, this.corFundo);
+    ui.field("viewportX"); ui.field("viewportY"); ui.field("viewportW"); ui.field("viewportH");
+    ui.field("profundidade");
+    if (ui.button(ROTULO_ALINHAR)) ui.alinharComVista(this.owner);
   }
   camFov(): f64 { return this.fov; }
   camIsMain(): number { return this.isMain; }

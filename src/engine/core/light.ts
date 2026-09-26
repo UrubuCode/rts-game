@@ -7,6 +7,7 @@ import math from "@compat/math.ts";
 import { Behavior, KIND_LIGHT } from "./behavior";
 import { GameObject, activeInScene } from "./gameobject";
 import type { Scene } from "./scene";
+import type { InspectorUI } from "./inspector_ui";
 
 export const MAX_LUZES: number = 8;
 export const FLOATS_POR_LUZ: number = 16;
@@ -25,6 +26,9 @@ const RAD_POR_GRAU: number = 0.017453292519943295;
 /// porque `Scene` a usa para o `luzDist` inicial do construtor (mesma medida
 /// nos dois lugares, em vez de repetir o literal).
 export const LUZ_DIST_INICIAL: number = 16;
+/// Rótulos do Inspector próprio (onInspectorGUI), como os `@label` dos campos.
+const ROTULO_TIPO: string = "Tipo";
+const ROTULO_COR: string = "Cor";
 
 /**
  * @componentCategory Renderização
@@ -64,6 +68,15 @@ export class Light extends Behavior {
     if (field === "tipo" && TIPOS_LUZ.indexOf(this.tipo) < 0) this.tipo = "direcional";
   }
   lightCastsShadow(): number { return this.sombra ? 1 : 0; }
+  /// Tipo como lista, cor em #RRGGBB e só os campos que valem para o tipo.
+  onInspectorGUI(ui: InspectorUI): void {
+    this.tipo = TIPOS_LUZ[ui.dropdown(ROTULO_TIPO, TIPOS_LUZ, Math.max(0, TIPOS_LUZ.indexOf(this.tipo)))];
+    this.cor = ui.color(ROTULO_COR, this.cor);
+    ui.field("intensidade");
+    if (this.tipo !== "direcional") ui.field("alcance");
+    if (this.tipo === "spot") ui.field("anguloSpot");
+    if (this.tipo === "direcional") ui.field("sombra");
+  }
   lightPack(out: Float64Array, base: number): void {
     const t = this.host;
     const cp = math.cos(t.wrx); const sp = math.sin(t.wrx);

@@ -87,6 +87,7 @@ import "@engine/generated/editor_extensions";
 import { initAudio, pumpAudio } from "@engine/audio/audio";
 import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
+import { menuDoCatalogo, executarItemDeMenu, MENU_CRIAR } from "@editor/menu_items";
 import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_PROJECT_DEFAULT,
          UI_HIER_MIN, UI_INSP_MIN, UI_PROJECT_MIN, UI_SCENE_MIN_W, UI_SCENE_MIN_H,
          UI_HIER_HEADER_H, UI_HIER_SEARCH_H, UI_HIER_ROW_H, UI_HIER_INDENT,
@@ -96,7 +97,11 @@ import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_
          UI_SCENE_HEADER_H, UI_TOOL_X, UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H,
          UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H, UI_TOOL_BUTTON_STEP, UI_CONTROL_Y, UI_CONTROL_H,
          UI_MENU_NAMES, UI_MENU_BUTTON_W, UI_TOOLS, UI_FILE_ACTIONS, UI_EDIT_ACTIONS,
-         UI_CONTEXT_ACTIONS, UI_HELP_ACTIONS, UI_C } from "@editor/ui_config";
+         UI_CONTEXT_ACTIONS, UI_HELP_ACTIONS, UI_SETTINGS, UI_C } from "@editor/ui_config";
+// Menu Criar (global e de contexto): presets fixos + itens @menuItem "Criar/…",
+// montado uma vez. Configurações reaproveita o próprio array a cada frame.
+const menuCriar = menuDoCatalogo(MENU_CRIAR, OBJECT_PRESET_LABELS);
+const menuConfig: string[] = ["", "", UI_SETTINGS.resetLayout, UI_CODE_EDITOR.title];
 
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
@@ -220,6 +225,21 @@ function ctxCreate(name: string, kind: number, r: number, g: number, b: number,
 }
 
 // Uma unica implementação para as opções "Criar" do menu global e de contexto.
+/// Linhas do menu global `menu` (1 Arquivo … 5 Ajuda): as mesmas no desenho e
+/// na área clicável. Configurações troca só os rótulos de estado, sem array novo.
+function menuEntries(menu: number): string[] {
+  let entries: string[] = UI_HELP_ACTIONS;
+  if (menu === 1) entries = UI_FILE_ACTIONS;
+  else if (menu === 2) entries = UI_EDIT_ACTIONS;
+  else if (menu === 3) entries = menuCriar.rotulos;
+  else if (menu === 4) {
+    menuConfig[0] = S.snap !== 0 ? UI_SETTINGS.gridOn : UI_SETTINGS.gridOff;
+    menuConfig[1] = vsyncOn !== 0 ? UI_SETTINGS.vsyncOn : UI_SETTINGS.vsyncOff;
+    entries = menuConfig;
+  }
+  return entries;
+}
+
 function createMenuObject(choice: number, parentIdx: number): void {
   if (choice < 0 || choice >= OBJECT_PRESETS.length) return;
   const preset = OBJECT_PRESETS[choice];
@@ -613,7 +633,7 @@ function frame(): void {
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
   const inMenuSurface = menuOpen !== 0 && mx >= menuX && mx < menuX + UI_MENU_W &&
-                        my >= UI_MENU_H && my < UI_MENU_H + UI_MENU_PADDING + OBJECT_PRESETS.length * UI_MENU_ROW_H;
+                        my >= UI_MENU_H && my < UI_MENU_H + UI_MENU_PADDING + menuEntries(menuOpen).length * UI_MENU_ROW_H;
   if (mPressed !== 0 && my > BAR_H && !inMenuSurface && helpOpen === 0) {
     if (mx >= HIER_W - 5 && mx <= HIER_W + 5) layoutDrag = 1;
     else if (mx >= W - INSP_W - 5 && mx <= W - INSP_W + 5) layoutDrag = 2;
@@ -1418,7 +1438,8 @@ function frame(): void {
   // depois cobre. Um menu que aparecesse sob a lista seria inclicável.
   if (ctxOn !== 0) {
     const CW = UI_CONTEXT_W;
-    const items = OBJECT_PRESETS.length + (ctxTarget >= 0 ? UI_CONTEXT_ACTIONS.length : 0);
+    const nCriar = menuCriar.rotulos.length;
+    const items = nCriar + (ctxTarget >= 0 ? UI_CONTEXT_ACTIONS.length : 0);
     const CH = 12 + items * UI_CONTEXT_ROW_H;
     let cx = ctxX;
     let cy = ctxY;
@@ -1444,16 +1465,16 @@ function frame(): void {
     // A mesma lista de criação serve ao menu global e ao menu de contexto.
     let labelIdx = 0;
     while (labelIdx < items) {
-      const label = labelIdx < OBJECT_PRESETS.length ? OBJECT_PRESET_LABELS[labelIdx] :
-                    UI_CONTEXT_ACTIONS[labelIdx - OBJECT_PRESETS.length];
+      const label = labelIdx < nCriar ? menuCriar.rotulos[labelIdx] : UI_CONTEXT_ACTIONS[labelIdx - nCriar];
       app.text(cx + 12, cy + UI_CONTEXT_ROW_H + labelIdx * UI_CONTEXT_ROW_H + 4, label,
                labelIdx === items - 1 && ctxTarget >= 0 ? UI_C.destructiveText : UI_C.primaryText, 12);
       labelIdx = labelIdx + 1;
     }
 
     if (clicked >= 0) {
-      if (clicked < OBJECT_PRESETS.length) createMenuObject(clicked, ctxTarget);
-      else if (clicked === OBJECT_PRESETS.length) {
+      if (clicked < menuCriar.fixos) createMenuObject(clicked, ctxTarget);
+      else if (clicked < nCriar) executarItemDeMenu(menuCriar.itens[clicked - menuCriar.fixos], ctxTarget);
+      else if (clicked === nCriar) {
         if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
           history.snapshot();
           const g = cloneObject(scene.objects[ctxTarget]);
@@ -1461,7 +1482,7 @@ function frame(): void {
           scene.add(g);
           S.selected = scene.objects.length - 1;
         }
-      } else if (clicked === OBJECT_PRESETS.length + 1) {
+      } else if (clicked === nCriar + 1) {
         if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
           history.snapshot();
           scene.removeAt(ctxTarget);
@@ -1478,13 +1499,7 @@ function frame(): void {
   // mantém o ring de áudio cheio (ver engine/audio/audio.ts)
   // Menus globais: comandos de projeto ficam separados das ferramentas da Cena.
   if (menuOpen !== 0) {
-    let entries: string[] = [];
-    if (menuOpen === 1) entries = UI_FILE_ACTIONS;
-    else if (menuOpen === 2) entries = UI_EDIT_ACTIONS;
-    else if (menuOpen === 3) entries = OBJECT_PRESET_LABELS;
-    else if (menuOpen === 4) entries = [S.snap !== 0 ? "Grade: ligada" : "Grade: desligada",
-                                       vsyncOn !== 0 ? "VSync: ligado" : "VSync: desligado", "Restaurar layout", UI_CODE_EDITOR.title];
-    else entries = UI_HELP_ACTIONS;
+    const entries = menuEntries(menuOpen);
     const menuW = UI_MENU_W;
     const menuH = UI_MENU_PADDING + entries.length * UI_MENU_ROW_H;
     app.box(menuX, UI_MENU_H, menuW, menuH, UI_C.menuPopup, 1, UI_C.menuPopupBorder, 4);
@@ -1525,7 +1540,8 @@ function frame(): void {
           }
         }
       } else if (activeMenu === 3) {
-        createMenuObject(chosen, 0 - 1);
+        if (chosen < menuCriar.fixos) createMenuObject(chosen, 0 - 1);
+        else executarItemDeMenu(menuCriar.itens[chosen - menuCriar.fixos], 0 - 1);
       } else if (activeMenu === 4) {
         if (chosen === 0) S.snap = S.snap !== 0 ? 0 : 1;
         else if (chosen === 1) { vsyncOn = vsyncOn !== 0 ? 0 : 1; setVsync(WIN, vsyncOn); }

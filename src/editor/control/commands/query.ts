@@ -39,6 +39,7 @@ export function cmdHelp(): string {
     " | play | pause | stop | clear" +
     " | loadscene <path> | savescene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
     " | parent <filho> <pai> | movetree <drag> <before> <newparent> | group | ungroup [i]" +
+    " | menu [caminho]  (itens de script: Criar/…, Janela/…)" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +
     " || OSSOS/ANIMACAO: addskel <obj> <caminho.glb>  (Skeleton+AnimationPlayer) |" +

@@ -299,6 +299,135 @@ class GeneratedReflection extends ComponentReflection {
     }
     return "";
   }
+  fieldName(component: any, index: number): string {
+    if (component instanceof Component0) {
+      if (index === 0) return "clip";
+      if (index === 1) return "loop";
+      if (index === 2) return "speed";
+      if (index === 3) return "playing";
+      return "";
+    }
+    if (component instanceof Component1) {
+      if (index === 0) return "controller";
+      return "";
+    }
+    if (component instanceof Component2) {
+
+      return "";
+    }
+    if (component instanceof Component3) {
+      if (index === 0) return "contatos";
+      return "";
+    }
+    if (component instanceof Component4) {
+      if (index === 0) return "titulo";
+      if (index === 1) return "alvo";
+      return "";
+    }
+    if (component instanceof Component5) {
+
+      return "";
+    }
+    if (component instanceof Component6) {
+
+      return "";
+    }
+    if (component instanceof Component7) {
+
+      return "";
+    }
+    if (component instanceof Component8) {
+      if (index === 0) return "fov";
+      if (index === 1) return "isMain";
+      if (index === 2) return "near";
+      if (index === 3) return "far";
+      if (index === 4) return "ortografica";
+      if (index === 5) return "tamanhoOrto";
+      if (index === 6) return "fundo";
+      if (index === 7) return "corFundo";
+      if (index === 8) return "viewportX";
+      if (index === 9) return "viewportY";
+      if (index === 10) return "viewportW";
+      if (index === 11) return "viewportH";
+      if (index === 12) return "profundidade";
+      return "";
+    }
+    if (component instanceof Component9) {
+      if (index === 0) return "tipo";
+      if (index === 1) return "cor";
+      if (index === 2) return "intensidade";
+      if (index === 3) return "alcance";
+      if (index === 4) return "anguloSpot";
+      if (index === 5) return "sombra";
+      return "";
+    }
+    if (component instanceof Component10) {
+
+      return "";
+    }
+    if (component instanceof Component11) {
+
+      return "";
+    }
+    if (component instanceof Component12) {
+      if (index === 0) return "modelPath";
+      return "";
+    }
+    if (component instanceof Component13) {
+      if (index === 0) return "amp";
+      if (index === 1) return "freq";
+      if (index === 2) return "baseY";
+      return "";
+    }
+    if (component instanceof Component14) {
+      if (index === 0) return "speed";
+      if (index === 1) return "moving";
+      if (index === 2) return "label";
+      return "";
+    }
+    if (component instanceof Component15) {
+      if (index === 0) return "vx";
+      if (index === 1) return "vy";
+      if (index === 2) return "vz";
+      return "";
+    }
+    if (component instanceof Component16) {
+      if (index === 0) return "radius";
+      if (index === 1) return "speed";
+      if (index === 2) return "cx";
+      if (index === 3) return "cz";
+      return "";
+    }
+    if (component instanceof Component17) {
+      if (index === 0) return "range";
+      if (index === 1) return "speed";
+      return "";
+    }
+    if (component instanceof Component18) {
+      if (index === 0) return "amp";
+      if (index === 1) return "freq";
+      if (index === 2) return "base";
+      return "";
+    }
+    if (component instanceof Component19) {
+      if (index === 0) return "speedY";
+      if (index === 1) return "speedX";
+      return "";
+    }
+    if (component instanceof Component20) {
+
+      return "";
+    }
+    if (component instanceof Component21) {
+
+      return "";
+    }
+    if (component instanceof Component22) {
+
+      return "";
+    }
+    return "";
+  }
   fieldType(component: any, index: number): string {
     if (component instanceof Component0) {
       if (index === 0) return "string";

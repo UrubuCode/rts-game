@@ -164,3 +164,32 @@ test('components with onDrawGizmos are flagged in the generated reflection', t =
   assert.deepEqual(entries.map(e => [e.name, e.gizmos]), [['ComGizmo', true], ['SemGizmo', false]]);
   assert.match(renderComponents(entries)['src/engine/generated/components.ts'], /drawsGizmos\(component: any\): boolean/);
 });
+
+test('@menuItem on static zero-arg methods becomes MENU_ITEMS and runMenuItem', t => {
+  const { root, write } = fixture(t);
+  write('assets/pacotes/luz/menu.ts', '/** @editorOnly */\nexport class LuzMenu {\n  /** @menuItem Criar/Luz/Pontual */\n  static pontual(): void {}\n  /** @menuItem Janela/Ambiente */\n  static janela(opcional?: number): void {}\n}');
+  const ext = discoverEditorExtensions(root);
+  assert.deepEqual(ext.menuItems.map(i => i.caminho), ['Criar/Luz/Pontual', 'Janela/Ambiente']);
+  const text = renderEditorExtensions(ext)['src/engine/generated/editor_extensions.ts'];
+  assert.match(text, /export const MENU_ITEMS: string\[\] = \["Criar\/Luz\/Pontual","Janela\/Ambiente"\];/);
+  assert.match(text, /if \(index === 0\) \{ Menu0\.pontual\(\); return; \}/);
+});
+test('@menuItem errors: not static, required argument, unknown root, duplicate path', t => {
+  const cases = [
+    ['export class A { /** @menuItem Criar/X */ x(): void {} }', /static/],
+    ['export class A { /** @menuItem Criar/X */ static x(n: number): void {} }', /static sem argumentos/],
+    ['export class A { /** @menuItem Arquivo/X */ static x(): void {} }', /Criar ou Janela/],
+    ['export class A { /** @menuItem Criar/X */ static x(): void {} /** @menuItem Criar/X */ static y(): void {} }', /repetido/],
+  ];
+  for (const [source, error] of cases) {
+    const { root, write } = fixture(t);
+    write('assets/pacotes/p/m.ts', source);
+    assert.throws(() => discoverEditorExtensions(root), error);
+  }
+});
+test('fieldName is generated for visible fields', t => {
+  const { root, write } = fixture(t);
+  write('assets/scripts/F.ts', importBase + 'export class F extends Behavior { velocidade: number = 1; nome: string = ""; }');
+  const out = renderComponents(discoverComponents(root))['src/engine/generated/components.ts'];
+  assert.match(out, /fieldName\(component: any, index: number\): string \{\n    if \(component instanceof Component0\) \{\n      if \(index === 0\) return "velocidade";\n      if \(index === 1\) return "nome";/);
+});

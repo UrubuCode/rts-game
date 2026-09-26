@@ -43,6 +43,7 @@ export const BUILTIN_COMMANDS: string[] = [
   "log",
   "ls",
   "makeprefab",
+  "menu",
   "mesh",
   "mkdir",
   "move",
