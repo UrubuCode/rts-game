@@ -9,6 +9,9 @@
 import type { ContactInfo } from "./contact_events";
 import { Transform } from "./transform";
 import { componentMetadata } from "./component_metadata";
+// só de TIPO: GameObject importa Behavior por valor, então isto teria que
+// ser ciclo se não fosse `import type` (apagado na compilação).
+import type { GameObject } from "./gameobject";
 
 // TIPOS de component (tag numérica) — o primitivo do modelo uniforme "tudo é
 // GameObject + componentes". Systems e o render acham um component por kind()
@@ -28,12 +31,19 @@ export class Behavior {
   enabled: number;
   collapsed: number; // foldout do inspector: 1 = recolhido (esconde os campos)
   bodyType: number;  // 0 = unassigned, 1 = static, 2 = kinematic, 3 = dynamic
+  /// GameObject dono (setado por `GameObject.addBehavior`, null antes de
+  /// anexado). Um Behavior que precisa de um COMPONENT IRMÃO do mesmo objeto
+  /// (ex.: AnimationPlayer -> Skeleton) lê `owner.behaviors` por aqui, uma vez
+  /// (cache), em vez de varrer a cena — não é herdado por Transform, que é
+  /// compartilhado por todos os behaviors do objeto mas não sabe quem os tem.
+  owner: GameObject | null;
 
   constructor() {
     this.host = new Transform();
     this.enabled = 1;
     this.collapsed = 0;
     this.bodyType = 0;
+    this.owner = null;
   }
 
   /// Liga o script ao transform do GameObject dono.

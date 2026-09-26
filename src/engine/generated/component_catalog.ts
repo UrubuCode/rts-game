@@ -1,6 +1,13 @@
 // GERADO por tools/generate-components.mjs. Edite as classes .ts, nao este arquivo.
 export const COMPONENT_CATALOG = [
   {
+    "name": "AnimationPlayer",
+    "category": "Animação",
+    "description": "Toca um clipe glTF do Skeleton do mesmo objeto: laço, seek, crossfade.",
+    "keywords": "animacao clipe gltf esqueleto pose laco crossfade",
+    "source": "src/engine/core/animation_player.ts"
+  },
+  {
     "name": "Animator",
     "category": "Animação",
     "description": "Anima propriedades com keyframes.",

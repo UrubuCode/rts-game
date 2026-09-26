@@ -185,6 +185,7 @@ export class GameObject {
   /// Anexa um script e liga-o ao transform deste objeto.
   addBehavior(b: Behavior): GameObject {
     b.attach(this.transform);
+    b.owner = this;
     this.behaviors.push(b);
     this.refreshComponentCache();   // atualiza matIdx/rendIdx se o novo for render-hot
     return this;
