@@ -8,6 +8,8 @@ import { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
 import { AnimationPlayer, sampleClipInto } from "@engine/core/animation_player";
 import { quatNlerpInto } from "@engine/render/quat";
+import { componentToData } from "@engine/components";
+import { recreateBehavior } from "@editor/sceneio";
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 
 const g = new GameObject("p"); const sk = new Skeleton("assets/models/kenney/character-a.glb"); sk.ensureAsset(0);
@@ -51,10 +53,11 @@ ap.seek(0.5);
 check(sk.manualR[leg * 4] === manualAntes, "clipe tocando nao muda a pose manual");
 
 // crossfade: metade do caminho = media das poses (nlerp) entre a pose do
-// clipe ANTERIOR (idle, CONGELADO no tempo em que estava ao chamar crossFade,
-// aqui t=0) e a do NOVO clipe (walk, avancando normalmente). Usa "arm-left":
-// "leg-left" nao serve pra este teste porque "idle" nao tem canal de rotacao
-// pra pernas (so torso/bracos/cabeca) — o braço tem canal nos DOIS clipes.
+// clipe ANTERIOR (idle, que TAMBEM avanca durante o fade — Unity/Godot: evita
+// "slide" da pose de saida, ver AnimationPlayer.update) e a do NOVO clipe
+// (walk, avancando normalmente). Usa "arm-left": "leg-left" nao serve pra
+// este teste porque "idle" nao tem canal de rotacao pra pernas (so
+// torso/bracos/cabeca) — o braço tem canal nos DOIS clipes.
 const arm = sk.boneIndex("arm-left");
 ap.play("idle", true); ap.seek(0.0);
 ap.crossFade("walk", 1.0);
@@ -62,10 +65,10 @@ ap.update(0.5);
 const misto = new Float64Array(4);
 misto[0] = sk.poseR[arm * 4]; misto[1] = sk.poseR[arm * 4 + 1]; misto[2] = sk.poseR[arm * 4 + 2]; misto[3] = sk.poseR[arm * 4 + 3];
 check(misto[3] === misto[3] && Math.abs(misto[3]) <= 1.0, "pose mista valida");
-// esperado: nlerp(idle amostrado em t=0 [congelado], walk amostrado em t=0.5) com w=0.5
+// esperado: nlerp(idle amostrado em t=0.5 [avancou junto], walk amostrado em t=0.5) com w=0.5
 const skAux = new Skeleton("assets/models/kenney/character-a.glb"); skAux.ensureAsset(0);
 const idleClipIdx = skAux.asset!.clipIndex("idle"); const walkClipIdx = skAux.asset!.clipIndex("walk");
-sampleClipInto(skAux, skAux.asset!.clips[idleClipIdx], 0.0, 1.0);
+sampleClipInto(skAux, skAux.asset!.clips[idleClipIdx], 0.5, 1.0);
 const idleAmostrado = new Float64Array(4);
 idleAmostrado[0] = skAux.poseR[arm * 4]; idleAmostrado[1] = skAux.poseR[arm * 4 + 1]; idleAmostrado[2] = skAux.poseR[arm * 4 + 2]; idleAmostrado[3] = skAux.poseR[arm * 4 + 3];
 sampleClipInto(skAux, skAux.asset!.clips[walkClipIdx], 0.5, 1.0);
@@ -77,6 +80,86 @@ check(Math.abs(misto[0] - esperado[0]) < 1e-6 && Math.abs(misto[1] - esperado[1]
   Math.abs(misto[2] - esperado[2]) < 1e-6 && Math.abs(misto[3] - esperado[3]) < 1e-6,
   "crossfade em 50% = nlerp das duas poses amostradas: " + misto[0] + "," + misto[1] + "," + misto[2] + "," + misto[3] +
   " esperado " + esperado[0] + "," + esperado[1] + "," + esperado[2] + "," + esperado[3]);
+
+// update(): laco envolve por si so (sem chamar seek)
+{
+  const g2 = new GameObject("u1"); const sk2 = new Skeleton("assets/models/kenney/character-a.glb"); sk2.ensureAsset(0);
+  const ap2 = new AnimationPlayer(); g2.addBehavior(sk2); g2.addBehavior(ap2);
+  ap2.play("die", true);   // "die" tem laco aqui so pra testar o wrap; duracao 0.3333333432674408
+  const dur = ap2.duration();
+  ap2.update(dur * 0.75); ap2.update(dur * 0.75);   // total 1.5x a duracao
+  check(ap2.time >= 0.0 && ap2.time < dur, "update() com laco envolve dentro de [0,duracao): " + ap2.time);
+  check(Math.abs(ap2.time - dur * 0.5) < 1e-6, "update() envolve no valor esperado: " + ap2.time);
+}
+
+// update(): sem laco, ao terminar o clipe playing vira false e o tempo grampeia na duracao
+{
+  const g3 = new GameObject("u2"); const sk3 = new Skeleton("assets/models/kenney/character-a.glb"); sk3.ensureAsset(0);
+  const ap3 = new AnimationPlayer(); g3.addBehavior(sk3); g3.addBehavior(ap3);
+  ap3.play("die", false);
+  const dur3 = ap3.duration();
+  check(ap3.playing, "playing=true logo apos play()");
+  ap3.update(dur3 * 2.0);
+  check(!ap3.playing, "sem laco, terminar o clipe poe playing=false");
+  check(Math.abs(ap3.time - dur3) < 1e-9, "sem laco, o tempo fica grampeado na duracao apos terminar");
+}
+
+// update(): speed escala o avanco do tempo
+{
+  const g4 = new GameObject("u3"); const sk4 = new Skeleton("assets/models/kenney/character-a.glb"); sk4.ensureAsset(0);
+  const ap4 = new AnimationPlayer(); g4.addBehavior(sk4); g4.addBehavior(ap4);
+  ap4.play("idle", false); ap4.speed = 2.0;
+  ap4.update(0.1);
+  check(Math.abs(ap4.time - 0.2) < 1e-9, "speed=2 avanca o dobro do dt: " + ap4.time);
+}
+
+// pause()/resume(): pausado, update() nao avanca o tempo; resume() volta a avancar
+{
+  const g5 = new GameObject("u4"); const sk5 = new Skeleton("assets/models/kenney/character-a.glb"); sk5.ensureAsset(0);
+  const ap5 = new AnimationPlayer(); g5.addBehavior(sk5); g5.addBehavior(ap5);
+  ap5.play("idle", false);
+  ap5.update(0.1);
+  const tAntesPausa = ap5.time;
+  ap5.pause();
+  ap5.update(0.5);
+  check(Math.abs(ap5.time - tAntesPausa) < 1e-12, "pause() congela o tempo em update()");
+  ap5.resume();
+  ap5.update(0.1);
+  check(Math.abs(ap5.time - (tAntesPausa + 0.1)) < 1e-9, "resume() volta a avancar o tempo");
+}
+
+// restaurado (componentToData -> recreateBehavior) e' anexado com addBehavior
+// e toca sem precisar chamar play() de novo: mount()/update() resolvem o
+// clipe por nome (this.clip) lazily.
+{
+  const g6 = new GameObject("restaurado"); const sk6 = new Skeleton("assets/models/kenney/character-a.glb"); sk6.ensureAsset(0);
+  const apOriginal = new AnimationPlayer(); apOriginal.clip = "walk"; apOriginal.loop = true; apOriginal.speed = 1.0; apOriginal.playing = true;
+  const dados = componentToData(apOriginal);
+  const apRestaurado = recreateBehavior(dados) as AnimationPlayer;
+  g6.addBehavior(sk6); g6.addBehavior(apRestaurado);   // addBehavior chama mount() na cena real; aqui simula so o attach+mount manual
+  apRestaurado.mount();
+  const legR = sk6.boneIndex("leg-left");
+  const antesR = sk6.poseR[legR * 4];
+  apRestaurado.update(1.0 / 60.0);
+  const depoisR = sk6.poseR[legR * 4];
+  check(apRestaurado.duration() > 0.0, "restaurado resolve a duracao do clipe sem chamar play()");
+  check(antesR !== depoisR || sk6.poseR[legR * 4 + 3] !== 1.0, "restaurado muda a pose no update() sem chamar play() de novo");
+}
+
+// cache do Skeleton fica invalido se ele for removido do objeto (owner=null),
+// sem precisar de busca — resolveSkeleton() re-varre so quando necessario.
+{
+  const g7 = new GameObject("stale"); const sk7a = new Skeleton("assets/models/kenney/character-a.glb"); sk7a.ensureAsset(0);
+  const ap7 = new AnimationPlayer(); g7.addBehavior(sk7a); g7.addBehavior(ap7);
+  ap7.play("walk", true); ap7.update(1.0 / 60.0);   // cacheia sk7a
+  const idxSk7a = g7.behaviors.indexOf(sk7a);
+  g7.removeBehavior(idxSk7a);
+  check(sk7a.owner === null, "removeBehavior zera o owner do componente removido");
+  const sk7b = new Skeleton("assets/models/kenney/character-a.glb"); sk7b.ensureAsset(0);
+  g7.addBehavior(sk7b);
+  ap7.play("walk", true);   // play() forca resolveSkeleton() de novo
+  check((ap7 as any)["skeleton"] === sk7b, "cache do Skeleton se atualiza depois de removido/substituido");
+}
 
 // custo e alocacao: 17 players x 1000 frames
 const gs: GameObject[] = []; let k = 0;

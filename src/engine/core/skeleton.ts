@@ -18,7 +18,7 @@ import { Behavior, KIND_RENDERER } from "./behavior";
 import { SkeletonAsset, loadSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
 import { logWarn } from "./logger";
 import { drawGPUMeshQ } from "../render/gpu3d";
-import { quatMulInto, quatRotateInto, quatFromYawPitchInto } from "../render/quat";
+import { quatFromYawPitchInto } from "../render/quat";
 
 /// Valores por osso num registro salvo: [osso, tx,ty,tz, rx,ry,rz,rw, sx,sy,sz].
 /// `osso` é o NOME (formato atual) ou o índice (registros antigos).
@@ -66,13 +66,10 @@ export class Skeleton extends Behavior {
   private failedPath: string;
   // Janela cujo upload das peças falhou: não tenta de novo a cada frame.
   private failedUploadWin: number;
-  // temporários do compose (nunca alocados por frame)
+  // temporário do compose (nunca alocado por frame) — só o quaternion da raiz
+  // (yaw do host); o resto da matemática do quaternion está aberta em locais
+  // f64 dentro de `compose()` (ver o comentário do método).
   private rootR: Float64Array;
-  private parR: Float64Array;
-  private locR: Float64Array;
-  private outR: Float64Array;
-  private vIn: Float64Array;
-  private vOut: Float64Array;
   private drawQ: Float64Array;
 
   constructor(pathArg?: string) {
@@ -87,9 +84,7 @@ export class Skeleton extends Behavior {
     this.pendingNames = [];
     this.failedPath = "";
     this.failedUploadWin = 0;
-    this.rootR = new Float64Array(4); this.parR = new Float64Array(4);
-    this.locR = new Float64Array(4); this.outR = new Float64Array(4);
-    this.vIn = new Float64Array(3); this.vOut = new Float64Array(3);
+    this.rootR = new Float64Array(4);
     this.drawQ = new Float64Array(4);
   }
 
@@ -207,42 +202,68 @@ export class Skeleton extends Behavior {
 
   /// Pose de MUNDO de cada osso a partir do host (posição de mundo, yaw, escala)
   /// e da hierarquia (pais antes dos filhos, garantido pelo leitor).
+  ///
+  /// MEDIDO (fix round 1, RTS_GC_DEBUG): a versão anterior ia e voltava por
+  /// `quatMulInto`/`quatRotateInto` através de `this.parR/locR/outR/vIn/vOut`
+  /// (Float64Array de 4 elementos, escrito/lido a cada osso) — 17 personagens
+  /// x 1000 quadros custavam ~0,33 ms só em `compose()`. `compose()` é um
+  /// método de ZERO parâmetros (só o custo por PARÂMETRO+locais importa pro
+  /// defeito de alocação do runtime — ver animation_player.ts), então dá pra
+  /// abrir a matemática do quaternion em locais `f64` sem risco disso; o que
+  /// sobra é ida-e-volta por array que não precisa existir. Ganho: os campos
+  /// do `host`/pai são lidos 1x por osso em locais em vez de ida por
+  /// `this.worldT[p*3]` repetida 3x, e `quatMulInto`/`quatRotateInto` (que
+  /// escreviam em `this.outR`/`this.vOut` e eram copiados de volta pro
+  /// `worldT`/`worldR`) virou a mesma matemática, inline, escrevendo direto
+  /// nos arrays de saída.
   compose(): void {
     const a = this.asset;
     if (a === null) return;
     const t = this.host;
     quatFromYawPitchInto(this.rootR, t.wry, 0.0);
+    // raiz: yaw do host (calculado 1x acima) + posição/escala do host — lidos
+    // 1x aqui, não a cada osso sem pai.
+    const rootRX = this.rootR[0]; const rootRY = this.rootR[1]; const rootRZ = this.rootR[2]; const rootRW = this.rootR[3];
+    const hostX = t.wx; const hostY = t.wy; const hostZ = t.wz;
+    const hostSX = t.sx; const hostSY = t.sy; const hostSZ = t.sz;
     const n = a.boneNames.length;
+    const boneParent = a.boneParent;
+    const poseT = this.poseT; const poseR = this.poseR; const poseS = this.poseS;
+    const worldT = this.worldT; const worldR = this.worldR; const worldS = this.worldS;
     let b = 0;
     while (b < n) {
-      const p = a.boneParent[b];
-      let ptx: f64 = t.wx; let pty: f64 = t.wy; let ptz: f64 = t.wz;
-      let psx: f64 = t.sx; let psy: f64 = t.sy; let psz: f64 = t.sz;
+      const p = boneParent[b];
+      let ptx: f64; let pty: f64; let ptz: f64;
+      let psx: f64; let psy: f64; let psz: f64;
+      let prx: f64; let pry: f64; let prz: f64; let prw: f64;
       if (p >= 0) {
-        ptx = this.worldT[p * 3]; pty = this.worldT[p * 3 + 1]; ptz = this.worldT[p * 3 + 2];
-        psx = this.worldS[p * 3]; psy = this.worldS[p * 3 + 1]; psz = this.worldS[p * 3 + 2];
-        this.parR[0] = this.worldR[p * 4]; this.parR[1] = this.worldR[p * 4 + 1];
-        this.parR[2] = this.worldR[p * 4 + 2]; this.parR[3] = this.worldR[p * 4 + 3];
+        const po3 = p * 3; const po4 = p * 4;
+        ptx = worldT[po3]; pty = worldT[po3 + 1]; ptz = worldT[po3 + 2];
+        psx = worldS[po3]; psy = worldS[po3 + 1]; psz = worldS[po3 + 2];
+        prx = worldR[po4]; pry = worldR[po4 + 1]; prz = worldR[po4 + 2]; prw = worldR[po4 + 3];
       } else {
-        this.parR[0] = this.rootR[0]; this.parR[1] = this.rootR[1];
-        this.parR[2] = this.rootR[2]; this.parR[3] = this.rootR[3];
+        ptx = hostX; pty = hostY; ptz = hostZ;
+        psx = hostSX; psy = hostSY; psz = hostSZ;
+        prx = rootRX; pry = rootRY; prz = rootRZ; prw = rootRW;
       }
-      // posição: pai + rot(pai) · (poseT ⊙ escala do pai)
-      this.vIn[0] = this.poseT[b * 3] * psx; this.vIn[1] = this.poseT[b * 3 + 1] * psy; this.vIn[2] = this.poseT[b * 3 + 2] * psz;
-      quatRotateInto(this.vOut, this.parR, this.vIn);
-      this.worldT[b * 3] = ptx + this.vOut[0];
-      this.worldT[b * 3 + 1] = pty + this.vOut[1];
-      this.worldT[b * 3 + 2] = ptz + this.vOut[2];
-      // rotação: pai · local
-      this.locR[0] = this.poseR[b * 4]; this.locR[1] = this.poseR[b * 4 + 1];
-      this.locR[2] = this.poseR[b * 4 + 2]; this.locR[3] = this.poseR[b * 4 + 3];
-      quatMulInto(this.outR, this.parR, this.locR);
-      this.worldR[b * 4] = this.outR[0]; this.worldR[b * 4 + 1] = this.outR[1];
-      this.worldR[b * 4 + 2] = this.outR[2]; this.worldR[b * 4 + 3] = this.outR[3];
+      const bo3 = b * 3; const bo4 = b * 4;
+      // posição: pai + rot(pai) · (poseT ⊙ escala do pai) — quatRotateInto
+      // aberto: out = v + w*(2(q x v)) + q x (2(q x v)), sem ida por array.
+      const vx = poseT[bo3] * psx; const vy = poseT[bo3 + 1] * psy; const vz = poseT[bo3 + 2] * psz;
+      const tx2 = 2.0 * (pry * vz - prz * vy); const ty2 = 2.0 * (prz * vx - prx * vz); const tz2 = 2.0 * (prx * vy - pry * vx);
+      worldT[bo3] = ptx + vx + prw * tx2 + (pry * tz2 - prz * ty2);
+      worldT[bo3 + 1] = pty + vy + prw * ty2 + (prz * tx2 - prx * tz2);
+      worldT[bo3 + 2] = ptz + vz + prw * tz2 + (prx * ty2 - pry * tx2);
+      // rotação: pai · local — quatMulInto aberto.
+      const lrx = poseR[bo4]; const lry = poseR[bo4 + 1]; const lrz = poseR[bo4 + 2]; const lrw = poseR[bo4 + 3];
+      worldR[bo4] = prw * lrx + prx * lrw + pry * lrz - prz * lry;
+      worldR[bo4 + 1] = prw * lry - prx * lrz + pry * lrw + prz * lrx;
+      worldR[bo4 + 2] = prw * lrz + prx * lry - pry * lrx + prz * lrw;
+      worldR[bo4 + 3] = prw * lrw - prx * lrx - pry * lry - prz * lrz;
       // escala acumulada
-      this.worldS[b * 3] = psx * this.poseS[b * 3];
-      this.worldS[b * 3 + 1] = psy * this.poseS[b * 3 + 1];
-      this.worldS[b * 3 + 2] = psz * this.poseS[b * 3 + 2];
+      worldS[bo3] = psx * poseS[bo3];
+      worldS[bo3 + 1] = psy * poseS[bo3 + 1];
+      worldS[bo3 + 2] = psz * poseS[bo3 + 2];
       b = b + 1;
     }
   }

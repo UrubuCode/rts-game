@@ -4,22 +4,30 @@
 // (o que o autor posicionou à mão, salvo na cena) nunca é escrita por aqui,
 // por isso tocar um clipe não corrompe a pose salva (ver skeleton.ts).
 //
-// Sem alocação por frame: nenhuma função aqui cria array/Float64Array — tudo
-// escreve direto em `dest` (o buffer do CHAMADOR, `sk.poseT/poseR/poseS`). O
-// índice do clipe é resolvido (por nome, com indexOf) só em `play`/`crossFade`;
-// o caminho quente (`update`) só lê `this.clipIdx`, nunca `this.clip` por
-// string.
-//
-// `applyVec3Channel`/`applyQuatChannel` fundem "amostrar a curva" + "misturar
-// no osso" numa função só (1 chamada por canal, sem buffer intermediário) —
-// medido: com amostragem e mistura em funções separadas (2-3 chamadas por
-// canal, ida por `SCR_*`), 17 personagens x 1000 frames custava ~0,52 ms/quadro
-// (update+compose); fundido caiu pra ~0,33 ms/quadro. Custo de CHAMADA de
-// função é caro neste runtime (ver rts#2760 sobre parâmetro com valor
-// padrão) — o mesmo raciocínio vale para o número de chamadas por osso.
+// Sem alocação por frame — e isto é MEDIDO, não suposto (`RTS_GC_DEBUG=1`,
+// contando só as coletas DENTRO do laço de update, sem compose()): uma
+// primeira versão fundia "amostrar a curva" + "misturar no osso" numa função
+// só de 6 parâmetros (times,values,t,dest,bone,weight). Com 17 personagens x
+// 1000 quadros isso já dava 1 coleta a mais que o esperado; em 10000 quadros,
+// 16 — ESCALA com o número de CHAMADAS, então é alocação por chamada, não por
+// carga do asset. `scratch/claude-repro-alloc-6params.ts` isola o gatilho:
+// não são "muitos locais" por si só (uma função de 6 params com 1 linha de
+// corpo aloca do mesmo jeito) — é ter 5 OU MAIS parâmetros `f64` ESCALARES na
+// mesma função (nenhum default envolvido, então é uma variante mais ampla do
+// defeito do rts#2760, não o mesmo caso). Um parâmetro `Float64Array` não
+// conta como escalar: uma função com 5 escalares + 1 array (6 params no
+// total) não alocou no repro. A correção aqui: nenhuma função tem mais de 4
+// parâmetros `f64` escalares — as que precisavam de mais valores (a chave
+// atual + a próxima, pra nlerp) leem os buffers de módulo `SCR_*`/os próprios
+// arrays `times`/`values` por índice em vez de receber cada componente como
+// parâmetro solto. Depois da correção, 1000 e 10000 quadros dão o MESMO
+// número de coletas dentro do laço de update — 0 nos dois, medido (ver
+// números no relatório da task).
 import { Behavior } from "./behavior";
+import type { GameObject } from "./gameobject";
 import { Skeleton } from "./skeleton";
 import { AnimClip } from "../render/gltf_anim";
+import { quatNlerpInto } from "../render/quat";
 
 // mesma codificação de AnimClip.chPath (gltf_anim.ts): 0=translation(3)
 // 1=rotation(4) 2=scale(3). Redeclarado aqui porque gltf_anim.ts não exporta
@@ -29,6 +37,16 @@ import { AnimClip } from "../render/gltf_anim";
 const PATH_TRANSLATION: number = 0;
 const PATH_ROTATION: number = 1;
 const PATH_SCALE: number = 2;
+
+// Buffers de módulo, reescritos a cada canal amostrado — nunca alocados por
+// frame (sampleClipInto é síncrona e sem recursão, então reusar os mesmos
+// buffers é seguro). Passá-los por parâmetro em vez de abrir cada componente
+// (x,y,z,w) como parâmetro solto é o que mantém cada função em <=4
+// parâmetros `f64` escalares — ver o comentário do topo do arquivo sobre por
+// que isto importa neste runtime.
+const SCR_V3: Float64Array = new Float64Array(3);
+const SCR_Q: Float64Array = new Float64Array(4);
+const SCR_QA: Float64Array = new Float64Array(4);
 
 /// Busca binária: último índice `k` com `times[k] <= t` (0 se `t` for menor
 /// que o primeiro tempo, `n-1` no máximo). `times` tem pelo menos 1 elemento
@@ -45,69 +63,79 @@ function findKeyIndex(times: Float64Array, t: f64): number {
   return lo;
 }
 
-/// Amostra um canal vetorial (translation/scale, stride 3) em `t` (lerp entre
-/// as duas chaves vizinhas; fora do intervalo mantém a chave da ponta — quem
-/// chama já grampeou/envolveu `t`) e escreve JÁ misturado (peso `weight`
-/// contra o valor atual) no osso `bone` de `dest`. 1 chamada por canal, sem
-/// buffer intermediário.
-function applyVec3Channel(times: Float64Array, values: Float64Array, t: f64, dest: Float64Array, bone: number, weight: f64): void {
+/// Amostra um canal vetorial (translation/scale, stride 3) em `t`, com lerp
+/// entre as duas chaves vizinhas. Fora do intervalo: mantém a chave da ponta
+/// (sem extrapolar) — `update`/`seek` já grampeiam/envolvem `t` antes.
+/// 4 parâmetros, poucos locais — ver comentário do topo do arquivo.
+function sampleVec3Into(times: Float64Array, values: Float64Array, t: f64, out: Float64Array): void {
   const n = times.length;
   const k = findKeyIndex(times, t);
-  let sx: f64; let sy: f64; let sz: f64;
   if (k >= n - 1) {
-    sx = values[k * 3]; sy = values[k * 3 + 1]; sz = values[k * 3 + 2];
-  } else {
-    const t0 = times[k]; const t1 = times[k + 1];
-    let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
-    if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
-    const u = 1.0 - f;
-    sx = values[k * 3] * u + values[(k + 1) * 3] * f;
-    sy = values[k * 3 + 1] * u + values[(k + 1) * 3 + 1] * f;
-    sz = values[k * 3 + 2] * u + values[(k + 1) * 3 + 2] * f;
+    out[0] = values[k * 3]; out[1] = values[k * 3 + 1]; out[2] = values[k * 3 + 2];
+    return;
   }
-  const o = bone * 3;
-  if (weight >= 1.0) { dest[o] = sx; dest[o + 1] = sy; dest[o + 2] = sz; return; }
-  const uw = 1.0 - weight;
-  dest[o] = dest[o] * uw + sx * weight;
-  dest[o + 1] = dest[o + 1] * uw + sy * weight;
-  dest[o + 2] = dest[o + 2] * uw + sz * weight;
+  const t0 = times[k]; const t1 = times[k + 1];
+  let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
+  if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
+  const u = 1.0 - f;
+  out[0] = values[k * 3] * u + values[(k + 1) * 3] * f;
+  out[1] = values[k * 3 + 1] * u + values[(k + 1) * 3 + 1] * f;
+  out[2] = values[k * 3 + 2] * u + values[(k + 1) * 3 + 2] * f;
 }
 
-/// Igual a `applyVec3Channel`, para um canal de rotação (stride 4): nlerp
-/// (caminho curto, normalizado) entre as chaves vizinhas e, se `weight < 1`,
-/// nlerp de novo contra o valor atual do osso. Matemática igual a
-/// `quatNlerpInto` (quat.ts), reescrita aqui para não ir e voltar por um
-/// Float64Array temporário a cada chamada.
-function applyQuatChannel(times: Float64Array, values: Float64Array, t: f64, dest: Float64Array, bone: number, weight: f64): void {
+/// Amostra um canal de rotação (stride 4) em `t`: nlerp (caminho curto,
+/// normalizado) entre as duas chaves vizinhas, matemática igual a
+/// `quatNlerpInto` (quat.ts) mas ABERTA em locais lendo direto de `values`
+/// por índice — sem ela (e sem ir/voltar por `SCR_*`) dá 1 chamada de função
+/// a menos por canal de rotação (a maioria dos canais de um clipe humano:
+/// pernas/braços/cabeça). MEDIDO seguro (sem alocar, `RTS_GC_DEBUG=1`) apesar
+/// de ~15 locais `f64` vivos: só 4 parâmetros — ver o comentário do topo do
+/// arquivo, o gatilho do defeito é o número de PARÂMETROS escalares, não o
+/// de locais.
+function sampleQuatInto(times: Float64Array, values: Float64Array, t: f64, out: Float64Array): void {
   const n = times.length;
   const k = findKeyIndex(times, t);
-  let qx: f64; let qy: f64; let qz: f64; let qw: f64;
+  const ko = k * 4;
   if (k >= n - 1) {
-    qx = values[k * 4]; qy = values[k * 4 + 1]; qz = values[k * 4 + 2]; qw = values[k * 4 + 3];
-  } else {
-    const t0 = times[k]; const t1 = times[k + 1];
-    let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
-    if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
-    const ax = values[k * 4]; const ay = values[k * 4 + 1]; const az = values[k * 4 + 2]; const aw = values[k * 4 + 3];
-    const bx = values[(k + 1) * 4]; const by = values[(k + 1) * 4 + 1]; const bz = values[(k + 1) * 4 + 2]; const bw = values[(k + 1) * 4 + 3];
-    const dot = ax * bx + ay * by + az * bz + aw * bw;
-    const s: f64 = dot < 0.0 ? 0.0 - 1.0 : 1.0;
-    const u = 1.0 - f;
-    let x = ax * u + bx * s * f; let y = ay * u + by * s * f; let z = az * u + bz * s * f; let w = aw * u + bw * s * f;
-    const len = Math.sqrt(x * x + y * y + z * z + w * w);
-    if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
-    qx = x; qy = y; qz = z; qw = w;
+    out[0] = values[ko]; out[1] = values[ko + 1]; out[2] = values[ko + 2]; out[3] = values[ko + 3];
+    return;
   }
-  const o = bone * 4;
-  if (weight >= 1.0) { dest[o] = qx; dest[o + 1] = qy; dest[o + 2] = qz; dest[o + 3] = qw; return; }
-  const ax = dest[o]; const ay = dest[o + 1]; const az = dest[o + 2]; const aw = dest[o + 3];
-  const dot = ax * qx + ay * qy + az * qz + aw * qw;
+  const t0 = times[k]; const t1 = times[k + 1];
+  let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
+  if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
+  const ko2 = ko + 4;
+  const ax = values[ko]; const ay = values[ko + 1]; const az = values[ko + 2]; const aw = values[ko + 3];
+  const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
+  const dot = ax * bx + ay * by + az * bz + aw * bw;
   const s: f64 = dot < 0.0 ? 0.0 - 1.0 : 1.0;
-  const u = 1.0 - weight;
-  let x = ax * u + qx * s * weight; let y = ay * u + qy * s * weight; let z = az * u + qz * s * weight; let w = aw * u + qw * s * weight;
+  const u = 1.0 - f;
+  let x = ax * u + bx * s * f; let y = ay * u + by * s * f; let z = az * u + bz * s * f; let w = aw * u + bw * s * f;
   const len = Math.sqrt(x * x + y * y + z * z + w * w);
   if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
-  dest[o] = x; dest[o + 1] = y; dest[o + 2] = z; dest[o + 3] = w;
+  out[0] = x; out[1] = y; out[2] = z; out[3] = w;
+}
+
+/// Mistura `src` (vetor de 3, já amostrado) no osso `bone` de `dest` por
+/// `weight` (1 = substitui, <1 = lerp com o valor atual de `dest`).
+function blendVec3Into(dest: Float64Array, bone: number, src: Float64Array, weight: f64): void {
+  const o = bone * 3;
+  if (weight >= 1.0) { dest[o] = src[0]; dest[o + 1] = src[1]; dest[o + 2] = src[2]; return; }
+  const u = 1.0 - weight;
+  dest[o] = dest[o] * u + src[0] * weight;
+  dest[o + 1] = dest[o + 1] * u + src[1] * weight;
+  dest[o + 2] = dest[o + 2] * u + src[2] * weight;
+}
+
+/// Mistura `src` (quaternion já amostrado) no osso `bone` de `dest` por
+/// `weight`, com nlerp (caminho curto, normalizado) contra o valor atual.
+/// Copia o valor atual de `dest` pro buffer de módulo `SCR_QA` em vez de 4
+/// locais `ax,ay,az,aw` — mesmo motivo de `sampleQuatInto`.
+function blendQuatInto(dest: Float64Array, bone: number, src: Float64Array, weight: f64): void {
+  const o = bone * 4;
+  if (weight >= 1.0) { dest[o] = src[0]; dest[o + 1] = src[1]; dest[o + 2] = src[2]; dest[o + 3] = src[3]; return; }
+  SCR_QA[0] = dest[o]; SCR_QA[1] = dest[o + 1]; SCR_QA[2] = dest[o + 2]; SCR_QA[3] = dest[o + 3];
+  quatNlerpInto(SCR_Q, SCR_QA, src, weight);
+  dest[o] = SCR_Q[0]; dest[o + 1] = SCR_Q[1]; dest[o + 2] = SCR_Q[2]; dest[o + 3] = SCR_Q[3];
 }
 
 /// Amostra `clip` em `t` e escreve na pose de TRABALHO de `sk`
@@ -118,14 +146,29 @@ function applyQuatChannel(times: Float64Array, values: Float64Array, t: f64, des
 export function sampleClipInto(sk: Skeleton, clip: AnimClip, t: f64, weight: f64): void {
   const n = clip.chBone.length;
   const boneCount = sk.boneCount();
+  // caso comum (sem crossfade, weight=1): escreve direto do buffer amostrado
+  // pro osso, sem passar pela função de mistura (que só faria uma cópia) —
+  // é só neste laço (4 parâmetros, poucos locais) que isso é seguro inline.
+  const full = weight >= 1.0;
+  const poseT = sk.poseT; const poseR = sk.poseR; const poseS = sk.poseS;
   let i = 0;
   while (i < n) {
     const bone = clip.chBone[i];
     if (bone >= 0 && bone < boneCount) {
       const path = clip.chPath[i];
-      if (path === PATH_TRANSLATION) applyVec3Channel(clip.chTimes[i], clip.chValues[i], t, sk.poseT, bone, weight);
-      else if (path === PATH_ROTATION) applyQuatChannel(clip.chTimes[i], clip.chValues[i], t, sk.poseR, bone, weight);
-      else if (path === PATH_SCALE) applyVec3Channel(clip.chTimes[i], clip.chValues[i], t, sk.poseS, bone, weight);
+      if (path === PATH_TRANSLATION) {
+        sampleVec3Into(clip.chTimes[i], clip.chValues[i], t, SCR_V3);
+        if (full) { const o = bone * 3; poseT[o] = SCR_V3[0]; poseT[o + 1] = SCR_V3[1]; poseT[o + 2] = SCR_V3[2]; }
+        else blendVec3Into(poseT, bone, SCR_V3, weight);
+      } else if (path === PATH_ROTATION) {
+        sampleQuatInto(clip.chTimes[i], clip.chValues[i], t, SCR_Q);
+        if (full) { const o = bone * 4; poseR[o] = SCR_Q[0]; poseR[o + 1] = SCR_Q[1]; poseR[o + 2] = SCR_Q[2]; poseR[o + 3] = SCR_Q[3]; }
+        else blendQuatInto(poseR, bone, SCR_Q, weight);
+      } else if (path === PATH_SCALE) {
+        sampleVec3Into(clip.chTimes[i], clip.chValues[i], t, SCR_V3);
+        if (full) { const o = bone * 3; poseS[o] = SCR_V3[0]; poseS[o + 1] = SCR_V3[1]; poseS[o + 2] = SCR_V3[2]; }
+        else blendVec3Into(poseS, bone, SCR_V3, weight);
+      }
     }
     i = i + 1;
   }
@@ -144,17 +187,30 @@ export class AnimationPlayer extends Behavior {
   /** @nonSerialized */
   time: f64;
 
-  // Skeleton do mesmo objeto, resolvido uma vez (mount ou 1º update/play) —
-  // nunca por busca na cena. Fica null (e tenta de novo) enquanto o Skeleton
-  // não existir/carregar; depois de achado, nunca mais procura.
+  // Skeleton do mesmo objeto, resolvido uma vez (mount ou 1º update/play/seek)
+  // — nunca por busca na cena. `resolveSkeleton` ainda faz 1 comparação de
+  // campo por chamada pra notar um Skeleton removido/trocado (ver lá), mas
+  // isso não é busca: só varre `owner.behaviors` quando o cache está null.
   /** @nonSerialized */
   private skeleton: Skeleton | null;
-  // Índice do clipe TOCANDO agora dentro de skeleton.asset.clips (-1 = nenhum).
-  // Resolvido por nome só em play()/crossFade(); update() só lê isto.
+  // Índice do clipe TOCANDO agora dentro de skeleton.asset.clips (-1 = nenhum
+  // resolvido ainda). Resolvido por nome (indexOf) em `play`/`crossFade` (o
+  // usuário pediu aquele nome, então tenta sempre) e, pra cena
+  // restaurada/copiada/editada no Inspector sem chamar play(), também em
+  // `mount`/`onValidate("clip")`/lazily (`ensureClipResolved`, chamada 1x por
+  // update/seek/duration — custo O(1) depois de resolvido, sem lookup por
+  // string no caminho quente).
   /** @nonSerialized */
   private clipIdx: number;
-  // Crossfade: clipe anterior (índice + tempo CONGELADO em que ele estava) e
-  // progresso do fade. prevClipIdx < 0 = sem fade em andamento.
+  // Nome de `clip` cuja resolução lazy JÁ falhou (asset carregado, nome não
+  // existe) — evita repetir o indexOf todo frame por um nome sabidamente
+  // inválido. Limpo quando `clip` muda (onValidate) ou quando play/crossFade
+  // resolvem com sucesso.
+  /** @nonSerialized */
+  private clipFailed: string;
+  // Crossfade: clipe anterior (índice + tempo, que também avança durante o
+  // fade — como Unity/Godot: evita "slide" da pose de saída) e progresso do
+  // fade. prevClipIdx < 0 = sem fade em andamento.
   /** @nonSerialized */
   private prevClipIdx: number;
   /** @nonSerialized */
@@ -173,6 +229,7 @@ export class AnimationPlayer extends Behavior {
     this.time = 0.0;
     this.skeleton = null;
     this.clipIdx = 0 - 1;
+    this.clipFailed = "";
     this.prevClipIdx = 0 - 1;
     this.prevTime = 0.0;
     this.fadeTime = 0.0;
@@ -181,7 +238,26 @@ export class AnimationPlayer extends Behavior {
 
   typeName(): string { return "AnimationPlayer"; }
 
-  mount(): void { this.resolveSkeleton(); }
+  /// Resolve o Skeleton irmão e o clipe (`this.clip`) já no mount — sem isto,
+  /// um AnimationPlayer restaurado de cena/copiado (Play, duplicar) ou com
+  /// `clip` só editado no Inspector nunca tocaria nada até alguém chamar
+  /// `play()` de novo.
+  mount(): void {
+    this.resolveSkeleton();
+    this.ensureClipResolved();
+  }
+
+  /// Campo editado no Inspector (ou por script direto): `clip` precisa
+  /// re-resolver o índice — o valor antigo não vale mais nada.
+  onValidate(field: string): void {
+    if (field === "clip") {
+      this.clipIdx = 0 - 1;
+      this.clipFailed = "";
+      this.prevClipIdx = 0 - 1; this.fadeTime = 0.0; this.fadeDur = 0.0;
+      this.ensureClipResolved();
+      this.applyPose();
+    }
+  }
 
   /// Nomes dos clipes do modelo (para UI/scripts); não é caminho quente.
   clipNames(): string[] {
@@ -196,7 +272,8 @@ export class AnimationPlayer extends Behavior {
 
   /// Duração do clipe TOCANDO agora (0 se nenhum).
   duration(): f64 {
-    const sk = this.resolveSkeleton();
+    this.ensureClipResolved();
+    const sk = this.skeleton;
     if (sk === null || sk.asset === null || this.clipIdx < 0 || this.clipIdx >= sk.asset.clips.length) return 0.0;
     return sk.asset.clips[this.clipIdx].duration;
   }
@@ -210,6 +287,7 @@ export class AnimationPlayer extends Behavior {
     if (idx < 0) return false;
     this.clip = name;
     this.clipIdx = idx;
+    this.clipFailed = "";
     if (loopArg !== undefined) this.loop = loopArg;
     this.time = 0.0;
     this.playing = true;
@@ -219,7 +297,8 @@ export class AnimationPlayer extends Behavior {
   }
 
   /// Começa a tocar `name`, misturando por `seconds` a partir da pose do
-  /// clipe atual (congelado no tempo em que estava). Clipe inexistente:
+  /// clipe atual (que continua avançando durante o fade, como
+  /// Unity/Godot — evita "slide" na pose de saída). Clipe inexistente:
   /// devolve `false` e nada muda.
   crossFade(name: string, seconds: f64): boolean {
     const sk = this.resolveSkeleton();
@@ -230,6 +309,7 @@ export class AnimationPlayer extends Behavior {
     this.prevTime = this.time;
     this.clip = name;
     this.clipIdx = idx;
+    this.clipFailed = "";
     this.time = 0.0;
     this.playing = true;
     this.fadeDur = seconds > 0.0 ? seconds : 0.0;
@@ -246,21 +326,27 @@ export class AnimationPlayer extends Behavior {
   /// negativo também envolve certo). Sem laço: grampeia em [0,duração].
   /// Duração 0: tempo 0 (nunca NaN).
   seek(t: f64): void {
-    this.resolveSkeleton();
-    this.time = this.wrapOrClamp(t, this.duration());
+    const dur = this.duration();   // resolve o skeleton/clipe (ensureClipResolved)
+    this.time = this.wrapOrClamp(t, dur);
     this.applyPose();
   }
 
-  /// Avança o tempo por `dt*speed` (e o do fade, se houver) e escreve a pose.
+  /// Avança o tempo por `dt*speed` (e o do clipe anterior/fade, se houver) e
+  /// escreve a pose.
   update(dt: f64): void {
+    this.ensureClipResolved();
     if (!this.playing) return;
-    const sk = this.resolveSkeleton();
+    const sk = this.skeleton;
     if (sk === null || sk.asset === null || this.clipIdx < 0) return;
     const step = dt * this.speed;
     this.time = this.time + step;
-    // o clipe ANTERIOR fica CONGELADO no tempo em que estava quando o fade
-    // começou (é o "tempo dele" que crossFade guarda) — só o fade avança.
-    if (this.prevClipIdx >= 0) this.fadeTime = this.fadeTime + dt;
+    if (this.prevClipIdx >= 0) {
+      // o clipe ANTERIOR também avança durante o fade (Unity/Godot): se
+      // ficasse parado, a pose de saída "escorregaria" pra trás do que
+      // deveria estar tocando.
+      this.prevTime = this.prevTime + step;
+      this.fadeTime = this.fadeTime + dt;
+    }
     // duração lida 1x (é um par de acessos a campo/array, não uma busca) e
     // reusada no laço/grampo abaixo — evita recalcular na mesma chamada.
     const dur = this.duration();
@@ -268,6 +354,9 @@ export class AnimationPlayer extends Behavior {
       this.time = this.wrapOrClamp(this.time, dur);
     } else if (dur > 0.0 && this.time >= dur) {
       this.time = dur; this.playing = false;
+      // clipe ALVO terminou (sem laço) com um fade em andamento: conclui o
+      // fade na hora (peso 1) em vez de deixar a mistura pela metade.
+      this.prevClipIdx = 0 - 1;
     } else if (this.time < 0.0 || dur <= 0.0) {
       this.time = 0.0;
     }
@@ -277,9 +366,19 @@ export class AnimationPlayer extends Behavior {
   // Acha o Skeleton do MESMO objeto (via owner.behaviors, setado por
   // GameObject.addBehavior) uma única vez; garante o asset carregado (win=0
   // não sobe malha — seguro chamar sem janela real, ver skeleton.ts).
+  //
+  // O cache é invalidado (SEM busca — 1 comparação de campo) se o Skeleton
+  // cacheado não pertence mais a este `owner`: `GameObject.removeBehavior`
+  // zera `owner` de quem remove, então um Skeleton removido (ou removido e
+  // substituído por outro) já não bate em `cached.owner === this.owner` e
+  // o `while` abaixo acha o atual (ou nenhum).
   private resolveSkeleton(): Skeleton | null {
-    if (this.skeleton !== null) return this.skeleton;
-    const o = this.owner;
+    const cached = this.skeleton;
+    if (cached !== null) {
+      if (cached.owner === this.owner) return cached;
+      this.skeleton = null;
+    }
+    const o: GameObject | null = this.owner;
     if (o === null) return null;
     let i = 0;
     while (i < o.behaviors.length) {
@@ -292,6 +391,23 @@ export class AnimationPlayer extends Behavior {
       i = i + 1;
     }
     return null;
+  }
+
+  // Resolve `this.clipIdx` a partir de `this.clip` (por nome) sem depender de
+  // play()/crossFade() terem sido chamados — cobre cena restaurada, cópia
+  // (Play/duplicar) e edição do campo `clip` no Inspector. O(1) depois de
+  // resolvido (só olha `clipIdx>=0`); nenhum lookup por string no caminho
+  // quente já resolvido. Se o asset ainda não carregou, tenta de novo na
+  // próxima chamada (não é falha); se o nome não existe NO asset carregado,
+  // grava em `clipFailed` e não tenta de novo até `clip` mudar.
+  private ensureClipResolved(): void {
+    if (this.clipIdx >= 0) return;
+    if (this.clip === "" || this.clip === this.clipFailed) return;
+    const sk = this.resolveSkeleton();
+    if (sk === null || sk.asset === null) return;
+    const idx = sk.asset.clipIndex(this.clip);
+    if (idx >= 0) { this.clipIdx = idx; this.clipFailed = ""; }
+    else this.clipFailed = this.clip;
   }
 
   // laço: módulo positivo em [0,duração); sem laço: grampo em [0,duração];
@@ -310,9 +426,8 @@ export class AnimationPlayer extends Behavior {
   }
 
   // Escreve a pose de trabalho para o tempo/clipe atuais. Com fade em
-  // andamento: amostra o clipe ANTERIOR em peso 1, CONGELADO no tempo em que
-  // estava quando crossFade() foi chamado (prevTime não avança — só o novo
-  // clipe e o progresso do fade avançam), e depois o clipe novo em peso =
+  // andamento: amostra o clipe ANTERIOR em peso 1 (no tempo dele, que
+  // `update` também avança) e depois o clipe novo em peso =
   // min(1, fadeTime/fadeDur) — a mistura vem do 2º sampleClipInto ler o valor
   // que o 1º acabou de escrever.
   private applyPose(): void {
