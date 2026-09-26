@@ -17,21 +17,57 @@ let ultimaN = 0;
 export function luzesColetadas(): Float64Array { return luzBuf; }
 export function sombraAtual(): Float64Array { return sombraBuf; }
 
+// ── CACHE DO ENVIO (Task 10.5) ─────────────────────────────────────────────
+// A coleta roda todo quadro (barata: pose e campos de cada Light em buffer fixo,
+// sem alocação); o ENVIO ao renderer (setLights/setLight/setShadow) só sai quando
+// o pacote coletado difere do último enviado. Uma luz parada e uma câmera parada
+// não reenviam nada; mover a câmera só reenvia se a ORDEM das pontuais (por
+// distância) mudar, porque o pacote é o mesmo quando a ordem é a mesma. Sem
+// `markDirty`: quem mexe numa luz não precisa avisar ninguém — a comparação vê.
+const enviadoLuz = new Float64Array(MAX_LUZES * FLOATS_POR_LUZ);
+const enviadoLegado = new Float64Array(4);
+const enviadoSombra = new Float64Array(7);
+let enviadoN = 0 - 1;
+let enviadoJanela = 0 - 1;
+let enviadoCena: Scene | null = null;
+let envios = 0;
+
+/// Quantos envios (setLights+setLight+setShadow) já saíram — para testes e bench.
+export function enviosDeLuz(): number { return envios; }
+/// Esquece o último envio: o próximo `aplicarLuzes` reenvia tudo.
+export function reenviarLuzes(): void { enviadoN = 0 - 1; }
+
+function igual(a: Float64Array, b: Float64Array, n: number): boolean {
+  let i = 0;
+  while (i < n) { if (a[i] !== b[i]) return false; i = i + 1; }
+  return true;
+}
+function copiar(dst: Float64Array, src: Float64Array, n: number): void {
+  let i = 0;
+  while (i < n) { dst[i] = src[i]; i = i + 1; }
+}
+
 /// `cam` = [x, y, z] de quem vê; `legado` = [x, y, z, ambiente] da luz pontual antiga.
 export function aplicarLuzes(win: number, sc: Scene, cam: Float64Array, legado: Float64Array): number {
   const n = sc.collectLights(luzBuf, cam);
-  setLightsBuf(win, luzBuf, n);
-  setLgtBuf(win, legado);
   sombraBuf[3] = 0.0; sombraBuf[4] = SOMBRA_CENTRO_Y; sombraBuf[5] = 0.0; sombraBuf[6] = SOMBRA_RAIO;
   if (n === 0) {
     sombraBuf[0] = 0.0 - legado[0]; sombraBuf[1] = 0.0 - legado[1]; sombraBuf[2] = 0.0 - legado[2];
   } else if (luzBuf[0] === LUZ_DIRECIONAL && luzBuf[14] !== 0.0) {
     sombraBuf[0] = luzBuf[4]; sombraBuf[1] = luzBuf[5]; sombraBuf[2] = luzBuf[6];
   } else {
-    sombraBuf[6] = 0.0;
+    sombraBuf[0] = 0.0; sombraBuf[1] = 0.0; sombraBuf[2] = 0.0; sombraBuf[6] = 0.0;
   }
-  setShadowBuf(win, sombraBuf);
   ultimaN = n;
+  const nf = n * FLOATS_POR_LUZ;
+  if (enviadoN === n && enviadoJanela === win && enviadoCena === sc &&
+      igual(luzBuf, enviadoLuz, nf) && igual(legado, enviadoLegado, 4) && igual(sombraBuf, enviadoSombra, 7)) return n;
+  setLightsBuf(win, luzBuf, n);
+  setLgtBuf(win, legado);
+  setShadowBuf(win, sombraBuf);
+  copiar(enviadoLuz, luzBuf, nf); copiar(enviadoLegado, legado, 4); copiar(enviadoSombra, sombraBuf, 7);
+  enviadoN = n; enviadoJanela = win; enviadoCena = sc;
+  envios = envios + 1;
   return n;
 }
 
