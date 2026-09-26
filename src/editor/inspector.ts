@@ -4,7 +4,10 @@ import { EditorUI } from "./ui_controls";
 import { MeshRenderer } from "@engine/core/meshrenderer";
 import { Skeleton } from "@engine/core/skeleton";
 import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, previewSeek, previewChooseClip,
-  timelineTarget, animationPlayerOf, skeletonOfObject } from "./skeleton_preview";
+  timelineTarget, animationPlayerOf, skeletonOfObject, animatorOfObject, animatorPreviewTouch, animatorPreviewIsActive,
+  animatorPreviewStop } from "./skeleton_preview";
+import type { Animator } from "@engine/core/animator";
+import { PARAM_FLOAT, PARAM_BOOL } from "@engine/core/animator_controller";
 import { ComponentPicker } from "./component_picker";
 import { beginBoneEdit, boneDegreesInto, boneRotationFromDegreesInto, selectBone } from "./bone_gizmo";
 import { attachEditorComponent } from "./script_drop";
@@ -13,7 +16,7 @@ import { scene, S } from "./control/session";
 import { nfCancel, AXIS_X, AXIS_Y, AXIS_Z } from "./widgets";
 import input from "rts:input";
 import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
-  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K } from "./ui_config";
+  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K, UI_ANIMATOR as A } from "./ui_config";
 
 const DEGREES_PER_RADIAN = 180 / Math.PI;
 
@@ -55,6 +58,15 @@ export class Inspector extends Behavior {
   // Valores passados aos campos (reaproveitados: sem array novo por frame).
   boneRotationValues: number[] = [0, 0, 0];
   bonePositionValues: number[] = [0, 0, 0];
+  // Seção "Animator": rótulos refeitos só quando o que mostram muda (caminho
+  // do controlador; estado/tempo/fade de cada camada).
+  animatorOpen: boolean = true;
+  animatorControllerShown: string = "";
+  animatorControllerLabel: string = "";
+  animatorLayerLabels: string[] = [];
+  animatorLayerStates: string[] = [];
+  animatorLayerTimes: number[] = [];
+  animatorLayerFades: number[] = [];
   meshHot: number = 0;
   textureHot: number = 0;
   top: number = 0; bottom: number = 0;
@@ -226,6 +238,102 @@ export class Inspector extends Behavior {
       if (reset.clicked) { this.snapshot(); skeleton.resetPose(); previewStop(player); }
     }
     return rowY + L.rowH + L.gap;
+  }
+  /// Seção "Animator": caminho do controlador (ou o erro que o deixa inerte),
+  /// parâmetros editáveis ao vivo (float = campo arrastável, bool = caixa,
+  /// trigger = botão) e o estado atual + tempo normalizado de cada camada.
+  /// Parâmetros são estado de EXECUÇÃO: sem undo e fora da cena salva. Fora
+  /// do Play, mexer num parâmetro inicia a prévia do Animator
+  /// (skeleton_preview.ts), que acaba ao trocar de objeto, entrar no Play ou
+  /// no botão "Parar prévia" — parâmetros, estados e pose voltam ao início.
+  animatorSection(animator: Animator, startY: number): number {
+    let rowY = startY;
+    this.animatorOpen = this.header("Animator/Header", rowY, A.title, this.animatorOpen);
+    rowY = rowY + L.headerH + L.gap;
+    if (!this.animatorOpen) return rowY;
+    const innerX = this.x + L.padding + L.gap;
+    const innerW = this.width - L.padding * 2 - L.gap;
+    if (this.animatorControllerShown !== animator.controller || this.animatorControllerLabel === "") {
+      this.animatorControllerShown = animator.controller;
+      this.animatorControllerLabel = A.controller + (animator.controller === "" ? A.none : animator.controller);
+    }
+    this.label("Animator/Controller", rowY, this.animatorControllerLabel);
+    rowY = rowY + L.rowH;
+    const error = animator.errorText();
+    if (error !== "") {
+      if (this.visible(rowY, L.rowH)) {
+        const label = this.ui.control("Animator/Error", "label", innerX, rowY, innerW, L.rowH, A.error + error, false);
+        label.color = UI_C.animatorError; this.ui.draw(label);
+      }
+      return rowY + L.rowH + L.gap;
+    }
+    this.label("Animator/ParamsTitle", rowY, A.params);
+    rowY = rowY + L.rowH;
+    const paramCount = animator.paramCount();
+    if (paramCount === 0) { this.label("Animator/NoParams", rowY, A.noParams); rowY = rowY + L.rowH; }
+    let param = 0;
+    while (param < paramCount) {
+      const type = animator.paramType(param);
+      const value = animator.paramValue(param);
+      const rowH = type === PARAM_FLOAT || type === PARAM_BOOL ? L.rowH : A.triggerRowH;
+      if (this.visible(rowY, rowH)) {
+        const key = "Animator/Param/" + param;
+        const name = animator.paramName(param);
+        if (type === PARAM_FLOAT) {
+          const field = this.ui.control(key, "number", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          field.value = value; this.ui.draw(field);
+          if (field.value !== value) { animator.setFloatAt(param, field.value); animatorPreviewTouch(animator); }
+        } else if (type === PARAM_BOOL) {
+          const box = this.ui.control(key, "toggle", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          box.value = value !== 0.0 ? 1 : 0; this.ui.draw(box);
+          if ((box.value !== 0) !== (value !== 0.0)) { animator.setBoolAt(param, box.value !== 0); animatorPreviewTouch(animator); }
+        } else {
+          const button = this.ui.control(key, "button", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          button.fill = value !== 0.0 ? UI_C.triggerArmed : UI_C.controlIdle;
+          this.ui.draw(button);
+          if (button.clicked) { animator.setTriggerAt(param); animatorPreviewTouch(animator); }
+        }
+      }
+      rowY = rowY + rowH;
+      param = param + 1;
+    }
+    rowY = rowY + L.gap;
+    this.label("Animator/LayersTitle", rowY, A.layers);
+    rowY = rowY + L.rowH;
+    const layerCount = animator.layerCount();
+    let layer = 0;
+    while (layer < layerCount) {
+      this.refreshAnimatorLayerLabel(animator, layer);
+      this.label("Animator/Layer/" + layer, rowY, this.animatorLayerLabels[layer]);
+      rowY = rowY + L.rowH;
+      layer = layer + 1;
+    }
+    if (S.simulating === 0 && animatorPreviewIsActive(animator)) {
+      if (this.visible(rowY, L.rowH)) {
+        const stop = this.ui.control("Animator/StopPreview", "button", innerX, rowY, innerW, L.rowH, A.stopPreview, this.enabledInput);
+        this.ui.draw(stop);
+        if (stop.clicked) animatorPreviewStop(animator);
+      }
+      rowY = rowY + L.rowH;
+    }
+    return rowY + L.gap;
+  }
+  // "Camada: Estado  t=0.42  (fade de X 30%)" — refeito só quando estado,
+  // tempo ou progresso do fade mudam.
+  refreshAnimatorLayerLabel(animator: Animator, layer: number): void {
+    while (this.animatorLayerLabels.length <= layer) {
+      this.animatorLayerLabels.push(""); this.animatorLayerStates.push("");
+      this.animatorLayerTimes.push(0 - 1); this.animatorLayerFades.push(0 - 1);
+    }
+    const state = animator.stateName(layer);
+    const time = animator.stateTime(layer);
+    const fade = animator.fadingFrom(layer) !== "" ? animator.fadeProgress(layer) : 0 - 1;
+    if (this.animatorLayerLabels[layer] !== "" && this.animatorLayerStates[layer] === state &&
+      this.animatorLayerTimes[layer] === time && this.animatorLayerFades[layer] === fade) return;
+    this.animatorLayerStates[layer] = state; this.animatorLayerTimes[layer] = time; this.animatorLayerFades[layer] = fade;
+    let text = animator.layerName(layer) + A.layerSeparator + state + A.timeOpen + time.toFixed(A.timeDigits);
+    if (fade >= 0) text = text + A.fadeOpen + animator.fadingFrom(layer) + " " + Math.round(fade * A.percent) + A.fadeClose;
+    this.animatorLayerLabels[layer] = text;
   }
   /// Campos do osso selecionado: rotação local em graus (yaw/pitch/roll, a
   /// convenção do `pose rot` do WebSocket) e posição local. Editar encerra a
@@ -403,6 +511,8 @@ export class Inspector extends Behavior {
     }
     const skeleton = skeletonOfObject(object);
     if (skeleton !== null) rowY = this.skeletonSection(app, skeleton, rowY);
+    const animator = animatorOfObject(object);
+    if (animator !== null) rowY = this.animatorSection(animator, rowY);
     let componentIndex = 0;
     let removeIndex = 0 - 1;
     while (componentIndex < object.behaviors.length) {

@@ -7,6 +7,7 @@ import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cm
 import { logInfo, logError } from "@engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "./commands/skeleton";
+import { cmdAnimator } from "./commands/animator";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
@@ -68,6 +69,11 @@ function execCommandInner(w: number, h: number, line: string): string {
   // `anim ... preview` também não: a prévia é estado do editor (só trocar o
   // clipe entra no undo, e o próprio subcomando faz esse snapshot).
   if (isMutating(cmd) && !(cmd === "anim" && (parts[2] === "state" || parts[2] === "preview"))) history.snapshot();
+  // `animator`: só `load` muda dado salvo (o campo `controller`). `set`/
+  // `trigger` mexem em parâmetros (estado de execução, como no Inspector) e
+  // `state`/`params` são consultas — nenhum deles empilha undo (pelo mesmo
+  // motivo do `anim ... state` acima: polling não pode zerar o redo).
+  if (cmd === "animator" && parts[2] === "load") history.snapshot();
   switch (cmd) {
     case "undo": {
       if (history.undo() !== 0) return "[ok] undo (estado restaurado)";
@@ -195,6 +201,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "selbone": return cmdSelBone(parts);
     case "anims": return cmdAnims(parts);
     case "anim": return cmdAnim(parts);
+    case "animator": return cmdAnimator(parts);
     case "tree": return cmdTree();
     case "parent": return cmdParent(parts);
     case "movetree": return cmdMoveTree(parts);

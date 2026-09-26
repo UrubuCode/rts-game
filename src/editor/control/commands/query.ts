@@ -46,6 +46,8 @@ export function cmdHelp(): string {
     " resetpose <obj> | selbone <obj> <osso|-1> | anims <obj>  (clipes+duracao) |" +
     " anim <obj> play <nome> [loop|once] | anim <obj> pause | anim <obj> resume |" +
     " anim <obj> seek <s> | anim <obj> fade <nome> <s> | anim <obj> speed <x> | anim <obj> state" +
+    " || ANIMATOR: animator <obj> load <arquivo.controller.json> | animator <obj> set <param> <valor> |" +
+    " animator <obj> trigger <param> | animator <obj> state | animator <obj> params" +
     " || TEXTURA/MESH: makeprefab <path> [i] | instprefab <path> | loadobj <path> [nome]  (.obj/.glb/.gltf) | loadtex <obj> <path>" +
     " || DRAG&DROP: drop <path> [sx sy] | dropat <path> <x> <y> <z> | dropon <path> <obj> |" +
     " pickat <sx> <sy> | groundat <sx> <sy> | thumb <path> [cols]  (preview do asset)" +

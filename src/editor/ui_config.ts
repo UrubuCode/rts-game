@@ -277,6 +277,8 @@ export const UI_C = {
   timelineFill: 0x3A6C9FFF,
   timelineHandle: 0xD8E4F2FF,
   timelineText: 0xE6E6E6FF,
+  triggerArmed: 0x8A6A2AFF,
+  animatorError: 0xE08080FF,
 };
 // Seção "Esqueleto" do Inspector (Skeleton + AnimationPlayer). As medidas de
 // linha/cabeçalho são as de UI_INSPECTOR; aqui ficam só as próprias da seção.
@@ -293,4 +295,13 @@ export const UI_SKELETON = {
   // convenção do `pose rot` do WebSocket; posição local ao pai)
   boneSelected: "Osso: ", boneRotation: "Rot. (°)", bonePosition: "Posição",
   rotationAxes: ["Y", "P", "R"],
+};
+// Seção "Animator" do Inspector (máquina de estados). Linhas/cabeçalho usam
+// UI_INSPECTOR; aqui ficam rótulos e medidas próprias da seção.
+export const UI_ANIMATOR = {
+  title: "Animator", controller: "Controlador: ", none: "(nenhum)", error: "Erro: ",
+  params: "Parâmetros", noParams: "O controlador não tem parâmetros", layers: "Camadas",
+  layerSeparator: ": ", timeOpen: "  t=", fadeOpen: "  (fade de ", fadeClose: "%)", percent: 100,
+  timeDigits: 2, triggerRowH: 22,
+  stopPreview: "Parar prévia",
 };

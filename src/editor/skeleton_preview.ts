@@ -11,6 +11,13 @@
 // `playing` (tocar ao iniciar o jogo) nunca fica ligado pela prévia: o tick
 // liga-o só durante o `update` e devolve o valor original em seguida.
 //
+// O `Animator` também tem prévia fora do Play: mexer num parâmetro (Inspector
+// ou `animator <obj> set/trigger` no WS) coloca-o em `S.previewAnimators`, e
+// ele avança a cada frame (transições, mistura, camadas) só na pose de
+// TRABALHO. Encerrar a prévia volta parâmetros/estados ao início
+// (`resetRuntime`) e a pose de trabalho à manual — a cena salva não muda
+// (parâmetros e estados são estado de execução; só `controller` é salvo).
+//
 // Funções livres, não métodos de um singleton: no RTS atual, o método de uma
 // classe cujo construtor não atribui nenhum campo (sem construtor, vazio ou só
 // com inicializadores `x = ...`), chamado numa instância criada no topo do
@@ -22,6 +29,7 @@
 // scratch/claude-repro-metodo-import/ (issue do RTS: a definir).
 import { S } from "./control/session";
 import { AnimationPlayer } from "@engine/core/animation_player";
+import { Animator } from "@engine/core/animator";
 import { Skeleton } from "@engine/core/skeleton";
 import type { GameObject } from "@engine/core/gameobject";
 
@@ -54,6 +62,38 @@ export function animationPlayerOf(skeleton: Skeleton): AnimationPlayer | null {
     index = index + 1;
   }
   return null;
+}
+
+/// Animator do objeto (null se não houver).
+export function animatorOfObject(owner: GameObject): Animator | null {
+  let index = 0;
+  while (index < owner.behaviors.length) {
+    const behavior = owner.behaviors[index];
+    if (behavior instanceof Animator) return behavior;
+    index = index + 1;
+  }
+  return null;
+}
+
+/// 1 = o Animator está em prévia (fora do Play).
+export function animatorPreviewIsActive(animator: Animator): boolean { return S.previewAnimators.indexOf(animator) >= 0; }
+
+/// Começa (ou mantém) a prévia do Animator: chamado ao mexer num parâmetro
+/// fora do Play. No Play não faz nada (o `scene.update` já roda o Animator).
+export function animatorPreviewTouch(animator: Animator): void {
+  if (S.simulating !== 0) return;
+  if (S.previewAnimators.indexOf(animator) < 0) S.previewAnimators.push(animator);
+}
+
+/// Encerra a prévia do Animator: parâmetros nos padrões, camadas no estado
+/// inicial e pose de trabalho = pose manual (o que se salva).
+export function animatorPreviewStop(animator: Animator): void {
+  const index = S.previewAnimators.indexOf(animator);
+  if (index >= 0) S.previewAnimators.splice(index, 1);
+  animator.resetRuntime();
+  const owner = animator.owner;
+  const skeleton = owner === null ? null : skeletonOfObject(owner);
+  if (skeleton !== null) skeleton.applyManualPose();
 }
 
 /// Folga antes do fim ao arrastar o tempo de um clipe COM laço até 100 %: seek
@@ -122,6 +162,7 @@ export function previewStop(player: AnimationPlayer): void {
 export function previewStopAll(): void {
   while (S.previewPlayers.length > 0) previewStop(S.previewPlayers[S.previewPlayers.length - 1]);
   while (S.previewTouched.length > 0) previewStop(S.previewTouched[S.previewTouched.length - 1]);
+  while (S.previewAnimators.length > 0) animatorPreviewStop(S.previewAnimators[S.previewAnimators.length - 1]);
 }
 
 /// Avança as prévias que estão tocando. Um clipe sem laço que chega ao fim
@@ -139,6 +180,13 @@ export function previewTick(dt: f64): void {
     if (ended) S.previewPlayers.splice(index, 1);
     index = index - 1;
   }
+  index = S.previewAnimators.length - 1;
+  while (index >= 0) {
+    const animator = S.previewAnimators[index];
+    if (animator.owner === null) S.previewAnimators.splice(index, 1);
+    else animator.update(dt);
+    index = index - 1;
+  }
 }
 
 /// Uma vez por frame, pelo main: fora do Play avança as prévias; no Play
@@ -146,5 +194,5 @@ export function previewTick(dt: f64): void {
 /// dos originais, devolvendo a pose manual.
 export function previewFrame(dt: f64): void {
   if (S.simulating === 0) previewTick(dt);
-  else if (S.previewTouched.length > 0) previewStopAll();
+  else if (S.previewTouched.length > 0 || S.previewAnimators.length > 0) previewStopAll();
 }

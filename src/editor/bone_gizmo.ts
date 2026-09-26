@@ -21,7 +21,8 @@
 import { Skeleton } from "@engine/core/skeleton";
 import type { GameObject } from "@engine/core/gameobject";
 import { quatMulInto, quatFromYawPitchInto } from "@engine/render/quat";
-import { animationPlayerOf, previewIsTouched, previewStop, skeletonOfObject } from "./skeleton_preview";
+import { animationPlayerOf, previewIsTouched, previewStop, skeletonOfObject, animatorOfObject, animatorPreviewIsActive,
+  animatorPreviewStop } from "./skeleton_preview";
 import { scene, S } from "./control/session";
 import { history } from "./undo";
 import { snapv, SNAP_MOVE_STEP, SNAP_ROTATE_STEP } from "./gizmo";
@@ -75,6 +76,9 @@ export function selectedBoneTarget(): Skeleton | null {
 export function beginBoneEdit(sk: Skeleton): void {
   const player = animationPlayerOf(sk);
   if (player !== null && previewIsTouched(player)) previewStop(player);
+  const owner = sk.owner;
+  const animator = owner === null ? null : animatorOfObject(owner);
+  if (animator !== null && animatorPreviewIsActive(animator)) animatorPreviewStop(animator);
 }
 
 /// Posição de MUNDO do osso (origem do gizmo) em `out` [x, y, z]. 1 = ok.
