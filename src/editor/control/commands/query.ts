@@ -1,6 +1,7 @@
 // Comandos de CONSULTA (só leem estado): state, res, help.
 import { scene, S } from "../session";
 import { setVsync } from "@engine/render/gpu3d";
+import { commandHelpLine } from "../../api";
 
 /// Estado completo da cena + câmera (para a IA inspecionar).
 export function cmdState(): string {
@@ -52,7 +53,7 @@ export function cmdHelp(): string {
     " || DRAG&DROP: drop <path> [sx sy] | dropat <path> <x> <y> <z> | dropon <path> <obj> |" +
     " pickat <sx> <sy> | groundat <sx> <sy> | thumb <path> [cols]  (preview do asset)" +
     " || ARQUIVOS: ls [path] | mkdir <path> | rmpath <path> | readfile <path> |" +
-    " writefile <path> <conteudo> | mv <de> <para>";
+    " writefile <path> <conteudo> | mv <de> <para>" + commandHelpLine();
 }
 
 /// vsync [0|1] — liga/desliga a espera pelo refresh do monitor.

@@ -2,6 +2,8 @@
 // exemplo), pra uma IA descobrir como usar a porta de controle. `doc` lista tudo;
 // `doc <prefixo>` filtra (ex.: `doc addcomp`).
 
+import { commandDocLines } from "../../api";
+
 // prefixo simples (só charCodeAt — robusto no motor)
 function startsWith(s: string, p: string): boolean {
   if (p.length > s.length) return false;
@@ -103,6 +105,7 @@ export function cmdDoc(parts: string[]): string {
     "groundat <sx> <sy> :: ponto do CHAO (Y=0) sob esse pixel — a conversao tela->mundo do drop :: groundat 700 400",
     "thumb <path> [cols] :: INSPECIONA o thumbnail que o Project mostra pro asset (imagem real, ou render 3D de modelo/prefab/cena): estatisticas de pixel + preview ASCII (| = quebra de linha) :: thumb assets/models/torus.obj 16",
   ];
+  commandDocLines(lines);
   let m = "[doc]\n";
   let hit = 0;
   let i = 0;

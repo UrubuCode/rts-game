@@ -159,6 +159,9 @@ export const UI_DOCUMENT = {
   untitled: "Sem titulo", pollMs: 750,
 };
 
+/// Textos do host de @editor/api (editor_host.ts).
+export const UI_EDITOR_API = { undoPrefix: "Desfazer: " };
+
 export const UI_C = {
   consoleBackground: 0x26282CFF, consoleToolbar: 0x303237FF,
   consoleRowAlternate: 0x2B2D31FF, consoleHover: 0x383C43FF,

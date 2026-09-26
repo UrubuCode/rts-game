@@ -14,7 +14,7 @@ const status = (state, message) => {
 try {
   status('running', 'Compilando jogo...');
   const destination = path.join(run, 'RTSGame.exe');
-  const result = spawnSync(process.execPath, ['tools/rts-build.mjs', 'game.ts', destination], { cwd: root, encoding: 'utf8', windowsHide: true });
+  const result = spawnSync(process.execPath, ['tools/rts-build.mjs', 'tools/game-build/entry.ts', destination], { cwd: root, encoding: 'utf8', windowsHide: true });
   fs.writeFileSync(path.join(run, 'output.log'), (result.stdout ?? '') + (result.stderr ?? '') + (result.error?.message ?? ''));
   if (result.status !== 0) throw new Error('Compilacao falhou. Consulte o Console.');
   fs.cpSync(path.join(root, 'assets'), path.join(run, 'assets'), { recursive: true });

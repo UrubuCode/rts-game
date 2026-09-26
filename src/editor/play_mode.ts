@@ -8,6 +8,7 @@ import { history } from "./undo";
 import { stepReset } from "@engine/core/fixedstep";
 import { interpolateReset } from "@engine/core/interpolate";
 import { Ambiente, copiarAmbiente } from "@engine/core/ambiente";
+import { emitEditorEvent } from "./api";
 
 // A cena original nao e serializada/reconstruida ao parar. Conservamos seus
 // GameObjects e componentes; somente copias descartaveis recebem update.
@@ -68,6 +69,7 @@ export class PlayMode {
     scene.computeWorld();
     stepReset(); interpolateReset();
     S.simulating = 1; S.playing = 1;
+    emitEditorEvent("entrarPlay", "");
     return true;
   }
 
@@ -92,6 +94,7 @@ export class PlayMode {
     scene.computeWorld();
     stepReset(); interpolateReset();
     S.simulating = 0;
+    emitEditorEvent("sairPlay", "");
   }
 }
 

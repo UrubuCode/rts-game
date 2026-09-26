@@ -1274,4 +1274,4 @@ export function restoreRegisteredComponent(data: any): any {
   }
   return null;
 }
-export const REGISTRO = "editor";
+export const REGISTRO = "jogo";

@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
-const dirs = ['src', 'assets/scripts'].map(d => path.join(root, d));
+const dirs = ['src', 'assets/scripts', 'assets/pacotes'].map(d => path.join(root, d));
 
 function* files(dir) {
   if (!fs.existsSync(dir)) return;

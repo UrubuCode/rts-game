@@ -31,7 +31,7 @@ import { UIButton } from "../engine/core/ui_button";
 import { hullForMesh } from "../engine/core/hullmesh";
 import { setLight, setAmbient } from "../engine/render/mesh";
 import { loadModel } from "../engine/render/model";
-import { restoreRegisteredComponent } from "../engine/generated/components";
+import { restoreRegisteredComponent } from "@engine/generated/components";
 import { componentToData } from "../engine/components";
 import { componentMetadata } from "../engine/core/component_metadata";
 import { MissingScript } from "../engine/core/missing_script";

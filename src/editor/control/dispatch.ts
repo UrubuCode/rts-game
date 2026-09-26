@@ -12,6 +12,7 @@ import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc } from "./commands/doc";
+import { commandIndex, commandMutates, runCommand } from "../api";
 import { scene, S } from "./session";
 import { history } from "../undo";
 import { cmdStop } from "./commands/scene";
@@ -69,6 +70,9 @@ function execCommandInner(w: number, h: number, line: string): string {
   // `anim ... preview` também não: a prévia é estado do editor (só trocar o
   // clipe entra no undo, e o próprio subcomando faz esse snapshot).
   if (isMutating(cmd) && !(cmd === "anim" && (parts[2] === "state" || parts[2] === "preview"))) history.snapshot();
+  // Comandos registrados por scripts (@editor/api): snapshot só se declararam `muta`.
+  const registrado = commandIndex(cmd);
+  if (registrado >= 0 && commandMutates(registrado)) history.snapshot();
   // `animator` fica FORA do snapshot genérico: `set`/`trigger` mexem em
   // parâmetros (estado de execução), `state`/`params` são consultas (polling
   // não pode zerar o redo, como no `anim ... state`), e `load` tira o próprio
@@ -223,6 +227,6 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);
-    default: return "[erro] desconhecido: " + cmd;
+    default: return registrado >= 0 ? runCommand(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

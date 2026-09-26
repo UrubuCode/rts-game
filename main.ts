@@ -78,6 +78,9 @@ const P_UI_PROJ = profSection("  ui:project");
 // não medido que mora a surpresa: hoje isso já aconteceu três vezes.
 const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { instalarEditorReal } from "@editor/editor_host";
+// Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
+import "@engine/generated/editor_extensions";
 import { initAudio, pumpAudio } from "@engine/audio/audio";
 import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
@@ -402,6 +405,7 @@ let previewPay = "";
 initMeshes(WIN);
 assetsInit();
 ctrlServe(7777);
+instalarEditorReal();
 // Profiler LIGADO por padrão: o custo de medir é um `if` por seção, e a
 // alternativa — descobrir onde o frame foi gasto adivinhando — já custou duas
 // investigações erradas nesta engine. `prof off` desliga pela porta de controle.

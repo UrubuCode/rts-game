@@ -5,6 +5,7 @@ import { history } from "./undo";
 import { logInfo, logError } from "@engine/core/logger";
 import { UI_DOCUMENT } from "./ui_config";
 import { criarLuzDirecionalPadrao } from "@engine/core/light";
+import { emitEditorEvent } from "./api";
 
 export function authoredSignature(json: string): string {
   const data = JSON.parse(json);
@@ -22,7 +23,7 @@ export class SceneDocument {
     if (S.simulating !== 0) { this.error = "Pare a simulacao antes de salvar."; return false; }
     if (path.length === 0) return false;
     try {
-      saveScene(path); this.initialize(path); logInfo("Cena salva: " + path); return true;
+      saveScene(path); this.initialize(path); logInfo("Cena salva: " + path); emitEditorEvent("salvar", path); return true;
     } catch (error) { this.error = "Falha ao salvar: " + String(error); logError(this.error); return false; }
   }
   request(action: string, path: string = ""): boolean {
@@ -36,6 +37,7 @@ export class SceneDocument {
   cancel(): void { this.pending = ""; this.pendingPath = ""; this.error = ""; }
   complete(): boolean {
     if (this.pending.length === 0 || S.simulating !== 0) return false;
+    const caminho = this.pendingPath;   // "" na cena nova
     try {
       if (this.pending === "open") {
         const json = fs.read_text(this.pendingPath);
@@ -45,7 +47,7 @@ export class SceneDocument {
         scene.clear(); scene.name = UI_DOCUMENT.untitled; criarLuzDirecionalPadrao(scene); scene.computeWorld(); this.initialize("");
       } else return false;
       history.u = []; history.r = []; S.selected = scene.objects.length > 0 ? 0 : -1; S.selection = [];
-      this.cancel(); return true;
+      this.cancel(); emitEditorEvent("abrirCena", caminho); return true;
     } catch (error) { this.error = "Falha ao abrir cena: " + String(error); logError(this.error); this.pending = ""; this.pendingPath = ""; return false; }
   }
 }

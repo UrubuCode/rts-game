@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverComponents, renderComponents, generateComponents } from '../tools/generate-components.mjs';
+import { discoverComponents, renderComponents, generateComponents, renderEditorExtensions, discoverEditorExtensions } from '../tools/generate-components.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rts-component-test-'));
@@ -135,4 +135,24 @@ test('unresolved Behavior imports and invalid project configuration fail instead
   assert.throws(() => discoverComponents(root), /resolver Behavior/);
   write('tsconfig.json', '{ invalid JSON');
   assert.throws(() => discoverComponents(root));
+});
+
+test('@editorOnly keeps files out of the game registry and loads them only in the editor', t => {
+  const { root, write } = fixture(t);
+  // pacotes ficam um nível abaixo de assets/scripts: o import da base sobe três pastas
+  const importPacote = 'import { Behavior } from "../../../src/engine/core/behavior";\n';
+  write('assets/pacotes/luz/Game.ts', importPacote + 'export class Jogo extends Behavior { v: number = 1; }');
+  write('assets/pacotes/luz/Tool.ts', '/** @editorOnly */\n' + importPacote + 'export class Ferramenta extends Behavior { v: number = 2; }');
+  write('assets/pacotes/luz/cmds.ts', '/** @editorOnly */\nexport const x = 1;');
+  const entries = discoverComponents(root);
+  assert.deepEqual(entries.map(e => [e.name, e.editorOnly]), [['Ferramenta', true], ['Jogo', false]]);
+  const out = renderComponents(entries);
+  assert.match(out['src/engine/generated/components.ts'], /Ferramenta/);
+  assert.match(out['src/engine/generated/components.ts'], /REGISTRO = "editor"/);
+  assert.doesNotMatch(out['src/engine/generated/components_game.ts'], /Ferramenta/);
+  assert.match(out['src/engine/generated/components_game.ts'], /REGISTRO = "jogo"/);
+  const ext = renderEditorExtensions(discoverEditorExtensions(root))['src/engine/generated/editor_extensions.ts'];
+  assert.match(ext, /import "\.\.\/\.\.\/\.\.\/assets\/pacotes\/luz\/Tool";/);
+  assert.match(ext, /import "\.\.\/\.\.\/\.\.\/assets\/pacotes\/luz\/cmds";/);
+  assert.doesNotMatch(ext, /luz\/Game/);
 });
