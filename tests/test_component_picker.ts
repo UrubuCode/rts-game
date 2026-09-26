@@ -16,19 +16,21 @@ class TestApp {
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
   keyPressed(code: number): number { return code === this.key ? 1 : 0; }
-  textField(id: number, x: number, y: number, w: number, value: string, enabled: boolean): string {
+  // Linhas desenhadas neste draw (o clickable não tem id: a linha é a ordem de chamada).
+  row: number = 0;
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string {
     if (!this.textChanged) return value;
     this.textChanged = false;
     return this.typed;
   }
-  clickable(id: number, x: number, y: number, w: number, h: number): number {
-    if (id === P.rowId + this.clickedRow && this.clickedRow >= 0) return 3;
-    return id === P.rowId + this.hoveredRow && this.hoveredRow >= 0 ? 1 : 0;
+  clickable(x: number, y: number, w: number, h: number): number {
+    if (h !== P.rowH) return 0;
+    const row = this.row; this.row = this.row + 1;
+    if (row === this.clickedRow && this.clickedRow >= 0) return 3;
+    return row === this.hoveredRow && this.hoveredRow >= 0 ? 1 : 0;
   }
-  button(x: number, y: number, w: number, h: number, label: string): boolean { return false; }
-  box(x: number, y: number, w: number, h: number, fill: number, sw: number, stroke: number, radius: number): void {}
-  text(x: number, y: number, label: string, color: number, size: number): void {}
-  line(x: number, y: number, x2: number, y2: number, w: number, color: number): void {}
+  button(label: string): boolean { return false; }
 }
 function check(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -36,7 +38,11 @@ function check(condition: boolean, message: string): void {
 const app = new TestApp();
 const picker = new ComponentPicker();
 const bottom = 500;
-function draw(): string { return picker.draw(app, 0, bottom, UI_INSP_DEFAULT, 0, P.padding, bottom - P.padding, 0, 0); }
+function draw(): string {
+  app.row = 0;
+  picker.place(0, bottom, UI_INSP_DEFAULT, 0); picker.mouse(P.padding, bottom - P.padding, 0, 0);
+  return picker.draw(app);
+}
 picker.begin(app);
 check(app.isFocused(P.searchId), "abrir foca a busca");
 draw();
@@ -80,13 +86,15 @@ draw();
 check(picker.closed, "Escape fecha");
 picker.begin(app);
 app.key = 0;
-picker.draw(app, 0, bottom, UI_INSP_DEFAULT, 0, UI_INSP_DEFAULT + P.margin, bottom, 1, 0);
+picker.place(0, bottom, UI_INSP_DEFAULT, 0); picker.mouse(UI_INSP_DEFAULT + P.margin, bottom, 1, 0);
+picker.draw(app);
 check(picker.closed, "clique fora fecha");
 const ui = new UIScene();
 const root = ui.createGameObject("Root");
 const pickerObject = ui.createGameObject("Picker", 0);
 pickerObject.addBehavior(picker); picker.sceneIndex = 1;
 picker.result = "Rigidbody"; root.active = 0;
-check(picker.render(ui, app, 0, bottom, UI_INSP_DEFAULT, 0, 0, 0, 0, 0) === "", "picker oculto nao repete ultima escolha");
+picker.place(0, bottom, UI_INSP_DEFAULT, 0); picker.mouse(0, 0, 0, 0);
+check(picker.render(ui, app) === "", "picker oculto nao repete ultima escolha");
 check(picker.host.sx === UI_INSP_DEFAULT && picker.host.sy === bottom, "limites do picker vivem no Transform");
 io.print("[PASSOU] Component picker: foco, teclado, mouse, busca e fechamento");

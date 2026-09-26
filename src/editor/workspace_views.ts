@@ -57,21 +57,25 @@ export class WorkspaceViews extends Behavior {
     this.ui.begin(0, 0, 0, 0);
     let i = 0;
     while (i < L.tabs.length) {
-      const tab = this.ui.control(this.chavesAba[i], "button", x + L.padding + i * (L.tabW + L.gap), top, L.tabW, L.tabH, L.tabs[i], !blocked);
+      this.ui.at(x + L.padding + i * (L.tabW + L.gap), top, L.tabW, L.tabH);
+      const tab = this.ui.control(this.chavesAba[i], "button", L.tabs[i], !blocked);
       if (this.game === (i === 1)) tab.fill = UI_C.controlActive;
       this.ui.draw(tab);
       if (tab.clicked) { this.game = i === 1; S.gameView = this.game ? 1 : 0; this.ui.app.setFocus(-1); }
-      const bottomTab = this.ui.control(this.chavesBaixo[i], "button", x + L.padding + i * (L.tabW + L.gap), bottom, L.tabW, L.tabH, L.bottomTabs[i], !blocked);
+      this.ui.at(x + L.padding + i * (L.tabW + L.gap), bottom, L.tabW, L.tabH);
+      const bottomTab = this.ui.control(this.chavesBaixo[i], "button", L.bottomTabs[i], !blocked);
       if (this.console === (i === 1)) bottomTab.fill = UI_C.controlActive;
       this.ui.draw(bottomTab); if (bottomTab.clicked) { this.console = i === 1; this.ui.app.setFocus(-1); }
       i = i + 1;
     }
     if (this.game) {
       const ax = x + L.padding + L.tabs.length * (L.tabW + L.gap) + L.gap;
-      const aspecto = this.ui.control(G.aspectKey, "button", ax, top, G.aspectW, L.tabH, this.rotulosProporcao[S.gameAspect], !blocked);
+      this.ui.at(ax, top, G.aspectW, L.tabH);
+      const aspecto = this.ui.control(G.aspectKey, "button", this.rotulosProporcao[S.gameAspect], !blocked);
       this.ui.draw(aspecto);
       if (aspecto.clicked) { S.gameAspect = (S.gameAspect + 1) % G.aspectLabels.length; this.ui.app.setFocus(-1); }
-      const cam = this.ui.control(G.cameraKey, "button", ax + G.aspectW + L.gap, top, G.cameraW, L.tabH, this.textoCamera(), !blocked);
+      this.ui.at(ax + G.aspectW + L.gap, top, G.cameraW, L.tabH);
+      const cam = this.ui.control(G.cameraKey, "button", this.textoCamera(), !blocked);
       this.ui.draw(cam);
       if (cam.clicked) { this.proximaCamera(); this.ui.app.setFocus(-1); }
     }

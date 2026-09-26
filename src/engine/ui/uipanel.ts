@@ -7,8 +7,8 @@
 // UI-scene (main.ts) chama drawUI() de cada UI GameObject dentro do frame egui.
 
 import { Behavior, KIND_UI } from "../core/behavior";
-import render from "@compat/render.ts";
 
+import { caixa, estiloTexto, pincel, texto } from "@compat/draw2d.ts";
 // Âncora estilo RectTransform da Unity: a qual canto da janela o offset é relativo.
 export const ANCHOR_TL: number = 0;   // top-left (default)
 export const ANCHOR_TR: number = 1;   // top-right
@@ -43,8 +43,8 @@ export class UIPanel extends Behavior {
     let y: f64 = oy;
     if (this.anchor === ANCHOR_TR || this.anchor === ANCHOR_BR) x = w - this.w - ox;
     if (this.anchor === ANCHOR_BL || this.anchor === ANCHOR_BR) y = h - this.h - oy;
-    render.rect(win, x, y, this.w, this.h, this.color, 1, 0x00000088, 5);
-    render.text(win, x + 8, y + 6, this.title, 0xE8E8ECFF, 12, 0);
+    pincel(this.color, 1, 0x00000088, 5); caixa(x, y, this.w, this.h);
+    texto(x + 8, y + 6, this.title, estiloTexto(0xE8E8ECFF, 12));
   }
 
   setUITitle(s: string): void { this.title = s; }

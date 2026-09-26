@@ -24,6 +24,7 @@ import { initMeshes, setCam, setLgt, setShadow, drawGPU,
 // rouba o foco do usuário e mostra a janela que estiver por cima.
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
 import { setInspectFluid, setInspectDt } from "@editor/control/commands/scene";
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 let W = 1280;
@@ -216,8 +217,8 @@ function frame(): void {
     i = i + 1;
   }
 
-  app.text(14, 12, "LIQUIDO SPH — " + N_PART + " particulas   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
-  app.text(14, 34, "WASD voa | botao DIR gira | ESPACO sobe | R reinicia a coluna", 0x90A8C0FF, 12);
+  texto(14, 12, "LIQUIDO SPH — " + N_PART + " particulas   fps " + math.floor(app.fps()), estiloTexto(0xD8E8FFFF, 15));
+  texto(14, 34, "WASD voa | botao DIR gira | ESPACO sobe | R reinicia a coluna", estiloTexto(0x90A8C0FF, 12));
   app.endFrame();
 }
 

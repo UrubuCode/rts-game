@@ -32,8 +32,10 @@ import { drawGameUI } from "@engine/ui/game_ui";
 import { rigidStep } from "@engine/core/physics_backend";
 import { resolveMaterialTexture } from "@engine/render/material_tex";
 import { GameObject } from "@engine/core/gameobject";
-import { initMeshes, setCam, drawGPU, drawGPUMesh, setFundoCeu, setViewportBuf,
-         frustumBegin, frustumParams, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
+import { initMeshes, setCamBuf, drawGPUMeshBuf, meshIdFor, setFundoCeu, setViewportBuf,
+         frustumBeginBuf, frustumParams, inFrustumFast, winWidth, winHeight, CAM_FLOATS, CAM_ORTO_PADRAO,
+         FRUSTUM_NEAR_PADRAO, FRUSTUM_FAR_PADRAO, DRAW_FLOATS, D_X, D_Y, D_Z, D_RX, D_RY, D_SX, D_SY, D_SZ,
+         D_COR, D_EMISSIVO, D_TEX, D_TILE } from "@engine/render/gpu3d";
 import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { Camera } from "@engine/core/camera";
 import { definirJanelaEntrada } from "@engine/core/entrada";
@@ -43,7 +45,7 @@ import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
 let H = 720;
-const app = createAppAt("RTS Game", W, H, 100, 60);
+const app = createAppAt(process.env("RTS_TITULO") !== "" ? process.env("RTS_TITULO") : "RTS Game", W, H, 100, 60);
 const WIN = app._win;
 
 const FOV: f64 = 1.05;
@@ -78,6 +80,11 @@ let frames = 0;
 const vistas = new VistasDeCamera();
 const luzCam = new Float64Array(3); const luzLegada = new Float64Array(4);
 const fParams: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+// Buffers do quadro, reaproveitados (Task 10.5: sem chamadas de 5+ parâmetros no laço).
+const camLivre = new Float64Array(CAM_FLOATS);
+camLivre[7] = FRUSTUM_NEAR_PADRAO; camLivre[8] = FRUSTUM_FAR_PADRAO; camLivre[10] = CAM_ORTO_PADRAO;
+const drawBuf = new Float64Array(DRAW_FLOATS);
+const posSelf = new Float64Array(3);
 
 function frame(): void {
   logTick();
@@ -172,8 +179,10 @@ function frame(): void {
     vistas.vpBuf[0] = 0.0; vistas.vpBuf[1] = 0.0; vistas.vpBuf[2] = 1.0; vistas.vpBuf[3] = 1.0; vistas.vpBuf[4] = 1.0;
     setViewportBuf(WIN, vistas.vpBuf);
     setFundoCeu(WIN);
-    setCam(WIN, cx, cy, cz, yaw, pitch, FOV, W / H);
-    frustumBegin(cx, cy, cz, yaw, pitch, FOV, W / H);
+    camLivre[0] = cx; camLivre[1] = cy; camLivre[2] = cz; camLivre[3] = yaw; camLivre[4] = pitch;
+    camLivre[5] = FOV; camLivre[6] = W / H;
+    setCamBuf(WIN, camLivre);
+    frustumBeginBuf(camLivre);
     frustumParams(fParams);
     luzCam[0] = cx; luzCam[1] = cy; luzCam[2] = cz;
   }
@@ -187,7 +196,10 @@ function frame(): void {
   while (oi < objsN) {
     const o = objs[oi];
     // renderer que se desenha sozinho (Skeleton): pula o desenho por meshKind
-    if (o.active !== 0 && o.rendIdx >= 0 && o.behaviors[o.rendIdx].drawSelf(WIN) !== 0) { drawnN = drawnN + 1; oi = oi + 1; continue; }
+    if (o.active !== 0 && o.rendIdx >= 0 && o.behaviors[o.rendIdx].drawsSelf() !== 0) {
+      posSelf[0] = o.transform.wx; posSelf[1] = o.transform.wy; posSelf[2] = o.transform.wz;
+      if (o.behaviors[o.rendIdx].drawSelf(WIN, posSelf, 0 - 1) !== 0) { drawnN = drawnN + 1; oi = oi + 1; continue; }
+    }
     let meshKind = o.meshKind;
     let customMesh = o.customMesh;
     if (o.rendIdx >= 0) {
@@ -216,13 +228,11 @@ function frame(): void {
           if (tid > 0) texArg = tid; else texArg = m.matTexMode();
           emisArg = m.matEmissive();
         }
-        if (customMesh > 0) {
-          drawGPUMesh(WIN, customMesh, tr.wx, tr.wy, tr.wz,
-            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
-        } else {
-          drawGPU(WIN, meshKind, tr.wx, tr.wy, tr.wz,
-            tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
-        }
+        const d = drawBuf;
+        d[D_X] = tr.wx; d[D_Y] = tr.wy; d[D_Z] = tr.wz; d[D_RX] = tr.wrx; d[D_RY] = tr.wry;
+        d[D_SX] = tr.sx; d[D_SY] = tr.sy; d[D_SZ] = tr.sz;
+        d[D_COR] = col; d[D_EMISSIVO] = emisArg; d[D_TEX] = texArg; d[D_TILE] = tileArg;
+        drawGPUMeshBuf(WIN, customMesh > 0 ? customMesh : meshIdFor(meshKind), d);
         drawnN = drawnN + 1;
       }
     }

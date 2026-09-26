@@ -21,7 +21,9 @@ import { GameObject } from "@engine/core/gameobject";
 import { Transform } from "@engine/core/transform";
 import { scene } from "@editor/control/session";
 import { initMeshes, setCam, setLgt, setVsync, frustumBegin, frustumParams } from "@engine/render/gpu3d";
-import { drawSceneObjects, fParams, setDrawBatch } from "@engine/render/scenedraw";
+import { drawSceneObjects, prepararDesenho, DS_FLOATS, fParams, setDrawBatch } from "@engine/render/scenedraw";
+const cfgBench = new Float64Array(DS_FLOATS);
+function prepararCfg(): Float64Array { prepararDesenho(cfgBench, fParams, 0 - 1, 0.0); return cfgBench; }
 
 const N = 500;
 const F = 300;
@@ -65,9 +67,7 @@ if (win <= 0) {
     while (w < 30 && isOpen(win)) {
       pump(win); beginFrame(win);
       setCam(win, 0.0, 26.0, 0.0 - 62.0, 0.0, 0.0 - 0.35, 1.0, 1.6);
-      drawSceneObjects(objs, trs, objs.length, scene, win, 0 - 1, 0.0,
-        fParams[0], fParams[1], fParams[2], fParams[3], fParams[4],
-        fParams[5], fParams[6], fParams[7], fParams[8]);
+      drawSceneObjects(scene, objs.length, win, prepararCfg());
       endFrame(win); w = w + 1;
     }
     // CRONÔMETRO SÓ NA EMISSÃO. O frame inteiro é dominado pelo present/vsync —
@@ -82,9 +82,7 @@ if (win <= 0) {
       beginFrame(win);
       setCam(win, 0.0, 26.0, 0.0 - 62.0, 0.0, 0.0 - 0.35, 1.0, 1.6);
       const e0 = performance.now();
-      desenhados = drawSceneObjects(objs, trs, objs.length, scene, win, 0 - 1, 0.0,
-        fParams[0], fParams[1], fParams[2], fParams[3], fParams[4],
-        fParams[5], fParams[6], fParams[7], fParams[8]);
+      desenhados = drawSceneObjects(scene, objs.length, win, prepararCfg());
       acc = acc + (performance.now() - e0);
       endFrame(win);
       frames = frames + 1;

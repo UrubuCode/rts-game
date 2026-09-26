@@ -101,7 +101,8 @@ export class InspectorGUIEditor extends InspectorUI {
   button(rotulo: string): boolean {
     const k = this.proxima(); let clicado = false;
     if (this.insp.visible(this.y, L.rowH)) {
-      const b = this.insp.ui.control(k, "button", this.colunaX(), this.y, this.colunaW(), L.rowH, rotulo, this.insp.enabledInput);
+      this.insp.ui.at(this.colunaX(), this.y, this.colunaW(), L.rowH);
+      const b = this.insp.ui.control(k, "button", rotulo, this.insp.enabledInput);
       this.insp.ui.draw(b); clicado = b.clicked;
     }
     this.y = this.y + L.rowH;
@@ -110,7 +111,8 @@ export class InspectorGUIEditor extends InspectorUI {
   toggle(rotulo: string, valor: boolean): boolean {
     const k = this.proxima(); let novo = valor;
     if (this.insp.visible(this.y, L.rowH)) {
-      const t = this.insp.ui.control(k, "toggle", this.colunaX(), this.y, this.colunaW(), L.rowH, rotulo, this.insp.enabledInput);
+      this.insp.ui.at(this.colunaX(), this.y, this.colunaW(), L.rowH);
+      const t = this.insp.ui.control(k, "toggle", rotulo, this.insp.enabledInput);
       t.value = valor ? 1 : 0; this.insp.ui.draw(t);
       if ((t.value !== 0) !== valor) { this.insp.snapshot(); novo = t.value !== 0; }
     }
@@ -120,8 +122,8 @@ export class InspectorGUIEditor extends InspectorUI {
   slider(rotulo: string, valor: number, min: number, max: number): number {
     const k = this.proxima(); let novo = valor;
     if (this.insp.visible(this.y, L.rowH) && max > min) {
-      const s = this.insp.ui.control(k, "timeline", this.colunaX(), this.y, this.colunaW(), L.rowH,
-        this.textoValor(rotulo, valor, max - min < G.fineRange ? G.fineDigits : G.digits), this.insp.enabledInput);
+      this.insp.ui.at(this.colunaX(), this.y, this.colunaW(), L.rowH);
+      const s = this.insp.ui.control(k, "timeline", this.textoValor(rotulo, valor, max - min < G.fineRange ? G.fineDigits : G.digits), this.insp.enabledInput);
       s.value = (valor - min) / (max - min);
       this.insp.ui.draw(s);
       const slot = this.slot;
@@ -140,7 +142,8 @@ export class InspectorGUIEditor extends InspectorUI {
   color(rotulo: string, rgb: number): number {
     const k = this.proxima(); let novo = rgb;
     if (this.insp.visible(this.y, L.rowH)) {
-      const f = this.insp.ui.control(k, "propertyText", this.colunaX(), this.y, this.colunaW(), L.rowH, rotulo, this.insp.enabledInput);
+      this.insp.ui.at(this.colunaX(), this.y, this.colunaW(), L.rowH);
+      const f = this.insp.ui.control(k, "propertyText", rotulo, this.insp.enabledInput);
       const s = this.slot;
       const app = this.insp.ui.app;
       // Com o foco neste campo (do mesmo componente), continua o rascunho;
@@ -164,8 +167,8 @@ export class InspectorGUIEditor extends InspectorUI {
   dropdown(rotulo: string, opcoes: string[], indice: number): number {
     const k = this.proxima(); let novo = indice;
     if (this.insp.visible(this.y, L.rowH) && opcoes.length > 0) {
-      const b = this.insp.ui.control(k, "button", this.colunaX(), this.y, this.colunaW(), L.rowH,
-        this.texto(rotulo, G.valueSeparator, opcoes[indice]), this.insp.enabledInput);
+      this.insp.ui.at(this.colunaX(), this.y, this.colunaW(), L.rowH);
+      const b = this.insp.ui.control(k, "button", this.texto(rotulo, G.valueSeparator, opcoes[indice]), this.insp.enabledInput);
       this.insp.ui.draw(b);
       if (b.clicked) { this.insp.snapshot(); novo = (indice + 1) % opcoes.length; }
     }

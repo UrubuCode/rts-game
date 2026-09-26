@@ -30,6 +30,7 @@ import { initAudio, pumpAudio, playNoise, playSquare } from "@engine/audio/audio
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
@@ -438,8 +439,8 @@ function frame(): void {
 
   pumpAudio();
 
-  app.text(14, 12, "CASTELO SOB FOGO — tiro " + shots + "/" + SHOTS_PER_ROUND + "   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
-  app.text(14, 34, "WASD voa | botao DIR gira | R reconstroi o castelo", 0x90A8C0FF, 12);
+  texto(14, 12, "CASTELO SOB FOGO — tiro " + shots + "/" + SHOTS_PER_ROUND + "   fps " + math.floor(app.fps()), estiloTexto(0xD8E8FFFF, 15));
+  texto(14, 34, "WASD voa | botao DIR gira | R reconstroi o castelo", estiloTexto(0x90A8C0FF, 12));
   app.endFrame();
   if (frames % 300 === 0) { dtSum = 0.0; dtMax = 0.0; }
 }

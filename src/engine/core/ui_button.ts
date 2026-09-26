@@ -9,9 +9,9 @@
 
 import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { anchorX, anchorY, hitRect, ANCHOR_TL } from "@engine/ui/anchor";
-import render from "@compat/render.ts";
 import input from "rts:input";
 
+import { caixa, estiloTexto, pincel, texto } from "@compat/draw2d.ts";
 /**
  * @componentCategory UI
  * @componentDescription Botão na tela do jogo; o clique chega em onUIClick(label) dos scripts do mesmo objeto.
@@ -52,10 +52,10 @@ export class UIButton extends Behavior {
     const my: f64 = input.mouseY(win);
     this.hot = hitRect(mx, my, x, y, this.w, this.h);
     this.clicked = (this.hot !== 0 && input.mousePressed(win, 0)) ? 1 : 0;
-    render.rect(win, x, y, this.w, this.h, this.hot !== 0 ? this.hoverColor : this.color, 1, 0x00000088, 5);
+    pincel(this.hot !== 0 ? this.hoverColor : this.color, 1, 0x00000088, 5); caixa(x, y, this.w, this.h);
     const size: f64 = 14;
     const tw: f64 = this.label.length * size * 0.6;
-    render.text(win, x + (this.w - tw) * 0.5, y + (this.h - size) * 0.5, this.label, this.textColor, size, 0);
+    texto(x + (this.w - tw) * 0.5, y + (this.h - size) * 0.5, this.label, estiloTexto(this.textColor, size));
   }
 
   uiClicked(): number { return this.clicked; }

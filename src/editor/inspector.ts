@@ -78,6 +78,8 @@ export class Inspector extends Behavior {
   meshHot: number = 0;
   textureHot: number = 0;
   top: number = 0; bottom: number = 0;
+  areaX: number = 0; areaY: number = 0; areaW: number = 0; areaH: number = 0;
+  inMx: number = 0; inMy: number = 0; inDown: number = 0; inPressed: number = 0;
   x: number = 0; width: number = 0;
   enabledInput: boolean = true;
   scrollbarDrag: boolean = false;
@@ -110,13 +112,14 @@ export class Inspector extends Behavior {
   visible(y: number, height: number): boolean { return y >= this.top && y + height <= this.bottom; }
   label(key: string, y: number, text: string): void {
     if (!this.visible(y, L.rowH)) return;
-    const label = this.ui.control(key, "label", this.x + L.padding, y, this.width - L.padding * 2, L.rowH, text, false);
+    this.ui.at(this.x + L.padding, y, this.width - L.padding * 2, L.rowH);
+    const label = this.ui.control(key, "label", text, false);
     this.ui.draw(label);
   }
   header(key: string, y: number, text: string, expanded: boolean): boolean {
     if (!this.visible(y, L.headerH)) return expanded;
-    const header = this.ui.control(key, "header", this.x + L.padding, y, this.width - L.padding * 2,
-      L.headerH, (expanded ? "v  " : ">  ") + text, this.enabledInput);
+    this.ui.at(this.x + L.padding, y, this.width - L.padding * 2, L.headerH);
+    const header = this.ui.control(key, "header", (expanded ? "v  " : ">  ") + text, this.enabledInput);
     header.fill = UI_C.componentHeader;
     this.ui.draw(header);
     return header.clicked ? !expanded : expanded;
@@ -125,8 +128,8 @@ export class Inspector extends Behavior {
   /// `key + "/Field/" + fieldIndex`. Usada pela lista automática e por `ui.field(nome)`.
   fieldRow(component: Behavior, key: string, fieldIndex: number, rowY: number): void {
     const fieldType = component.fieldType(fieldIndex);
-    const field = this.ui.control(key + "/Field/" + fieldIndex, fieldType === "boolean" ? "toggle" : fieldType === "string" ? "propertyText" : "number",
-      this.x + L.padding + L.gap, rowY, this.width - L.padding * 2 - L.gap, L.rowH, component.fieldLabel(fieldIndex), this.enabledInput);
+    this.ui.at(this.x + L.padding + L.gap, rowY, this.width - L.padding * 2 - L.gap, L.rowH);
+    const field = this.ui.control(key + "/Field/" + fieldIndex, fieldType === "boolean" ? "toggle" : fieldType === "string" ? "propertyText" : "number", component.fieldLabel(fieldIndex), this.enabledInput);
     if (fieldType === "string") {
       const before = component.fieldStringGet(fieldIndex);
       field.textValue = before; this.ui.draw(field);
@@ -137,8 +140,10 @@ export class Inspector extends Behavior {
       if (field.value !== before) { this.snapshot(); component.fieldSet(fieldIndex, field.value); scene.markCollidersDirty(); }
     }
   }
-  vector(key: string, y: number, label: string, values: number[], namesArg?: string[]): number[] {
-    const names = namesArg !== undefined ? namesArg : UI_AXIS_NAMES;
+  /// Nomes dos eixos do próximo `vector` (volta a UI_AXIS_NAMES depois dele).
+  vectorNames: string[] = UI_AXIS_NAMES;
+  vector(key: string, y: number, label: string, values: number[]): number[] {
+    const names = this.vectorNames; this.vectorNames = UI_AXIS_NAMES;
     if (!this.visible(y, L.rowH)) return values;
     this.label(key + "/Label", y, label);
     const colors = [AXIS_X, AXIS_Y, AXIS_Z];
@@ -146,9 +151,8 @@ export class Inspector extends Behavior {
     const fieldWidth = (this.width - L.padding * 2 - L.labelW - L.axisGap * 2) / 3;
     let axisIndex = 0;
     while (axisIndex < names.length) {
-      const axis = this.ui.control(key + "/" + names[axisIndex], "axis",
-        valueX + axisIndex * (fieldWidth + L.axisGap), y, fieldWidth, L.rowH,
-        names[axisIndex], this.enabledInput);
+      this.ui.at(valueX + axisIndex * (fieldWidth + L.axisGap), y, fieldWidth, L.rowH);
+      const axis = this.ui.control(key + "/" + names[axisIndex], "axis", names[axisIndex], this.enabledInput);
       axis.color = colors[axisIndex]; axis.value = values[axisIndex];
       this.ui.draw(axis);
       if (axis.value !== values[axisIndex]) { this.snapshot(); values[axisIndex] = axis.value; }
@@ -193,8 +197,8 @@ export class Inspector extends Behavior {
         let parent = asset.boneParent[bone];
         while (parent >= 0 && depth < K.maxIndentDepth) { depth = depth + 1; parent = asset.boneParent[parent]; }
         const indent = depth * K.boneIndent;
-        const row = this.ui.control("Skeleton/Bone/" + bone, "row", innerX + indent, rowY, innerW - indent,
-          K.boneRowH, asset.boneNames[bone], this.enabledInput);
+        this.ui.at(innerX + indent, rowY, innerW - indent, K.boneRowH);
+        const row = this.ui.control("Skeleton/Bone/" + bone, "row", asset.boneNames[bone], this.enabledInput);
         row.fill = bone === S.selectedBone ? UI_C.boneSelected : UI_C.boneRow;
         this.ui.draw(row);
         // clicar no osso já selecionado devolve o gizmo ao objeto
@@ -226,8 +230,8 @@ export class Inspector extends Behavior {
     while (clipIndex < asset.clips.length) {
       const clip = asset.clips[clipIndex];
       if (this.visible(rowY, K.clipRowH)) {
-        const button = this.ui.control("Skeleton/Clip/" + clipIndex, "button", innerX, rowY, innerW, K.clipRowH,
-          this.clipLabels[clipIndex], this.enabledInput);
+        this.ui.at(innerX, rowY, innerW, K.clipRowH);
+        const button = this.ui.control("Skeleton/Clip/" + clipIndex, "button", this.clipLabels[clipIndex], this.enabledInput);
         if (clip.name === player.clip) button.fill = UI_C.clipActive;
         this.ui.draw(button);
         if (button.clicked && clip.name !== player.clip) {
@@ -245,15 +249,16 @@ export class Inspector extends Behavior {
     if (this.visible(rowY, L.rowH)) {
       const playing = simulating ? player.playing : previewIsPlaying(player);
       const halfW = (innerW - K.buttonGap) / 2;
-      const toggle = this.ui.control("Skeleton/Play", "button", innerX, rowY, halfW, L.rowH,
-        playing ? K.pause : K.play, canPlay);
+      this.ui.at(innerX, rowY, halfW, L.rowH);
+      const toggle = this.ui.control("Skeleton/Play", "button", playing ? K.pause : K.play, canPlay);
       this.ui.draw(toggle);
       if (toggle.clicked) {
         if (simulating) { if (playing) player.pause(); else player.resume(); }
         else if (playing) previewPause(player);
         else previewStart(player);
       }
-      const stop = this.ui.control("Skeleton/Stop", "button", innerX + halfW + K.buttonGap, rowY, halfW, L.rowH, K.stop, canPlay);
+      this.ui.at(innerX + halfW + K.buttonGap, rowY, halfW, L.rowH);
+      const stop = this.ui.control("Skeleton/Stop", "button", K.stop, canPlay);
       this.ui.draw(stop);
       if (stop.clicked) {
         if (simulating) { player.pause(); player.seek(0.0); }
@@ -266,7 +271,8 @@ export class Inspector extends Behavior {
         this.timelineTime = player.time; this.timelineDuration = duration;
         this.timelineLabel = player.time.toFixed(K.timeDigits) + K.timeSeparator + duration.toFixed(K.timeDigits) + K.timeUnit;
       }
-      const timeline = this.ui.control("Skeleton/Time", "timeline", innerX, rowY, innerW, K.timelineH, this.timelineLabel, canPlay);
+      this.ui.at(innerX, rowY, innerW, K.timelineH);
+      const timeline = this.ui.control("Skeleton/Time", "timeline", this.timelineLabel, canPlay);
       timeline.value = duration > 0.0 ? player.time / duration : 0;
       this.ui.draw(timeline);
       if (timeline.hot !== 0) {
@@ -276,7 +282,8 @@ export class Inspector extends Behavior {
     }
     rowY = rowY + K.timelineH + L.gap;
     if (this.visible(rowY, L.rowH)) {
-      const reset = this.ui.control("Skeleton/Reset", "button", innerX, rowY, innerW, L.rowH, K.resetPose, this.enabledInput);
+      this.ui.at(innerX, rowY, innerW, L.rowH);
+      const reset = this.ui.control("Skeleton/Reset", "button", K.resetPose, this.enabledInput);
       this.ui.draw(reset);
       // repouso + fim da prévia deste player (senão o clipe continuaria por cima)
       if (reset.clicked) { this.snapshot(); skeleton.resetPose(); previewStop(player); }
@@ -306,7 +313,8 @@ export class Inspector extends Behavior {
     const error = animator.errorText();
     if (error !== "") {
       if (this.visible(rowY, L.rowH)) {
-        const label = this.ui.control("Animator/Error", "label", innerX, rowY, innerW, L.rowH, A.error + error, false);
+        this.ui.at(innerX, rowY, innerW, L.rowH);
+        const label = this.ui.control("Animator/Error", "label", A.error + error, false);
         label.color = UI_C.animatorError; this.ui.draw(label);
       }
       return rowY + L.rowH + L.gap;
@@ -324,15 +332,18 @@ export class Inspector extends Behavior {
         const key = "Animator/Param/" + param;
         const name = animator.paramName(param);
         if (type === PARAM_FLOAT) {
-          const field = this.ui.control(key, "number", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          this.ui.at(innerX, rowY, innerW, rowH);
+          const field = this.ui.control(key, "number", name, this.enabledInput);
           field.value = value; this.ui.draw(field);
           if (field.value !== value) { animator.setFloatAt(param, field.value); animatorPreviewTouch(animator); }
         } else if (type === PARAM_BOOL) {
-          const box = this.ui.control(key, "toggle", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          this.ui.at(innerX, rowY, innerW, rowH);
+          const box = this.ui.control(key, "toggle", name, this.enabledInput);
           box.value = value !== 0.0 ? 1 : 0; this.ui.draw(box);
           if ((box.value !== 0) !== (value !== 0.0)) { animator.setBoolAt(param, box.value !== 0); animatorPreviewTouch(animator); }
         } else {
-          const button = this.ui.control(key, "button", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          this.ui.at(innerX, rowY, innerW, rowH);
+          const button = this.ui.control(key, "button", name, this.enabledInput);
           button.fill = value !== 0.0 ? UI_C.triggerArmed : UI_C.controlIdle;
           this.ui.draw(button);
           if (button.clicked) { animator.setTriggerAt(param); animatorPreviewTouch(animator); }
@@ -354,7 +365,8 @@ export class Inspector extends Behavior {
     }
     if (S.simulating === 0 && animatorPreviewIsActive(animator)) {
       if (this.visible(rowY, L.rowH)) {
-        const stop = this.ui.control("Animator/StopPreview", "button", innerX, rowY, innerW, L.rowH, A.stopPreview, this.enabledInput);
+        this.ui.at(innerX, rowY, innerW, L.rowH);
+        const stop = this.ui.control("Animator/StopPreview", "button", A.stopPreview, this.enabledInput);
         this.ui.draw(stop);
         if (stop.clicked) animatorPreviewStop(animator);
       }
@@ -407,7 +419,8 @@ export class Inspector extends Behavior {
     const yaw = degrees[0]; const pitch = degrees[1]; const roll = degrees[2];
     const rotationValues = this.boneRotationValues;
     rotationValues[0] = yaw; rotationValues[1] = pitch; rotationValues[2] = roll;
-    const rotation = this.vector("Skeleton/BoneRotation", rowY, K.boneRotation, rotationValues, K.rotationAxes);
+    this.vectorNames = K.rotationAxes;
+    const rotation = this.vector("Skeleton/BoneRotation", rowY, K.boneRotation, rotationValues);
     if (rotation[0] !== yaw || rotation[1] !== pitch || rotation[2] !== roll) {
       beginBoneEdit(skeleton);
       boneRotationFromDegreesInto(this.boneQuat, rotation[0], rotation[1], rotation[2]);
@@ -468,13 +481,13 @@ export class Inspector extends Behavior {
       const key = this.compChave[c];
       const expanded = component.collapsed === 0;
       if (this.visible(rowY, L.headerH)) {
-        const heading = this.ui.control(this.compHeader[c], "header", this.x + L.padding, rowY,
-          this.width - L.padding * 2 - L.iconW - L.gap, L.headerH,
-          this.tituloComponente(c, component, expanded), this.enabledInput);
+        this.ui.at(this.x + L.padding, rowY, this.width - L.padding * 2 - L.iconW - L.gap, L.headerH);
+        const heading = this.ui.control(this.compHeader[c], "header", this.tituloComponente(c, component, expanded), this.enabledInput);
         heading.fill = UI_C.componentHeader; this.ui.draw(heading);
         if (heading.clicked) { component.collapsed = expanded ? 1 : 0; nfCancel(); }
         if (editavel) {
-          const remove = this.ui.control(this.compRemove[c], "button", this.x + this.width - L.padding - L.iconW, rowY, L.iconW, L.headerH, "x", this.enabledInput);
+          this.ui.at(this.x + this.width - L.padding - L.iconW, rowY, L.iconW, L.headerH);
+          const remove = this.ui.control(this.compRemove[c], "button", "x", this.enabledInput);
           remove.color = UI_C.destructiveText; this.ui.draw(remove);
           if (remove.clicked) removeIndex = componentIndex;
         }
@@ -482,8 +495,8 @@ export class Inspector extends Behavior {
       rowY = rowY + L.headerH + L.gap;
       if (component.collapsed === 0) {
         if (editavel && this.visible(rowY, L.rowH)) {
-          const enabled = this.ui.control(this.compEnabled[c], "toggle", this.x + L.padding + L.gap, rowY,
-            this.width - L.padding * 2, L.rowH, L.active, this.enabledInput);
+          this.ui.at(this.x + L.padding + L.gap, rowY, this.width - L.padding * 2, L.rowH);
+          const enabled = this.ui.control(this.compEnabled[c], "toggle", L.active, this.enabledInput);
           enabled.value = component.enabled; this.ui.draw(enabled);
           if (enabled.value !== component.enabled) { this.snapshot(); component.enabled = enabled.value; scene.markCollidersDirty(); }
         }
@@ -529,7 +542,8 @@ export class Inspector extends Behavior {
     const janela = this.janela as GameObject;
     const x = this.x; const width = this.width;
     // a linha do nome do objeto: logo abaixo do título do painel (this.top - objectH = y + headerH)
-    const titulo = this.ui.control(L.windowTitleKey, "label", x + L.padding, this.top - L.objectH + L.gap, width - L.padding * 2, L.rowH, this.janelaNome, false);
+    this.ui.at(x + L.padding, this.top - L.objectH + L.gap, width - L.padding * 2, L.rowH);
+    const titulo = this.ui.control(L.windowTitleKey, "label", this.janelaNome, false);
     this.ui.draw(titulo);
     const available = Math.max(0, this.bottom - this.top);
     const maxBefore = Math.max(0, this.contentHeight - available);
@@ -542,9 +556,17 @@ export class Inspector extends Behavior {
     this.scroll = Math.min(this.scroll, Math.max(0, this.contentHeight - available));
     this.ui.end();
   }
-  render(app: any, x: number, y: number, width: number, height: number,
-         mx: number, my: number, down: number, pressed: number, blocked: boolean,
-         modelDrag: number, textureDrag: number): void {
+  /// Área do painel (chamar antes de `render`; ≤ 4 parâmetros por chamada).
+  area(x: number, y: number, width: number, height: number): void {
+    this.areaX = x; this.areaY = y; this.areaW = width; this.areaH = height;
+  }
+  /// Mouse do quadro (chamar antes de `render`).
+  mouse(mx: number, my: number, down: number, pressed: number): void {
+    this.inMx = mx; this.inMy = my; this.inDown = down; this.inPressed = pressed;
+  }
+  render(app: any, blocked: boolean, modelDrag: number, textureDrag: number): void {
+    const x = this.areaX; const y = this.areaY; const width = this.areaW; const height = this.areaH;
+    const mx = this.inMx; const my = this.inMy; const down = this.inDown; const pressed = this.inPressed;
     this.ui.begin(mx, my, down, pressed);
     this.x = x; this.width = width; this.changed = false;
     this.meshHot = 0; this.textureHot = 0;
@@ -562,24 +584,28 @@ export class Inspector extends Behavior {
     if (this.janela !== null && S.selected !== this.janelaSel) this.janela = null;
     if (blocked) { this.opened = 0; nfCancel(); }
     this.enabledInput = !blocked && this.opened === 0;
-    const background = this.ui.control("Background", "panel", x, y, width, height, "", false);
+    this.ui.at(x, y, width, height);
+    const background = this.ui.control("Background", "panel", "", false);
     background.fill = UI_C.panel; this.ui.draw(background);
-    const title = this.ui.control("Title", "header", x, y, width, L.headerH, L.title, false);
+    this.ui.at(x, y, width, L.headerH);
+    const title = this.ui.control("Title", "header", L.title, false);
     title.fill = UI_C.panelHeader; this.ui.draw(title);
     this.top = y + L.headerH + L.objectH;
     this.bottom = y + height - L.footerH;
     if (this.janela !== null) { this.renderJanela(mx, my); return; }
     if (selected === null) { this.label("Empty", this.top, L.empty); this.label("EmptyHint", this.top + L.rowH, L.emptyHint); return; }
     const object: GameObject = selected;
-    const name = this.ui.control("Name", "text", x + L.padding, y + L.headerH + L.gap,
-      width - L.padding * 2, L.rowH, "", this.enabledInput);
+    this.ui.at(x + L.padding, y + L.headerH + L.gap, width - L.padding * 2, L.rowH);
+    const name = this.ui.control("Name", "text", "", this.enabledInput);
     name.id = L.nameId; name.textValue = object.name; this.ui.draw(name);
     if (name.textValue !== object.name) { this.snapshot(); object.name = name.textValue; }
     const flagsY = y + L.headerH + L.gap + L.rowH;
-    const active = this.ui.control("Active", "toggle", x + L.padding, flagsY, width / 2, L.rowH, L.active, this.enabledInput);
+    this.ui.at(x + L.padding, flagsY, width / 2, L.rowH);
+    const active = this.ui.control("Active", "toggle", L.active, this.enabledInput);
     active.value = object.active; this.ui.draw(active);
     if (active.value !== object.active) { this.snapshot(); object.active = active.value; scene.markCollidersDirty(); }
-    const stationary = this.ui.control("Static", "toggle", x + width / 2, flagsY, width / 2 - L.padding, L.rowH, L.stationary, this.enabledInput);
+    this.ui.at(x + width / 2, flagsY, width / 2 - L.padding, L.rowH);
+    const stationary = this.ui.control("Static", "toggle", L.stationary, this.enabledInput);
     stationary.value = object.stationary; this.ui.draw(stationary);
     if (stationary.value !== object.stationary) { this.snapshot(); object.stationary = stationary.value; scene.markStaticDirty(); }
     const available = Math.max(0, this.bottom - this.top);
@@ -593,8 +619,8 @@ export class Inspector extends Behavior {
       this.label("Parent/Name", rowY, L.parent + scene.objects[object.parent].name);
       rowY = rowY + L.rowH;
       if (this.visible(rowY, L.rowH)) {
-        const unparent = this.ui.control("Parent/Detach", "button", x + L.padding, rowY,
-          width - L.padding * 2, L.rowH, L.unparent, this.enabledInput);
+        this.ui.at(x + L.padding, rowY, width - L.padding * 2, L.rowH);
+        const unparent = this.ui.control("Parent/Detach", "button", L.unparent, this.enabledInput);
         this.ui.draw(unparent);
         if (unparent.clicked) {
           this.snapshot();
@@ -633,15 +659,16 @@ export class Inspector extends Behavior {
       rowY = rowY + L.headerH + L.gap;
       if (this.appearanceOpen) {
         if (this.visible(rowY, L.rowH)) {
-          const mesh = this.ui.control("Appearance/Mesh", "asset", x + L.padding, rowY, width - L.padding * 2, L.rowH, L.mesh, this.enabledInput);
+          this.ui.at(x + L.padding, rowY, width - L.padding * 2, L.rowH);
+          const mesh = this.ui.control("Appearance/Mesh", "asset", L.mesh, this.enabledInput);
           const kind = object.rendIdx >= 0 ? object.behaviors[object.rendIdx].rMeshKind() : object.meshKind;
           mesh.textValue = object.meshPath.length > 0 ? object.meshPath : UI_MESH_NAMES[Math.max(0, Math.min(UI_MESH_NAMES.length - 1, kind))];
           mesh.value = modelDrag; this.ui.draw(mesh); this.meshHot = mesh.hot;
         }
         rowY = rowY + L.rowH;
         if (this.visible(rowY, L.rowH)) {
-          const cycle = this.ui.control("Appearance/ChangeMesh", "button", x + L.padding, rowY,
-            width - L.padding * 2, L.rowH, L.changeMesh, this.enabledInput);
+          this.ui.at(x + L.padding, rowY, width - L.padding * 2, L.rowH);
+          const cycle = this.ui.control("Appearance/ChangeMesh", "button", L.changeMesh, this.enabledInput);
           this.ui.draw(cycle);
           if (cycle.clicked) {
             this.snapshot();
@@ -658,7 +685,8 @@ export class Inspector extends Behavior {
         }
         rowY = rowY + L.rowH;
         if (this.visible(rowY, L.rowH)) {
-          const texture = this.ui.control("Appearance/Texture", "asset", x + L.padding, rowY, width - L.padding * 2, L.rowH, L.texture, this.enabledInput);
+          this.ui.at(x + L.padding, rowY, width - L.padding * 2, L.rowH);
+          const texture = this.ui.control("Appearance/Texture", "asset", L.texture, this.enabledInput);
           texture.textValue = object.matIdx >= 0 ? object.behaviors[object.matIdx].matTexPath() : "";
           texture.value = textureDrag; this.ui.draw(texture); this.textureHot = texture.hot;
         }
@@ -678,20 +706,21 @@ export class Inspector extends Behavior {
       if (this.enabledInput && pressed !== 0 && mx >= x + width - L.scrollbarHitW && mx < x + width && my >= this.top && my < this.bottom) this.scrollbarDrag = true;
       if (down === 0 || !this.enabledInput) this.scrollbarDrag = false;
       if (this.scrollbarDrag) { this.scroll = Math.max(0, Math.min(maxScroll, (my - this.top - thumbH / 2) / (available - thumbH) * maxScroll)); nfCancel(); }
-      const scrollbar = this.ui.control("Scrollbar", "panel", x + width - L.scrollbarW,
-        this.top + (available - thumbH) * this.scroll / maxScroll, L.scrollbarW, thumbH, "", false);
+      this.ui.at(x + width - L.scrollbarW, this.top + (available - thumbH) * this.scroll / maxScroll, L.scrollbarW, thumbH);
+      const scrollbar = this.ui.control("Scrollbar", "panel", "", false);
       scrollbar.fill = UI_C.scrollbarThumb; this.ui.draw(scrollbar);
     }
-    const footer = this.ui.control("Footer", "panel", x, this.bottom, width, L.footerH, "", false);
+    this.ui.at(x, this.bottom, width, L.footerH);
+    const footer = this.ui.control("Footer", "panel", "", false);
     footer.fill = UI_C.panelHeader; this.ui.draw(footer);
-    const add = this.ui.control("AddComponent", "button", x + L.padding, this.bottom + L.gap,
-      width - L.padding * 2, L.rowH, "+ " + P.title, !blocked);
+    this.ui.at(x + L.padding, this.bottom + L.gap, width - L.padding * 2, L.rowH);
+    const add = this.ui.control("AddComponent", "button", "+ " + P.title, !blocked);
     this.ui.draw(add);
     if (add.clicked) { this.opened = this.opened === 0 ? 1 : 0; nfCancel(); if (this.opened !== 0) this.picker.begin(app); else app.setFocus(0 - 1); }
     if (this.opened !== 0) {
-      const chosen = this.picker.render(this.ui.scene, app, x + L.padding, this.bottom - L.gap,
-        width - L.padding * 2, y + L.headerH, mx, my,
-        add.clicked || (mx >= x && my >= this.bottom) ? 0 : pressed, input.wheel(app._win));
+      this.picker.place(x + L.padding, this.bottom - L.gap, width - L.padding * 2, y + L.headerH);
+      this.picker.mouse(mx, my, add.clicked || (mx >= x && my >= this.bottom) ? 0 : pressed, input.wheel(app._win));
+      const chosen = this.picker.render(this.ui.scene, app);
       if (chosen.length > 0) {
         this.snapshot();
         const added = attachEditorComponent(S.selected, chosen);

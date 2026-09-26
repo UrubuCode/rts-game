@@ -34,7 +34,7 @@
 
 import math from "../compat/math.ts";
 import fs from "../compat/fs.ts";
-import render from "../compat/render.ts";
+import { imagemEm, imagem, janelaAtual2D } from "@compat/draw2d.ts";
 
 import { parseObj, parseGltf, primitivePart, Part } from "../engine/render/model";
 
@@ -63,12 +63,14 @@ export function clearThumbs(): void {
 /// Desenha o thumbnail do asset em (x,y,s). Devolve 1 se desenhou algo real,
 /// 0 se não há preview (o chamador então desenha o ícone genérico).
 /// Gera sob demanda no primeiro frame em que o tile aparece.
-export function drawThumb(win: number, path: string, kind: number, x: number, y: number, s: number): number {
-  const buf = getThumb(win, path, kind);
+/// Quadrado (x, y, lado) da próxima `drawThumb` (≤ 4 parâmetros por chamada).
+export function thumbAt(x: number, y: number, s: number): void { thX = x; thY = y; thS = s; }
+let thX = 0.0; let thY = 0.0; let thS = 0.0;
+export function drawThumb(path: string, kind: number): number {
+  const buf = getThumb(janelaAtual2D(), path, kind);
   if (buf === null) return 0;
-  // A view no lugar do endereço: era `buffer.ptr(buf)`, e é a única mudança
-  // deste caminho — o `drawImage` do motor novo lê o comprimento da própria view.
-  render.image(win, x, y, s, s, buf, TH_SIZE, TH_SIZE);
+  imagemEm(thX, thY, thS, thS);
+  imagem(buf, TH_SIZE, TH_SIZE);
   return 1;
 }
 

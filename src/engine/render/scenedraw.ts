@@ -11,7 +11,8 @@ import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { Scene } from "../core/scene";
 import { renderX, renderY, renderZ } from "../core/interpolate";
-import { drawGPU, drawGPUMesh, drawBatch, meshIdFor, meshRadius, frustumNear, frustumFar } from "./gpu3d";
+import { drawGPUMeshBuf, drawBatch, meshIdFor, meshRadius, frustumNear, frustumFar,
+         DRAW_FLOATS, D_X, D_Y, D_Z, D_RX, D_RY, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX, D_TILE } from "./gpu3d";
 import { resolveMaterialTexture } from "./material_tex";
 
 // ── LOTE: os buffers de instância, REAPROVEITADOS entre frames ──────────────
@@ -36,6 +37,24 @@ function garanteCapacidade(n: number): void {
 // binário — entre dois builds o ruído é maior que o efeito — e não é uma opção
 // de jogo: o editor usa o lote, que é o default.
 let emitirEmLote = 1;
+// Views do lote do quadro anterior (reaproveitadas enquanto o tamanho não muda).
+let viewT: Float32Array = new Float32Array(0);
+let viewC: Uint32Array = new Uint32Array(0);
+let viewN = 0 - 1;
+/// Transform/material do desenho individual (DRAW_FLOATS), reaproveitado.
+const drawBuf = new Float64Array(DRAW_FLOATS);
+/// Posição de render de quem se desenha sozinho (Skeleton), reaproveitada.
+const posSelf = new Float64Array(3);
+
+/// `cfg` de `drawSceneObjects`: [0] selecionado, [1] alpha, [2..10] os 9 números de `fParams`.
+export const DS_SEL = 0; export const DS_ALPHA = 1; export const DS_F = 2;
+export const DS_FLOATS = 11;
+/// Preenche `cfg` com a seleção, o alpha e o frustum `fp` (os 9 números de `fParams`).
+export function prepararDesenho(cfg: Float64Array, fp: f64[], selected: number, alpha: f64): void {
+  cfg[DS_SEL] = selected; cfg[DS_ALPHA] = alpha;
+  let i = 0;
+  while (i < 9) { cfg[DS_F + i] = fp[i]; i = i + 1; }
+}
 export function setDrawBatch(on: number): void { emitirEmLote = on; }
 
 /// Os 9 números do frustum, buffer REAPROVEITADO entre frames: alocar um array
@@ -83,11 +102,18 @@ const SELECTED_COLOR: number = (255 << 16) | (230 << 8) | 120;
 /// dentro custaria de volta as leituras de módulo que são o objeto do exercício;
 /// `frustumParams` garante que os NÚMEROS venham de uma fonte só, mesmo com a
 /// conta escrita em dois lugares. Se o teste de frustum mudar, muda nos dois.
-export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number,
-                          sc: Scene, win: number, selected: number, alpha: f64,
-                          cx: f64, cy: f64, cz: f64,
-                          cyw: f64, syw: f64, cpt: f64, spt: f64,
-                          tanH: f64, tanV: f64): number {
+///
+/// Task 10.5: eram 16 parâmetros, e 5+ parâmetros alocam por chamada no RTS.
+/// O frustum, a seleção e o alpha chegam em `cfg` (ver `prepararDesenho`) e são
+/// lidos para LOCAIS aqui, uma vez por chamada — o que o parágrafo acima pede
+/// (nada de leitura de módulo dentro do laço) continua valendo.
+export function drawSceneObjects(sc: Scene, n: number, win: number, cfg: Float64Array): number {
+  const objs: GameObject[] = sc.objects;
+  const trs: Transform[] = sc.trs;
+  const selected: number = cfg[DS_SEL]; const alpha: f64 = cfg[DS_ALPHA];
+  const cx: f64 = cfg[DS_F]; const cy: f64 = cfg[DS_F + 1]; const cz: f64 = cfg[DS_F + 2];
+  const cyw: f64 = cfg[DS_F + 3]; const syw: f64 = cfg[DS_F + 4]; const cpt: f64 = cfg[DS_F + 5]; const spt: f64 = cfg[DS_F + 6];
+  const tanH: f64 = cfg[DS_F + 7]; const tanV: f64 = cfg[DS_F + 8];
   let drawnN = 0;
   // Near/far do frustum preparado em gpu3d (frustumBegin/frustumBeginBuf):
   // uma leitura por chamada, fora do laço.
@@ -162,7 +188,8 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
     // Mesma posição de RENDER e mesmo destaque de seleção dos demais objetos.
     if (o.rendIdx >= 0 && o.behaviors[o.rendIdx].drawsSelf() !== 0) {
       const tint = o.selFlag !== 0 || oi === selected ? SELECTED_COLOR : 0 - 1;
-      if (o.behaviors[o.rendIdx].drawSelf(win, renderX(sc, oi, alpha), renderY(sc, oi, alpha), renderZ(sc, oi, alpha), tint) !== 0) {
+      posSelf[0] = renderX(sc, oi, alpha); posSelf[1] = renderY(sc, oi, alpha); posSelf[2] = renderZ(sc, oi, alpha);
+      if (o.behaviors[o.rendIdx].drawSelf(win, posSelf, tint) !== 0) {
         drawnN = drawnN + 1; oi = oi + 1; continue;
       }
     }
@@ -221,12 +248,12 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
         // igual: o pedido é que o editor desenhe idêntico.
         bufC[ct + 3] = texArg < 0 ? 0 : texArg;
         loteN = loteN + 1;
-      } else if (customMesh > 0) {
-        drawGPUMesh(win, customMesh, rx, ry, rz,
-          tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
       } else {
-        drawGPU(win, meshKind, rx, ry, rz,
-          tr.wrx, tr.wry, tr.sx, tr.sy, tr.sz, col, emisArg, texArg, tileArg);
+        const d = drawBuf;
+        d[D_X] = rx; d[D_Y] = ry; d[D_Z] = rz; d[D_RX] = tr.wrx; d[D_RY] = tr.wry;
+        d[D_SX] = tr.sx; d[D_SY] = tr.sy; d[D_SZ] = tr.sz;
+        d[D_COR] = col; d[D_EMISSIVO] = emisArg; d[D_TEX] = texArg; d[D_TILE] = tileArg;
+        drawGPUMeshBuf(win, customMesh > 0 ? customMesh : meshIdFor(meshKind), d);
       }
       drawnN = drawnN + 1;
     }
@@ -236,7 +263,12 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
   // o mesmo buffer — não copia — e é o que impede o nativo de ler as sobras do
   // frame anterior, que continuam no fim do array reaproveitado.
   if (emitirEmLote !== 0 && loteN > 0) {
-    drawBatch(win, bufT.subarray(0, loteN * 8), bufC.subarray(0, loteN * 4));
+    // As views só são refeitas quando o tamanho do lote (ou o buffer) muda: com a
+    // cena parada, nenhuma view nova por quadro.
+    if (loteN !== viewN || viewT.buffer !== bufT.buffer) {
+      viewT = bufT.subarray(0, loteN * 8); viewC = bufC.subarray(0, loteN * 4); viewN = loteN;
+    }
+    drawBatch(win, viewT, viewC);
   }
   return drawnN;
 }

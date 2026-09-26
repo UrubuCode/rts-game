@@ -23,6 +23,7 @@ import { Mover } from "@scripts/mover";
 import { Pulse } from "@scripts/pulse";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, inFrustum, winWidth, winHeight } from "@engine/render/gpu3d";
 
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 const PORT = 7777;
 
 // ── janela + câmera ──────────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ function present(): void {
     }
     oi = oi + 1;
   }
-  app.text(10, 8, "WebSocket :7777  |  objs " + scene.objects.length + "  frame " + frame + "  " + W + "x" + H, 0xFFFFFFE6, 14);
+  texto(10, 8, "WebSocket :7777  |  objs " + scene.objects.length + "  frame " + frame + "  " + W + "x" + H, estiloTexto(0xFFFFFFE6, 14));
   app.endFrame();
 }
 

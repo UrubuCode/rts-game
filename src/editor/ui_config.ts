@@ -160,6 +160,8 @@ export const UI_CONSOLE = {
   empty: "Nenhuma mensagem no Console", emptyFiltered: "Nenhuma mensagem corresponde aos filtros",
   hint: "Selecione uma mensagem para ver os detalhes", open: "Abrir fonte", details: "DETALHES",
   follow: "Acompanhar novas mensagens", paused: "Rolagem pausada", count: " mensagens",
+  /// Chaves dos controles (uma por nível, linha e linha de detalhe; criadas uma vez).
+  levelKeys: ["Level/0", "Level/1", "Level/2"], rowKey: "Row/", detailKey: "Detail/",
 };
 export const UI_ICONS = {
   directory: "assets/editor/icons/", maxPixels: 256,

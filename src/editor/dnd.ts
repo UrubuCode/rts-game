@@ -13,7 +13,7 @@ import { instantiatePrefab } from "./sceneio";
 import { sceneDocument } from "./scene_document";
 import { loadTexture } from "../engine/render/gpu3d";
 import { loadModel, isModelPath, SubMesh } from "../engine/render/model";
-import { screenToPlane, screenToForward, snapv } from "./gizmo";
+import { screenToGround, screenToForward, snapv, SNAP_MOVE_STEP } from "./gizmo";
 import { subStr } from "./widgets";
 
 /// Classifica um path em `kind` de drop pela EXTENSÃO — espelha o classify() do
@@ -51,24 +51,26 @@ export function baseName(path: string): string {
 /// Ponto do MUNDO sob um pixel da tela: intersecta o raio da câmera com o plano
 /// do chão (Y=0); se o raio não bater no chão (mirando o céu), cai 12 unidades à
 /// frente. Aplica o snap-to-grid quando S.snap está ligado. Devolve [x,y,z].
-export function groundAt(sx: f64, sy: f64, focalW: f64, W: f64, H: f64,
-                         cyw: f64, syw: f64, cpt: f64, spt: f64): f64[] {
-  let wx: f64 = 0.0; let wy: f64 = 0.0; let wz: f64 = 0.0;
-  const hit = screenToPlane(sx, sy, S.camX, S.camY, S.camZ, cyw, syw, cpt, spt, focalW, W, H, 0.0);
-  if (hit[3] !== 0.0) { wx = hit[0]; wy = hit[1]; wz = hit[2]; }
-  else {
-    const fwd = screenToForward(sx, sy, S.camX, S.camY, S.camZ, cyw, syw, cpt, spt, focalW, W, H, 12.0);
-    wx = fwd[0]; wy = fwd[1]; wz = fwd[2];
-  }
-  if (S.snap !== 0) { wx = snapv(wx, 0.5); wz = snapv(wz, 0.5); }
-  const out: f64[] = [wx, wy, wz];
-  return out;
+/// `out` (≥ 4 floats) recebe [x, y, z]. `v` = vista (gizmo.VISTA_FLOATS, ver `vistaDaSessao`).
+export function groundAt(out: Float64Array, v: Float64Array, sx: f64, sy: f64): void {
+  screenToGround(out, v, sx, sy);
+  if (out[3] === 0.0) screenToForward(out, v, sx, sy);
+  if (S.snap !== 0) { out[0] = snapv(out[0], SNAP_MOVE_STEP); out[2] = snapv(out[2], SNAP_MOVE_STEP); }
+}
+
+/// Preenche a vista `v` (gizmo.VISTA_FLOATS) com a câmera do editor (S) numa tela W×H com a `focal` dada.
+export function vistaDaSessao(v: Float64Array, W: f64, H: f64, focal: f64): void {
+  v[0] = S.camX; v[1] = S.camY; v[2] = S.camZ;
+  v[3] = Math.cos(S.camYaw); v[4] = Math.sin(S.camYaw);
+  v[5] = Math.cos(S.camPitch); v[6] = Math.sin(S.camPitch);
+  v[7] = focal; v[8] = W; v[9] = H;
 }
 
 /// Objeto sob um pixel da tela (centro projetado mais próximo, dentro de um raio).
 /// -1 = nenhum. Mesmo critério do picking de seleção do editor.
-export function pickAt(sx: f64, sy: f64, focalW: f64, W: f64, H: f64,
-                       cyw: f64, syw: f64, cpt: f64, spt: f64): number {
+export function pickAt(v: Float64Array, sx: f64, sy: f64): number {
+  const cyw = v[3]; const syw = v[4]; const cpt = v[5]; const spt = v[6];
+  const focalW = v[7]; const W = v[8]; const H = v[9];
   let best = 0 - 1;
   let bestD: f64 = 1e30;
   let pi = 0;
@@ -91,7 +93,8 @@ export function pickAt(sx: f64, sy: f64, focalW: f64, W: f64, H: f64,
 
 /// Converte uma SUBMESH carregada num GameObject pronto pra cena: mesh na VRAM,
 /// cor difusa do material (.mtl / glTF baseColor) e textura, se o arquivo trouxe.
-function partToObject(sm: SubMesh, name: string, srcPath: string, partIdx: number, win: number): GameObject {
+function partToObject(sm: SubMesh, name: string, srcPath: string, partIdx: number): GameObject {
+  const win = S.win;
   const go = new GameObject(name);
   go.setMesh(1, sm.cr, sm.cg, sm.cb);   // customMesh manda no render; meshKind é fallback
   go.customMesh = sm.meshId;
@@ -108,8 +111,11 @@ function partToObject(sm: SubMesh, name: string, srcPath: string, partIdx: numbe
 /// INSTANCIA um asset na cena numa posição de MUNDO. `placed`=0 usa a posição
 /// padrão do asset (drop sem coordenada, ex.: solto na hierarquia). Devolve o
 /// índice do objeto criado, ou -1 quando o asset não gera objeto (cena/pasta).
-export function instantiateAt(kind: string, path: string, wx: f64, wy: f64, wz: f64,
-                              placed: number, win: number): number {
+/// `pos` = [x, y, z] do ponto de drop (null = posição padrão do asset).
+export function instantiateAt(kind: string, path: string, pos: Float64Array | null): number {
+  const win = S.win;
+  const placed = pos !== null ? 1 : 0;
+  const wx: f64 = pos !== null ? pos[0] : 0.0; const wy: f64 = pos !== null ? pos[1] : 0.0; const wz: f64 = pos !== null ? pos[2] : 0.0;
   if (kind === "prefab") {
     const before = scene.objects.length;
     instantiatePrefab(path);
@@ -133,7 +139,7 @@ export function instantiateAt(kind: string, path: string, wx: f64, wy: f64, wz: 
     if (placed !== 0) { px = wx; py = wy + 0.5; pz = wz; }
 
     if (parts.length === 1) {
-      const go = partToObject(parts[0], baseName(path), path, 0, win);
+      const go = partToObject(parts[0], baseName(path), path, 0);
       go.transform.setPosition(px, py, pz);
       scene.add(go);
       S.selected = scene.objects.length - 1;
@@ -147,7 +153,7 @@ export function instantiateAt(kind: string, path: string, wx: f64, wy: f64, wz: 
     const rootIdx = scene.objects.length - 1;
     let i = 0;
     while (i < parts.length) {
-      const child = partToObject(parts[i], parts[i].name, path, i, win);
+      const child = partToObject(parts[i], parts[i].name, path, i);
       child.parent = rootIdx;   // offset local zero: a submesh já vem no espaço do modelo
       child.refreshCollide();   // virou filho: sai da colisão (ver collideFlag)
       scene.add(child);

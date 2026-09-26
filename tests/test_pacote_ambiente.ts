@@ -50,8 +50,9 @@ class TestApp {
   _win: number = 0; focus: number = -1; clickId: number = -1;
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string { return value; }
-  clickable(id: number, x: number, y: number, width: number, height: number): number { return id === this.clickId ? 3 : 0; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string { return value; }
+  clickableAt(id: number): number { return id === this.clickId ? 3 : 0; }
   checkbox(x: number, y: number, value: number, label: string): number { return value; }
   box(x: number, y: number, width: number, height: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
@@ -60,7 +61,7 @@ const app = new TestApp();
 const inspector = new Inspector(app);
 const host = instalarEditorReal();
 host.janela = (b: Behavior, titulo: string) => { inspector.abrirJanela(b, titulo); };
-function render(): void { inspector.render(app, 0, 0, 290, 4000, -1, -1, 0, 0, false, 0, 0); }
+function render(): void { inspector.area(0, 0, 290, 4000); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0); }
 S.selected = 0; S.selection = [0];
 check(executarItemDeMenu(indiceDoCaminho("Janela/Ambiente"), 0 - 1) === "", "Janela/Ambiente");
 check(history.undoDepth() === d, "abrir a janela não entra no Desfazer");

@@ -51,6 +51,7 @@ import { clearFB, drawFloor } from "@engine/render/raster";
 import { drawMeshSolid, setLight, setAmbient } from "@engine/render/mesh";
 import { asciiFrameStr } from "@engine/testkit/dump";
 
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 const PORT = "127.0.0.1:7777";
 const RW = 240;
 const RH = 144;
@@ -365,7 +366,7 @@ if (listener === 0) {
           doi = doi + 1;
         }
         render.image(WIN, 0, 0, 960, 600, fptr, RW, RH);
-        app.text(10, 8, "controle TCP :7777  |  objs " + scene.objects.length + "  frame " + frame, 0xFFFFFFE6, 14);
+        texto(10, 8, "controle TCP :7777  |  objs " + scene.objects.length + "  frame " + frame, estiloTexto(0xFFFFFFE6, 14));
         app.endFrame();
       }
     }

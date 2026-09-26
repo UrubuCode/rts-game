@@ -25,8 +25,9 @@ class TestApp {
   toggleLabel: string = "";
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string { return value; }
-  clickable(id: number, x: number, y: number, width: number, height: number): number { return id === this.clickId ? 3 : 0; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string { return value; }
+  clickableAt(id: number): number { return id === this.clickId ? 3 : 0; }
   // a caixa com o rótulo pedido "é clicada" (inverte) uma vez
   checkbox(x: number, y: number, value: number, label: string): number {
     if (label === this.toggleLabel) { this.toggleLabel = ""; return value !== 0 ? 0 : 1; }
@@ -53,7 +54,7 @@ const inspector = new Inspector(app);
 inspector.transformOpen = false;
 inspector.skeletonOpen = false;
 
-function render(): void { inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0); }
+function render(): void { inspector.area(0, 0, 290, PANEL_H); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0); }
 function control(name: string): EditorControl {
   const index = inspector.ui.names.indexOf(name);
   check(index >= 0, "controle ausente: " + name);

@@ -29,6 +29,7 @@ import { PhysicsMaterial, MAT_ICE, MAT_STONE, MAT_RUBBER, MAT_WOOD, MAT_METAL } 
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 // Dimensões da janela com prefixo PD_: `H` sem prefixo já colidiu com o raio do
@@ -245,9 +246,9 @@ function frame(): void {
   // inspeção reportava drawn=0 com a cena visivelmente renderizando
   S.drawnLast = drawn;
 
-  app.text(14, 12, "PARQUE DE FISICA — " + rIdx.length + " corpos   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
-  app.text(14, 34, "pistas: materiais | berco de newton | bilhar | demolicao | quiques", 0x90A8C0FF, 12);
-  app.text(14, 52, "WASD voa | botao DIR gira | R reinicia o ciclo", 0x708096FF, 11);
+  texto(14, 12, "PARQUE DE FISICA — " + rIdx.length + " corpos   fps " + math.floor(app.fps()), estiloTexto(0xD8E8FFFF, 15));
+  texto(14, 34, "pistas: materiais | berco de newton | bilhar | demolicao | quiques", estiloTexto(0x90A8C0FF, 12));
+  texto(14, 52, "WASD voa | botao DIR gira | R reinicia o ciclo", estiloTexto(0x708096FF, 11));
   app.endFrame();
 }
 

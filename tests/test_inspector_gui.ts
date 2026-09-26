@@ -20,7 +20,8 @@ class TestApp {
   digitado: string = ""; apagar: boolean = false; checkRotulo: string = "";
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string {
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string {
     if (id === this.textoId) return this.texto;
     let out = value;
     if (enabled && id === this.focus) {
@@ -29,7 +30,7 @@ class TestApp {
     }
     return out;
   }
-  clickable(id: number, x: number, y: number, width: number, height: number): number { return id === this.clickId ? 3 : 0; }
+  clickableAt(id: number): number { return id === this.clickId ? 3 : 0; }
   checkbox(x: number, y: number, value: number, label: string): number { return label === this.checkRotulo ? 1 - value : value; }
   box(x: number, y: number, width: number, height: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
@@ -38,7 +39,7 @@ const PANEL_H = 4000;
 const app = new TestApp();
 const inspector = new Inspector(app);
 inspector.transformOpen = false;
-function render(): void { inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0); }
+function render(): void { inspector.area(0, 0, 290, PANEL_H); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0); }
 function control(name: string): EditorControl {
   const i = inspector.ui.names.indexOf(name); check(i >= 0, "controle ausente: " + name); return inspector.ui.controls[i];
 }
@@ -94,16 +95,16 @@ S.selected = 2; S.selection = [2]; render();
 const fov = porRotulo("Campo de visão");
 const r = fov.host;
 // pressiona dentro da barra e arrasta para além da ponta direita (o arrasto segue até soltar)
-inspector.render(app, 0, 0, 290, PANEL_H, r.px + 1, r.py + 1, 1, 1, false, 0, 0);
-inspector.render(app, 0, 0, 290, PANEL_H, r.px + r.sx + 50, r.py + 1, 1, 0, false, 0, 0);
-inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(r.px + 1, r.py + 1, 1, 1); inspector.render(app, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(r.px + r.sx + 50, r.py + 1, 1, 0); inspector.render(app, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0);
 check(Math.abs(cam.fov * 180.0 / Math.PI - 150.0) < 1e-6, "arrastar o slider até o fim = 150°: " + cam.fov * 180.0 / Math.PI);
 // 30 frames de arrasto = UM passo de Desfazer (o snapshot serializa a cena inteira)
 const antesArrasto = history.undoDepth();
-inspector.render(app, 0, 0, 290, PANEL_H, r.px + 1, r.py + 1, 1, 1, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(r.px + 1, r.py + 1, 1, 1); inspector.render(app, false, 0, 0);
 let passo = 0;
-while (passo < 30) { inspector.render(app, 0, 0, 290, PANEL_H, r.px + 2 + passo * 3, r.py + 1, 1, 0, false, 0, 0); passo = passo + 1; }
-inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0);
+while (passo < 30) { inspector.area(0, 0, 290, PANEL_H); inspector.mouse(r.px + 2 + passo * 3, r.py + 1, 1, 0); inspector.render(app, false, 0, 0); passo = passo + 1; }
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0);
 check(cam.fov * 180.0 / Math.PI < 100.0 && history.undoDepth() === antesArrasto + 1, "arrasto de 30 frames = 1 Desfazer: " + (history.undoDepth() - antesArrasto));
 // o passo guardado é o de ANTES do arrasto (150°); lido do snapshot sem desfazer
 // (Desfazer recriaria os objetos e soltaria as referências usadas abaixo)

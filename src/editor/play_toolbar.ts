@@ -17,8 +17,8 @@ export class PlayToolbar extends Behavior {
     let index = 0;
     while (index < P.labels.length) {
       const enabled = !blocked && (index === 0 || S.simulating !== 0);
-      const button = this.ui.control(P.labels[index], "button", x + index * (P.buttonW + P.gap),
-        UI_CONTROL_Y, P.buttonW, UI_CONTROL_H, P.labels[index], enabled);
+      this.ui.at(x + index * (P.buttonW + P.gap), UI_CONTROL_Y, P.buttonW, UI_CONTROL_H);
+      const button = this.ui.control(P.labels[index], "button", P.labels[index], enabled);
       const active = index === 0 ? S.playing !== 0 : index === 1 && S.simulating !== 0 && S.playing === 0;
       button.fill = active ? UI_C.controlActive : UI_C.controlIdle;
       this.ui.draw(button);

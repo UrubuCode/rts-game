@@ -25,11 +25,12 @@ check(sameEditorPath("C:\\Apps\\Code.exe", "c:/apps/code.exe"), "Windows path co
 
 class App {
   _win: number = 0; clicked: number = -1; focus: number = -1;
-  clickable(id: number, x: number, y: number, w: number, h: number): number {
+  clickableAt(id: number): number {
     if (id !== this.clicked) return 0;
     this.clicked = -1; return 3;
   }
-  textField(id: number, x: number, y: number, w: number, value: string, enabled: boolean): string { return value; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string { return value; }
   box(x: number, y: number, w: number, h: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
   keyPressed(key: number): number { return 0; }
@@ -39,10 +40,10 @@ class App {
 const app = new App(); const panel = new PreferencesPanel(app);
 panel.open(); panel.choices = found;
 const original = editorPreferences.codeEditor;
-panel.render(1200, 720, 0, 0, 0, 0);
+panel.render(1200, 720);
 const count = panel.ui.scene.count();
 app.clicked = panel.ui.controls[panel.ui.names.indexOf("Editor/Visual Studio Code")].id;
-panel.render(1200, 720, 0, 0, 0, 0);
+panel.render(1200, 720);
 check(panel.value === code, "click selects editor without typing a path");
 check(editorPreferences.codeEditor === original, "selection does not persist before Save");
 check(panel.ui.scene.count() === count, "selector reuses GameObjects across frames");
@@ -55,12 +56,12 @@ check(panel.value === code, "non-executable rejected");
 panel.acceptSelection(executableSelection(0, "C:/Windows/System32/notepad.exe"));
 check(panel.value === "C:/Windows/System32/notepad.exe", "custom existing executable accepted");
 app.clicked = panel.ui.controls[panel.ui.names.indexOf("System")].id;
-panel.render(1200, 720, 0, 0, 0, 0);
+panel.render(1200, 720);
 check(panel.value === "", "system default can be selected");
 app.clicked = panel.ui.controls[panel.ui.names.indexOf("Cancel")].id;
-check(panel.render(1200, 720, 0, 0, 0, 0), "Cancel closes preferences");
+check(panel.render(1200, 720), "Cancel closes preferences");
 check(editorPreferences.codeEditor === original, "Cancel leaves stored preference intact");
-panel.choices = []; panel.render(1200, 720, 0, 0, 0, 0);
+panel.choices = []; panel.render(1200, 720);
 check(panel.ui.names.indexOf("Empty") >= 0 && panel.ui.names.indexOf("Browse") >= 0, "empty discovery still offers Browse");
 const actual = installedCodeEditors();
 let index = 0;

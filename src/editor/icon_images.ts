@@ -1,6 +1,6 @@
 import fs from "@compat/fs";
 import { decodePNG } from "@engine/render/png";
-import render from "@compat/render";
+import { imagemEm, imagem } from "@compat/draw2d.ts";
 import { logWarn } from "@engine/core/logger";
 import { UI_ICONS } from "./ui_config";
 
@@ -25,7 +25,11 @@ export function editorIcon(name: string): IconImage | null {
     iconCache.set(name, decoded); return decoded;
   } catch (error) { iconFailures.set(name, true); logWarn("Icone " + name + ": " + String(error)); return null; }
 }
-export function drawEditorIcon(win: number, name: string, x: number, y: number, size: number): boolean {
+/// Ícone `name` no quadrado do último `iconAt(x, y, lado)` (≤ 4 parâmetros por chamada).
+export function iconAt(x: number, y: number, size: number): void { icX = x; icY = y; icS = size; }
+let icX = 0.0; let icY = 0.0; let icS = 0.0;
+export function drawEditorIcon(name: string): boolean {
   const icon = editorIcon(name); if (icon === null) return false;
-  render.image(win, x, y, size, size, icon.pixels, icon.width, icon.height); return true;
+  imagemEm(icX, icY, icS, icS);
+  imagem(icon.pixels, icon.width, icon.height); return true;
 }

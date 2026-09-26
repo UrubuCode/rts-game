@@ -56,7 +56,8 @@ export function cmdLoadObj(parts: string[]): string {
   const before = scene.objects.length;
   // instantiateAt assenta sobre o chão quando `placed`; aqui a posição é
   // explícita (coordenada de mundo), então passamos y já como o centro.
-  const idx = instantiateAt("model", path, x, y - 0.5, z, 1, S.win);
+  const pos = new Float64Array(3); pos[0] = x; pos[1] = y - 0.5; pos[2] = z;
+  const idx = instantiateAt("model", path, pos);
   if (idx < 0) return "[erro] falha ao carregar/parsear: " + path;
   if (parts.length > 2) scene.objects[idx].name = parts[2];
   const n = scene.objects.length - before;

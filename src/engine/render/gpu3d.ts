@@ -307,34 +307,61 @@ export function loadTexture(win: number, path: string): number {
   return uploadTexture(win, img.pixels, img.width, img.height, path);
 }
 
-/// Enfileira um draw de um mesh id ARBITRÁRIO (ex.: .obj carregado), fora do
-/// mapeamento meshKind→primitivo. Mesmos params de transform/cor de drawGPU.
-///
-/// Os `| 0` que existiam aqui foram embora com a razão deles: eram contra o
-/// marshalling posicional do motor antigo, que BITCASTAVA os bits de um `number`
-/// em repr f64 num param U64 (5.0 virava 0x4014…). Um objeto de opções é lido
-/// campo a campo como número — não há param tipado pra bitcastar.
+// ── DRAW POR BUFFER (Task 10.5) ────────────────────────────────────────────
+// `drawGPU`/`drawGPUMesh` tinham 14 parâmetros e montavam um literal de 13
+// campos por objeto: ~3 células de lixo por draw (e 5+ parâmetros alocam por
+// chamada no RTS mesmo com objeto reaproveitado). O caminho por quadro é
+// `drawGPUBuf(win, kind, d)`: o chamador preenche um Float64Array de módulo e o
+// objeto de opções do nativo é reaproveitado (o nativo copia os campos).
+/// Layout de `d`: x, y, z, rx, ry, sx, sy, sz, cor, emissivo, tex, tile, qx, qy, qz, qw.
+export const DRAW_FLOATS: number = 16;
+export const D_X = 0; export const D_Y = 1; export const D_Z = 2;
+export const D_RX = 3; export const D_RY = 4;
+export const D_SX = 5; export const D_SY = 6; export const D_SZ = 7;
+export const D_COR = 8; export const D_EMISSIVO = 9; export const D_TEX = 10; export const D_TILE = 11;
+export const D_QX = 12; export const D_QY = 13; export const D_QZ = 14; export const D_QW = 15;
+const optMesh = { mesh: 0, x: 0.0, y: 0.0, z: 0.0, rx: 0.0, ry: 0.0,
+  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0 };
+const optMeshQ = { mesh: 0, x: 0.0, y: 0.0, z: 0.0, rx: 0.0, ry: 0.0, qx: 0.0, qy: 0.0, qz: 0.0, qw: 1.0,
+  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0 };
+
+/// Enfileira um draw do mesh id `meshId` com o transform/material de `d` (DRAW_FLOATS).
+export function drawGPUMeshBuf(win: number, meshId: number, d: Float64Array): void {
+  optMesh.mesh = meshId; optMesh.x = d[0]; optMesh.y = d[1]; optMesh.z = d[2]; optMesh.rx = d[3]; optMesh.ry = d[4];
+  optMesh.sx = d[5]; optMesh.sy = d[6]; optMesh.sz = d[7]; optMesh.color = d[8]; optMesh.emissive = d[9];
+  optMesh.tex = d[10]; optMesh.tile = d[11];
+  drawMesh(win, optMesh);
+}
+
+/// Como `drawGPUMeshBuf` com a rotação pelo QUATERNION de `d` (qx..qw, glTF): é
+/// como o Skeleton desenha cada osso. Com qualquer componente ≠ 0 o runtime ignora rx/ry.
+export function drawGPUMeshQBuf(win: number, meshId: number, d: Float64Array): void {
+  optMeshQ.mesh = meshId; optMeshQ.x = d[0]; optMeshQ.y = d[1]; optMeshQ.z = d[2];
+  optMeshQ.qx = d[12]; optMeshQ.qy = d[13]; optMeshQ.qz = d[14]; optMeshQ.qw = d[15];
+  optMeshQ.sx = d[5]; optMeshQ.sy = d[6]; optMeshQ.sz = d[7]; optMeshQ.color = d[8]; optMeshQ.emissive = d[9];
+  optMeshQ.tex = d[10]; optMeshQ.tile = 0.0;
+  drawMesh(win, optMeshQ);
+}
+
+/// Enfileira 1 objeto de malha primitiva `kind` (meshKind → mesh id) com `d` (DRAW_FLOATS).
+export function drawGPUBuf(win: number, kind: number, d: Float64Array): void {
+  drawGPUMeshBuf(win, meshIdFor(kind), d);
+}
+
+// Buffer dos invólucros antigos abaixo (demos/harness; fora dos caminhos por quadro do motor).
+const dLegado = new Float64Array(DRAW_FLOATS);
+function preencherLegado(px: number, py: number, pz: number, rx: number): void {
+  dLegado[0] = px; dLegado[1] = py; dLegado[2] = pz; dLegado[3] = rx;
+}
+
+/// Invólucro antigo de 14 parâmetros (demos/harness). O motor usa `drawGPUMeshBuf`.
 export function drawGPUMesh(win: number, meshId: number, px: number, py: number, pz: number,
                            rx: number, ry: number, sx: number, sy: number, sz: number,
                            color: number, emissive: number, tex: number, tileArg?: number): void {
-  const tile: number = tileArg !== undefined ? tileArg : 0.0;
-  drawMesh(win, {
-    mesh: meshId, x: px, y: py, z: pz, rx: rx, ry: ry,
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: tile,
-  });
-}
-
-/// Como `drawGPUMesh`, com a rotação dada por um QUATERNION `q` = [x, y, z, w]
-/// (glTF) em vez de pitch/yaw: é como o Skeleton desenha cada osso. Com
-/// qualquer componente de `q` ≠ 0 o runtime ignora rx/ry. Sem tiling.
-export function drawGPUMeshQ(win: number, meshId: number, px: number, py: number, pz: number,
-                             q: Float64Array, sx: number, sy: number, sz: number,
-                             color: number, emissive: number, tex: number): void {
-  drawMesh(win, {
-    mesh: meshId, x: px, y: py, z: pz, rx: 0.0, ry: 0.0,
-    qx: q[0], qy: q[1], qz: q[2], qw: q[3],
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: 0.0,
-  });
+  preencherLegado(px, py, pz, rx);
+  dLegado[4] = ry; dLegado[5] = sx; dLegado[6] = sy; dLegado[7] = sz;
+  dLegado[8] = color; dLegado[9] = emissive; dLegado[10] = tex; dLegado[11] = tileArg !== undefined ? tileArg : 0.0;
+  drawGPUMeshBuf(win, meshId, dLegado);
 }
 
 /// Liga/desliga o VSYNC da janela (1 = Fifo, o padrão; 0 = sem espera).
@@ -372,6 +399,8 @@ export function setShadow(win: number, dx: number, dy: number, dz: number,
 // por frame. Estes objetos são do módulo e só têm os campos mutados.
 /// Números do `setCamBuf`: x, y, z, yaw, pitch, fov, aspecto, near, far, ortográfica (0/1), meia altura orto.
 export const CAM_FLOATS: number = 11;
+/// Meia altura ortográfica padrão (a mesma do nativo quando o campo falta).
+export const CAM_ORTO_PADRAO: number = 5.0;
 const optCam = { x: 0.0, y: 0.0, z: 0.0, yaw: 0.0, pitch: 0.0, fov: 1.05, aspect: 1.0, near: 0.1, far: 500.0, ortho: 0.0, orthoSize: 5.0 };
 const optLuz = { x: 0.0, y: 10.0, z: 0.0, ambient: 0.2 };
 const optSombra = { dx: 0.0, dy: -1.0, dz: 0.0, cx: 0.0, cy: 0.0, cz: 0.0, radius: 0.0 };
@@ -546,21 +575,17 @@ export function meshIdFor(kind: number): number {
 /// buffer desde antes disto. O que isto remove é a FRONTEIRA: eram N idas ao
 /// nativo por frame, cada uma materializando um objeto de 12 campos, para no fim
 /// empurrar N tuplas na mesma fila.
+const optLote = { transforms: new Float32Array(0), codes: new Uint32Array(0) };
 export function drawBatch(win: number, transforms: Float32Array, codes: Uint32Array): number {
-  return drawMeshBatch(win, { transforms: transforms, codes: codes });
+  optLote.transforms = transforms; optLote.codes = codes;
+  return drawMeshBatch(win, optLote);
 }
 
-/// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).
+/// Invólucro antigo de 14 parâmetros (demos/harness). O motor usa `drawGPUBuf`.
 /// `tile` > 0: textura em coordenada de MUNDO, `tile` repetições por unidade
-/// (ver `proc_textures.ts`); 0 = UV da malha. Precisa de runtime com `tile`
-/// no `drawMesh` — um runtime antigo ignora o campo e estica a textura.
+/// (ver `proc_textures.ts`); 0 = UV da malha.
 export function drawGPU(win: number, kind: number, px: number, py: number, pz: number,
                         rx: number, ry: number, sx: number, sy: number, sz: number, color: number,
                         emissive: number, tex: number, tileArg?: number): void {
-  const tile: number = tileArg !== undefined ? tileArg : 0.0;
-  const id = meshIdFor(kind);
-  drawMesh(win, {
-    mesh: id, x: px, y: py, z: pz, rx: rx, ry: ry,
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: tile,
-  });
+  drawGPUMesh(win, meshIdFor(kind), px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex, tileArg);
 }

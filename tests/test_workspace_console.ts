@@ -13,8 +13,9 @@ class TestApp {
   _win: number = 0; target: number = -1; focus: number = -1;
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  clickable(id: number, x: number, y: number, w: number, h: number): number { return id === this.target ? 3 : 0; }
-  textField(id: number, x: number, y: number, w: number, text: string, enabled: boolean): string { return text; }
+  clickableAt(id: number): number { return id === this.target ? 3 : 0; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, text: string, enabled: boolean): string { return text; }
   box(x: number, y: number, w: number, h: number, color: number, stroke: number, border: number, radius: number): void {}
   text(x: number, y: number, text: string, color: number, size: number): void {}
 }
@@ -36,13 +37,13 @@ app.target = views.ui.controls[views.ui.names.indexOf("View/1")].id;
 views.tabs(200, 60, 500, true); check(!views.game, "blocked tab cannot switch");
 views.tabs(200, 60, 500, false); check(views.game && S.gameView === 1, "game tab clicks");
 app.target = -1;
-consolePanel.render(200, 524, 600, 240, false);
-const controls = consolePanel.ui.scene.count(); consolePanel.render(200, 524, 600, 240, false);
+consolePanel.blocked = false; consolePanel.render(200, 524, 600, 240);
+const controls = consolePanel.ui.scene.count(); consolePanel.blocked = false; consolePanel.render(200, 524, 600, 240);
 check(consolePanel.ui.scene.count() === controls, "console reuses GameObjects");
 app.target = consolePanel.ui.controls[consolePanel.ui.names.indexOf("Clear")].id;
-consolePanel.render(200, 524, 600, 240, true); check(logEntries().length === 1, "blocked clear retains messages");
-consolePanel.render(200, 524, 600, 240, false); check(logEntries().length === 0, "clear button clears");
-const second = new EditorUI(app, "Other"); const button = second.control("Button", "button", 0, 0, 80, 24, "Other");
+consolePanel.blocked = true; consolePanel.render(200, 524, 600, 240); check(logEntries().length === 1, "blocked clear retains messages");
+consolePanel.blocked = false; consolePanel.render(200, 524, 600, 240); check(logEntries().length === 0, "clear button clears");
+const second = new EditorUI(app, "Other"); second.at(0, 0, 80, 24); const button = second.control("Button", "button", "Other");
 check(button.id !== views.ui.controls[0].id && button.id !== consolePanel.ui.controls[0].id, "window-global control IDs");
 app.target = -1;
 logInfo("Repeated message"); logInfo("Repeated message"); logWarn("Missing mesh"); logError("Script failed", "test.ts", 20);
@@ -59,17 +60,17 @@ consolePanel.query = ""; consolePanel.show = [true, true, true]; consolePanel.re
 consolePanel.selected = 2; const selectedId = consolePanel.rows[2].id;
 logInfo("Another log"); consolePanel.refresh(false);
 check(consolePanel.rows[consolePanel.selected].id === selectedId, "new logs preserve selected message");
-consolePanel.render(0, 0, 320, 126, false);
+consolePanel.blocked = false; consolePanel.render(0, 0, 320, 126);
 const searchControl = consolePanel.ui.controls[consolePanel.ui.names.indexOf("Search")];
 const filterControl = consolePanel.ui.controls[consolePanel.ui.names.indexOf("Level/0")];
 check(searchControl.host.px + searchControl.host.sx <= filterControl.host.px, "narrow toolbar search and counters do not overlap");
 const controlCount = consolePanel.ui.scene.count();
-consolePanel.render(0, 0, 320, 126, false);
+consolePanel.blocked = false; consolePanel.render(0, 0, 320, 126);
 check(consolePanel.ui.scene.count() === controlCount, "icon and detail controls keep identity");
 consolePanel.follow = false; consolePanel.scroll = 2; const previousRows = consolePanel.rows.length;
 logWarn("Arrived while reading"); consolePanel.refresh(false);
 check(consolePanel.scroll === 2 + consolePanel.rows.length - previousRows, "paused follow anchors existing rows");
-consolePanel.query = "does not exist"; consolePanel.refresh(); consolePanel.render(0, 0, 600, 240, false);
+consolePanel.query = "does not exist"; consolePanel.refresh(); consolePanel.blocked = false; consolePanel.render(0, 0, 600, 240);
 check(consolePanel.rows.length === 0 && consolePanel.selected === -1, "empty search clears stale selection");
 // A aba Jogo desenha as câmeras da cena como o jogo (coletarCameras, no main.ts);
 // `camera()` é só a câmera do editor, que a aba Jogo nunca move.

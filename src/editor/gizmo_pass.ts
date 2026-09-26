@@ -3,9 +3,10 @@
 // 3D e responde o clique num ícone com a MESMA área do desenho.
 import type { Scene } from "@engine/core/scene";
 import { Gizmos, gizmoDrawerIndex, runGizmoDrawer } from "@engine/core/gizmos";
-import { drawEditorIcon } from "./icon_images";
+import { drawEditorIcon, iconAt } from "./icon_images";
 import { UI_GIZMO } from "./ui_config";
 
+import { linha, traco } from "@compat/draw2d.ts";
 /// A instância da vista de Cena: o main.ts desenha nela e o `gizmoat` lê os
 /// ícones do último frame (o construtor de Gizmos atribui campos, então a
 /// instância no topo do módulo não cai no defeito de "not defined").
@@ -40,11 +41,11 @@ export function pintarGizmos(app: any, win: number, g: Gizmos): void {
   let k = 0;
   while (k < g.nSeg) {
     const s = k * 5;
-    app.line(g.seg[s], g.seg[s + 1], g.seg[s + 2], g.seg[s + 3], UI_GIZMO.lineWidth, g.seg[s + 4]);
+    traco(UI_GIZMO.lineWidth, g.seg[s + 4]); linha(g.seg[s], g.seg[s + 1], g.seg[s + 2], g.seg[s + 3]);
     k = k + 1;
   }
   k = 0;
-  while (k < g.nIc) { const s = k * 4; drawEditorIcon(win, g.icNomes[k], g.ic[s], g.ic[s + 1], g.ic[s + 2]); k = k + 1; }
+  while (k < g.nIc) { const s = k * 4; iconAt(g.ic[s], g.ic[s + 1], g.ic[s + 2]); drawEditorIcon(g.icNomes[k]); k = k + 1; }
 }
 /// Dono do ícone sob (mx, my), do de cima para o de baixo; -1 = nenhum.
 export function gizmoIconAt(g: Gizmos, mx: number, my: number): number {

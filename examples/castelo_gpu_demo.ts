@@ -52,6 +52,7 @@ import { rbInit, rbSetBody, rbSetVel, rbUpload, rbSyncStatics, rbStep,
          rbPoke, rbX, rbY, rbZ, rbSleep } from "@engine/rigid/gpurigid";
 import { flInit, flSpawnBlock, flSyncColliders, flStep, flApplyForces,
          flX, flY, flZ, flHidden, flBackend, flPosGpuBuf } from "@engine/fluid/fluid";
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 // Prefixo CD_ em TUDO de topo: nomes colidem em silêncio entre módulos neste
@@ -597,8 +598,8 @@ function frame(): void {
   pumpAudio();
   const te0 = performance.now();
 
-  app.text(14, 12, "CASTELO SOB FOGO E AGUA [" + (flBackend() === 1 ? "agua:GPU" : "agua:CPU") + "] — tiro " + shots + "/" + SHOTS_PER_ROUND + "   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
-  app.text(14, 34, "WASD voa | botao DIR gira | R reconstroi o castelo", 0x90A8C0FF, 12);
+  texto(14, 12, "CASTELO SOB FOGO E AGUA [" + (flBackend() === 1 ? "agua:GPU" : "agua:CPU") + "] — tiro " + shots + "/" + SHOTS_PER_ROUND + "   fps " + math.floor(app.fps()), estiloTexto(0xD8E8FFFF, 15));
+  texto(14, 34, "WASD voa | botao DIR gira | R reconstroi o castelo", estiloTexto(0x90A8C0FF, 12));
   app.endFrame();
   // LIMITADOR DE FRAME por sono (teto ~60 fps): o que sobrar do orçamento de
   // 16 ms o processo DORME — CPU baixa sem as fences de vblank do vsync.

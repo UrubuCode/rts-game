@@ -33,8 +33,9 @@ class TestApp {
   _win: number = 0; focus: number = -1;
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string { return value; }
-  clickable(id: number, x: number, y: number, width: number, height: number): number { return 0; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string { return value; }
+  clickableAt(id: number): number { return 0; }
   checkbox(x: number, y: number, value: number, label: string): number { return value; }
   box(x: number, y: number, width: number, height: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
@@ -66,7 +67,7 @@ const dt = 1.0 / 60.0;
 ciclo.update(dt);
 areaComFaixas(area, 16.0 / 9.0, vistas.area); coletarCameras(vistas, scene, views.cameraEscolhida());
 views.tabs(250.0, 70.0, 500.0, false);
-inspector.render(app, 910.0, 70.0, 290.0, 650.0, 0 - 1, 0 - 1, 0, 0, false, 0, 0);
+inspector.area(910.0, 70.0, 290.0, 650.0); inspector.mouse(0 - 1, 0 - 1, 0, 0); inspector.render(app, false, 0, 0);
 io.print("aquecido: vistas " + vistas.n + " janela " + (inspector.janela !== null ? 1 : 0) + " controles " + inspector.ui.controls.length);
 
 io.print("FASE ciclo " + n);
@@ -91,13 +92,13 @@ while (f < n) { views.tabs(250.0, 70.0, 500.0, false); f = f + 1; }
 views.game = true;
 io.print("FASE janela");
 f = 0;
-while (f < n) { inspector.render(app, 910.0, 70.0, 290.0, 650.0, 0 - 1, 0 - 1, 0, 0, false, 0, 0); f = f + 1; }
+while (f < n) { inspector.area(910.0, 70.0, 290.0, 650.0); inspector.mouse(0 - 1, 0 - 1, 0, 0); inspector.render(app, false, 0, 0); f = f + 1; }
 // referência: o Inspector normal com um objeto com Camera (GUI própria), sem janela
 inspector.janela = null; S.selected = 3; S.selection = [3];
-inspector.render(app, 910.0, 70.0, 290.0, 650.0, 0 - 1, 0 - 1, 0, 0, false, 0, 0);
+inspector.area(910.0, 70.0, 290.0, 650.0); inspector.mouse(0 - 1, 0 - 1, 0, 0); inspector.render(app, false, 0, 0);
 io.print("FASE inspetor");
 f = 0;
-while (f < n) { inspector.render(app, 910.0, 70.0, 290.0, 650.0, 0 - 1, 0 - 1, 0, 0, false, 0, 0); f = f + 1; }
+while (f < n) { inspector.area(910.0, 70.0, 290.0, 650.0); inspector.mouse(0 - 1, 0 - 1, 0, 0); inspector.render(app, false, 0, 0); f = f + 1; }
 // marcador constante: a concatenação do resumo não cai numa fase medida
 io.print("FASE fim");
 io.print("resumo " + ciclo.hora + " " + vistas.n + " " + scene.ambiente.ceu.topo[0] + " " + inspector.ui.controls.length);

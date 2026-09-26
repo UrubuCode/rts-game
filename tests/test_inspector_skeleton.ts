@@ -21,8 +21,9 @@ class TestApp {
   clickId: number = -1;
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string { return value; }
-  clickable(id: number, x: number, y: number, width: number, height: number): number { return id === this.clickId ? 3 : 0; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string { return value; }
+  clickableAt(id: number): number { return id === this.clickId ? 3 : 0; }
   checkbox(x: number, y: number, value: number, label: string): number { return value; }
   box(x: number, y: number, width: number, height: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
@@ -42,7 +43,7 @@ const app = new TestApp();
 const inspector = new Inspector(app);
 inspector.transformOpen = false;
 
-function render(): void { inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0); }
+function render(): void { inspector.area(0, 0, 290, PANEL_H); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0); }
 function control(name: string): EditorControl {
   const index = inspector.ui.names.indexOf(name);
   check(index >= 0, "controle ausente: " + name);
@@ -89,10 +90,10 @@ const bar = control("Skeleton/Time");
 const barX = bar.host.px; const barY = bar.host.py; const barW = bar.host.sx; const barH = bar.host.sy;
 const dur = player.duration();
 check(dur > 0.0, "clipe walk tem duração");
-inspector.render(app, 0, 0, 290, PANEL_H, barX + barW * 0.5, barY + barH * 0.5, 1, 1, false, 0, 0);
-inspector.render(app, 0, 0, 290, PANEL_H, barX + barW * 0.25, barY + barH * 0.5, 1, 0, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(barX + barW * 0.5, barY + barH * 0.5, 1, 1); inspector.render(app, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(barX + barW * 0.25, barY + barH * 0.5, 1, 0); inspector.render(app, false, 0, 0);
 check(Math.abs(player.time - dur * 0.25) < dur * 0.02, "arrastar o tempo faz seek (esperado " + dur * 0.25 + ", veio " + player.time + ")");
-inspector.render(app, 0, 0, 290, PANEL_H, barX + barW * 0.25, barY + barH * 0.5, 0, 0, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(barX + barW * 0.25, barY + barH * 0.5, 0, 0); inspector.render(app, false, 0, 0);
 check(history.undoDepth() === undoPlay, "arrastar o tempo não cria undo");
 
 // 5) Parar volta a pose de trabalho à pose manual
@@ -139,8 +140,8 @@ check(poseIsManual(), "trocar a seleção devolve a pose manual");
 // 8) arrastar o tempo PAUSADO e entrar no Play: a prévia dos originais termina
 selectObject(scene.objects.indexOf(object));
 const bar2 = control("Skeleton/Time");
-inspector.render(app, 0, 0, 290, PANEL_H, bar2.host.px + bar2.host.sx * 0.4, bar2.host.py + 1, 1, 1, false, 0, 0);
-inspector.render(app, 0, 0, 290, PANEL_H, bar2.host.px + bar2.host.sx * 0.4, bar2.host.py + 1, 0, 0, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(bar2.host.px + bar2.host.sx * 0.4, bar2.host.py + 1, 1, 1); inspector.render(app, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(bar2.host.px + bar2.host.sx * 0.4, bar2.host.py + 1, 0, 0); inspector.render(app, false, 0, 0);
 check(!previewIsPlaying(player) && previewIsTouched(player), "arrastar o tempo pausado marca o player como tocado");
 check(!poseIsManual(), "o tempo arrastado mostra a pose do clipe");
 check(playMode.play(), "Play inicia");
@@ -161,9 +162,9 @@ player.loop = true;
 
 // 10) arrastar até 100 % num clipe com laço não dá a volta para 0
 const bar3 = control("Skeleton/Time");
-inspector.render(app, 0, 0, 290, PANEL_H, bar3.host.px + bar3.host.sx * 0.5, bar3.host.py + 1, 1, 1, false, 0, 0);
-inspector.render(app, 0, 0, 290, PANEL_H, bar3.host.px + bar3.host.sx * 2.0, bar3.host.py + 1, 1, 0, false, 0, 0);
-inspector.render(app, 0, 0, 290, PANEL_H, bar3.host.px + bar3.host.sx * 2.0, bar3.host.py + 1, 0, 0, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(bar3.host.px + bar3.host.sx * 0.5, bar3.host.py + 1, 1, 1); inspector.render(app, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(bar3.host.px + bar3.host.sx * 2.0, bar3.host.py + 1, 1, 0); inspector.render(app, false, 0, 0);
+inspector.area(0, 0, 290, PANEL_H); inspector.mouse(bar3.host.px + bar3.host.sx * 2.0, bar3.host.py + 1, 0, 0); inspector.render(app, false, 0, 0);
 check(player.time > player.duration() * 0.99, "arrastar até o fim com laço fica no fim (veio " + player.time + ")");
 previewStopAll();
 
