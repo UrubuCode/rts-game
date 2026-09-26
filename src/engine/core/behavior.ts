@@ -169,6 +169,9 @@ export class Behavior {
   lightType(): number { return 0 - 1; }
   /// Escreve os 16 números da luz em `out[base..]` (formato do `setLights`).
   lightPack(out: Float64Array, base: number): void {}
+  /// 1 = esta luz (quando direcional) alimenta o shadow map (`Light.sombra`).
+  /// Lido por `coletarLuzes` para escolher a PRINCIPAL sem cast; default 0.
+  lightCastsShadow(): number { return 0; }
 
   // ── SURFACE DE RENDERER (lida pelo render via dispatch virtual, sem cast) ────
   // O MeshRenderer sobrescreve; os demais devolvem 0 (o render só consulta um

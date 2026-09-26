@@ -21,8 +21,10 @@ export const LUZ_PADRAO_PITCH: number = 0.0 - 0.8726646259971648;
 export const LUZ_PADRAO_YAW: number = 0.5235987755982988;
 export const LUZ_PADRAO_ALTURA: number = 10.0;
 const RAD_POR_GRAU: number = 0.017453292519943295;
-/// Capacidade inicial do rascunho de distâncias (cresce por dobra).
-const LUZ_DIST_INICIAL: number = 16;
+/// Capacidade inicial do rascunho de distâncias (cresce por dobra). Exportada
+/// porque `Scene` a usa para o `luzDist` inicial do construtor (mesma medida
+/// nos dois lugares, em vez de repetir o literal).
+export const LUZ_DIST_INICIAL: number = 16;
 
 /**
  * @componentCategory Renderização
@@ -61,6 +63,7 @@ export class Light extends Behavior {
   onValidate(field: string): void {
     if (field === "tipo" && TIPOS_LUZ.indexOf(this.tipo) < 0) this.tipo = "direcional";
   }
+  lightCastsShadow(): number { return this.sombra ? 1 : 0; }
   lightPack(out: Float64Array, base: number): void {
     const t = this.host;
     const cp = math.cos(t.wrx); const sp = math.sin(t.wrx);
@@ -88,9 +91,13 @@ function capacidadePara(n: number): number {
 }
 
 /// Preenche `buf` com até MAX_LUZES luzes e devolve quantas. A direcional
-/// principal vem primeiro (a de nome `solNome`, ou a primeira direcional ativa);
-/// as demais seguem por distância a `cam` [x, y, z]. Sem alocação: as distâncias
-/// ficam em `sc.luzDist`, que só cresce. Inativas (inclusive por ancestral) e
+/// PRINCIPAL vem primeiro (slot 0) — e é ela que `aplicarLuzes` manda pro
+/// shadow map quando tem sombra. Prioridade: a de nome `solNome` (reservado
+/// para o Ambiente do Task 5 — hoje `Scene.collectLights` sempre chama com ""
+/// e a prioridade abaixo decide), senão a primeira direcional ATIVA com
+/// `sombra`, senão a primeira direcional ativa qualquer. As demais luzes
+/// seguem por distância a `cam` [x, y, z]. Sem alocação: as distâncias ficam
+/// em `sc.luzDist`, que só cresce. Inativas (inclusive por ancestral) e
 /// desligadas ficam fora.
 export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, solNome: string): number {
   const lista: GameObject[] = sc.lightObjs;
@@ -99,6 +106,7 @@ export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, so
   const dist: Float64Array = sc.luzDist;
   let principal = 0 - 1;
   let primeiraDir = 0 - 1;
+  let primeiraComSombra = 0 - 1;
   let i = 0;
   while (i < total) {
     const o = lista[i];
@@ -108,6 +116,7 @@ export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, so
       if (l.lightType() === LUZ_DIRECIONAL) {
         dist[i] = 0.0;
         if (primeiraDir < 0) primeiraDir = i;
+        if (primeiraComSombra < 0 && l.lightCastsShadow() !== 0) primeiraComSombra = i;
         if (principal < 0 && solNome.length > 0 && o.name === solNome) principal = i;
       } else {
         const t = o.transform;
@@ -117,7 +126,7 @@ export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, so
     }
     i = i + 1;
   }
-  if (principal < 0) principal = primeiraDir;
+  if (principal < 0) principal = primeiraComSombra >= 0 ? primeiraComSombra : primeiraDir;
   let n = 0;
   if (principal >= 0) {
     const op = lista[principal];

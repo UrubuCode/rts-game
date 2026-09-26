@@ -45,6 +45,7 @@ dono(filha).parent = sc.objects.indexOf(pai);
 sc.computeWorld();
 const buf = new Float64Array(MAX_LUZES * FLOATS_POR_LUZ);
 const cam = new Float64Array(3);
+const legado = new Float64Array(4); legado[0] = 7.0; legado[1] = 13.0; legado[2] = 5.0; legado[3] = 0.28;
 const n = sc.collectLights(buf, cam);
 check(n === MAX_LUZES, "limite de 8: " + n);
 check(buf[0] === 0.0 && perto(buf[1], 50.0), "a direcional vem primeiro");
@@ -52,6 +53,15 @@ let j = 1;
 while (j < n) {
   check(perto(buf[j * FLOATS_POR_LUZ + 1], j), "pontual " + j + " em ordem de distância: " + buf[j * FLOATS_POR_LUZ + 1]);
   j = j + 1;
+}
+// exclusão EXPLÍCITA (não só via ordem): nenhum slot colhido é a Filha
+// (x=0.25, pai inativo) nem a Desligada (x=0.5, enabled=0)
+let jx = 0;
+while (jx < n) {
+  const px = buf[jx * FLOATS_POR_LUZ + 1];
+  check(!perto(px, 0.25), "Filha (pai inativo) nao deveria ter sido coletada, slot " + jx);
+  check(!perto(px, 0.5), "Desligada (enabled=0) nao deveria ter sido coletada, slot " + jx);
+  jx = jx + 1;
 }
 
 // 3) formato: +Z sem rotação; -Y com pitch -90°; cor e cones
@@ -69,12 +79,59 @@ check(perto(b2[13], Math.cos(30.0 * Math.PI / 180.0)) && perto(b2[12], Math.cos(
 s2.objects[0].transform.rx = 0.0 - Math.PI / 2.0; s2.computeWorld(); s2.collectLights(b2, cam);
 check(perto(b2[5], -1.0), "pitch -90° aponta para baixo");
 
+// 3b) filho de pai ROTADO (yaw + pitch): a posição de mundo herda o pai com o
+// offset local girado só pelo YAW (ver `applyParentTo`/Scene.computeWorld —
+// pitch do pai NÃO gira a posição, só compõe no ângulo), e a DIREÇÃO da luz usa
+// os ângulos de mundo (wrx/wry) já somados pai+filho.
+const s4 = new Scene("hierarquia");
+const pai4 = s4.createGameObject("Pai4");
+pai4.transform.setPosition(5.0, 2.0, 3.0);
+const pWry = Math.PI / 2.0; const pWrx = 0.0 - Math.PI / 4.0;
+pai4.transform.ry = pWry; pai4.transform.rx = pWrx;
+const filho4 = s4.createGameObject("Filho4");
+const offset = [1.0, 0.0, 0.0];
+filho4.transform.setPosition(offset[0], offset[1], offset[2]);
+filho4.parent = s4.objects.indexOf(pai4);
+const lFilho = new Light(); lFilho.tipo = "direcional"; filho4.addBehavior(lFilho);
+s4.computeWorld();
+const b4 = new Float64Array(FLOATS_POR_LUZ);
+check(s4.collectLights(b4, cam) === 1, "uma luz filha de pai rotado");
+const c4 = Math.cos(pWry); const sn4 = Math.sin(pWry);
+const expWx = 5.0 + (offset[0] * c4 + offset[2] * sn4);
+const expWy = 2.0 + offset[1];
+const expWz = 3.0 + (0.0 - offset[0] * sn4 + offset[2] * c4);
+check(perto(b4[1], expWx) && perto(b4[2], expWy) && perto(b4[3], expWz),
+      "posicao de mundo = pai + offset girado pelo YAW do pai (pitch nao gira a posicao)");
+const expDx = Math.sin(pWry) * Math.cos(pWrx);
+const expDy = Math.sin(pWrx);
+const expDz = Math.cos(pWry) * Math.cos(pWrx);
+check(perto(b4[4], expDx) && perto(b4[5], expDy) && perto(b4[6], expDz),
+      "direcao usa os angulos de MUNDO combinados (wrx/wry = pai + filho)");
+
+// 3c) sombra: entre duas direcionais ATIVAS, o slot 0 (principal) é a que TEM
+// sombra — mesmo sendo a SEGUNDA a entrar na cena (achado do fix round 1: o
+// código antigo usava sempre a primeira direcional ativa, e o runtime só
+// sombreia pela primeira COM sombra em `setLights`).
+const s5 = new Scene("sombra-ordem");
+const d1 = s5.createGameObject("D1"); d1.transform.setPosition(1.0, 0.0, 0.0);
+const ld1 = new Light(); ld1.tipo = "direcional"; d1.addBehavior(ld1);           // sem sombra, entra 1a
+const d2 = s5.createGameObject("D2"); d2.transform.setPosition(2.0, 0.0, 0.0);
+d2.transform.ry = Math.PI / 2.0;                                                // dir = (1,0,0), distinta de D1
+const ld2 = new Light(); ld2.tipo = "direcional"; ld2.sombra = true; d2.addBehavior(ld2);
+s5.computeWorld();
+const b5 = new Float64Array(MAX_LUZES * FLOATS_POR_LUZ);
+const n5 = s5.collectLights(b5, cam);
+check(n5 === 2, "duas direcionais coletadas");
+check(perto(b5[1], 2.0) && b5[14] === 1.0, "a direcional COM sombra (D2) vai pro slot 0, mesmo entrando 2a");
+aplicarLuzes(0, s5, cam, legado);
+check(perto(sombraAtual()[0], 1.0) && perto(sombraAtual()[1], 0.0) && perto(sombraAtual()[2], 0.0) && sombraAtual()[6] > 0.0,
+      "o shadow map usa a direcao da direcional COM sombra (D2, dir=(1,0,0)), nao a primeira a entrar (D1, dir=(0,0,1))");
+
 // 4) ida e volta pelo formato de cena
 const copia = recreateBehavior(componentToData(spot)) as Light;
 check(copia.tipo === "spot" && copia.cor === 0xFF8000 && copia.anguloSpot === 60.0 && copia.alcance === 7.0, "Light sobrevive a salvar/carregar");
 
 // 5) aplicarLuzes (nativos são no-op sem janela): sombra legada, da principal, ou desligada
-const legado = new Float64Array(4); legado[0] = 7.0; legado[1] = 13.0; legado[2] = 5.0; legado[3] = 0.28;
 check(aplicarLuzes(0, new Scene("vazia"), cam, legado) === 0, "sem Light: n = 0 (shading legado)");
 check(sombraAtual()[0] === -7.0 && sombraAtual()[6] > 0.0, "sem Light, a sombra segue a luz legada");
 check(aplicarLuzes(0, sc, cam, legado) === MAX_LUZES && perto(sombraAtual()[0], buf[4]) && sombraAtual()[6] > 0.0, "sombra da direcional principal");

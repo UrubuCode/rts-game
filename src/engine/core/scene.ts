@@ -12,7 +12,7 @@ import { ContactEvents } from "./contact_events";
 import { eventsOf } from "./collider";
 import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 import math from "@compat/math.ts";
-import { coletarLuzes } from "./light";
+import { coletarLuzes, LUZ_DIST_INICIAL } from "./light";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
 /// MÓDULO e não um contador por cena: quem compara versões (o backend de
@@ -146,7 +146,7 @@ export class Scene {
     this.contacts = new ContactEvents();
     this.uiObjs = [];
     this.lightObjs = [];
-    this.luzDist = new Float64Array(16);
+    this.luzDist = new Float64Array(LUZ_DIST_INICIAL);
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
