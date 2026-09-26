@@ -3,7 +3,8 @@ import { GameObject } from "@engine/core/gameobject";
 import { EditorUI } from "./ui_controls";
 import { MeshRenderer } from "@engine/core/meshrenderer";
 import { Skeleton } from "@engine/core/skeleton";
-import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, animationPlayerOf } from "./skeleton_preview";
+import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, previewSeek, previewChooseClip,
+  timelineTarget, animationPlayerOf } from "./skeleton_preview";
 import { ComponentPicker } from "./component_picker";
 import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
@@ -38,6 +39,14 @@ export class Inspector extends Behavior {
   transformOpen: boolean = true;
   appearanceOpen: boolean = true;
   skeletonOpen: boolean = true;
+  // Rótulos da seção "Esqueleto", refeitos só quando o modelo (asset) muda ou,
+  // na barra de tempo, quando tempo/duração mudam — não a cada frame.
+  skeletonLabelsAsset: any = null;
+  bonesTitle: string = "";
+  clipLabels: string[] = [];
+  timelineLabel: string = "";
+  timelineTime: f64 = 0 - 1;
+  timelineDuration: f64 = 0 - 1;
   meshHot: number = 0;
   textureHot: number = 0;
   top: number = 0; bottom: number = 0;
@@ -105,7 +114,19 @@ export class Inspector extends Behavior {
     const innerX = this.x + L.padding + L.gap;
     const innerW = this.width - L.padding * 2 - L.gap;
     const boneCount = asset.boneNames.length;
-    this.label("Skeleton/BonesTitle", rowY, K.bones + " (" + boneCount + ")");
+    if (this.skeletonLabelsAsset !== asset) {
+      this.skeletonLabelsAsset = asset;
+      this.bonesTitle = K.bones + K.countOpen + boneCount + K.countClose;
+      const labels: string[] = [];
+      let labelIndex = 0;
+      while (labelIndex < asset.clips.length) {
+        const labelClip = asset.clips[labelIndex];
+        labels.push(labelClip.name + K.clipDurationOpen + labelClip.duration.toFixed(K.timeDigits) + K.timeUnit + K.clipDurationClose);
+        labelIndex = labelIndex + 1;
+      }
+      this.clipLabels = labels;
+    }
+    this.label("Skeleton/BonesTitle", rowY, this.bonesTitle);
     rowY = rowY + L.rowH;
     let bone = 0;
     while (bone < boneCount) {
@@ -139,13 +160,13 @@ export class Inspector extends Behavior {
       const clip = asset.clips[clipIndex];
       if (this.visible(rowY, K.clipRowH)) {
         const button = this.ui.control("Skeleton/Clip/" + clipIndex, "button", innerX, rowY, innerW, K.clipRowH,
-          clip.name + "  (" + clip.duration.toFixed(K.timeDigits) + K.timeUnit + ")", this.enabledInput);
+          this.clipLabels[clipIndex], this.enabledInput);
         if (clip.name === player.clip) button.fill = UI_C.clipActive;
         this.ui.draw(button);
         if (button.clicked && clip.name !== player.clip) {
           this.snapshot();
           if (simulating) player.play(clip.name);
-          else { player.clip = clip.name; player.time = 0.0; player.onValidate("clip"); }
+          else previewChooseClip(player, clip.name);
         }
       }
       rowY = rowY + K.clipRowH;
@@ -174,11 +195,17 @@ export class Inspector extends Behavior {
     }
     rowY = rowY + L.rowH + L.gap;
     if (this.visible(rowY, K.timelineH)) {
-      const timeline = this.ui.control("Skeleton/Time", "timeline", innerX, rowY, innerW, K.timelineH,
-        player.time.toFixed(K.timeDigits) + K.timeSeparator + duration.toFixed(K.timeDigits) + K.timeUnit, canPlay);
+      if (player.time !== this.timelineTime || duration !== this.timelineDuration) {
+        this.timelineTime = player.time; this.timelineDuration = duration;
+        this.timelineLabel = player.time.toFixed(K.timeDigits) + K.timeSeparator + duration.toFixed(K.timeDigits) + K.timeUnit;
+      }
+      const timeline = this.ui.control("Skeleton/Time", "timeline", innerX, rowY, innerW, K.timelineH, this.timelineLabel, canPlay);
       timeline.value = duration > 0.0 ? player.time / duration : 0;
       this.ui.draw(timeline);
-      if (timeline.hot !== 0) player.seek(timeline.value * duration);
+      if (timeline.hot !== 0) {
+        const target = timelineTarget(player, timeline.value, duration);
+        if (simulating) player.seek(target); else previewSeek(player, target);
+      }
     }
     rowY = rowY + K.timelineH + L.gap;
     if (this.visible(rowY, L.rowH)) {

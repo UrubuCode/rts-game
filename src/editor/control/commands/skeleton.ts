@@ -2,12 +2,12 @@
 // Skeleton, lista/posiciona ossos e toca clipes, igual ao que um humano faria
 // no Inspector, mas em texto. Segue o mesmo padrão de commands/component.ts
 // (objeto por índice, validação, mensagens `[ok]`/`[erro]`).
-import { scene } from "../session";
+import { scene, S } from "../session";
 import type { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
 import { AnimationPlayer } from "@engine/core/animation_player";
 import { quatMulInto } from "@engine/render/quat";
-import { previewIsPlaying, previewStart, previewPause, previewStop } from "../../skeleton_preview";
+import { previewIsPlaying, previewStart, previewPause, previewStop, previewSeek, previewChooseClip } from "../../skeleton_preview";
 import { history } from "../../undo";
 
 const DEG2RAD: f64 = Math.PI / 180.0;
@@ -233,13 +233,14 @@ export function cmdAnim(parts: string[]): string {
 
 // anim <obj> preview ... — mesmo caminho dos botões do Inspector.
 function cmdAnimPreview(oi: number, ap: AnimationPlayer, parts: string[]): string {
+  if (S.simulating !== 0) return "[erro] a previa so existe fora do Play; no Play use anim " + oi + " play/pause/seek";
   const acao = parts[3];
   if (acao === "play") {
     const nome = parts[4];
     if (nome !== undefined && nome !== "" && nome !== ap.clip) {
       if (ap.clipNames().indexOf(nome) < 0) return "[erro] clipe inexistente: " + nome;
       history.snapshot();   // o clipe é campo salvo
-      ap.clip = nome; ap.time = 0.0; ap.onValidate("clip");
+      previewChooseClip(ap, nome);
     }
     if (ap.duration() <= 0.0) return "[erro] escolha um clipe (anim " + oi + " preview play <nome>)";
     previewStart(ap);
@@ -250,7 +251,7 @@ function cmdAnimPreview(oi: number, ap: AnimationPlayer, parts: string[]): strin
   if (acao === "seek") {
     const t = parseFloat(parts[4]);
     if (t !== t) return "[erro] preview seek precisa de um tempo numerico";
-    ap.seek(t);
+    previewSeek(ap, t);
     return "[ok] anim preview seek " + ap.time.toFixed(2) + " #" + oi;
   }
   return "[erro] preview: use play [nome] | pause | stop | seek <s>";

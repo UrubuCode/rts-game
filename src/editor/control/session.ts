@@ -17,9 +17,10 @@ export class Session {
   snap: number;       // 1 = snap to grid no gizmo (move 0.5, rotate 15°)
   lightX: f64; lightY: f64; lightZ: f64; lightAmb: f64;   // luz PONTUAL (posição) + ambiente
   selectedBone: number;   // osso selecionado no Inspector do Skeleton (-1 = nenhum)
-  /// AnimationPlayers com a PRÉVIA do Inspector tocando fora do Play (estado do
-  /// editor: não vai para a cena salva nem para o undo). Ver skeleton_preview.ts.
-  previewPlayers: AnimationPlayer[];
+  /// PRÉVIA de animação do Inspector fora do Play (estado do editor: não vai
+  /// para a cena salva nem para o undo). Ver skeleton_preview.ts.
+  previewPlayers: AnimationPlayer[];   // tocando agora
+  previewTouched: AnimationPlayer[];   // pose de trabalho mexida pela prévia (inclui os tocando)
   constructor() {
     this.camX = 0.0; this.camY = 11.0; this.camZ = -15.0;
     this.camYaw = 0.0; this.camPitch = 0 - 0.5;
@@ -35,6 +36,7 @@ export class Session {
     this.lightX = 7.0; this.lightY = 13.0; this.lightZ = 5.0; this.lightAmb = 0.28;
     this.selectedBone = 0 - 1;
     this.previewPlayers = [];
+    this.previewTouched = [];
   }
 }
 export const S = new Session();

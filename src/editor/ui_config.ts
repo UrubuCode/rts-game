@@ -272,7 +272,6 @@ export const UI_C = {
   helpText: 0xCFD6DFFF,
   boneSelected: 0x344D68FF,
   boneRow: 0x2F2F2FFF,
-  boneLeafText: 0xA8B0BAFF,
   clipActive: 0x4A75B0FF,
   timelineTrack: 0x252525FF,
   timelineFill: 0x3A6C9FFF,
@@ -289,4 +288,5 @@ export const UI_SKELETON = {
   noModel: "Modelo não carregado", noClips: "O modelo não tem clipes",
   noPlayer: "Adicione um AnimationPlayer", noPlayerHint: "para tocar os clipes.",
   timeUnit: " s", timeSeparator: " / ", timeDigits: 2,
+  countOpen: " (", countClose: ")", clipDurationOpen: "  (", clipDurationClose: ")",
 };

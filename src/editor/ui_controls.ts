@@ -63,7 +63,8 @@ export class EditorControl extends Behavior {
       this.hot = this.dragging ? 1 : 0;
       app.box(x, y, w, h, UI_C.timelineTrack, L.border, UI_C.border, L.radius);
       if (this.value > 0) app.box(x, y, w * this.value, h, UI_C.timelineFill, 0, 0, L.radius);
-      app.box(x + w * this.value - K.handleW / 2, y, K.handleW, h, UI_C.timelineHandle, 0, 0, 0);
+      const handleX = Math.max(x, Math.min(x + w - K.handleW, x + w * this.value - K.handleW / 2));
+      app.box(handleX, y, K.handleW, h, UI_C.timelineHandle, 0, 0, 0);
       app.text(x + L.gap, y + K.textY, this.label, UI_C.timelineText, L.font);
       return;
     }

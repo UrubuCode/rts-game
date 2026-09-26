@@ -1,5 +1,5 @@
 import io from "@compat/io.ts";
-import { scene } from "@editor/control/session";
+import { scene, S } from "@editor/control/session";
 import { GameObject } from "@engine/core/gameobject";
 import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdAnims, cmdAnim } from "@editor/control/commands/skeleton";
 import { execCommand } from "@editor/control/dispatch";
@@ -65,4 +65,7 @@ check(execCommand(800, 600, "anim 0 preview seek 0.2").indexOf("[ok]") === 0, "p
 check(execCommand(800, 600, "anim 0 preview stop").indexOf("[ok]") === 0 && !previewIsPlaying(apPrev), "preview stop");
 check(history.undoDepth() === undoPrev + 1, "seek/stop da previa nao criam undo");
 check(execCommand(800, 600, "anim 0 preview play nada").indexOf("[erro]") === 0, "clipe inexistente = erro");
+S.simulating = 1;
+check(execCommand(800, 600, "anim 0 preview play").indexOf("[erro] a previa so existe fora do Play") === 0, "preview no Play = erro legivel");
+S.simulating = 0;
 io.print("[PASSOU] ws skeleton: addskel, bones, pose, resetpose, anims, anim, fade, speed, undo/redo de anim state vs play, preview");

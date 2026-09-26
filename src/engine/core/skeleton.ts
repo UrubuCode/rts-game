@@ -101,6 +101,10 @@ export class Skeleton extends Behavior {
     if (field === "modelPath") {
       this.asset = null; this.failedPath = ""; this.failedUploadWin = 0;
       this.pendingPose = []; this.pendingNames = [];
+      // o raio era do modelo antigo; o próximo ensureAsset publica o novo
+      this.boundRadius = 0.0;
+      const owner = this.owner;
+      if (owner !== null && owner.rendIdx >= 0 && owner.behaviors[owner.rendIdx] === this) owner.boundRadius = 0.0;
     }
   }
 
