@@ -58,6 +58,12 @@ export class Skeleton extends Behavior {
   overrideMask: number[];
   /** @nonSerialized */
   boundRadius: f64;
+  /// Quem manda na pose de TRABALHO quando há mais de um animador no objeto:
+  /// o `Animator` se registra aqui ao se ligar ao esqueleto, e o
+  /// `AnimationPlayer` do mesmo objeto fica inerte enquanto esse Animator
+  /// estiver anexado (mesmo `owner`) e habilitado. Estado de execução.
+  /** @nonSerialized */
+  poseDriver: Behavior | null;
 
   // Pose manual lida da cena antes de o modelo carregar (registros de
   // POSE_REC_LEN; a 1ª posição é o índice antigo) e o nome do osso de cada
@@ -83,6 +89,7 @@ export class Skeleton extends Behavior {
     this.worldT = new Float64Array(0); this.worldR = new Float64Array(0); this.worldS = new Float64Array(0);
     this.overrideMask = [];
     this.boundRadius = 0.0;
+    this.poseDriver = null;
     this.pendingPose = [];
     this.pendingNames = [];
     this.failedPath = "";

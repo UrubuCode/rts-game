@@ -147,14 +147,43 @@ function blendQuatInto(dest: Float64Array, bone: number, src: Float64Array, weig
   dest[o] = SCR_Q[0]; dest[o + 1] = SCR_Q[1]; dest[o + 2] = SCR_Q[2]; dest[o + 3] = SCR_Q[3];
 }
 
+/// Três buffers de pose por osso (T 3, R 4, S 3) — o destino de
+/// `samplePoseInto`. Pode apontar para a pose de TRABALHO de um Skeleton
+/// (`sampleClipInto` faz isso) ou para buffers próprios de quem mistura várias
+/// poses antes de escrever no esqueleto (o Animator: estado de saída de um
+/// fade, camada com máscara/peso). Criado uma vez; nunca por frame.
+export class PoseBuffers {
+  t: Float64Array;
+  r: Float64Array;
+  s: Float64Array;
+  constructor(bones: number) {
+    this.t = new Float64Array(bones * 3);
+    this.r = new Float64Array(bones * 4);
+    this.s = new Float64Array(bones * 3);
+  }
+}
+
+// destino reusado por `sampleClipInto`: aponta para os arrays do Skeleton a
+// cada chamada (3 escritas de campo, nenhuma alocação).
+const SK_POSE: PoseBuffers = new PoseBuffers(0);
+
 /// Amostra `clip` em `t` e escreve na pose de TRABALHO de `sk`
 /// (`poseT/poseR/poseS`). `weight < 1` mistura com o valor JÁ presente na
 /// pose (é assim que o crossfade funciona: chama-se 1x com o clipe anterior
 /// em peso 1, depois com o novo clipe no peso do fade). Ossos sem canal no
 /// clipe não são tocados — mantêm o valor de trabalho corrente.
 export function sampleClipInto(sk: Skeleton, clip: AnimClip, t: f64, weight: f64): void {
+  const dst = SK_POSE;
+  dst.t = sk.poseT; dst.r = sk.poseR; dst.s = sk.poseS;
+  samplePoseInto(dst, clip, t, weight);
+}
+
+/// O amostrador de verdade (o ÚNICO do motor): `sampleClipInto` com destino
+/// arbitrário. Mesma semântica de peso e de ossos sem canal. O número de ossos
+/// vem do tamanho de `dst.r`.
+export function samplePoseInto(dst: PoseBuffers, clip: AnimClip, t: f64, weight: f64): void {
   const n = clip.chBone.length;
-  const boneCount = sk.boneCount();
+  const boneCount = dst.r.length >> 2;
   // caso comum (sem crossfade, weight=1): amostra e escreve DIRETO no osso,
   // sem os passos por `sampleQuatInto`/`blendQuatInto` (chamadas de função) —
   // tudo aberto aqui dentro, porque `sampleClipInto` continua com só 4
@@ -162,7 +191,7 @@ export function sampleClipInto(sk: Skeleton, clip: AnimClip, t: f64, weight: f64
   // função que importa pro defeito de alocação deste runtime (ver comentário
   // do topo do arquivo), não a quantidade de locais dentro dela.
   const full = weight >= 1.0;
-  const poseT = sk.poseT; const poseR = sk.poseR; const poseS = sk.poseS;
+  const poseT = dst.t; const poseR = dst.r; const poseS = dst.s;
   const chTimes = clip.chTimes; const chValues = clip.chValues;
   const chBone = clip.chBone; const chPath = clip.chPath;
   let i = 0;
@@ -209,6 +238,53 @@ export function sampleClipInto(sk: Skeleton, clip: AnimClip, t: f64, weight: f64
       }
     }
     i = i + 1;
+  }
+}
+
+/// Copia a pose inteira de `src` para `dst` (mesmo número de ossos).
+export function copyPoseInto(dst: PoseBuffers, src: PoseBuffers): void {
+  const dt = dst.t; const dr = dst.r; const ds = dst.s;
+  const st = src.t; const sr = src.r; const ss = src.s;
+  const n3 = st.length; const n4 = sr.length;
+  let i = 0;
+  while (i < n3) { dt[i] = st[i]; ds[i] = ss[i]; i = i + 1; }
+  i = 0;
+  while (i < n4) { dr[i] = sr[i]; i = i + 1; }
+}
+
+/// Mistura a pose `src` em `dst` com peso `weight` (1 = substitui; lerp em T/S,
+/// nlerp pelo caminho curto em R), só nos ossos com `mask[osso] !== 0`. É a
+/// mistura de POSES já amostradas (fade entre estados, camada com peso e
+/// máscara) — não amostra nada. 4 parâmetros, 1 escalar: ver o topo do arquivo.
+export function blendPoseInto(dst: PoseBuffers, src: PoseBuffers, weight: f64, mask: Uint8Array): void {
+  const dt = dst.t; const dr = dst.r; const ds = dst.s;
+  const st = src.t; const sr = src.r; const ss = src.s;
+  const n = mask.length;
+  const full = weight >= 1.0;
+  const u = 1.0 - weight;
+  let b = 0;
+  while (b < n) {
+    if (mask[b] !== 0) {
+      const o3 = b * 3; const o4 = b * 4;
+      if (full) {
+        dt[o3] = st[o3]; dt[o3 + 1] = st[o3 + 1]; dt[o3 + 2] = st[o3 + 2];
+        ds[o3] = ss[o3]; ds[o3 + 1] = ss[o3 + 1]; ds[o3 + 2] = ss[o3 + 2];
+        dr[o4] = sr[o4]; dr[o4 + 1] = sr[o4 + 1]; dr[o4 + 2] = sr[o4 + 2]; dr[o4 + 3] = sr[o4 + 3];
+      } else if (weight > 0.0) {
+        dt[o3] = dt[o3] * u + st[o3] * weight; dt[o3 + 1] = dt[o3 + 1] * u + st[o3 + 1] * weight; dt[o3 + 2] = dt[o3 + 2] * u + st[o3 + 2] * weight;
+        ds[o3] = ds[o3] * u + ss[o3] * weight; ds[o3 + 1] = ds[o3 + 1] * u + ss[o3 + 1] * weight; ds[o3 + 2] = ds[o3 + 2] * u + ss[o3 + 2] * weight;
+        // nlerp aberto (mesma matemática de quatNlerpInto), sem ida por array
+        const ax = dr[o4]; const ay = dr[o4 + 1]; const az = dr[o4 + 2]; const aw = dr[o4 + 3];
+        const bx = sr[o4]; const by = sr[o4 + 1]; const bz = sr[o4 + 2]; const bw = sr[o4 + 3];
+        const sg: f64 = ax * bx + ay * by + az * bz + aw * bw < 0.0 ? 0.0 - 1.0 : 1.0;
+        let x = ax * u + bx * sg * weight; let y = ay * u + by * sg * weight;
+        let z = az * u + bz * sg * weight; let w = aw * u + bw * sg * weight;
+        const len = Math.sqrt(x * x + y * y + z * z + w * w);
+        if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
+        dr[o4] = x; dr[o4 + 1] = y; dr[o4 + 2] = z; dr[o4 + 3] = w;
+      }
+    }
+    b = b + 1;
   }
 }
 
@@ -376,6 +452,7 @@ export class AnimationPlayer extends Behavior {
     if (!this.playing) return;
     const sk = this.skeleton;
     if (sk === null || sk.asset === null || this.clipIdx < 0) return;
+    if (this.drivenByAnimator(sk)) return;
     const step = dt * this.speed;
     this.time = this.time + step;
     if (this.prevClipIdx >= 0) {
@@ -399,6 +476,18 @@ export class AnimationPlayer extends Behavior {
       this.time = 0.0;
     }
     this.applyPose();
+  }
+
+  /// Objeto com Animator E AnimationPlayer: o Animator VENCE e este player
+  /// fica inerte (não avança nem escreve a pose) enquanto o Animator que se
+  /// registrou em `sk.poseDriver` continuar anexado ao mesmo objeto e
+  /// habilitado. Desligar/remover o Animator devolve a pose ao player. Custo:
+  /// 3-4 leituras de campo, sem busca.
+  drivenByAnimator(sk: Skeleton): boolean {
+    const d = sk.poseDriver;
+    if (d === null || d === this) return false;
+    const o = d.owner;
+    return o !== null && o === sk.owner && d.enabled !== 0;
   }
 
   // Acha o Skeleton do MESMO objeto (via owner.behaviors, setado por
@@ -471,6 +560,7 @@ export class AnimationPlayer extends Behavior {
   private applyPose(): void {
     const sk = this.skeleton;
     if (sk === null || sk.asset === null || this.clipIdx < 0 || this.clipIdx >= sk.asset.clips.length) return;
+    if (this.drivenByAnimator(sk)) return;
     const clip = sk.asset.clips[this.clipIdx];
     if (this.prevClipIdx >= 0 && this.prevClipIdx < sk.asset.clips.length) {
       const prevClip = sk.asset.clips[this.prevClipIdx];

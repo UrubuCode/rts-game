@@ -1,0 +1,27 @@
+{
+  "parametros": [
+    { "nome": "velocidade", "tipo": "float", "padrao": 0 },
+    { "nome": "morto", "tipo": "bool" },
+    { "nome": "tiro", "tipo": "trigger" }
+  ],
+  "camadas": [
+    { "nome": "Base", "inicial": "Locomocao",
+      "estados": [
+        { "nome": "Locomocao", "mistura": { "param": "velocidade",
+          "clipes": [["idle", 0], ["walk", 2], ["sprint", 5]] } },
+        { "nome": "Morto", "clipe": "die", "laco": false }
+      ],
+      "transicoes": [
+        { "de": "*", "para": "Morto", "quando": [["morto", "==", true]], "fade": 0.15 }
+      ] },
+    { "nome": "Braco", "mascara": ["arm-right"], "peso": 1.0, "inicial": "Segurando",
+      "estados": [
+        { "nome": "Segurando", "clipe": "holding-right" },
+        { "nome": "Atirando", "clipe": "holding-right-shoot", "laco": false }
+      ],
+      "transicoes": [
+        { "de": "Segurando", "para": "Atirando", "quando": [["tiro"]], "fade": 0.05 },
+        { "de": "Atirando", "para": "Segurando", "saida": 1.0, "fade": 0.1 }
+      ] }
+  ]
+}
