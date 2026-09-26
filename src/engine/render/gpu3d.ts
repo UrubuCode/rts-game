@@ -371,11 +371,13 @@ export function drawGPUMesh(win: number, meshId: number, px: number, py: number,
 /// medem os mesmos 60 fps. Desligar revela o custo verdadeiro do frame — é o
 /// que o comando ws `vsync 0` faz pra medir otimizações.
 ///
-/// Continua recebendo NÚMERO, e converte aqui: a superfície nova quer `boolean`,
-/// mas os chamadores (`query.ts`, os demos) passam o 0/1 que vem do comando de
-/// texto. Traduzir num lugar só é mais barato que mexer em todos eles.
+/// Passa NÚMERO 0/1 ao nativo. Passava `on !== 0` (boolean), e o `setVsync` do
+/// rts lia o argumento como inteiro: `false` virava o padrão 1 e o vsync nunca
+/// desligava em tempo de execução — o comando WS `vsync 0` media a espera do
+/// monitor (Task 10.5). O rts agora aceita os dois (rts-ui `vsync_flag`), mas o
+/// número funciona também com um runtime anterior.
 export function setVsync(win: number, on: number): void {
-  eguiSetVsync(win, on !== 0);
+  eguiSetVsync(win, on !== 0 ? 1 : 0);
 }
 
 /// Define a câmera do frame 3D (fly cam). Ângulos em RADIANOS; base canhota,
