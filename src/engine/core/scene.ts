@@ -12,6 +12,7 @@ import { ContactEvents } from "./contact_events";
 import { eventsOf } from "./collider";
 import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 import math from "@compat/math.ts";
+import { coletarLuzes } from "./light";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
 /// MÓDULO e não um contador por cena: quem compara versões (o backend de
@@ -118,6 +119,13 @@ export class Scene {
   /// `add`/`removeAt`/`clear` e por `GameObject.refreshComponentCache` via
   /// `uiChanged`. O pass de UI do jogo lê daqui: zero varredura por frame.
   uiObjs: GameObject[];
+  /// Objetos desta cena com componente Light, mantida em `add`/`removeAt`/`clear`
+  /// e por `GameObject.refreshComponentCache` via `lightChanged`. `Scene.collectLights`
+  /// lê daqui: zero varredura por frame.
+  lightObjs: GameObject[];
+  /// Rascunho de distâncias de `coletarLuzes` (ver light.ts): só cresce, nunca
+  /// realoca por frame.
+  luzDist: Float64Array;
 
   constructor(name: string) {
     this.name = name;
@@ -137,6 +145,8 @@ export class Scene {
     this.spatialIndex = null;
     this.contacts = new ContactEvents();
     this.uiObjs = [];
+    this.lightObjs = [];
+    this.luzDist = new Float64Array(16);
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
@@ -176,6 +186,18 @@ export class Scene {
     if (k >= 0) this.uiObjs.splice(k, 1);
   }
 
+  /// `GameObject.refreshComponentCache` avisa quando o objeto ganhou ou perdeu
+  /// componente Light depois de estar na cena.
+  lightChanged(go: GameObject): void {
+    if (go.lightIdx >= 0) { if (this.lightObjs.indexOf(go) < 0) this.lightObjs.push(go); }
+    else this.lightForget(go);
+  }
+
+  lightForget(go: GameObject): void {
+    const k = this.lightObjs.indexOf(go);
+    if (k >= 0) this.lightObjs.splice(k, 1);
+  }
+
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
   markStaticDirty(): void {
     this.markCollidersDirty();
@@ -187,6 +209,7 @@ export class Scene {
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
     go.uiOwner = this;
     if (go.uiIdx >= 0) this.uiObjs.push(go);
+    if (go.lightIdx >= 0) this.lightObjs.push(go);
     if (bodyTypeOf(go) === BODY_STATIC) {
       this.markCollidersDirty();
     } else {
@@ -238,7 +261,14 @@ export class Scene {
     this.objects = [];
     this.trs = [];
     this.uiObjs.length = 0;
+    this.lightObjs.length = 0;
     this.markStaticDirty();
+  }
+
+  /// Até MAX_LUZES luzes ativas em `buf` (16 números cada); devolve quantas.
+  /// `cam` = [x, y, z] de quem vê. Sem alocação (ver `coletarLuzes`).
+  collectLights(buf: Float64Array, cam: Float64Array): number {
+    return coletarLuzes(this, buf, cam, "");
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
@@ -364,6 +394,7 @@ export class Scene {
     removedObj.sceneIndex = 0 - 1;
     removedObj.uiOwner = null;
     if (removedObj.uiIdx >= 0) this.uiForget(removedObj);
+    if (removedObj.lightIdx >= 0) this.lightForget(removedObj);
 
     if (isStatic) {
       this.markCollidersDirty();

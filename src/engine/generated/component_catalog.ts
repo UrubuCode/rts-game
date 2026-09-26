@@ -64,6 +64,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/camera.ts"
   },
   {
+    "name": "Light",
+    "category": "Renderização",
+    "description": "Luz direcional, pontual ou spot usada pelo renderer.",
+    "keywords": "luz light sol lâmpada lampada spot iluminação",
+    "source": "src/engine/core/light.ts"
+  },
+  {
     "name": "Material",
     "category": "Renderização",
     "description": "Configura a superfície do objeto.",

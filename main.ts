@@ -42,7 +42,8 @@ import { DocumentPanel, saveDocument } from "@editor/document_panel";
 import { chooseSceneFile } from "@editor/scene_dialog";
 import { EditorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
+import { initMeshes, setCam, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
+import { aplicarLuzes } from "@engine/render/scene_lighting";
 import { scene, S } from "@editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE,
   GIZMO_ROTATE_PER_UNIT, SNAP_MOVE_STEP, SNAP_ROTATE_STEP } from "@editor/gizmo";
@@ -161,6 +162,7 @@ let gizmoAxis = 0 - 1;   // eixo do gizmo que está sendo arrastado (-1 = nenhum
 // Origem do gizmo quando o alvo é um osso (posição de mundo do osso); buffer
 // fixo, reaproveitado a cada frame.
 const boneGizmoOrigin = new Float64Array(3);
+const luzCam = new Float64Array(3); const luzLegada = new Float64Array(4);
 let prevF = 0;           // estado anterior da tecla F (edge-detection do focus)
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
 const inspector = new Inspector(app);
@@ -860,11 +862,9 @@ function frame(): void {
   if (worldDirty !== 0) { scene.computeWorld(); worldDirty = 0; }
   workspaceViews.camera(FOV);
   setCam(WIN, workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
-  setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);   // luz PONTUAL (posição) — controlável via ws `light`
-  // Shadow map: a direção vem da POSIÇÃO REAL da luz (luz -> centro da cena).
-  // Antes era um vetor fixo (-7,-12,-5) desconectado de S.light*, então mover a
-  // luz mudava o sombreamento mas NÃO as sombras — elas caíam pro lado errado.
-  setShadow(WIN, 0.0 - S.lightX, 0.0 - S.lightY, 0.0 - S.lightZ, 0.0, 1.0, 0.0, 24.0);
+  luzCam[0] = workspaceViews.x; luzCam[1] = workspaceViews.y; luzCam[2] = workspaceViews.z;
+  luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
+  aplicarLuzes(WIN, scene, luzCam, luzLegada);
   // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
   secBegin(P_MUNDO3D);
   frustumBegin(workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);

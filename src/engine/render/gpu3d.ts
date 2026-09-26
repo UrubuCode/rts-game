@@ -42,6 +42,8 @@ import {
   meshUpload, textureUpload, setCamera, setLight, setShadow as eguiSetShadow,
   drawMesh, drawMeshBatch, setVsync as eguiSetVsync,
   winWidth as eguiWinWidth, winHeight as eguiWinHeight,
+  setLights as eguiSetLights, setSky as eguiSetSky, setFog as eguiSetFog,
+  setViewport as eguiSetViewport, setClearColor as eguiSetClearColor, setSkybox as eguiSetSkybox,
 } from "rts:egui";
 import math from "@compat/math.ts";
 import { decodePNG } from "./png";
@@ -364,6 +366,51 @@ export function setShadow(win: number, dx: number, dy: number, dz: number,
                           cx: number, cy: number, cz: number, radius: number): void {
   eguiSetShadow(win, { dx: dx, dy: dy, dz: dz, cx: cx, cy: cy, cz: cz, radius: radius });
 }
+
+// ── INVÓLUCROS SEM ALOCAÇÃO ────────────────────────────────────────────────
+// Os nativos leem objetos de opções; um literal por chamada seria uma alocação
+// por frame. Estes objetos são do módulo e só têm os campos mutados.
+/// Números do `setCamBuf`: x, y, z, yaw, pitch, fov, aspecto, near, far, ortográfica (0/1), meia altura orto.
+export const CAM_FLOATS: number = 11;
+const optCam = { x: 0.0, y: 0.0, z: 0.0, yaw: 0.0, pitch: 0.0, fov: 1.05, aspect: 1.0, near: 0.1, far: 500.0, ortho: 0.0, orthoSize: 5.0 };
+const optLuz = { x: 0.0, y: 10.0, z: 0.0, ambient: 0.2 };
+const optSombra = { dx: 0.0, dy: -1.0, dz: 0.0, cx: 0.0, cy: 0.0, cz: 0.0, radius: 0.0 };
+const optVista = { x: 0.0, y: 0.0, w: 1.0, h: 1.0, limpar: 1.0 };
+const optNeblina = { r: 0.0, g: 0.0, b: 0.0, densidade: 0.0 };
+export function setCamBuf(win: number, c: Float64Array): void {
+  optCam.x = c[0]; optCam.y = c[1]; optCam.z = c[2]; optCam.yaw = c[3]; optCam.pitch = c[4];
+  optCam.fov = c[5]; optCam.aspect = c[6]; optCam.near = c[7]; optCam.far = c[8]; optCam.ortho = c[9]; optCam.orthoSize = c[10];
+  setCamera(win, optCam);
+}
+/// Luz legada: [x, y, z, ambiente].
+export function setLgtBuf(win: number, l: Float64Array): void {
+  optLuz.x = l[0]; optLuz.y = l[1]; optLuz.z = l[2]; optLuz.ambient = l[3];
+  setLight(win, optLuz);
+}
+/// Sombra: [dx, dy, dz, cx, cy, cz, raio] (raio <= 0 desliga).
+export function setShadowBuf(win: number, s: Float64Array): void {
+  optSombra.dx = s[0]; optSombra.dy = s[1]; optSombra.dz = s[2];
+  optSombra.cx = s[3]; optSombra.cy = s[4]; optSombra.cz = s[5]; optSombra.radius = s[6];
+  eguiSetShadow(win, optSombra);
+}
+/// Começa uma vista: [x, y, w, h, limpar] em fração da janela, y a partir do topo.
+export function setViewportBuf(win: number, r: Float64Array): void {
+  optVista.x = r[0]; optVista.y = r[1]; optVista.w = r[2]; optVista.h = r[3]; optVista.limpar = r[4];
+  eguiSetViewport(win, optVista);
+}
+/// Neblina: [r, g, b, densidade] (0..1; densidade 0 desliga).
+export function setFogBuf(win: number, f: Float64Array): void {
+  optNeblina.r = f[0]; optNeblina.g = f[1]; optNeblina.b = f[2]; optNeblina.densidade = f[3];
+  eguiSetFog(win, optNeblina);
+}
+export function setLightsBuf(win: number, buf: Float64Array, n: number): void { eguiSetLights(win, buf, n); }
+export function setSkyBuf(win: number, buf: Float64Array): void { eguiSetSky(win, buf); }
+/// Fundo chapado 0xRRGGBB na vista corrente.
+export function setFundoCor(win: number, rgb: number): void {
+  eguiSetClearColor(win, ((rgb >> 16) & 255) / 255.0, ((rgb >> 8) & 255) / 255.0, (rgb & 255) / 255.0);
+}
+export function setFundoCeu(win: number): void { eguiSetSkybox(win, 1); }
+
 /// Largura/altura LÓGICA atual da janela (segue o resize).
 export function winWidth(win: number): number { return eguiWinWidth(win); }
 export function winHeight(win: number): number { return eguiWinHeight(win); }

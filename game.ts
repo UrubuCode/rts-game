@@ -29,8 +29,9 @@ import { drawGameUI } from "@engine/ui/game_ui";
 import { rigidStep } from "@engine/core/physics_backend";
 import { resolveMaterialTexture } from "@engine/render/material_tex";
 import { GameObject } from "@engine/core/gameobject";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh,
+import { initMeshes, setCam, drawGPU, drawGPUMesh,
          frustumBegin, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
+import { aplicarLuzes } from "@engine/render/scene_lighting";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
@@ -63,6 +64,7 @@ if (fs.exists(sceneFile)) {
 
 // câmera de jogo: começa na posição salva na sessão (mesma default do editor)
 let frames = 0;
+const luzCam = new Float64Array(3); const luzLegada = new Float64Array(4);
 
 function frame(): void {
   logTick();
@@ -151,9 +153,9 @@ function frame(): void {
     if (ci >= 0) vfov = co.behaviors[ci].camFov();
   }
   setCam(WIN, vx, vy, vz, vyaw, pitch, vfov, W / H);
-  setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);
-  // sombra alinhada com a POSIÇÃO real da luz (ver comentário no main.ts)
-  setShadow(WIN, 0.0 - S.lightX, 0.0 - S.lightY, 0.0 - S.lightZ, 0.0, 1.0, 0.0, 24.0);
+  luzCam[0] = vx; luzCam[1] = vy; luzCam[2] = vz;
+  luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
+  aplicarLuzes(WIN, scene, luzCam, luzLegada);
   frustumBegin(vx, vy, vz, vyaw, pitch, vfov, W / H);
 
   let oi = 0;

@@ -24,7 +24,8 @@ export const KIND_UI: number = 3;         // elemento de UI (desenha em tela 2D)
 export const KIND_SCENE_REF: number = 4;  // instância de outra cena (cena dentro de cena)
 export const KIND_CAMERA: number = 5;     // ponto de vista (o jogo renderiza pela main)
 export const KIND_COLLIDER: number = 6;   // a FORMA que colide (pode nao ser a que desenha)
-// reservados p/ as próximas camadas: 6=COLLIDER, 7=LIGHT…
+export const KIND_LIGHT: number = 7;      // luz (direcional/pontual/spot) usada pelo renderer
+// novos kinds entram aqui
 
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
@@ -162,6 +163,12 @@ export class Behavior {
   /// Aplica uma textura de imagem (id + path) — só o Material implementa; nos
   /// demais é no-op. Chamado pelo asset browser / ws ao aplicar uma textura.
   setMatTexture(id: number, path: string): void {}
+
+  // ── SURFACE DE LUZ (só o component Light sobrescreve) ────────────────────
+  /// Tipo da luz: 0 direcional, 1 pontual, 2 spot; -1 = não é luz.
+  lightType(): number { return 0 - 1; }
+  /// Escreve os 16 números da luz em `out[base..]` (formato do `setLights`).
+  lightPack(out: Float64Array, base: number): void {}
 
   // ── SURFACE DE RENDERER (lida pelo render via dispatch virtual, sem cast) ────
   // O MeshRenderer sobrescreve; os demais devolvem 0 (o render só consulta um

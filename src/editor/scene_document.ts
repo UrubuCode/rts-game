@@ -4,6 +4,7 @@ import { sceneToJSON, sceneFromJSON, saveScene } from "./sceneio";
 import { history } from "./undo";
 import { logInfo, logError } from "@engine/core/logger";
 import { UI_DOCUMENT } from "./ui_config";
+import { criarLuzDirecionalPadrao } from "@engine/core/light";
 
 export function authoredSignature(json: string): string {
   const data = JSON.parse(json);
@@ -41,7 +42,7 @@ export class SceneDocument {
         sceneFromJSON(json);
         this.initialize(this.pendingPath);
       } else if (this.pending === "new") {
-        scene.clear(); scene.name = UI_DOCUMENT.untitled; this.initialize("");
+        scene.clear(); scene.name = UI_DOCUMENT.untitled; criarLuzDirecionalPadrao(scene); scene.computeWorld(); this.initialize("");
       } else return false;
       history.u = []; history.r = []; S.selected = scene.objects.length > 0 ? 0 : -1; S.selection = [];
       this.cancel(); return true;
