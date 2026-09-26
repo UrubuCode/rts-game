@@ -9,13 +9,15 @@
 //   animator <obj> params                parâmetros (nome, tipo, valor)
 //
 // Parâmetros e estados são estado de EXECUÇÃO (não vão para a cena), então
-// `set`/`trigger`/`state`/`params` não empilham undo — só `load` (ver
-// dispatch.ts). Fora do Play, `set`/`trigger` começam a prévia do Animator
+// `set`/`trigger`/`state`/`params` não empilham undo. `load` empilha 1
+// snapshot aqui mesmo, e só depois de validar o arquivo e só se o caminho
+// mudar (o dispatch não tira o snapshot genérico de `animator`). Fora do Play, `set`/`trigger` começam a prévia do Animator
 // (skeleton_preview.ts): ele avança só na pose de trabalho até a prévia acabar.
 import { scene } from "../session";
 import type { GameObject } from "@engine/core/gameobject";
 import type { Animator } from "@engine/core/animator";
-import { PARAM_FLOAT, PARAM_BOOL, PARAM_TRIGGER, loadAnimatorController } from "@engine/core/animator_controller";
+import { PARAM_FLOAT, PARAM_BOOL, PARAM_TRIGGER, reloadAnimatorController } from "@engine/core/animator_controller";
+import { history } from "../../undo";
 import { animatorOfObject, animatorPreviewTouch, animatorPreviewIsActive } from "../../skeleton_preview";
 
 function objOrNull(oi: number): GameObject | null {
@@ -49,17 +51,19 @@ export function cmdAnimator(parts: string[]): string {
   if (sub === "load") {
     const path = parts[3];
     if (path === undefined || path === "") return "[erro] load precisa do caminho do .controller.json";
-    const prev = an.controller;
-    if (an.load(path)) return "[ok] animator load " + path + " -> #" + oi;
-    // arquivo com erro (inexistente, JSON, nomes): mantém o anterior. Já o
+    // relê o arquivo ANTES de mexer no componente: arquivo com erro
+    // (inexistente, JSON, nomes) não muda nada nem empilha undo
+    const lido = reloadAnimatorController(path);
+    if (lido.error !== "") return "[erro] controlador nao carregou: " + lido.error;
+    // o campo salvo só muda se o caminho for outro: só aí 1 snapshot (antes)
+    if (path !== an.controller) history.snapshot();
+    an.controller = path;
+    an.onValidate("controller");   // usa o controlador recém-relido (cache)
     // controlador válido que não liga AO OBJETO (sem Skeleton, clipe que o
-    // modelo não tem) fica escolhido — o autor pode pôr o Skeleton depois.
-    const motivo = an.errorText();
-    if (loadAnimatorController(path).error !== "") {
-      an.controller = prev; an.onValidate("controller");
-      return "[erro] controlador nao carregou: " + motivo;
-    }
-    return "[ok] animator load " + path + " -> #" + oi + " (aviso: inerte ate corrigir: " + motivo + ")";
+    // modelo não tem) fica escolhido — o autor pode pôr o Skeleton depois
+    const aviso = an.errorText();
+    if (aviso !== "") return "[ok] animator load " + path + " -> #" + oi + " (aviso: inerte ate corrigir: " + aviso + ")";
+    return "[ok] animator load " + path + " -> #" + oi;
   }
   if (sub === "set") {
     const nome = parts[3]; const valor = parts[4];

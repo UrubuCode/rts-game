@@ -23,6 +23,7 @@
 // de um osso da lista não entram sozinhos.
 import fs from "@compat/fs.ts";
 import type { SkeletonAsset } from "../render/gltf_anim";
+import { clipChannelsInMask, pairPlan } from "./animation_player";
 
 export const PARAM_FLOAT: number = 0;
 export const PARAM_BOOL: number = 1;
@@ -94,10 +95,21 @@ export class AnimatorBinding {
   stateClip: number[]; stateDur: number[];
   blendClip: number[]; blendDur: number[];
   layerMask: Uint8Array[];
+  /// 1 = camada escreve direto na pose (peso 1, sem máscara); resolvido 1x.
+  layerDirect: Uint8Array;
+  /// Por estado de clipe: canais do clipe cujo osso está na máscara da camada
+  /// do estado (vazio para mistura). Por entrada de mistura: idem.
+  stateChans: Int32Array[];
+  blendChans: Int32Array[];
+  /// Por entrada de mistura `e` que tem vizinha `e+1` no mesmo estado: plano
+  /// de `samplePairInto` para o par (e, e+1) — [bone, path, ia, ib]; senão null.
+  pairPlans: (Int32Array[] | null)[];
   constructor(asset: SkeletonAsset) {
     this.asset = asset; this.error = "";
     this.stateClip = []; this.stateDur = []; this.blendClip = []; this.blendDur = [];
     this.layerMask = [];
+    this.layerDirect = new Uint8Array(0);
+    this.stateChans = []; this.blendChans = []; this.pairPlans = [];
   }
 }
 
@@ -419,5 +431,39 @@ function fillBinding(c: AnimatorController, b: AnimatorBinding, asset: SkeletonA
     b.layerMask.push(mask);
     l = l + 1;
   }
+  fillPlans(c, b);
   return "";
+}
+
+// Planos de amostragem por estado/entrada de mistura, restritos à máscara da
+// camada de cada estado (ver AnimatorBinding). 1x por ligação.
+function fillPlans(c: AnimatorController, b: AnimatorBinding): void {
+  const clips = b.asset.clips;
+  const nl = c.layerNames.length;
+  b.layerDirect = new Uint8Array(nl);
+  let s = 0;
+  while (s < c.stateNames.length) { b.stateChans.push(new Int32Array(0)); s = s + 1; }
+  let e = 0;
+  while (e < c.blendClipName.length) { b.blendChans.push(new Int32Array(0)); b.pairPlans.push(null); e = e + 1; }
+  let l = 0;
+  while (l < nl) {
+    b.layerDirect[l] = c.layerWeight[l] >= 1.0 && c.layerMaskNames[l].length === 0 ? 1 : 0;
+    const mask = b.layerMask[l];
+    const s0 = c.layerStateStart[l];
+    s = s0;
+    while (s < s0 + c.layerStateCount[l]) {
+      if (c.stateKind[s] === STATE_CLIP) b.stateChans[s] = clipChannelsInMask(clips[b.stateClip[s]], mask);
+      else {
+        const e0 = c.stateBlendStart[s]; const en = e0 + c.stateBlendCount[s];
+        e = e0;
+        while (e < en) {
+          b.blendChans[e] = clipChannelsInMask(clips[b.blendClip[e]], mask);
+          if (e + 1 < en) b.pairPlans[e] = pairPlan(clips[b.blendClip[e]], clips[b.blendClip[e + 1]], mask);
+          e = e + 1;
+        }
+      }
+      s = s + 1;
+    }
+    l = l + 1;
+  }
 }

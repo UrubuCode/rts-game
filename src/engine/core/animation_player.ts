@@ -69,17 +69,38 @@ function findKeyIndex(times: Float64Array, t: f64): number {
   return lo;
 }
 
-/// Amostra um canal vetorial (translation/scale, stride 3) em `t`, com lerp
-/// entre as duas chaves vizinhas. Fora do intervalo: mantém a chave da ponta
-/// (sem extrapolar) — `update`/`seek` já grampeiam/envolvem `t` antes.
-/// 4 parâmetros, poucos locais — ver comentário do topo do arquivo.
-function sampleVec3Into(times: Float64Array, values: Float64Array, t: f64, out: Float64Array): void {
+/// Passos para frente tentados a partir da chave do quadro anterior antes de
+/// cair na busca binária (a 60 quadros/s com chaves a 1/30 s, anda 0 ou 1).
+const KEY_WALK_MAX: number = 2;
+
+/// `findKeyIndex` partindo da chave `hint` do quadro anterior: o tempo quase
+/// sempre avançou 0 ou 1 chave, então 1-2 leituras em vez da busca inteira
+/// (~5 com 20-40 chaves). Dica inválida (fora da faixa, depois de `t` — laço
+/// que deu a volta, seek para trás, outro clipe) ou longe demais: busca binária.
+/// Resultado idêntico ao de `findKeyIndex` para qualquer dica.
+function findKeyFrom(times: Float64Array, t: f64, hint: number): number {
   const n = times.length;
-  const k = findKeyIndex(times, t);
+  if (hint < 0 || hint >= n || times[hint] > t) return findKeyIndex(times, t);
+  let k = hint;
+  let steps = 0;
+  while (k + 1 < n && times[k + 1] <= t) {
+    if (steps >= KEY_WALK_MAX) return findKeyIndex(times, t);
+    k = k + 1; steps = steps + 1;
+  }
+  return k;
+}
+
+/// Amostra um canal vetorial (translation/scale, stride 3) com a chave `k` já
+/// achada, lerp entre as duas vizinhas. Fora do intervalo: mantém a chave da
+/// ponta (sem extrapolar). 4 parâmetros — ver comentário do topo do arquivo;
+/// o tempo vem em `SCR_T[0]`.
+function sampleVec3At(times: Float64Array, values: Float64Array, k: number, out: Float64Array): void {
+  const n = times.length;
   if (k >= n - 1) {
     out[0] = values[k * 3]; out[1] = values[k * 3 + 1]; out[2] = values[k * 3 + 2];
     return;
   }
+  const t = SCR_T[0];
   const t0 = times[k]; const t1 = times[k + 1];
   let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
   if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
@@ -100,32 +121,73 @@ function blendVec3Into(dest: Float64Array, bone: number, src: Float64Array, weig
   dest[o + 2] = dest[o + 2] * u + src[2] * weight;
 }
 
-/// Três buffers de pose por osso (T 3, R 4, S 3) — o destino de
-/// `samplePoseInto`. Pode apontar para a pose de TRABALHO de um Skeleton
+/// Três buffers de pose por osso (T 3, R 4, S 3) — o destino dos
+/// amostradores. Pode apontar para a pose de TRABALHO de um Skeleton
 /// (`sampleClipInto` faz isso) ou para buffers próprios de quem mistura várias
-/// poses antes de escrever no esqueleto (o Animator: estado de saída de um
-/// fade, camada com máscara/peso). Criado uma vez; nunca por frame.
+/// poses antes de escrever no esqueleto (o Animator: fade, camada com peso).
+/// Criado uma vez; nunca por frame.
 export class PoseBuffers {
   t: Float64Array;
   r: Float64Array;
   s: Float64Array;
-  /// Máscara de ossos do DESTINO (null = todos): `samplePoseInto` só escreve
-  /// nos ossos com `mask[osso] !== 0`. Deixa uma camada com máscara amostrar
-  /// direto na pose do esqueleto, sem copiar a pose inteira para um buffer e
-  /// misturar de volta (o Animator usa uma "vista" por camada com os arrays do
-  /// Skeleton e a máscara da camada).
-  mask: Uint8Array | null;
   constructor(bones: number) {
     this.t = new Float64Array(bones * 3);
     this.r = new Float64Array(bones * 4);
     this.s = new Float64Array(bones * 3);
-    this.mask = null;
+  }
+}
+
+/// Um clipe + QUAIS canais amostrar + a chave de cada canal no quadro
+/// anterior (dica de `findKeyFrom`). `chans` null = todos os canais do clipe
+/// (AnimationPlayer); o Animator passa a lista de canais cujo osso está na
+/// máscara da camada, montada 1x na ligação (AnimatorBinding) — a camada do
+/// braço amostra 1 canal em vez de percorrer o clipe inteiro. `keys` é estado
+/// de quem toca (um cursor por estado/entrada de mistura), nunca por frame.
+export class ClipCursor {
+  clip: AnimClip | null;
+  chans: Int32Array | null;
+  keys: Int32Array;
+  constructor(clip: AnimClip | null, chans: Int32Array | null) {
+    this.clip = clip; this.chans = chans;
+    this.keys = new Int32Array(chans !== null ? chans.length : (clip !== null ? clip.chBone.length : 0));
+  }
+}
+
+/// Mistura 1D de DOIS clipes (A em peso 1, B em `weight`) numa passada: a
+/// lista `bone/path/ia/ib` junta os canais dos dois (índice no clipe, -1 =
+/// o clipe não tem esse canal), montada 1x na ligação para cada par vizinho
+/// de uma mistura. Por canal: amostra A e B e faz o nlerp, escrevendo o osso
+/// UMA vez (antes: A inteiro, depois B relendo a pose). Canal só de B mistura
+/// contra o valor que já está no destino (a base), como antes. `tA`/`tB` são
+/// os tempos do quadro (fase comum x duração de cada clipe) — campos, para o
+/// amostrador ficar em 3 parâmetros.
+export class PairCursor {
+  a: AnimClip;
+  b: AnimClip;
+  bone: Int32Array;
+  path: Int32Array;
+  ia: Int32Array;
+  ib: Int32Array;
+  ka: Int32Array;
+  kb: Int32Array;
+  tA: f64;
+  tB: f64;
+  constructor(a: AnimClip, b: AnimClip, plan: Int32Array[]) {
+    this.a = a; this.b = b;
+    this.bone = plan[0]; this.path = plan[1]; this.ia = plan[2]; this.ib = plan[3];
+    this.ka = new Int32Array(this.bone.length); this.kb = new Int32Array(this.bone.length);
+    this.tA = 0.0; this.tB = 0.0;
   }
 }
 
 // destino reusado por `sampleClipInto`: aponta para os arrays do Skeleton a
 // cada chamada (3 escritas de campo, nenhuma alocação).
 const SK_POSE: PoseBuffers = new PoseBuffers(0);
+// cursor de módulo para quem amostra sem cursor próprio (samplePoseInto,
+// testes): as dicas de chave valem pouco entre clipes, mas continuam corretas.
+const ANY_CURSOR: ClipCursor = new ClipCursor(null, null);
+// tempo do canal vetorial (evita o 5º parâmetro em sampleVec3At)
+const SCR_T: Float64Array = new Float64Array(1);
 
 /// Amostra `clip` em `t` e escreve na pose de TRABALHO de `sk`
 /// (`poseT/poseR/poseS`). `weight < 1` mistura com o valor JÁ presente na
@@ -135,72 +197,136 @@ const SK_POSE: PoseBuffers = new PoseBuffers(0);
 export function sampleClipInto(sk: Skeleton, clip: AnimClip, t: f64, weight: f64): void {
   const dst = SK_POSE;
   dst.t = sk.poseT; dst.r = sk.poseR; dst.s = sk.poseS;
-  samplePoseInto(dst, clip, t, weight);
+  ANY_CURSOR.clip = clip; ANY_CURSOR.chans = null;
+  sampleCursorInto(dst, ANY_CURSOR, t, weight);
 }
 
-/// O amostrador de verdade (o ÚNICO do motor): `sampleClipInto` com destino
-/// arbitrário. Mesma semântica de peso e de ossos sem canal. O número de ossos
-/// vem do tamanho de `dst.r`; `dst.mask` (se houver) limita os ossos escritos.
-/// A rotação com `weight < 1` (mistura 1D do Animator, crossfade) também é
-/// aberta aqui — amostra e nlerp contra o valor atual sem as 3 chamadas de
-/// função por canal que havia antes (amostrar, misturar, nlerp) — MEDIDO: o
-/// caminho com peso custava ~2,4x o de peso 1.
+/// `sampleClipInto` com o cursor de quem toca (dicas de chave próprias): o
+/// AnimationPlayer usa um por clipe (atual e o de saída do crossfade).
+export function sampleSkeletonCursor(sk: Skeleton, cursor: ClipCursor, t: f64, weight: f64): void {
+  const dst = SK_POSE;
+  dst.t = sk.poseT; dst.r = sk.poseR; dst.s = sk.poseS;
+  sampleCursorInto(dst, cursor, t, weight);
+}
+
+/// `sampleClipInto` com destino arbitrário (sem cursor próprio).
 export function samplePoseInto(dst: PoseBuffers, clip: AnimClip, t: f64, weight: f64): void {
-  const n = clip.chBone.length;
+  ANY_CURSOR.clip = clip; ANY_CURSOR.chans = null;
+  sampleCursorInto(dst, ANY_CURSOR, t, weight);
+}
+
+/// O amostrador de UM clipe (o único do motor para clipe único; a mistura de
+/// dois vizinhos é `samplePairInto`). Mesma semântica de peso e de ossos sem
+/// canal de `sampleClipInto`. Rotação aberta inline nos dois casos (peso 1 e
+/// peso < 1): sem chamadas de função por canal — ver o topo do arquivo.
+export function sampleCursorInto(dst: PoseBuffers, cursor: ClipCursor, t: f64, weight: f64): void {
+  const clip = cursor.clip;
+  if (clip === null) return;
+  const chans = cursor.chans;
+  const n = chans !== null ? chans.length : clip.chBone.length;
+  if (cursor.keys.length < n) cursor.keys = new Int32Array(n);   // só ao trocar para um clipe maior
+  const keys = cursor.keys;
   const boneCount = dst.r.length >> 2;
-  // caso comum (sem crossfade, weight=1): amostra e escreve DIRETO no osso,
-  // sem chamadas de função por canal —
-  // tudo aberto aqui dentro, porque `sampleClipInto` continua com só 4
-  // parâmetros (sk,clip,t,weight): é o número de parâmetros ESCALARES da
-  // função que importa pro defeito de alocação deste runtime (ver comentário
-  // do topo do arquivo), não a quantidade de locais dentro dela.
   const full = weight >= 1.0;
+  const wu = 1.0 - weight;
   const poseT = dst.t; const poseR = dst.r; const poseS = dst.s;
   const chTimes = clip.chTimes; const chValues = clip.chValues;
   const chBone = clip.chBone; const chPath = clip.chPath;
-  const mask = dst.mask;
-  const wu = 1.0 - weight;
-  let i = 0;
-  while (i < n) {
+  let j = 0;
+  while (j < n) {
+    const i = chans !== null ? chans[j] : j;
     const bone = chBone[i];
-    if (bone >= 0 && bone < boneCount && (mask === null || mask[bone] !== 0)) {
+    if (bone >= 0 && bone < boneCount) {
       const path = chPath[i];
       const times = chTimes[i]; const values = chValues[i];
+      // chave do quadro anterior ainda vale? (caso comum: 2 leituras, que
+      // servem também para a interpolação); senão findKeyFrom
+      const tn = times.length;
+      const hint = keys[j];
+      let k = hint;
+      let t0: f64 = 0.0; let t1: f64 = 0.0;
+      if (k >= 0 && k < tn - 1) { t0 = times[k]; t1 = times[k + 1]; }
+      if (k < 0 || k >= tn - 1 || t0 > t || t >= t1) {
+        k = findKeyFrom(times, t, hint);
+        if (k < tn - 1) { t0 = times[k]; t1 = times[k + 1]; }
+      }
+      if (k !== hint) keys[j] = k;
       if (path === PATH_ROTATION) {
-        if (full) {
+        const ko = k * 4;
+        const o = bone * 4;
+        let x = values[ko]; let y = values[ko + 1]; let z = values[ko + 2]; let w = values[ko + 3];
+        if (k < tn - 1) {
+          let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
+          if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
+          const ko2 = ko + 4;
+          const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
+          const s: f64 = x * bx + y * by + z * bz + w * bw < 0.0 ? 0.0 - 1.0 : 1.0;
+          const u = 1.0 - f;
+          x = x * u + bx * s * f; y = y * u + by * s * f; z = z * u + bz * s * f; w = w * u + bw * s * f;
+          const len = Math.sqrt(x * x + y * y + z * z + w * w);
+          if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
+        }
+        if (!full) {
+          // nlerp contra o valor atual do osso (mesma matemática de quatNlerpInto)
+          const ax = poseR[o]; const ay = poseR[o + 1]; const az = poseR[o + 2]; const aw = poseR[o + 3];
+          const sg: f64 = ax * x + ay * y + az * z + aw * w < 0.0 ? 0.0 - 1.0 : 1.0;
+          x = ax * wu + x * sg * weight; y = ay * wu + y * sg * weight;
+          z = az * wu + z * sg * weight; w = aw * wu + w * sg * weight;
+          const rl = Math.sqrt(x * x + y * y + z * z + w * w);
+          if (rl > 1e-12) { x = x / rl; y = y / rl; z = z / rl; w = w / rl; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
+        }
+        poseR[o] = x; poseR[o + 1] = y; poseR[o + 2] = z; poseR[o + 3] = w;
+      } else if (path === PATH_TRANSLATION) {
+        SCR_T[0] = t;
+        sampleVec3At(times, values, k, SCR_V3);
+        blendVec3Into(poseT, bone, SCR_V3, weight);
+      } else if (path === PATH_SCALE) {
+        SCR_T[0] = t;
+        sampleVec3At(times, values, k, SCR_V3);
+        blendVec3Into(poseS, bone, SCR_V3, weight);
+      }
+    }
+    j = j + 1;
+  }
+}
+
+/// Mistura 1D de dois clipes vizinhos numa passada (ver `PairCursor`).
+/// Resultado igual a `sampleCursorInto(A, 1)` seguido de `sampleCursorInto(B,
+/// weight)`, sem a segunda passada nem a releitura da pose.
+export function samplePairInto(dst: PoseBuffers, pc: PairCursor, weight: f64): void {
+  const n = pc.bone.length;
+  const boneCount = dst.r.length >> 2;
+  const wu = 1.0 - weight;
+  const poseT = dst.t; const poseR = dst.r; const poseS = dst.s;
+  const bones = pc.bone; const paths = pc.path; const ia = pc.ia; const ib = pc.ib;
+  const ka = pc.ka; const kb = pc.kb;
+  const tA = pc.tA; const tB = pc.tB;
+  const aTimes = pc.a.chTimes; const aValues = pc.a.chValues;
+  const bTimes = pc.b.chTimes; const bValues = pc.b.chValues;
+  let j = 0;
+  while (j < n) {
+    const bone = bones[j];
+    if (bone >= 0 && bone < boneCount) {
+      const ca = ia[j]; const cb = ib[j];
+      if (paths[j] === PATH_ROTATION) {
+        const o = bone * 4;
+        let x: f64 = 0.0; let y: f64 = 0.0; let z: f64 = 0.0; let w: f64 = 1.0;
+        if (ca >= 0) {
+          const times = aTimes[ca]; const values = aValues[ca];
           const tn = times.length;
-          const k = findKeyIndex(times, t);
-          const ko = k * 4;
-          const o = bone * 4;
-          if (k >= tn - 1) {
-            poseR[o] = values[ko]; poseR[o + 1] = values[ko + 1]; poseR[o + 2] = values[ko + 2]; poseR[o + 3] = values[ko + 3];
-          } else {
-            const t0 = times[k]; const t1 = times[k + 1];
-            let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
-            if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
-            const ko2 = ko + 4;
-            const ax = values[ko]; const ay = values[ko + 1]; const az = values[ko + 2]; const aw = values[ko + 3];
-            const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
-            const dot = ax * bx + ay * by + az * bz + aw * bw;
-            const s: f64 = dot < 0.0 ? 0.0 - 1.0 : 1.0;
-            const u = 1.0 - f;
-            let x = ax * u + bx * s * f; let y = ay * u + by * s * f; let z = az * u + bz * s * f; let w = aw * u + bw * s * f;
-            const len = Math.sqrt(x * x + y * y + z * z + w * w);
-            if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
-            poseR[o] = x; poseR[o + 1] = y; poseR[o + 2] = z; poseR[o + 3] = w;
+          const hint = ka[j];
+          let k = hint;
+          let t0: f64 = 0.0; let t1: f64 = 0.0;
+          if (k >= 0 && k < tn - 1) { t0 = times[k]; t1 = times[k + 1]; }
+          if (k < 0 || k >= tn - 1 || t0 > tA || tA >= t1) {
+            k = findKeyFrom(times, tA, hint);
+            if (k < tn - 1) { t0 = times[k]; t1 = times[k + 1]; }
           }
-        } else {
-          // amostra (nlerp entre chaves) e mistura (nlerp contra o valor atual
-          // do osso, pelo caminho curto) — a mesma matemática de
-          // de `quatNlerpInto` (quat.ts), aberta duas vezes
-          const tn = times.length;
-          const k = findKeyIndex(times, t);
+          if (k !== hint) ka[j] = k;
           const ko = k * 4;
-          const o = bone * 4;
-          let x = values[ko]; let y = values[ko + 1]; let z = values[ko + 2]; let w = values[ko + 3];
+          x = values[ko]; y = values[ko + 1]; z = values[ko + 2]; w = values[ko + 3];
           if (k < tn - 1) {
-            const t0 = times[k]; const t1 = times[k + 1];
-            let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
+            let f: f64 = t1 > t0 ? (tA - t0) / (t1 - t0) : 0.0;
             if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
             const ko2 = ko + 4;
             const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
@@ -210,32 +336,139 @@ export function samplePoseInto(dst: PoseBuffers, clip: AnimClip, t: f64, weight:
             const len = Math.sqrt(x * x + y * y + z * z + w * w);
             if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
           }
-          const ax = poseR[o]; const ay = poseR[o + 1]; const az = poseR[o + 2]; const aw = poseR[o + 3];
-          const sg: f64 = ax * x + ay * y + az * z + aw * w < 0.0 ? 0.0 - 1.0 : 1.0;
-          let rx = ax * wu + x * sg * weight; let ry = ay * wu + y * sg * weight;
-          let rz = az * wu + z * sg * weight; let rw = aw * wu + w * sg * weight;
-          const rl = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw);
-          if (rl > 1e-12) { rx = rx / rl; ry = ry / rl; rz = rz / rl; rw = rw / rl; } else { rx = 0.0; ry = 0.0; rz = 0.0; rw = 1.0; }
-          poseR[o] = rx; poseR[o + 1] = ry; poseR[o + 2] = rz; poseR[o + 3] = rw;
+        } else {
+          x = poseR[o]; y = poseR[o + 1]; z = poseR[o + 2]; w = poseR[o + 3];   // só B: mistura contra a base
         }
-      } else if (path === PATH_TRANSLATION) {
-        sampleVec3Into(times, values, t, SCR_V3);
-        if (full) { const o = bone * 3; poseT[o] = SCR_V3[0]; poseT[o + 1] = SCR_V3[1]; poseT[o + 2] = SCR_V3[2]; }
-        else blendVec3Into(poseT, bone, SCR_V3, weight);
-      } else if (path === PATH_SCALE) {
-        sampleVec3Into(times, values, t, SCR_V3);
-        if (full) { const o = bone * 3; poseS[o] = SCR_V3[0]; poseS[o + 1] = SCR_V3[1]; poseS[o + 2] = SCR_V3[2]; }
-        else blendVec3Into(poseS, bone, SCR_V3, weight);
+        if (cb >= 0 && weight > 0.0) {
+          const times = bTimes[cb]; const values = bValues[cb];
+          const tn = times.length;
+          const hint = kb[j];
+          let k = hint;
+          let t0: f64 = 0.0; let t1: f64 = 0.0;
+          if (k >= 0 && k < tn - 1) { t0 = times[k]; t1 = times[k + 1]; }
+          if (k < 0 || k >= tn - 1 || t0 > tB || tB >= t1) {
+            k = findKeyFrom(times, tB, hint);
+            if (k < tn - 1) { t0 = times[k]; t1 = times[k + 1]; }
+          }
+          if (k !== hint) kb[j] = k;
+          const ko = k * 4;
+          let qx = values[ko]; let qy = values[ko + 1]; let qz = values[ko + 2]; let qw = values[ko + 3];
+          if (k < tn - 1) {
+            let f: f64 = t1 > t0 ? (tB - t0) / (t1 - t0) : 0.0;
+            if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
+            const ko2 = ko + 4;
+            const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
+            const s: f64 = qx * bx + qy * by + qz * bz + qw * bw < 0.0 ? 0.0 - 1.0 : 1.0;
+            const u = 1.0 - f;
+            qx = qx * u + bx * s * f; qy = qy * u + by * s * f; qz = qz * u + bz * s * f; qw = qw * u + bw * s * f;
+            const len = Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw);
+            if (len > 1e-12) { qx = qx / len; qy = qy / len; qz = qz / len; qw = qw / len; } else { qx = 0.0; qy = 0.0; qz = 0.0; qw = 1.0; }
+          }
+          const sg: f64 = x * qx + y * qy + z * qz + w * qw < 0.0 ? 0.0 - 1.0 : 1.0;
+          x = x * wu + qx * sg * weight; y = y * wu + qy * sg * weight;
+          z = z * wu + qz * sg * weight; w = w * wu + qw * sg * weight;
+          const rl = Math.sqrt(x * x + y * y + z * z + w * w);
+          if (rl > 1e-12) { x = x / rl; y = y / rl; z = z / rl; w = w / rl; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
+        }
+        poseR[o] = x; poseR[o + 1] = y; poseR[o + 2] = z; poseR[o + 3] = w;
+      } else {
+        // translação/escala (poucos canais): A em peso 1, B em `weight`
+        const dest = paths[j] === PATH_TRANSLATION ? poseT : poseS;
+        if (ca >= 0) {
+          const times = aTimes[ca];
+          const k = findKeyFrom(times, tA, ka[j]); ka[j] = k;
+          SCR_T[0] = tA;
+          sampleVec3At(times, aValues[ca], k, SCR_V3);
+          blendVec3Into(dest, bone, SCR_V3, 1.0);
+        }
+        if (cb >= 0 && weight > 0.0) {
+          const times = bTimes[cb];
+          const k = findKeyFrom(times, tB, kb[j]); kb[j] = k;
+          SCR_T[0] = tB;
+          sampleVec3At(times, bValues[cb], k, SCR_V3);
+          blendVec3Into(dest, bone, SCR_V3, weight);
+        }
       }
     }
+    j = j + 1;
+  }
+}
+
+/// Canais de `clip` cujo osso está em `mask` (ligação do Animator, 1x).
+export function clipChannelsInMask(clip: AnimClip, mask: Uint8Array): Int32Array {
+  let count = 0;
+  let i = 0;
+  while (i < clip.chBone.length) { const b = clip.chBone[i]; if (b >= 0 && b < mask.length && mask[b] !== 0) count = count + 1; i = i + 1; }
+  const out = new Int32Array(count);
+  count = 0; i = 0;
+  while (i < clip.chBone.length) {
+    const b = clip.chBone[i];
+    if (b >= 0 && b < mask.length && mask[b] !== 0) { out[count] = i; count = count + 1; }
     i = i + 1;
   }
+  return out;
+}
+
+/// Plano de `samplePairInto` para o par (A, B) dentro de `mask`: [bone, path,
+/// ia, ib] — os canais de A (na ordem de A) seguidos dos de B que A não tem.
+/// Ligação do Animator, 1x por par.
+export function pairPlan(a: AnimClip, b: AnimClip, mask: Uint8Array): Int32Array[] {
+  const ca = clipChannelsInMask(a, mask); const cb = clipChannelsInMask(b, mask);
+  const bone: number[] = []; const path: number[] = []; const ia: number[] = []; const ib: number[] = [];
+  const usedB = new Uint8Array(cb.length);
+  let i = 0;
+  while (i < ca.length) {
+    const c = ca[i];
+    bone.push(a.chBone[c]); path.push(a.chPath[c]); ia.push(c);
+    let match = 0 - 1;
+    let j = 0;
+    while (j < cb.length && match < 0) {
+      const d = cb[j];
+      if (usedB[j] === 0 && b.chBone[d] === a.chBone[c] && b.chPath[d] === a.chPath[c]) { match = d; usedB[j] = 1; }
+      j = j + 1;
+    }
+    ib.push(match);
+    i = i + 1;
+  }
+  let j = 0;
+  while (j < cb.length) {
+    if (usedB[j] === 0) { const d = cb[j]; bone.push(b.chBone[d]); path.push(b.chPath[d]); ia.push(0 - 1); ib.push(d); }
+    j = j + 1;
+  }
+  const out: Int32Array[] = [];
+  const lists = [bone, path, ia, ib];
+  let l = 0;
+  while (l < 4) {
+    const src = lists[l]; const arr = new Int32Array(src.length);
+    let k = 0; while (k < src.length) { arr[k] = src[k]; k = k + 1; }
+    out.push(arr);
+    l = l + 1;
+  }
+  return out;
 }
 
 /// Copia a pose inteira de `src` para `dst` (mesmo número de ossos). Cópia
 /// nativa (`TypedArray.set`), bem mais barata que o laço por elemento aqui.
 export function copyPoseInto(dst: PoseBuffers, src: PoseBuffers): void {
   dst.t.set(src.t); dst.r.set(src.r); dst.s.set(src.s);
+}
+
+/// Copia de `src` para `dst` só os ossos com `mask[osso] !== 0` (camada com
+/// máscara: o buffer só precisa da base nos ossos que a camada escreve).
+export function copyPoseMaskedInto(dst: PoseBuffers, src: PoseBuffers, mask: Uint8Array): void {
+  const dt = dst.t; const dr = dst.r; const ds = dst.s;
+  const st = src.t; const sr = src.r; const ss = src.s;
+  const n = mask.length;
+  let b = 0;
+  while (b < n) {
+    if (mask[b] !== 0) {
+      const o3 = b * 3; const o4 = b * 4;
+      dt[o3] = st[o3]; dt[o3 + 1] = st[o3 + 1]; dt[o3 + 2] = st[o3 + 2];
+      ds[o3] = ss[o3]; ds[o3 + 1] = ss[o3 + 1]; ds[o3 + 2] = ss[o3 + 2];
+      dr[o4] = sr[o4]; dr[o4 + 1] = sr[o4 + 1]; dr[o4 + 2] = sr[o4 + 2]; dr[o4 + 3] = sr[o4 + 3];
+    }
+    b = b + 1;
+  }
 }
 
 /// Mistura a pose `src` em `dst` com peso `weight` (1 = substitui; lerp em T/S,
@@ -319,9 +552,16 @@ export class AnimationPlayer extends Behavior {
   private fadeTime: f64;
   /** @nonSerialized */
   private fadeDur: f64;
+  // cursores de amostragem (dicas de chave do quadro anterior) do clipe
+  // atual e do de saída do crossfade — ver ClipCursor
+  /** @nonSerialized */
+  private curCursor: ClipCursor;
+  /** @nonSerialized */
+  private prevCursor: ClipCursor;
 
   constructor() {
     super();
+    this.curCursor = new ClipCursor(null, null); this.prevCursor = new ClipCursor(null, null);
     this.clip = "";
     this.loop = true;
     this.speed = 1.0;
@@ -550,12 +790,15 @@ export class AnimationPlayer extends Behavior {
     const clip = sk.asset.clips[this.clipIdx];
     if (this.prevClipIdx >= 0 && this.prevClipIdx < sk.asset.clips.length) {
       const prevClip = sk.asset.clips[this.prevClipIdx];
-      sampleClipInto(sk, prevClip, this.prevTime, 1.0);
+      const pc = this.prevCursor; pc.clip = prevClip;
+      sampleSkeletonCursor(sk, pc, this.prevTime, 1.0);
       const w = this.fadeDur > 0.0 ? Math.min(1.0, this.fadeTime / this.fadeDur) : 1.0;
-      sampleClipInto(sk, clip, this.time, w);
+      const cc = this.curCursor; cc.clip = clip;
+      sampleSkeletonCursor(sk, cc, this.time, w);
       if (w >= 1.0) this.prevClipIdx = 0 - 1;
     } else {
-      sampleClipInto(sk, clip, this.time, 1.0);
+      const cc = this.curCursor; cc.clip = clip;
+      sampleSkeletonCursor(sk, cc, this.time, 1.0);
     }
   }
 }

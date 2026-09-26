@@ -33,7 +33,8 @@ import { Behavior } from "./behavior";
 import type { GameObject } from "./gameobject";
 import { Skeleton } from "./skeleton";
 import type { SkeletonAsset } from "../render/gltf_anim";
-import { PoseBuffers, samplePoseInto, copyPoseInto, blendPoseInto } from "./animation_player";
+import { PoseBuffers, ClipCursor, PairCursor, sampleCursorInto, samplePairInto, copyPoseInto, copyPoseMaskedInto,
+  blendPoseInto } from "./animation_player";
 import { AnimatorController, AnimatorBinding, loadAnimatorController, reloadAnimatorController, bindAnimatorController,
   PARAM_FLOAT, PARAM_BOOL, PARAM_TRIGGER, STATE_CLIP, FROM_ANY, NO_EXIT,
   COND_TRUE, COND_EQ, COND_NE, COND_GT, COND_LT, COND_GE } from "./animator_controller";
@@ -95,17 +96,23 @@ export class Animator extends Behavior {
   private bufB: PoseBuffers;
   /** @nonSerialized */
   private allMask: Uint8Array;
-  // por camada: "vista" da pose do esqueleto (mesmos arrays) com a máscara
-  // da camada — camada com máscara sem fade amostra direto aqui
+  // cursores de amostragem (canais da máscara + dica de chave por canal):
+  // por estado de clipe, por entrada de mistura e por par vizinho de mistura
   /** @nonSerialized */
-  private layerView: PoseBuffers[];
-  // saída de pickBlend (evita devolver 3 valores)
+  private stateCursors: ClipCursor[];
   /** @nonSerialized */
-  private pickA: number;
+  private blendCursors: ClipCursor[];
   /** @nonSerialized */
-  private pickB: number;
+  private pairCursors: (PairCursor | null)[];
+  // vizinhos da mistura 1D por "slot" (camada*2 + 0 atual / 1 de saída),
+  // calculados 1x por frame em advanceLayer (ou na transição) e reusados
+  // pela amostragem
   /** @nonSerialized */
-  private pickW: f64;
+  private slotPickA: Int32Array;
+  /** @nonSerialized */
+  private slotPickB: Int32Array;
+  /** @nonSerialized */
+  private slotPickW: Float64Array;
 
   constructor() {
     super();
@@ -119,8 +126,8 @@ export class Animator extends Behavior {
     this.fadeT = new Float64Array(0); this.fadeDur = new Float64Array(0);
     this.skPose = new PoseBuffers(0); this.bufA = new PoseBuffers(0); this.bufB = new PoseBuffers(0);
     this.allMask = new Uint8Array(0);
-    this.layerView = [];
-    this.pickA = 0; this.pickB = 0; this.pickW = 0.0;
+    this.stateCursors = []; this.blendCursors = []; this.pairCursors = [];
+    this.slotPickA = new Int32Array(0); this.slotPickB = new Int32Array(0); this.slotPickW = new Float64Array(0);
   }
 
   typeName(): string { return "Animator"; }
@@ -264,11 +271,13 @@ export class Animator extends Behavior {
     this.resetRuntime();
   }
 
-  // Caminho quente: 3 comparações de campo. Religa se o Skeleton foi
-  // removido/trocado (owner) ou o modelo dele mudou (asset).
+  // Caminho quente: 4 comparações de campo. Religa se o Skeleton foi
+  // removido/trocado (owner), o modelo dele mudou (asset) ou um script trocou
+  // `controller` em tempo de execução (sem passar por onValidate/load).
   private ensureReady(): boolean {
     const sk = this.sk;
-    if (this.ready && sk !== null && sk.owner === this.owner && sk.asset === this.boundAsset) return true;
+    if (this.ready && sk !== null && sk.owner === this.owner && sk.asset === this.boundAsset &&
+      this.loadedPath === this.controller) return true;
     return this.rebind();
   }
 
@@ -276,9 +285,11 @@ export class Animator extends Behavior {
     this.ready = false;
     this.ensureController();
     const c = this.ctrl;
+    const old = this.sk;
+    if (old !== null && old.poseDriver === this) old.poseDriver = null;   // volta a mandar só se ligar de novo
     const sk = this.findSkeleton();
     this.sk = sk;
-    if (sk !== null) { sk.ensureAsset(0); sk.poseDriver = this; }
+    if (sk !== null) { sk.ensureAsset(0); if (sk.poseDriver === this) sk.poseDriver = null; }
     const asset = sk !== null ? sk.asset : null;
     // mesma tentativa que já falhou: não refaz (nem monta texto) por frame
     if (this.err !== "" && sk === this.failedSk && asset === this.failedAsset && c === this.failedCtrl) return false;
@@ -300,20 +311,40 @@ export class Animator extends Behavior {
       this.allMask = m;
     }
     this.skPose.t = sk.poseT; this.skPose.r = sk.poseR; this.skPose.s = sk.poseS;
-    const views: PoseBuffers[] = [];
-    let l = 0;
-    while (l < c.layerNames.length) {
-      const v = new PoseBuffers(0);
-      v.t = sk.poseT; v.r = sk.poseR; v.s = sk.poseS; v.mask = b.layerMask[l];
-      views.push(v);
-      l = l + 1;
-    }
-    this.layerView = views;
+    this.buildCursors(c, b);
     if (this.layerCur.length !== c.layerNames.length) this.resetRuntime();
+    // só um Animator LIGADO manda na pose: um com erro não silencia o
+    // AnimationPlayer do mesmo objeto
+    sk.poseDriver = this;
     this.err = "";
     this.failedSk = null; this.failedAsset = null; this.failedCtrl = null;
     this.ready = true;
     return true;
+  }
+
+  // Cursores por estado/entrada/par (1x por ligação; as dicas de chave são
+  // estado deste Animator, os planos de canais são da ligação compartilhada).
+  private buildCursors(c: AnimatorController, b: AnimatorBinding): void {
+    const clips = b.asset.clips;
+    const sc: ClipCursor[] = [];
+    let s = 0;
+    while (s < c.stateNames.length) {
+      sc.push(new ClipCursor(c.stateKind[s] === STATE_CLIP ? clips[b.stateClip[s]] : null, b.stateChans[s]));
+      s = s + 1;
+    }
+    const bc: ClipCursor[] = []; const pc: (PairCursor | null)[] = [];
+    let e = 0;
+    while (e < b.blendClip.length) {
+      bc.push(new ClipCursor(clips[b.blendClip[e]], b.blendChans[e]));
+      const plan = b.pairPlans[e];
+      pc.push(plan !== null ? new PairCursor(clips[b.blendClip[e]], clips[b.blendClip[e + 1]], plan) : null);
+      e = e + 1;
+    }
+    this.stateCursors = sc; this.blendCursors = bc; this.pairCursors = pc;
+    const slots = c.layerNames.length * 2;
+    if (this.slotPickA.length !== slots) {
+      this.slotPickA = new Int32Array(slots); this.slotPickB = new Int32Array(slots); this.slotPickW = new Float64Array(slots);
+    }
   }
 
   // Skeleton do mesmo objeto (o cache vale enquanto o owner bater).
@@ -331,39 +362,53 @@ export class Animator extends Behavior {
     return null;
   }
 
-  // Duração (s) do estado `s` agora — mistura: lerp das durações dos vizinhos.
-  private stateDuration(s: number): f64 {
-    const c = this.ctrl!; const b = this.bind!;
-    if (c.stateKind[s] === STATE_CLIP) return b.stateDur[s];
-    this.pickBlend(s);
-    const da = b.blendDur[this.pickA];
-    return da + (b.blendDur[this.pickB] - da) * this.pickW;
+  // Estado do slot (camada*2 + 0 atual / 1 de saída do fade).
+  private slotState(slot: number): number {
+    const l = slot >> 1;
+    return (slot & 1) !== 0 ? this.layerPrev[l] : this.layerCur[l];
   }
 
-  // Vizinhos da mistura 1D para o valor atual do parâmetro: pickA/pickB
-  // (índices de entrada de mistura) e pickW (peso de B). Fora da faixa grampeia.
-  private pickBlend(s: number): void {
+  // Duração (s) do estado do slot agora — mistura: lerp das durações dos
+  // vizinhos, que ficam guardados no slot para a amostragem do mesmo frame.
+  private stateDuration(slot: number): f64 {
+    const c = this.ctrl!; const b = this.bind!;
+    const s = this.slotState(slot);
+    if (c.stateKind[s] === STATE_CLIP) return b.stateDur[s];
+    this.pickBlend(slot);
+    const da = b.blendDur[this.slotPickA[slot]];
+    return da + (b.blendDur[this.slotPickB[slot]] - da) * this.slotPickW[slot];
+  }
+
+  // Vizinhos da mistura 1D do estado do slot para o valor atual do parâmetro:
+  // slotPickA/B (índices de entrada de mistura) e slotPickW (peso de B). Fora
+  // da faixa grampeia.
+  private pickBlend(slot: number): void {
     const c = this.ctrl!;
+    const s = this.slotState(slot);
     const start = c.stateBlendStart[s];
     const last = start + c.stateBlendCount[s] - 1;
     const thr = c.blendThreshold;
     const v = this.params[c.stateBlendParam[s]];
-    if (v <= thr[start] || last === start) { this.pickA = start; this.pickB = start; this.pickW = 0.0; return; }
-    if (v >= thr[last]) { this.pickA = last; this.pickB = last; this.pickW = 0.0; return; }
-    let i = start;
-    while (i < last - 1 && v >= thr[i + 1]) i = i + 1;
-    this.pickA = i; this.pickB = i + 1;
-    this.pickW = (v - thr[i]) / (thr[i + 1] - thr[i]);
+    let a = start; let bb = start; let w: f64 = 0.0;
+    if (v <= thr[start] || last === start) { a = start; bb = start; }
+    else if (v >= thr[last]) { a = last; bb = last; }
+    else {
+      let i = start;
+      while (i < last - 1 && v >= thr[i + 1]) i = i + 1;
+      a = i; bb = i + 1;
+      w = (v - thr[i]) / (thr[i + 1] - thr[i]);
+    }
+    this.slotPickA[slot] = a; this.slotPickB[slot] = bb; this.slotPickW[slot] = w;
   }
 
   private advanceLayer(l: number, dt: f64): void {
     const c = this.ctrl!;
     const cur = this.layerCur[l];
-    const dc = this.stateDuration(cur);
+    const dc = this.stateDuration(l * 2);
     if (dc > 0.0) this.curNorm[l] = this.curNorm[l] + dt * c.stateSpeed[cur] / dc;
     const prev = this.layerPrev[l];
     if (prev >= 0) {
-      const dp = this.stateDuration(prev);
+      const dp = this.stateDuration(l * 2 + 1);
       if (dp > 0.0) this.prevNorm[l] = this.prevNorm[l] + dt * c.stateSpeed[prev] / dp;
       const ft = this.fadeT[l] + dt;
       this.fadeT[l] = ft;
@@ -384,12 +429,16 @@ export class Animator extends Behavior {
       if (fromOk && (exit[t] === NO_EXIT || this.curNorm[l] >= exit[t]) && this.conditionsPass(t)) {
         this.consumeTriggers(t);
         const fade = c.transFade[t];
-        if (fade > 0.0) { this.layerPrev[l] = cur; this.prevNorm[l] = this.curNorm[l]; }
-        else this.layerPrev[l] = 0 - 1;
+        const sc = l * 2;
+        if (fade > 0.0) {
+          this.layerPrev[l] = cur; this.prevNorm[l] = this.curNorm[l];
+          this.slotPickA[sc + 1] = this.slotPickA[sc]; this.slotPickB[sc + 1] = this.slotPickB[sc]; this.slotPickW[sc + 1] = this.slotPickW[sc];
+        } else this.layerPrev[l] = 0 - 1;
         this.layerCur[l] = dest;
         this.curNorm[l] = 0.0;
         this.fadeT[l] = 0.0;
         this.fadeDur[l] = fade;
+        if (c.stateKind[dest] !== STATE_CLIP) this.pickBlend(sc);   // vizinhos do estado novo
         return;
       }
       t = t + 1;
@@ -432,54 +481,69 @@ export class Animator extends Behavior {
   }
 
   private writeLayer(l: number): void {
-    const c = this.ctrl!;
+    const c = this.ctrl!; const b = this.bind!;
     const w = c.layerWeight[l];
     if (w <= 0.0) return;
-    const direct = w >= 1.0 && c.layerMaskNames[l].length === 0;
+    const direct = b.layerDirect[l] !== 0;
     const prev = this.layerPrev[l];
-    const cur = this.layerCur[l];
-    // camada com máscara/peso sem fade: amostra DIRETO na pose do esqueleto
-    // pela vista mascarada (sem copiar a pose num buffer e misturar de volta).
-    // Mistura 1D com peso < 1 não cabe numa amostra só: vai pelo buffer.
-    if (!direct && prev < 0 && (w >= 1.0 || c.stateKind[cur] === STATE_CLIP)) {
-      this.evalState(cur, this.curNorm[l], this.layerView[l], w);
+    const sk = this.skPose;
+    const sc = l * 2;
+    if (prev < 0) {
+      // sem fade: os cursores já só têm os canais da máscara, então camada com
+      // máscara em peso 1 (ou estado de clipe com peso) amostra DIRETO na pose
+      if (direct || w >= 1.0 || c.stateKind[this.layerCur[l]] === STATE_CLIP) {
+        this.evalState(sc, this.curNorm[l], sk, direct ? 1.0 : w);
+        return;
+      }
+      // mistura 1D com peso < 1 não cabe numa amostra: buffer só nos ossos da máscara
+      const mask = b.layerMask[l];
+      copyPoseMaskedInto(this.bufA, sk, mask);
+      this.evalState(sc, this.curNorm[l], this.bufA, 1.0);
+      blendPoseInto(sk, this.bufA, w, mask);
       return;
     }
-    const sk = this.skPose;
-    const dst = direct ? sk : this.bufA;
-    if (!direct) copyPoseInto(dst, sk);
-    if (prev >= 0) {
-      // o estado de saída vai em `dst`, o de entrada num buffer que parte da
-      // MESMA base; depois mistura pelo progresso do fade
-      const b = this.bufB;
-      copyPoseInto(b, dst);
-      this.evalState(prev, this.prevNorm[l], dst, 1.0);
-      this.evalState(cur, this.curNorm[l], b, 1.0);
-      const d = this.fadeDur[l];
-      blendPoseInto(dst, b, d > 0.0 ? Math.min(1.0, this.fadeT[l] / d) : 1.0, this.allMask);
-    } else {
-      this.evalState(cur, this.curNorm[l], dst, 1.0);
+    const d = this.fadeDur[l];
+    const p = d > 0.0 ? Math.min(1.0, this.fadeT[l] / d) : 1.0;
+    if (direct) {
+      // o estado de saída vai direto na pose, o de entrada num buffer que parte
+      // da MESMA base; depois mistura pelo progresso do fade
+      const bb = this.bufB;
+      copyPoseInto(bb, sk);
+      this.evalState(sc + 1, this.prevNorm[l], sk, 1.0);
+      this.evalState(sc, this.curNorm[l], bb, 1.0);
+      blendPoseInto(sk, bb, p, this.allMask);
+      return;
     }
-    if (!direct) blendPoseInto(sk, dst, w, this.bind!.layerMask[l]);
+    // fade em camada com máscara: buffers e misturas só nos ossos da máscara
+    const mask = b.layerMask[l];
+    copyPoseMaskedInto(this.bufA, sk, mask); copyPoseMaskedInto(this.bufB, sk, mask);
+    this.evalState(sc + 1, this.prevNorm[l], this.bufA, 1.0);
+    this.evalState(sc, this.curNorm[l], this.bufB, 1.0);
+    blendPoseInto(this.bufA, this.bufB, p, mask);
+    blendPoseInto(sk, this.bufA, w, mask);
   }
 
-  // Amostra o estado `s` no tempo normalizado `norm` em `dst` (laço envolve,
-  // sem laço grampeia no fim). `weight` < 1 só para estado de clipe (mistura
-  // contra o que já está em `dst`); a mistura 1D sempre usa peso 1.
-  private evalState(s: number, norm: f64, dst: PoseBuffers, weight: f64): void {
+  // Amostra o estado do slot no tempo normalizado `norm` em `dst` (laço
+  // envolve, sem laço grampeia no fim). `weight` < 1 só para estado de clipe
+  // (mistura contra o que já está em `dst`); a mistura 1D sempre usa peso 1.
+  private evalState(slot: number, norm: f64, dst: PoseBuffers, weight: f64): void {
     const c = this.ctrl!; const b = this.bind!;
-    const clips = b.asset.clips;
+    const s = this.slotState(slot);
     let phase = norm;
     if (c.stateLoop[s] !== 0) phase = norm - Math.floor(norm);
     else if (phase > 1.0) phase = 1.0;
     else if (phase < 0.0) phase = 0.0;
     if (c.stateKind[s] === STATE_CLIP) {
-      samplePoseInto(dst, clips[b.stateClip[s]], phase * b.stateDur[s], weight);
+      sampleCursorInto(dst, this.stateCursors[s], phase * b.stateDur[s], weight);
       return;
     }
-    this.pickBlend(s);
-    const a = this.pickA; const bb = this.pickB; const w = this.pickW;
-    if (w < 1.0) samplePoseInto(dst, clips[b.blendClip[a]], phase * b.blendDur[a], 1.0);
-    if (w > 0.0) samplePoseInto(dst, clips[b.blendClip[bb]], phase * b.blendDur[bb], w);
+    const a = this.slotPickA[slot]; const bb = this.slotPickB[slot]; const w = this.slotPickW[slot];
+    const pc = this.pairCursors[a];
+    if (a === bb || w <= 0.0 || pc === null) {
+      sampleCursorInto(dst, this.blendCursors[a], phase * b.blendDur[a], 1.0);
+      return;
+    }
+    pc.tA = phase * b.blendDur[a]; pc.tB = phase * b.blendDur[bb];
+    samplePairInto(dst, pc, w);
   }
 }

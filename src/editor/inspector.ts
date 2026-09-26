@@ -19,6 +19,11 @@ import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
   UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K, UI_ANIMATOR as A } from "./ui_config";
 
 const DEGREES_PER_RADIAN = 180 / Math.PI;
+/// Progresso do fade (0..1) mostrado em porcentagem na seção Animator.
+const FADE_PERCENT = 100;
+/// Escala do tempo mostrado (10^casas): o rótulo da camada só é refeito
+/// quando o valor ARREDONDADO muda.
+const ANIMATOR_TIME_SCALE = Math.pow(10, A.timeDigits);
 
 // Painel do editor: GameObject raiz + controles filhos em uma UIScene propria.
 // Nenhum desses objetos entra na cena editada ou no arquivo do jogo.
@@ -174,6 +179,13 @@ export class Inspector extends Behavior {
       this.label("Skeleton/NoPlayerHint", rowY + L.rowH, K.noPlayerHint);
       return rowY + L.rowH * 2 + L.gap;
     }
+    // Animator ligado no mesmo objeto: o player fica inerte, então os
+    // controles de tocar/parar não fariam nada — mostra só o aviso
+    if (player.drivenByAnimator(skeleton)) {
+      this.label("Skeleton/DrivenByAnimator", rowY, K.drivenByAnimator);
+      this.label("Skeleton/DrivenByAnimatorHint", rowY + L.rowH, K.drivenByAnimatorHint);
+      return rowY + L.rowH * 2 + L.gap;
+    }
     const simulating = S.simulating !== 0;
     this.label("Skeleton/ClipsTitle", rowY, K.clips);
     rowY = rowY + L.rowH;
@@ -326,13 +338,14 @@ export class Inspector extends Behavior {
       this.animatorLayerTimes.push(0 - 1); this.animatorLayerFades.push(0 - 1);
     }
     const state = animator.stateName(layer);
-    const time = animator.stateTime(layer);
-    const fade = animator.fadingFrom(layer) !== "" ? animator.fadeProgress(layer) : 0 - 1;
+    // compara o que o rótulo MOSTRA (arredondado), não o valor cru
+    const time = Math.round(animator.stateTime(layer) * ANIMATOR_TIME_SCALE);
+    const fade = animator.fadingFrom(layer) !== "" ? Math.round(animator.fadeProgress(layer) * FADE_PERCENT) : 0 - 1;
     if (this.animatorLayerLabels[layer] !== "" && this.animatorLayerStates[layer] === state &&
       this.animatorLayerTimes[layer] === time && this.animatorLayerFades[layer] === fade) return;
     this.animatorLayerStates[layer] = state; this.animatorLayerTimes[layer] = time; this.animatorLayerFades[layer] = fade;
-    let text = animator.layerName(layer) + A.layerSeparator + state + A.timeOpen + time.toFixed(A.timeDigits);
-    if (fade >= 0) text = text + A.fadeOpen + animator.fadingFrom(layer) + " " + Math.round(fade * A.percent) + A.fadeClose;
+    let text = animator.layerName(layer) + A.layerSeparator + state + A.timeOpen + (time / ANIMATOR_TIME_SCALE).toFixed(A.timeDigits);
+    if (fade >= 0) text = text + A.fadeOpen + animator.fadingFrom(layer) + A.fadeStateGap + fade + A.fadeClose;
     this.animatorLayerLabels[layer] = text;
   }
   /// Campos do osso selecionado: rotação local em graus (yaw/pitch/roll, a

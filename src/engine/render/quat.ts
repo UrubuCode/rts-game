@@ -24,6 +24,10 @@ export function quatRotateInto(out: Float64Array, q: Float64Array, v: Float64Arr
 }
 
 /// Interpolação normalizada pelo caminho curto.
+/// ATENÇÃO: esta matemática está COPIADA, aberta em locais, nos amostradores
+/// de engine/core/animation_player.ts (`sampleCursorInto`, `samplePairInto`,
+/// `blendPoseInto`) — lá, uma chamada por canal pesa neste runtime. Mudou aqui
+/// (sinal do caminho curto, limiar de normalização), mude lá também.
 export function quatNlerpInto(out: Float64Array, a: Float64Array, b: Float64Array, t: f64): void {
   const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
   const s: f64 = dot < 0.0 ? 0.0 - 1.0 : 1.0;

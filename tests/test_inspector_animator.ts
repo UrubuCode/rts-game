@@ -12,6 +12,7 @@ import { sceneToJSON } from "@editor/sceneio";
 import { animatorPreviewIsActive, previewTick, previewFrame } from "@editor/skeleton_preview";
 import { Skeleton } from "@engine/core/skeleton";
 import { Animator } from "@engine/core/animator";
+import { AnimationPlayer } from "@engine/core/animation_player";
 import { EditorControl } from "@editor/ui_controls";
 import { UI_ANIMATOR as A } from "@editor/ui_config";
 
@@ -42,6 +43,7 @@ history.u = []; history.r = [];
 const object = scene.createGameObject("Heroi");
 const sk = new Skeleton("assets/models/kenney/character-a.glb");
 object.addBehavior(sk); sk.ensureAsset(0);
+const ap = new AnimationPlayer(); object.addBehavior(ap); ap.mount();
 const an = new Animator(); an.controller = "assets/animators/personagem.controller.json";
 object.addBehavior(an); an.mount();
 const other = scene.createGameObject("Outro");
@@ -103,7 +105,11 @@ check(animatorPreviewIsActive(an), "previa de novo");
 S.selected = 1; S.selection = [1]; render();
 check(!animatorPreviewIsActive(an) && !an.getBool("tiro"), "trocar de objeto encerra a previa");
 S.selected = 0; S.selection = [0]; render();
+// 5b) seção Esqueleto: com o Animator ligado, aviso em vez dos controles do player (inerte)
+inspector.skeletonOpen = true; render();
+check(shown("Skeleton/DrivenByAnimator") && !shown("Skeleton/Play"), "Animator ligado: aviso no lugar de tocar/parar");
 // 6) controlador com erro: rótulo de erro, sem parâmetros
 an.controller = "assets/animators/nao-existe.controller.json"; an.onValidate("controller"); render();
 check(shown("Animator/Error") && !shown("Animator/Param/0") && control("Animator/Error").label.indexOf("nao-existe") > 0, "erro legivel no Inspector");
+check(!shown("Skeleton/DrivenByAnimator") && shown("Skeleton/Play"), "Animator com erro: o player volta a ter controles");
 io.print("[PASSOU] Inspector: animator (controlador, parametros ao vivo, estado por camada, previa, parar previa, erro)");

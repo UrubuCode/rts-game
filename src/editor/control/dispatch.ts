@@ -69,11 +69,10 @@ function execCommandInner(w: number, h: number, line: string): string {
   // `anim ... preview` também não: a prévia é estado do editor (só trocar o
   // clipe entra no undo, e o próprio subcomando faz esse snapshot).
   if (isMutating(cmd) && !(cmd === "anim" && (parts[2] === "state" || parts[2] === "preview"))) history.snapshot();
-  // `animator`: só `load` muda dado salvo (o campo `controller`). `set`/
-  // `trigger` mexem em parâmetros (estado de execução, como no Inspector) e
-  // `state`/`params` são consultas — nenhum deles empilha undo (pelo mesmo
-  // motivo do `anim ... state` acima: polling não pode zerar o redo).
-  if (cmd === "animator" && parts[2] === "load") history.snapshot();
+  // `animator` fica FORA do snapshot genérico: `set`/`trigger` mexem em
+  // parâmetros (estado de execução), `state`/`params` são consultas (polling
+  // não pode zerar o redo, como no `anim ... state`), e `load` tira o próprio
+  // snapshot só depois de validar o arquivo (commands/animator.ts).
   switch (cmd) {
     case "undo": {
       if (history.undo() !== 0) return "[ok] undo (estado restaurado)";

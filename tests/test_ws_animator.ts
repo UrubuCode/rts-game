@@ -10,6 +10,7 @@ import { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
 import { Animator } from "@engine/core/animator";
 import { execCommand } from "@editor/control/dispatch";
+import fs from "@compat/fs.ts";
 import { history } from "@editor/undo";
 import { sceneToJSON } from "@editor/sceneio";
 import { animatorOfObject, animatorPreviewIsActive, previewTick, previewStopAll, previewFrame } from "@editor/skeleton_preview";
@@ -97,21 +98,29 @@ const u1 = history.undoDepth();
 const loadErr = ws("animator 0 load assets/animators/nao-existe.controller.json");
 check(loadErr.indexOf("[erro] controlador nao carregou") === 0 && loadErr.indexOf("nao-existe") > 0, "load inexistente = erro legivel: " + loadErr);
 check(an.controller === CTRL && an.errorText() === "", "load com erro mantem o controlador anterior funcionando: " + an.errorText());
-const u2 = history.undoDepth();
+check(history.undoDepth() === u1, "load com erro nao empilha undo");
 check(ws("animator 0 load " + CTRL).indexOf("[ok] animator load") === 0, "load ok");
-check(history.undoDepth() === u2 + 1, "load empilha 1 undo");
-check(u2 >= u1, "load com erro nao desfaz o historico");
+check(history.undoDepth() === u1, "load do MESMO caminho (so relê o arquivo) nao empilha undo");
 check(ws("animator 0 load").indexOf("[erro]") === 0, "load sem caminho = erro");
+// outro controlador válido: 1 snapshot; undo volta ao primeiro caminho
+const OUTRO = "assets/animators/_teste_ws_outro.controller.json";
+fs.write(OUTRO, "{\"parametros\":[{\"nome\":\"rapidez\",\"tipo\":\"float\"}],\"camadas\":[{\"nome\":\"Base\",\"inicial\":\"Parado\"," +
+  "\"estados\":[{\"nome\":\"Parado\",\"clipe\":\"idle\"}]}]}");
+const okOutro = ws("animator 0 load " + OUTRO);
+fs.remove_file(OUTRO);
+check(okOutro.indexOf("[ok] animator load") === 0 && okOutro.indexOf("aviso") < 0, "load de outro controlador: " + okOutro);
+check(history.undoDepth() === u1 + 1, "load que troca o caminho empilha 1 undo");
+check(animatorOfObject(scene.objects[0])!.stateName(0) === "Parado", "o controlador novo esta em uso");
+history.undo();
+const anR = animatorOfObject(scene.objects[0]);
+check(anR !== null && anR.controller === CTRL && anR.stateName(0) === "Locomocao", "undo restaura o primeiro controlador");
+
 // controlador válido num objeto sem Skeleton: fica escolhido, com aviso
 const semSk = ws("addcomp 1 Animator");
 check(semSk.indexOf("[ok]") === 0, "addcomp Animator no objeto sem Skeleton: " + semSk);
 const avisoSk = ws("animator 1 load " + CTRL);
 check(avisoSk.indexOf("[ok]") === 0 && avisoSk.indexOf("Skeleton") > 0, "load sem Skeleton = ok com aviso: " + avisoSk);
 check(animatorOfObject(scene.objects[1])!.controller === CTRL, "controlador fica escolhido");
-// undo do load: o campo controller volta (mesmo caminho aqui; o objeto restaurado mantém o Animator)
-history.undo();
-const anR = animatorOfObject(scene.objects[0]);
-check(anR !== null && anR.controller === CTRL, "undo restaura o Animator com o controlador");
 
 // 7) help/doc citam os comandos
 check(ws("help").indexOf("animator <obj> trigger") > 0, "help cita animator");

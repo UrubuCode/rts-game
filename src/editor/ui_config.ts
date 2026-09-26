@@ -289,6 +289,8 @@ export const UI_SKELETON = {
   play: "Tocar", pause: "Pausar", stop: "Parar", resetPose: "Resetar pose",
   noModel: "Modelo não carregado", noClips: "O modelo não tem clipes",
   noPlayer: "Adicione um AnimationPlayer", noPlayerHint: "para tocar os clipes.",
+  // objeto com Animator ligado: o AnimationPlayer fica inerte (o Animator vence)
+  drivenByAnimator: "Pose controlada pelo Animator", drivenByAnimatorHint: "(AnimationPlayer inerte; veja a seção Animator).",
   timeUnit: " s", timeSeparator: " / ", timeDigits: 2,
   countOpen: " (", countClose: ")", clipDurationOpen: "  (", clipDurationClose: ")",
   // campos do osso selecionado (rotação em graus: yaw/pitch/roll, a mesma
@@ -301,7 +303,7 @@ export const UI_SKELETON = {
 export const UI_ANIMATOR = {
   title: "Animator", controller: "Controlador: ", none: "(nenhum)", error: "Erro: ",
   params: "Parâmetros", noParams: "O controlador não tem parâmetros", layers: "Camadas",
-  layerSeparator: ": ", timeOpen: "  t=", fadeOpen: "  (fade de ", fadeClose: "%)", percent: 100,
+  layerSeparator: ": ", timeOpen: "  t=", fadeOpen: "  (fade de ", fadeStateGap: " ", fadeClose: "%)",
   timeDigits: 2, triggerRowH: 22,
   stopPreview: "Parar prévia",
 };

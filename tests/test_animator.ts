@@ -246,15 +246,29 @@ erroDe("mem:osso.json", "{\"parametros\":[],\"camadas\":[{\"nome\":\"B\",\"inici
   rotEsperada("walk", 0.1667, armL, qA);
   rotIgual(sk, armL, qA, "Animator desligado: o player volta a escrever a pose");
 }
+// 8b) Animator com ERRO não silencia o AnimationPlayer (só manda na pose depois
+// de ligar); um que funcionava e passou a ter erro devolve a pose ao player
+{
+  const g = new GameObject("quebrado"); const sk = new Skeleton(MODELO); sk.ensureAsset(0);
+  const ap = new AnimationPlayer(); const an = new Animator(); an.controller = "mem:clipe.json";   // clipe inexistente (secao 6)
+  g.addBehavior(sk); g.addBehavior(ap); g.addBehavior(an); ap.mount(); an.mount();
+  ap.play("walk", true); an.update(DT); ap.seek(0.1667);
+  check(an.errorText() !== "" && sk.poseDriver !== an, "Animator com erro nao se registra como dono da pose");
+  rotEsperada("walk", 0.1667, armL, qA);
+  rotIgual(sk, armL, qA, "Animator com erro: o player continua escrevendo a pose");
+  an.controller = CTRL; an.update(DT);   // 8c: trocar `controller` por script, sem onValidate, vale no próximo update
+  check(an.errorText() === "" && an.stateName(0) === "Locomocao" && sk.poseDriver === an, "controller trocado em execucao religa: " + an.errorText());
+  an.controller = "mem:json.json"; an.update(DT);
+  check(an.errorText().indexOf("JSON") >= 0 && sk.poseDriver !== an, "passou a ter erro: larga a pose");
+  ap.seek(0.1667);
+  rotIgual(sk, armL, qA, "o player volta a escrever a pose");
+}
 
 // 9) custo: 17 personagens x 2 camadas (mistura de 3 clipes + braço), update + compose.
-// A meta do brief era <= 0,35 ms/frame absoluto; MEDIDO neste runtime não cabe
-// (acesso a elemento de array ~30-40 ns; a mistura 1D amostra 2 clipes por frame
-// e a camada do braço mais 1, contra 1 clipe do AnimationPlayer — cujo próprio
-// portão de 0,3 ms já oscila na máquina carregada). O portão virou RELATIVO a
-// uma referência medida no MESMO processo (17 AnimationPlayers tocando walk,
-// update + compose, como em test_animation_player.ts), que acompanha a carga
-// da máquina: Animator <= 2,5x a referência. O absoluto continua impresso.
+// Portão ABSOLUTO do brief: <= 0,35 ms/frame, no MÍNIMO de 5 medições no mesmo
+// processo (o mínimo é o menos perturbado pela carga da máquina). Diagnóstico
+// impresso: mínimo/mediana do total, só do update e só do compose, e a razão
+// para 17 AnimationPlayers tocando walk (como em test_animation_player.ts).
 const lista: Animator[] = []; const esqs: Skeleton[] = [];
 const refs: AnimationPlayer[] = []; const refSks: Skeleton[] = [];
 let n = 0;
@@ -268,12 +282,19 @@ while (n < 17) {
 let aq = 0;
 while (aq < 200) { n = 0; while (n < 17) { lista[n].update(DT); esqs[n].compose(); refs[n].update(DT); refSks[n].compose(); n = n + 1; } aq = aq + 1; }
 const vi = lista[3].paramIndex("velocidade");
-function custoAnimator(): f64 {
+let quadroGlobal = 0;
+// parte: 0 = update + compose, 1 = só update, 2 = só compose
+function custoAnimator(parte: number): f64 {
   const t0 = performance.now(); let f = 0;
   while (f < 1000) {
     let k = 0;
-    while (k < 17) { const an = lista[k]; an.setFloatAt(vi, 0.5 + ((f + k) % 20) * 0.25); an.update(DT); esqs[k].compose(); k = k + 1; }
-    f = f + 1;
+    while (k < 17) {
+      const an = lista[k];
+      if (parte !== 2) { an.setFloatAt(vi, 0.5 + ((quadroGlobal + k) % 20) * 0.25); an.update(DT); }
+      if (parte !== 1) esqs[k].compose();
+      k = k + 1;
+    }
+    f = f + 1; quadroGlobal = quadroGlobal + 1;
   }
   return (performance.now() - t0) / 1000.0;
 }
@@ -282,15 +303,24 @@ function custoReferencia(): f64 {
   while (f < 1000) { let k = 0; while (k < 17) { refs[k].update(DT); refSks[k].compose(); k = k + 1; } f = f + 1; }
   return (performance.now() - t0) / 1000.0;
 }
-// alternado 3x; vale o menor de cada (o menos perturbado pela máquina)
-let ms: f64 = 1e9; let ref: f64 = 1e9;
+function mediana(v: f64[]): f64 {
+  const o: f64[] = []; let i = 0; while (i < v.length) { o.push(v[i]); i = i + 1; }
+  o.sort((a: f64, b: f64): number => a - b);
+  return o[o.length >> 1];
+}
+function minimo(v: f64[]): f64 { let m: f64 = 1e9; let i = 0; while (i < v.length) { if (v[i] < m) m = v[i]; i = i + 1; } return m; }
+const tot: f64[] = []; const upd: f64[] = []; const cmp: f64[] = []; const ref: f64[] = [];
 let rodada = 0;
-while (rodada < 3) {
-  const r = custoReferencia(); if (r < ref) ref = r;
-  const m = custoAnimator(); if (m < ms) ms = m;
+while (rodada < 5) {
+  ref.push(custoReferencia());
+  tot.push(custoAnimator(0)); upd.push(custoAnimator(1)); cmp.push(custoAnimator(2));
   rodada = rodada + 1;
 }
-io.print("  17 personagens com Animator (2 camadas): " + ms.toFixed(3) + " ms/frame (meta do brief 0,35)");
-io.print("  referencia 17 AnimationPlayers (1 clipe): " + ref.toFixed(3) + " ms/frame; razao " + (ms / ref).toFixed(2));
-check(ms <= 2.5 * ref, "17 Animators <= 2,5x a referencia do AnimationPlayer: " + ms + " vs " + ref);
+const ms = minimo(tot);
+io.print("  17 personagens com Animator (2 camadas), update+compose: min " + ms.toFixed(3) + " / mediana " + mediana(tot).toFixed(3) + " ms/frame (portao 0,35 no minimo)");
+io.print("    so update: min " + minimo(upd).toFixed(3) + " / mediana " + mediana(upd).toFixed(3) +
+  "; so compose: min " + minimo(cmp).toFixed(3) + " / mediana " + mediana(cmp).toFixed(3));
+io.print("    referencia 17 AnimationPlayers (1 clipe): min " + minimo(ref).toFixed(3) + " / mediana " + mediana(ref).toFixed(3) +
+  "; razao dos minimos " + (ms / minimo(ref)).toFixed(2));
+check(ms <= 0.35, "17 Animators <= 0,35 ms/frame (minimo de 5): " + ms);
 io.print("[PASSOU] animator: exemplo, mistura 1D, fade, trigger/saida, mascara, erros, copia, vence o player, custo");
