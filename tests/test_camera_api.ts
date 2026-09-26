@@ -8,7 +8,8 @@ import { Scene } from "@engine/core/scene";
 import { GameObject } from "@engine/core/gameobject";
 import { Camera } from "@engine/core/camera";
 import { setActiveScene } from "@engine/core/active_scene";
-import { VistasDeCamera, coletarCameras, frustumDasVistas } from "@engine/render/camera_views";
+import { VistasDeCamera, coletarCameras, frustumDasVistas, MAX_VISTAS } from "@engine/render/camera_views";
+import { inFrustumFast, frustumFar } from "@engine/render/gpu3d";
 import { recreateBehavior } from "@editor/sceneio";
 import { componentToData } from "@engine/components";
 
@@ -141,5 +142,60 @@ a1.screenPointToRay(10.0, 10.0, out);
 check(Number.isFinite(out[0]) && Number.isFinite(out[3]) && Number.isFinite(out[5]), "retângulo vazio: raio finito");
 a1.ortografica = true; a1.screenPointToRay(10.0, 10.0, out);
 check(Number.isFinite(out[0]) && Number.isFinite(out[5]), "orto com retângulo vazio: raio finito");
+// Inspector: FOV em graus (preso), Main como caixa; os demais pelos automáticos
+check(a1.fieldType(1) === "boolean" && a1.fieldLabel(0) === "FOV", "Main é caixa, FOV rotulado");
+a1.fieldSet(0, 60.0);
+check(perto(a1.fov, Math.PI / 3.0) && perto(a1.fieldGet(0), 60.0), "FOV: graus ida e volta");
+a1.fieldSet(0, 500.0);
+check(a1.fov <= 3.1241393610698496 + 1e-9, "FOV preso em 179°");
+a1.fieldSet(2, 0.5);
+check(perto(a1.near, 0.5) && perto(a1.fieldGet(2), 0.5) && a1.fieldType(2) === "number" && a1.fieldLabel(2) === "Near", "campo automático (near) via super");
+a1.fieldSet(1, 0.0); check(a1.isMain === 0, "Main desmarcada"); a1.fieldSet(1, 1.0);
+// cena salva com lente/viewport fora da faixa: a carga valida e os raios ficam finitos
+const ruim = recreateBehavior({ type: "camera", fov: 0.0, isMain: 1,
+  componentFields: { near: 0.0, tamanhoOrto: 0.0, viewportW: 0.0, far: 0.0 } }) as Camera;
+check(ruim.near > 0.0 && ruim.tamanhoOrto > 0.0 && ruim.viewportW >= 0.01 && ruim.fov > 0.0 && ruim.far > ruim.near, "carga passa pelo onValidate");
+function finito(v: Float64Array, n: number): boolean { let i = 0; while (i < n) { if (!Number.isFinite(v[i])) return false; i = i + 1; } return true; }
+// campos corrompidos direto (sem onValidate): as leituras defensivas seguram
+a2.near = 0.0; a2.fov = 0.0; a2.tamanhoOrto = 0.0; a2.definirRetangulo(0.0, 0.0, 800.0, 600.0);
+a2.screenPointToRay(100.0, 100.0, out);
+a2.worldToScreenPoint(1.0, 2.0, 3.0, tela);
+check(finito(out, 6) && finito(tela, 3), "perspectiva com lente zerada: finito");
+a2.ortografica = true;
+a2.screenPointToRay(100.0, 100.0, out);
+a2.worldToScreenPoint(1.0, 2.0, 3.0, tela);
+check(finito(out, 6) && finito(tela, 3), "orto com tamanho zerado: finito");
+const rp = new Float64Array(11); a2.parametrosDeRender(rp);
+check(rp[5] > 0.0 && rp[7] > 0.0 && rp[8] > rp[7] && rp[10] > 0.0, "parâmetros de render presos");
+a2.ortografica = false; a2.near = 0.1; a2.fov = 1.05; a2.tamanhoOrto = 5.0;
+// viewport corrompida direto: o retângulo coletado continua válido
+a2.viewportW = NaN; a2.viewportX = 2.0;
+const v3 = new VistasDeCamera();
+v3.area[2] = 1000.0; v3.area[3] = 500.0; v3.tela[0] = 1000.0; v3.tela[1] = 500.0;
+coletarCameras(v3, sc2, null);
+check(a2.retanguloPx()[2] >= 10.0 - 1e-9 && a2.retanguloPx()[0] + a2.retanguloPx()[2] <= 1000.0 + 1e-9, "viewport NaN/fora coletada dentro da área");
+a2.viewportW = 1.0; a2.viewportX = 0.0;
+// culling de vista única usa o far da câmera
+const sc3 = new Scene("far");
+const longe = camera(sc3, "Longe", 0.0, 0.0, 0.0);
+longe.far = 1000.0;
+sc3.computeWorld();
+const v4 = new VistasDeCamera();
+v4.area[2] = 800.0; v4.area[3] = 600.0; v4.tela[0] = 800.0; v4.tela[1] = 600.0;
+const fp4: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+coletarCameras(v4, sc3, null); frustumDasVistas(v4, fp4);
+check(frustumFar() === 1000.0 && inFrustumFast(0.0, 0.0, 800.0, 1.0) === 1, "far 1000: objeto a 800 é visível");
+longe.far = 500.0;
+coletarCameras(v4, sc3, null); frustumDasVistas(v4, fp4);
+check(inFrustumFast(0.0, 0.0, 800.0, 1.0) === 0, "far 500: objeto a 800 é descartado");
+// 10 câmeras: ordena antes de cortar; a Main (a última criada) sobrevive
+const sc4 = new Scene("dez");
+let q = 0;
+let ultima: Camera | null = null;
+while (q < 10) { const cq = camera(sc4, "C" + q, 0.0, 0.0, 0.0); cq.isMain = q === 9 ? 1 : 0; ultima = cq; q = q + 1; }
+sc4.computeWorld();
+const v5 = new VistasDeCamera();
+v5.area[2] = 800.0; v5.area[3] = 600.0; v5.tela[0] = 800.0; v5.tela[1] = 600.0;
+check(coletarCameras(v5, sc4, null) === MAX_VISTAS && v5.cams[MAX_VISTAS - 1] === ultima, "10 câmeras: 8 vistas e a Main por último");
 setActiveScene(sc);
 io.print("[PASSOU] camera: raio, projeção, orto, viewport, filha, main/all, ordem, validação, formato");

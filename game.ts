@@ -170,12 +170,6 @@ function frame(): void {
   }
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);
-  // Uma vista em perspectiva: `inFrustumFast` lê o frustum do módulo gpu3d.
-  if (nVistas === 1 && fParams[7] >= 0.0) {
-    const c0 = vistas.cams[0];
-    frustumBegin(fParams[0], fParams[1], fParams[2], c0.host.wry, c0.host.wrx, c0.fov, fParams[7] / fParams[8]);
-  }
-
   let oi = 0;
   let drawnN = 0;
   const objs: GameObject[] = scene.objects;   // tipado: campos por offset constante

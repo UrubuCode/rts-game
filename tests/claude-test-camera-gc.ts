@@ -9,6 +9,7 @@
 // Fases: 3 câmeras (uma "ceu", uma "cor", uma "nada"; tela dividida e uma
 // ortográfica) numa cena; `coletarCameras` N vezes; o bloco de render do
 // game.ts inteiro (coleta + aplicarVistas + frustumDasVistas + posicaoDaVista)
+// N vezes; o mesmo bloco numa cena de UMA câmera (frustumBeginBuf com near/far)
 // N vezes; `Camera.main()` + `Camera.all()` N vezes; e os raios/projeção N vezes.
 import io from "@compat/io.ts";
 import process from "@compat/process.ts";
@@ -41,7 +42,14 @@ const pos = new Float64Array(3);
 const raio = new Float64Array(6);
 const tela = new Float64Array(3);
 
+const sc1 = new Scene("uma");
+const o1 = sc1.createGameObject("U"); const u = new Camera(); u.far = 1000.0; o1.addBehavior(u);
+sc1.computeWorld();
+const v1 = new VistasDeCamera();
+v1.area[2] = 1280.0; v1.area[3] = 720.0; v1.tela[0] = 1280.0; v1.tela[1] = 720.0;
+
 // aquece fora das fases
+coletarCameras(v1, sc1, null); aplicarVistas(0, v1); frustumDasVistas(v1, fp);
 coletarCameras(vistas, sc, null); aplicarVistas(0, vistas); frustumDasVistas(vistas, fp); posicaoDaVista(vistas, pos);
 Camera.main(); Camera.all();
 a.screenPointToRay(10.0, 10.0, raio); a.worldToScreenPoint(1.0, 1.0, 5.0, tela);
@@ -54,6 +62,14 @@ f = 0;
 while (f < n) {
   coletarCameras(vistas, sc, null); aplicarVistas(0, vistas);
   frustumDasVistas(vistas, fp); posicaoDaVista(vistas, pos);
+  f = f + 1;
+}
+io.print("FASE vistaUnica " + n);
+f = 0;
+while (f < n) {
+  o1.transform.wx = f * 0.001;
+  coletarCameras(v1, sc1, null); aplicarVistas(0, v1);
+  frustumDasVistas(v1, fp); posicaoDaVista(v1, pos);
   f = f + 1;
 }
 io.print("FASE mainAll " + n);

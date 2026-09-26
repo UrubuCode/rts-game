@@ -11,7 +11,7 @@ import { GameObject } from "../core/gameobject";
 import { Transform } from "../core/transform";
 import { Scene } from "../core/scene";
 import { renderX, renderY, renderZ } from "../core/interpolate";
-import { drawGPU, drawGPUMesh, drawBatch, meshIdFor, meshRadius } from "./gpu3d";
+import { drawGPU, drawGPUMesh, drawBatch, meshIdFor, meshRadius, frustumNear, frustumFar } from "./gpu3d";
 import { resolveMaterialTexture } from "./material_tex";
 
 // ── LOTE: os buffers de instância, REAPROVEITADOS entre frames ──────────────
@@ -81,6 +81,9 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
                           cyw: f64, syw: f64, cpt: f64, spt: f64,
                           tanH: f64, tanV: f64): number {
   let drawnN = 0;
+  // Near/far do frustum preparado em gpu3d (frustumBegin/frustumBeginBuf):
+  // uma leitura por chamada, fora do laço.
+  const fNear: f64 = frustumNear(); const fFar: f64 = frustumFar();
   // Entradas no lote: difere de drawnN quando um objeto com tiling vai pelo
   // desenho individual (o lote não carrega `tile`).
   let loteN = 0;
@@ -120,8 +123,8 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
     const z2: f64 = dy * spt + z1 * cpt;
     // tanH < 0 = várias vistas (ver camera_views.frustumDasVistas): sem descarte.
     if (tanH >= 0.0) {
-      if (z2 + r < 0.1) { oi = oi + 1; continue; }          // atrás do near
-      if (z2 - r > 500.0) { oi = oi + 1; continue; }        // além do far
+      if (z2 + r < fNear) { oi = oi + 1; continue; }        // atrás do near
+      if (z2 - r > fFar) { oi = oi + 1; continue; }         // além do far
       const limH: f64 = z2 * tanH;
       if (x1 - r > limH) { oi = oi + 1; continue; }
       if (0.0 - x1 - r > limH) { oi = oi + 1; continue; }

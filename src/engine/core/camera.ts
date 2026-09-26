@@ -26,6 +26,10 @@ export const CAMERA_NEAR_MIN: number = 0.001;
 export const CAMERA_FAR_FOLGA: number = 0.01;
 export const CAMERA_ORTO_MIN: number = 0.001;
 export const CAMERA_VIEWPORT_MIN: number = 0.01;
+/// Índices no Inspector (ordem de declaração dos campos): FOV em graus e Main como caixa.
+export const CAMERA_CAMPO_FOV: number = 0;
+export const CAMERA_CAMPO_MAIN: number = 1;
+const GRAUS_POR_RAD: number = 57.29577951308232;
 /// FOV vertical aceito (radianos): 1° a 179°, fora disso tan(fov/2) degenera.
 export const CAMERA_FOV_MIN: number = 0.017453292519943295;
 export const CAMERA_FOV_MAX: number = 3.12413936106985;
@@ -37,8 +41,8 @@ export const CAMERA_FOV_MAX: number = 3.12413936106985;
  */
 export class Camera extends Behavior {
   /**
-   * Campo de visão VERTICAL, em radianos.
-   * @label FOV (rad)
+   * Campo de visão VERTICAL, em radianos (o Inspector mostra em graus).
+   * @label FOV
    */
   fov: f64 = 1.05;
   /**
@@ -83,6 +87,27 @@ export class Camera extends Behavior {
   kind(): number { return KIND_CAMERA; }
   typeName(): string { return "Camera"; }
   toData(): any { return { type: "camera", fov: this.fov, isMain: this.isMain }; }
+  // ── Inspector: só FOV (graus) e Main (caixa) são personalizados; os demais
+  // campos seguem os automáticos gerados (não definir fieldCount aqui mantém
+  // a geração automática — ver tools/generate-components.mjs).
+  fieldType(i: number): string {
+    if (i === CAMERA_CAMPO_MAIN) return "boolean";
+    return super.fieldType(i);
+  }
+  fieldGet(i: number): f64 {
+    if (i === CAMERA_CAMPO_FOV) return this.fov * GRAUS_POR_RAD;
+    return super.fieldGet(i);
+  }
+  fieldSet(i: number, v: f64): void {
+    if (i === CAMERA_CAMPO_FOV) {
+      if (v !== v) return;
+      this.fov = Math.max(CAMERA_FOV_MIN, Math.min(CAMERA_FOV_MAX, v / GRAUS_POR_RAD));
+      this.onValidate("fov");
+      return;
+    }
+    if (i === CAMERA_CAMPO_MAIN) { this.isMain = v !== 0.0 ? 1 : 0; this.onValidate("isMain"); return; }
+    super.fieldSet(i, v);
+  }
   camFov(): f64 { return this.fov; }
   camIsMain(): number { return this.isMain; }
   onValidate(field: string): void {
@@ -108,6 +133,18 @@ export class Camera extends Behavior {
     this.retangulo[0] = x; this.retangulo[1] = y; this.retangulo[2] = w; this.retangulo[3] = h;
   }
   retanguloPx(): Float64Array { return this.retangulo; }
+  /// Retângulo desta câmera dentro da área `a` = [x, y, w, h] em pixels, pela
+  /// viewport — com a mesma faixa do onValidate, para que um campo escrito
+  /// direto por script (NaN, w = 0, x + w > 1) não gere uma vista degenerada.
+  retanguloNaArea(a: Float64Array): void {
+    let vx = this.viewportX === this.viewportX ? this.viewportX : 0.0;
+    let vy = this.viewportY === this.viewportY ? this.viewportY : 0.0;
+    vx = Math.max(0.0, Math.min(1.0 - CAMERA_VIEWPORT_MIN, vx));
+    vy = Math.max(0.0, Math.min(1.0 - CAMERA_VIEWPORT_MIN, vy));
+    const vw = Math.max(CAMERA_VIEWPORT_MIN, Math.min(1.0 - vx, this.viewportW === this.viewportW ? this.viewportW : 1.0));
+    const vh = Math.max(CAMERA_VIEWPORT_MIN, Math.min(1.0 - vy, this.viewportH === this.viewportH ? this.viewportH : 1.0));
+    this.definirRetangulo(a[0] + vx * a[2], a[1] + vy * a[3], vw * a[2], vh * a[3]);
+  }
   aspecto(): number { return this.retangulo[3] > 0.0 ? this.retangulo[2] / this.retangulo[3] : 1.0; }
   atualizarBase(): void {
     const t = this.host; const b = this.base;
@@ -124,18 +161,20 @@ export class Camera extends Behavior {
     const b = this.base;
     const nx = u * 2.0 - 1.0; const ny = v * 2.0 - 1.0;
     const asp = this.aspecto();
+    const near = this.nearSeguro();
     if (this.ortografica) {
-      const ox = nx * this.tamanhoOrto * asp; const oy = ny * this.tamanhoOrto;
-      out[0] = b[9] + b[0] * ox + b[3] * oy + b[6] * this.near;
-      out[1] = b[10] + b[1] * ox + b[4] * oy + b[7] * this.near;
-      out[2] = b[11] + b[2] * ox + b[5] * oy + b[8] * this.near;
+      const orto = this.ortoSeguro();
+      const ox = nx * orto * asp; const oy = ny * orto;
+      out[0] = b[9] + b[0] * ox + b[3] * oy + b[6] * near;
+      out[1] = b[10] + b[1] * ox + b[4] * oy + b[7] * near;
+      out[2] = b[11] + b[2] * ox + b[5] * oy + b[8] * near;
       out[3] = b[6]; out[4] = b[7]; out[5] = b[8];
     } else {
-      const tv = math.tan(this.fov * 0.5); const th = tv * asp;
+      const tv = math.tan(this.fovSeguro() * 0.5); const th = tv * asp;
       const dx = b[6] + b[0] * (nx * th) + b[3] * (ny * tv);
       const dy = b[7] + b[1] * (nx * th) + b[4] * (ny * tv);
       const dz = b[8] + b[2] * (nx * th) + b[5] * (ny * tv);
-      out[0] = b[9] + dx * this.near; out[1] = b[10] + dy * this.near; out[2] = b[11] + dz * this.near;
+      out[0] = b[9] + dx * near; out[1] = b[10] + dy * near; out[2] = b[11] + dz * near;
       const l = math.sqrt(dx * dx + dy * dy + dz * dz);
       out[3] = dx / l; out[4] = dy / l; out[5] = dz / l;
     }
@@ -156,28 +195,44 @@ export class Camera extends Behavior {
     const yc = dx * b[3] + dy * b[4] + dz * b[5];
     const zc = dx * b[6] + dy * b[7] + dz * b[8];
     const asp = this.aspecto();
+    const near = this.nearSeguro();
     let ndx = 0.0; let ndy = 0.0; let frente = 0;
     if (this.ortografica) {
-      ndx = xc / (this.tamanhoOrto * asp); ndy = yc / this.tamanhoOrto;
-      frente = zc >= this.near ? 1 : 0;
+      const orto = this.ortoSeguro();
+      ndx = xc / (orto * asp); ndy = yc / orto;
+      frente = zc >= near ? 1 : 0;
     } else if (zc > 1e-9) {
-      const tv = math.tan(this.fov * 0.5);
+      const tv = math.tan(this.fovSeguro() * 0.5);
       ndx = xc / (zc * tv * asp); ndy = yc / (zc * tv);
-      frente = zc >= this.near ? 1 : 0;
+      frente = zc >= near ? 1 : 0;
     }
     out[0] = r[0] + (ndx * 0.5 + 0.5) * r[2];
     out[1] = r[1] + (0.5 - ndy * 0.5) * r[3];
     out[2] = zc;
     return frente;
   }
+  // Leituras defensivas da lente: um valor fora da faixa que não passou pelo
+  // onValidate (script que escreve o campo direto) não chega a dividir por zero.
+  // `v >= min` é falso para NaN.
+  nearSeguro(): number { return this.near >= CAMERA_NEAR_MIN ? this.near : CAMERA_NEAR_MIN; }
+  ortoSeguro(): number { return this.tamanhoOrto >= CAMERA_ORTO_MIN ? this.tamanhoOrto : CAMERA_ORTO_MIN; }
+  fovSeguro(): number {
+    if (!(this.fov >= CAMERA_FOV_MIN)) return CAMERA_FOV_MIN;
+    return this.fov <= CAMERA_FOV_MAX ? this.fov : CAMERA_FOV_MAX;
+  }
   /// Os 11 números de `setCamBuf`, com o aspecto do retângulo desta câmera.
   parametrosDeRender(out: Float64Array): void {
     const t = this.host;
     out[0] = t.wx; out[1] = t.wy; out[2] = t.wz; out[3] = t.wry; out[4] = t.wrx;
-    out[5] = this.fov; out[6] = this.aspecto(); out[7] = this.near; out[8] = this.far;
-    out[9] = this.ortografica ? 1.0 : 0.0; out[10] = this.tamanhoOrto;
+    const near = this.nearSeguro();
+    out[5] = this.fovSeguro(); out[6] = this.aspecto(); out[7] = near;
+    out[8] = this.far >= near + CAMERA_FAR_FOLGA ? this.far : near + CAMERA_FAR_FOLGA;
+    out[9] = this.ortografica ? 1.0 : 0.0; out[10] = this.ortoSeguro();
   }
   static main(): Camera | null { return cameraPrincipal(); }
+  /// Câmeras ativas da cena ativa, em ordem de desenho. Devolve SEMPRE o mesmo
+  /// array (reusado, sem alocação): a próxima chamada o sobrescreve — copie se
+  /// precisar guardar.
   static all(): Camera[] { return todasAsCameras(); }
 }
 

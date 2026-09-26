@@ -208,7 +208,7 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component8) {
-      if (index === 0) return "FOV (rad)";
+      if (index === 0) return "FOV";
       if (index === 1) return "Main";
       if (index === 2) return "Near";
       if (index === 3) return "Far";

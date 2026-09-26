@@ -434,6 +434,11 @@ let fCamX: number = 0.0; let fCamY: number = 0.0; let fCamZ: number = 0.0;
 let fCyw: number = 1.0; let fSyw: number = 0.0;
 let fCpt: number = 1.0; let fSpt: number = 0.0;
 let fTanV: number = 0.5; let fTanH: number = 0.5;
+/// Planos near/far do culling quando quem prepara o frustum não informa a lente
+/// (`frustumBegin`, a fly-cam do editor e os demos).
+export const FRUSTUM_NEAR_PADRAO: number = 0.1;
+export const FRUSTUM_FAR_PADRAO: number = 500.0;
+let fNear: number = FRUSTUM_NEAR_PADRAO; let fFar: number = FRUSTUM_FAR_PADRAO;
 
 /// Prepara o frustum do frame. Chame UMA vez, antes do laço de objetos.
 export function frustumBegin(camx: number, camy: number, camz: number, yaw: number, pitch: number,
@@ -443,7 +448,23 @@ export function frustumBegin(camx: number, camy: number, camz: number, yaw: numb
   fCpt = math.cos(pitch); fSpt = math.sin(pitch);
   fTanV = math.tan(fovY * 0.5);
   fTanH = fTanV * aspect;
+  fNear = FRUSTUM_NEAR_PADRAO; fFar = FRUSTUM_FAR_PADRAO;
 }
+
+/// `frustumBegin` a partir dos 11 números de `setCamBuf` (x, y, z, yaw, pitch,
+/// fov, aspecto, near, far, …), com o near/far da câmera. Um parâmetro só: sem
+/// a alocação por chamada das funções de 5+ parâmetros.
+export function frustumBeginBuf(c: Float64Array): void {
+  fCamX = c[0]; fCamY = c[1]; fCamZ = c[2];
+  fCyw = math.cos(c[3]); fSyw = math.sin(c[3]);
+  fCpt = math.cos(c[4]); fSpt = math.sin(c[4]);
+  fTanV = math.tan(c[5] * 0.5);
+  fTanH = fTanV * c[6];
+  fNear = c[7]; fFar = c[8];
+}
+/// Near/far do frustum preparado (lidos uma vez por frame por `drawSceneObjects`).
+export function frustumNear(): number { return fNear; }
+export function frustumFar(): number { return fFar; }
 
 /// Copia os 9 valores do frustum preparado para `out` (índices 0..8: camX, camY,
 /// camZ, cosYaw, sinYaw, cosPitch, sinPitch, tanH, tanV).
@@ -468,8 +489,8 @@ export function inFrustumFast(wx: number, wy: number, wz: number, radius: number
   const z1 = dx * fSyw + dz * fCyw;
   const y2 = dy * fCpt - z1 * fSpt;
   const z2 = dy * fSpt + z1 * fCpt;
-  if (z2 + radius < 0.1) return 0;         // atrás do near
-  if (z2 - radius > 500.0) return 0;       // além do far
+  if (z2 + radius < fNear) return 0;       // atrás do near
+  if (z2 - radius > fFar) return 0;        // além do far
   const limH: number = z2 * fTanH;
   if (x1 - radius > limH) return 0;
   if (0.0 - x1 - radius > limH) return 0;

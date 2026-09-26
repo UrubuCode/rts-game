@@ -42,6 +42,9 @@ import { MissingScript } from "../engine/core/missing_script";
 export function recreateBehavior(sd: any): Behavior {
   const component = recreateBehaviorInner(sd);
   componentMetadata.provider.restoreLegacyFields(component, sd.componentFields);
+  // A restauração gerada copia os números como vieram do arquivo; a Camera
+  // divide pela lente, então passa pela mesma validação do Inspector.
+  if (component instanceof Camera) component.onValidate("");
   if (sd._enabled !== undefined) component.enabled = sd._enabled !== 0 ? 1 : 0;
   if (sd._collapsed !== undefined) component.collapsed = sd._collapsed !== 0 ? 1 : 0;
   return component;

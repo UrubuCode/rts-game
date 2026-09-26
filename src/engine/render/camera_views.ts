@@ -5,7 +5,7 @@ import { Camera, ordenarCameras } from "../core/camera";
 import { activeInScene } from "../core/gameobject";
 import type { Scene } from "../core/scene";
 import math from "@compat/math.ts";
-import { setViewportBuf, setCamBuf, setFundoCor, setFundoCeu, CAM_FLOATS } from "./gpu3d";
+import { setViewportBuf, setCamBuf, setFundoCor, setFundoCeu, CAM_FLOATS, frustumBeginBuf } from "./gpu3d";
 
 export const MAX_VISTAS: number = 8;
 
@@ -31,7 +31,7 @@ export function coletarCameras(v: VistasDeCamera, sc: Scene, so: Camera | null):
   v.n = 0;
   const lista = sc.camObjs;
   let i = 0;
-  while (i < lista.length && v.n < MAX_VISTAS) {
+  while (i < lista.length) {
     const o = lista[i];
     const c = o.behaviors[o.camIdx] as Camera;
     if (c.enabled !== 0 && activeInScene(sc.objects, o) && (so === null || so === c)) {
@@ -40,13 +40,21 @@ export function coletarCameras(v: VistasDeCamera, sc: Scene, so: Camera | null):
     }
     i = i + 1;
   }
+  // Ordena ANTES de cortar: acima de MAX_VISTAS ficam as de cima (as últimas
+  // da ordem de desenho), e a Main — última no seu empate — sobrevive.
   ordenarCameras(v.cams, v.n);
+  if (v.n > MAX_VISTAS) {
+    const corte = v.n - MAX_VISTAS;
+    let m = 0;
+    while (m < MAX_VISTAS) { v.cams[m] = v.cams[m + corte]; m = m + 1; }
+    v.n = MAX_VISTAS;
+  }
   const a = v.area;
   let k = 0;
   while (k < v.n) {
     const c = v.cams[k];
     if (so !== null) c.definirRetangulo(a[0], a[1], a[2], a[3]);
-    else c.definirRetangulo(a[0] + c.viewportX * a[2], a[1] + c.viewportY * a[3], c.viewportW * a[2], c.viewportH * a[3]);
+    else c.retanguloNaArea(a);
     k = k + 1;
   }
   return v.n;
@@ -81,6 +89,9 @@ export function frustumDasVistas(v: VistasDeCamera, out: f64[]): void {
     out[0] = b[0]; out[1] = b[1]; out[2] = b[2];
     out[3] = math.cos(b[3]); out[4] = math.sin(b[3]); out[5] = math.cos(b[4]); out[6] = math.sin(b[4]);
     out[8] = math.tan(b[5] * 0.5); out[7] = out[8] * b[6];
+    // `inFrustumFast` (game.ts) e o near/far de `drawSceneObjects` leem o
+    // frustum do módulo gpu3d: prepara-o com a lente DESTA câmera.
+    frustumBeginBuf(b);
   } else {
     out[7] = 0.0 - 1.0; out[8] = 0.0 - 1.0;
   }
