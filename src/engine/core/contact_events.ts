@@ -134,14 +134,16 @@ export class ContactEvents {
   /// fora da narrow phase: um script pode criar ou remover objetos aqui.
   dispatch(): void {
     this.info.stepId = this.step;
-    dispatchAll(this.evA, this.evB, this.evKind, this.evTrig, this.evCount, this.info);
+    dispatchAll(this);
   }
 }
 
 // ── busca e inserção no conjunto ordenado ─────────────────────────────────
 
-/// Posição do par (a, b) no conjunto (busca binária), ou -1.
-function findPair(pA: number[], pB: number[], n: number, a: number, b: number): number {
+/// Posição do par (a, b) no conjunto de `c` (busca binária), ou -1.
+/// ≤ 4 parâmetros: roda por contato por passo, e 5+ parâmetros alocam por chamada no RTS.
+function findPair(c: ContactEvents, a: number, b: number): number {
+  const pA: number[] = c.pA; const pB: number[] = c.pB; const n = c.pCount;
   let lo = 0;
   let hi = n - 1;
   let found = 0 - 1;
@@ -165,7 +167,7 @@ function absorbOne(c: ContactEvents, objs: GameObject[], i: number): void {
   const b = ob.id;
   const pA: number[] = c.pA;
   const pB: number[] = c.pB;
-  let k = findPair(pA, pB, c.pCount, a, b);
+  let k = findPair(c, a, b);
   if (k < 0) {
     k = insertSlot(c, a, b);
     c.pObjA[k] = oa; c.pObjB[k] = ob;
@@ -274,8 +276,10 @@ function emitExitAndCompact(c: ContactEvents): number {
 
 // ── entrega ───────────────────────────────────────────────────────────────
 
-function dispatchAll(evA: GameObject[], evB: GameObject[], evKind: number[], evTrig: number[],
-                     n: number, info: ContactInfo): void {
+function dispatchAll(c: ContactEvents): void {
+  const evA: GameObject[] = c.evA; const evB: GameObject[] = c.evB;
+  const evKind: number[] = c.evKind; const evTrig: number[] = c.evTrig;
+  const n = c.evCount; const info: ContactInfo = c.info;
   let i = 0;
   while (i < n) {
     const kind = evKind[i];

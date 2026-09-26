@@ -148,9 +148,11 @@ export class Contact {
 /// folga" do esfera-caixa que o `solvePair` já usa. Não é uma regra nova: é a
 /// mesma, num conjunto de planos em vez de três eixos. Se fosse outra, um
 /// cubo (que é uma casca de 6 planos) colidiria diferente de uma caixa.
-export function hullContactLocal(
-  hull: Hull, cx: f64, cy: f64, cz: f64, r: f64, out: Contact,
-): number {
+///
+/// `esfera` = [cx, cy, cz, r] (Task 10.5: 3 parâmetros — com 6 escalares a
+/// chamada alocava por par por passo no RTS).
+export function hullContactLocal(hull: Hull, esfera: Float64Array, out: Contact): number {
+  const cx: f64 = esfera[0]; const cy: f64 = esfera[1]; const cz: f64 = esfera[2]; const r: f64 = esfera[3];
   const p: f64[] = hull.planes;
   const m = (p.length / 4) | 0;
   if (m === 0) return 0;

@@ -832,8 +832,16 @@ let obbNx: f64 = 0.0; let obbNy: f64 = 0.0; let obbNz: f64 = 0.0; let obbDepth: 
 /// penetração em `obb*`, ou 0 se algum eixo separa. Os centros já vêm com o
 /// offset do colisor aplicado. Convenção de rotação: a mesma de `applyParentTo`
 /// e do offset — eixo local X vira (cos, -sin) em (x, z), eixo Z vira (sin, cos).
-function obbBoxBox(trs: Transform[], ia: number, ib: number,
-                   ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64): number {
+/// Centros (já deslocados) do par de `obbBoxBox`/`hullContact`: [ax, ay, az, bx, by, bz].
+/// Task 10.5: as duas tinham 9 e 11 parâmetros escalares e rodam por par por
+/// passo; 5+ parâmetros alocam por chamada no RTS. Quem chama preenche isto.
+const parAB = new Float64Array(6);
+/// Esfera [x, y, z, r] no espaço da casca, para `hullContactLocal`.
+const esferaHc = new Float64Array(4);
+
+function obbBoxBox(trs: Transform[], ia: number, ib: number): number {
+  const ax: f64 = parAB[0]; const ay: f64 = parAB[1]; const az: f64 = parAB[2];
+  const bx: f64 = parAB[3]; const by: f64 = parAB[4]; const bz: f64 = parAB[5];
   const ta: Transform = trs[ia];
   const tb: Transform = trs[ib];
   const hyA = csHY[ia] * ta.sy; const hyB = csHY[ib] * tb.sy;
@@ -890,11 +898,11 @@ function abs1(v: f64): f64 { return v < 0.0 ? 0.0 - v : v; }
 ///
 /// Devolve 1 e preenche `hcOut` quando há contato, na convenção "de A para B"
 /// que o resto do `solvePair` usa.
-function hullContact(
-  trs: Transform[], ia: number, ib: number,
-  ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64,
-  hullA: Hull | null, hullB: Hull | null,
-): number {
+function hullContact(trs: Transform[], ia: number, ib: number): number {
+  const ax: f64 = parAB[0]; const ay: f64 = parAB[1]; const az: f64 = parAB[2];
+  const bx: f64 = parAB[3]; const by: f64 = parAB[4]; const bz: f64 = parAB[5];
+  const hullA = csShape[ia] === COL_HULL ? hullAt(csHull[ia]) : null;
+  const hullB = csShape[ib] === COL_HULL ? hullAt(csHull[ib]) : null;
   // Quem é a casca e quem entra como esfera. Com casca dos DOIS lados, a casca
   // fica com quem tem maior raio envolvente e o outro vira esfera: casca contra
   // casca não escala (docs/colisores.md §3), e degradar o MENOR erra menos.
@@ -958,7 +966,8 @@ function hullContact(
   // não uniforme vira elipsoide, e a menor escala é a leitura conservadora —
   // nunca inventa contato onde não há, que é a mesma regra do `radiusOfCol`.
   const menor = minOf3(ex, ey, ez);
-  if (hullContactLocal(h, lx / ex, dy / ey, lz / ez, r / menor, hcOut) === 0) return 0;
+  esferaHc[0] = lx / ex; esferaHc[1] = dy / ey; esferaHc[2] = lz / ez; esferaHc[3] = r / menor;
+  if (hullContactLocal(h, esferaHc, hcOut) === 0) return 0;
 
   // ── volta: a normal para o mundo ────────────────────────────────────────
   let wnx = hcOut.nx; const wny = hcOut.ny; let wnz = hcOut.nz;
@@ -1076,13 +1085,15 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     // que os outros ramos usam — impulso, restituição, herança de apoio. Um
     // caminho de resposta próprio para a casca seria a terceira cópia de uma
     // regra que já tem duas (aqui e no WGSL), e é como os backends divergem.
-    if (hullContact(trs, ia, ib, ax, ay, az, bx, by, bz, hullA, hullB) === 0) return;
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    if (hullContact(trs, ia, ib) === 0) return;
     nx = hcOut.nx; ny = hcOut.ny; nz = hcOut.nz; overlap = hcOut.depth;
   } else if (boxA !== 0 && boxB !== 0 && (ta.ry !== 0.0 || tb.ry !== 0.0)) {
     // ── CAIXA × CAIXA girada (OBB em Y, Lote C0) ──────────────────────────
     // Uma das caixas tem yaw: SAT no plano XZ (os 2 eixos de cada caixa) mais
     // Y. Caixas com yaw = 0 nunca entram aqui e seguem no ramo AABB abaixo.
-    if (obbBoxBox(trs, ia, ib, ax, ay, az, bx, by, bz) === 0) return;
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    if (obbBoxBox(trs, ia, ib) === 0) return;
     nx = obbNx; ny = obbNy; nz = obbNz; overlap = obbDepth;
   } else if (boxA !== 0 && boxB !== 0) {
     // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
@@ -1798,12 +1809,14 @@ function pairOverlaps(objs: GameObject[], trs: Transform[], ia: number, ib: numb
   const hullA = csShape[ia] === COL_HULL ? hullAt(csHull[ia]) : null;
   const hullB = csShape[ib] === COL_HULL ? hullAt(csHull[ib]) : null;
   if (hullA !== null || hullB !== null) {
-    return hullContact(trs, ia, ib, ax, ay, az, bx, by, bz, hullA, hullB);
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    return hullContact(trs, ia, ib);
   }
   const boxA = csShape[ia] === COL_BOX ? 1 : 0;
   const boxB = csShape[ib] === COL_BOX ? 1 : 0;
   if (boxA !== 0 && boxB !== 0 && (ta.ry !== 0.0 || tb.ry !== 0.0)) {
-    return obbBoxBox(trs, ia, ib, ax, ay, az, bx, by, bz);
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    return obbBoxBox(trs, ia, ib);
   }
   if (boxA !== 0 && boxB !== 0) {
     const dx = bx - ax; const dy = by - ay; const dz = bz - az;

@@ -22,6 +22,9 @@ import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { assetsInit, assetsArea, assetsMouse, drawAssets } from "@editor/assets";
 import { drawSceneObjects, prepararDesenho, fParams, DS_FLOATS } from "@engine/render/scenedraw";
 import { rigidStep } from "@engine/core/physics_backend";
+import { gizmosDoEditor, coletarGizmos, pintarGizmos } from "@editor/gizmo_pass";
+import { gizmosBegin } from "@engine/core/gizmos";
+import { interpolateSync } from "@engine/core/interpolate";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
 const nPainel = (n / 20) | 0;
@@ -100,12 +103,32 @@ while (i < n) {
 io.print("FASE luzes " + n);
 i = 0;
 while (i < n) { luzCam[0] = i * 0.001; aplicarLuzes(0, scene, luzCam, legado); aplicarAmbiente(0, scene); i = i + 1; }
+io.print("FASE gizmos " + nPainel);
+const poseGiz = new Float64Array(8);
+poseGiz[1] = 3.0; poseGiz[2] = 0.0 - 12.0; poseGiz[5] = 1.05; poseGiz[6] = 1200.0; poseGiz[7] = 720.0;
+i = 0;
+while (i < nPainel) { gizmosBegin(gizmosDoEditor, poseGiz); coletarGizmos(gizmosDoEditor, scene, 1); pintarGizmos(app, 0, gizmosDoEditor); i = i + 1; }
 io.print("FASE inspector " + nPainel);
 i = 0;
 while (i < nPainel) { painelInspector(); i = i + 1; }
 io.print("FASE project " + nPainel);
 i = 0;
 while (i < nPainel) { painelProject(); i = i + 1; }
+io.print("FASE cena-editor " + nPainel);
+i = 0;
+while (i < nPainel) {
+  scene.computeWorld(); interpolateSync(scene);
+  setCamBuf(0, cam); frustumBeginBuf(cam);
+  prepararDesenho(cfg, fParams, 1, 1.0);
+  drawSceneObjects(scene, scene.objects.length, 0, cfg);
+  i = i + 1;
+}
+io.print("FASE update " + nPainel);
+i = 0;
+while (i < nPainel) { scene.update(1.0 / 60.0); i = i + 1; }
+io.print("FASE fisica " + nPainel);
+i = 0;
+while (i < nPainel) { if (rigidStep(scene, 0) === 0) scene.resolveCollisions(); scene.computeWorld(); i = i + 1; }
 io.print("FASE jogo " + nPainel);
 i = 0;
 while (i < nPainel) { quadroJogo(); i = i + 1; }

@@ -116,6 +116,12 @@ export class Skeleton extends Behavior {
     }
   }
 
+  /// Sobe as peças do asset (fora de `ensureAsset`, que roda por quadro: no RTS
+  /// uma função que contém `try/catch` aloca a cada chamada).
+  subirPecas(win: number): void {
+    try { loadSkeletonAsset(win, this.modelPath); this.updateBound(); }
+    catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); }
+  }
   /// Carrega o modelo (cache por caminho) e dimensiona os buffers por osso, uma
   /// vez. `win` = 0 não sobe nada para a GPU (testes sem janela); se o asset
   /// veio de uma carga sem janela, a primeira chamada com janela real sobe as
@@ -123,10 +129,7 @@ export class Skeleton extends Behavior {
   ensureAsset(win: number): void {
     const cur = this.asset;
     if (cur !== null && cur.path === this.modelPath) {
-      if (skeletonNeedsUpload(cur, win) && this.failedUploadWin !== win) {
-        try { loadSkeletonAsset(win, this.modelPath); this.updateBound(); }
-        catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); }
-      }
+      if (skeletonNeedsUpload(cur, win) && this.failedUploadWin !== win) this.subirPecas(win);
       return;
     }
     if (this.modelPath === "" || this.modelPath === this.failedPath) return;

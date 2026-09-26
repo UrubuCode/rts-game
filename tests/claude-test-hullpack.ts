@@ -17,6 +17,8 @@ import math from "@compat/math.ts";
 
 import { Hull, Contact, hullContactLocal, hullShapeCode, hullIdOfShape,
          HULL_DIR_VEC4, HULL_MAX, HULL_PLANES_VEC4 } from "@engine/core/hullpack";
+const esfBuf = new Float64Array(4);
+function esf(x: number, y: number, z: number, r: number): Float64Array { esfBuf[0] = x; esfBuf[1] = y; esfBuf[2] = z; esfBuf[3] = r; return esfBuf; }
 
 let ok = 0;
 let fail = 0;
@@ -53,18 +55,18 @@ check("uma casca de 6 planos tem 6 planos", k.planeCount() === 6 ? 1 : 0);
 // Centro em y = 1,7 com raio 0,5: a face de cima (d=1) fica a 0,7, então a
 // esfera penetra 0,5 - 0,7 = -0,2 → NÃO toca.
 check("esfera acima e separada nao gera contato",
-      hullContactLocal(k, 0.0, 1.7, 0.0, 0.5, c) === 0 ? 1 : 0);
+      hullContactLocal(k, esf(0.0, 1.7, 0.0, 0.5), c) === 0 ? 1 : 0);
 
 // Centro em y = 1,3, raio 0,5: penetra 0,2 pela face de cima. A normal tem de
 // ser +Y — é o mesmo empurrao "para CIMA e nao para o lado" que o solvePair faz
 // para um cubo caindo num chao largo.
-const t1 = hullContactLocal(k, 0.0, 1.3, 0.0, 0.5, c);
+const t1 = hullContactLocal(k, esf(0.0, 1.3, 0.0, 0.5), c);
 check("esfera encostando por cima gera contato", t1);
 check("  a normal e +Y (a face de menor folga)", perto(c.ny, 1.0));
 check("  a profundidade e 0,2", perto(c.depth, 0.2));
 
 // ── 2. Esfera junto de uma face LATERAL ────────────────────────────────────
-const t2 = hullContactLocal(k, 1.3, 0.0, 0.0, 0.5, c);
+const t2 = hullContactLocal(k, esf(1.3, 0.0, 0.0, 0.5), c);
 check("esfera encostando de lado gera contato", t2);
 check("  a normal e +X", perto(c.nx, 1.0));
 check("  a profundidade e 0,2", perto(c.depth, 0.2));
@@ -72,20 +74,20 @@ check("  a profundidade e 0,2", perto(c.depth, 0.2));
 // ── 3. Centro DENTRO: sai pela face de menor folga ─────────────────────────
 // Em (0, 0,8, 0) com raio 0,1: folga para +Y = 1 - 0,8 = 0,2; para as outras
 // faces >= 1. O empurrao tem de sair por +Y.
-const t3 = hullContactLocal(k, 0.0, 0.8, 0.0, 0.1, c);
+const t3 = hullContactLocal(k, esf(0.0, 0.8, 0.0, 0.1), c);
 check("centro dentro gera contato", t3);
 check("  sai pela face de MENOR folga (+Y)", perto(c.ny, 1.0));
 check("  profundidade = raio + folga = 0,3", perto(c.depth, 0.3));
 
 // ── 4. Bem longe: separado ─────────────────────────────────────────────────
 check("esfera longe nao gera contato",
-      hullContactLocal(k, 9.0, 9.0, 9.0, 0.5, c) === 0 ? 1 : 0);
+      hullContactLocal(k, esf(9.0, 9.0, 9.0, 0.5), c) === 0 ? 1 : 0);
 
 // ── 5. Casca vazia: nao inventa contato ────────────────────────────────────
 // Um `hullId` que aponta para uma casca que o gerador nao produziu tem de ser
 // SEM contato, e nao um empurrao de profundidade enorme.
 check("casca sem planos nao gera contato",
-      hullContactLocal(new Hull(), 0.0, 0.0, 0.0, 1.0, c) === 0 ? 1 : 0);
+      hullContactLocal(new Hull(), esf(0.0, 0.0, 0.0, 1.0), c) === 0 ? 1 : 0);
 
 // ── 6. A codificacao de forma no vel.w ─────────────────────────────────────
 // Os primitivos de ANTES desta extensao continuam significando o de antes.

@@ -50,16 +50,19 @@ let texturaId = 0;
 function texturaDoCeu(win: number, caminho: string): number {
   if (caminho !== texturaCaminho) {
     texturaCaminho = caminho; texturaId = 0;
-    if (caminho.length > 0) {
-      try {
-        const id = loadTexture(win, caminho);
-        if (id > 0) texturaId = id;
-        else logWarn("Céu: textura '" + caminho + "' carregou com id invalido (" + id + "); usando sem textura.");
-      }
-      catch (e) { logWarn("Céu: textura '" + caminho + "' não carregou: " + String(e)); }
-    }
+    if (caminho.length > 0) carregarTexturaDoCeu(win, caminho);
   }
   return texturaId;
+}
+/// Fora de `texturaDoCeu` (que roda por quadro): no RTS uma função que contém
+/// `try/catch` aloca a cada chamada, mesmo sem entrar no `try`.
+function carregarTexturaDoCeu(win: number, caminho: string): void {
+  try {
+    const id = loadTexture(win, caminho);
+    if (id > 0) texturaId = id;
+    else logWarn("Céu: textura '" + caminho + "' carregou com id invalido (" + id + "); usando sem textura.");
+  }
+  catch (e) { logWarn("Céu: textura '" + caminho + "' não carregou: " + String(e)); }
 }
 /// Envia setSky/setFog só quando o Ambiente (ou a direção do sol, ou a textura)
 /// mudou. Trocar de cena copia os campos para o MESMO `scene.ambiente`, e a
