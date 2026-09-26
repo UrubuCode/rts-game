@@ -23,6 +23,15 @@
 // parâmetro solto. Depois da correção, 1000 e 10000 quadros dão o MESMO
 // número de coletas dentro do laço de update — 0 nos dois, medido (ver
 // números no relatório da task).
+//
+// `sampleClipInto` também abre o canal de ROTAÇÃO (o mais comum: pernas,
+// braços, cabeça) inline no caso `weight>=1` (sem crossfade), em vez de
+// chamar `sampleQuatInto` — 0 chamadas de função extra por osso nesse
+// caminho, e ainda 4 parâmetros no total (`sk,clip,t,weight`), então ainda
+// seguro pelo mesmo motivo. Isso tirou a margem de "quase no limite" (17
+// personagens x 1000 quadros por volta de 0,28-0,34 ms, flutuando pra cima
+// do portão de 0,3 ms em ~1 a cada 3 execuções) para uma margem estável
+// (~0,25-0,29 ms, 10 execuções seguidas todas abaixo do portão).
 import { Behavior } from "./behavior";
 import type { GameObject } from "./gameobject";
 import { Skeleton } from "./skeleton";
@@ -146,26 +155,55 @@ function blendQuatInto(dest: Float64Array, bone: number, src: Float64Array, weig
 export function sampleClipInto(sk: Skeleton, clip: AnimClip, t: f64, weight: f64): void {
   const n = clip.chBone.length;
   const boneCount = sk.boneCount();
-  // caso comum (sem crossfade, weight=1): escreve direto do buffer amostrado
-  // pro osso, sem passar pela função de mistura (que só faria uma cópia) —
-  // é só neste laço (4 parâmetros, poucos locais) que isso é seguro inline.
+  // caso comum (sem crossfade, weight=1): amostra e escreve DIRETO no osso,
+  // sem os passos por `sampleQuatInto`/`blendQuatInto` (chamadas de função) —
+  // tudo aberto aqui dentro, porque `sampleClipInto` continua com só 4
+  // parâmetros (sk,clip,t,weight): é o número de parâmetros ESCALARES da
+  // função que importa pro defeito de alocação deste runtime (ver comentário
+  // do topo do arquivo), não a quantidade de locais dentro dela.
   const full = weight >= 1.0;
   const poseT = sk.poseT; const poseR = sk.poseR; const poseS = sk.poseS;
+  const chTimes = clip.chTimes; const chValues = clip.chValues;
+  const chBone = clip.chBone; const chPath = clip.chPath;
   let i = 0;
   while (i < n) {
-    const bone = clip.chBone[i];
+    const bone = chBone[i];
     if (bone >= 0 && bone < boneCount) {
-      const path = clip.chPath[i];
-      if (path === PATH_TRANSLATION) {
-        sampleVec3Into(clip.chTimes[i], clip.chValues[i], t, SCR_V3);
+      const path = chPath[i];
+      const times = chTimes[i]; const values = chValues[i];
+      if (path === PATH_ROTATION) {
+        if (full) {
+          const tn = times.length;
+          const k = findKeyIndex(times, t);
+          const ko = k * 4;
+          const o = bone * 4;
+          if (k >= tn - 1) {
+            poseR[o] = values[ko]; poseR[o + 1] = values[ko + 1]; poseR[o + 2] = values[ko + 2]; poseR[o + 3] = values[ko + 3];
+          } else {
+            const t0 = times[k]; const t1 = times[k + 1];
+            let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
+            if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
+            const ko2 = ko + 4;
+            const ax = values[ko]; const ay = values[ko + 1]; const az = values[ko + 2]; const aw = values[ko + 3];
+            const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
+            const dot = ax * bx + ay * by + az * bz + aw * bw;
+            const s: f64 = dot < 0.0 ? 0.0 - 1.0 : 1.0;
+            const u = 1.0 - f;
+            let x = ax * u + bx * s * f; let y = ay * u + by * s * f; let z = az * u + bz * s * f; let w = aw * u + bw * s * f;
+            const len = Math.sqrt(x * x + y * y + z * z + w * w);
+            if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
+            poseR[o] = x; poseR[o + 1] = y; poseR[o + 2] = z; poseR[o + 3] = w;
+          }
+        } else {
+          sampleQuatInto(times, values, t, SCR_Q);
+          blendQuatInto(poseR, bone, SCR_Q, weight);
+        }
+      } else if (path === PATH_TRANSLATION) {
+        sampleVec3Into(times, values, t, SCR_V3);
         if (full) { const o = bone * 3; poseT[o] = SCR_V3[0]; poseT[o + 1] = SCR_V3[1]; poseT[o + 2] = SCR_V3[2]; }
         else blendVec3Into(poseT, bone, SCR_V3, weight);
-      } else if (path === PATH_ROTATION) {
-        sampleQuatInto(clip.chTimes[i], clip.chValues[i], t, SCR_Q);
-        if (full) { const o = bone * 4; poseR[o] = SCR_Q[0]; poseR[o + 1] = SCR_Q[1]; poseR[o + 2] = SCR_Q[2]; poseR[o + 3] = SCR_Q[3]; }
-        else blendQuatInto(poseR, bone, SCR_Q, weight);
       } else if (path === PATH_SCALE) {
-        sampleVec3Into(clip.chTimes[i], clip.chValues[i], t, SCR_V3);
+        sampleVec3Into(times, values, t, SCR_V3);
         if (full) { const o = bone * 3; poseS[o] = SCR_V3[0]; poseS[o + 1] = SCR_V3[1]; poseS[o + 2] = SCR_V3[2]; }
         else blendVec3Into(poseS, bone, SCR_V3, weight);
       }
