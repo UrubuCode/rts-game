@@ -1,7 +1,8 @@
 // Leitor de PNG em TypeScript: o runtime novo não tem `rts:imgdec`, e isto é o
 // que permite `loadTexture` voltar a funcionar para PNG (texturas de Material)
 // e o editor desenhar seus ícones. Suporta 8 bits por canal, sem interlace,
-// cor RGBA (tipo 6) e RGB (tipo 2, sai com alfa 255), os cinco filtros de linha.
+// cor RGBA (tipo 6), RGB (tipo 2, sai com alfa 255) e paleta (tipo 3, com a
+// transparência do chunk tRNS), os cinco filtros de linha.
 // Formato fora disso falha com mensagem, em vez de desenhar lixo.
 import { inflateSync } from "node:zlib";
 
@@ -29,6 +30,9 @@ export function decodePNG(bytes: any, maxPixels: number): DecodedImage {
   let i = 0;
   while (i < signature.length) { if (bytes[i] !== signature[i]) throw new Error("Assinatura PNG invalida"); i = i + 1; }
   let width = 0; let height = 0; let channels = 0;
+  let paleta: number[] = [];      // RGB por entrada (tipo 3)
+  let alfas: number[] = [];       // tRNS: alfa por entrada (o resto é 255)
+  let indexada = false;
   let offset = signature.length;
   // IDAT pode vir em vários chunks: primeiro mede, depois copia de uma vez.
   let idatTotal = 0;
@@ -44,7 +48,12 @@ export function decodePNG(bytes: any, maxPixels: number): DecodedImage {
       if (depth !== 8 || bytes[data + 10] !== 0 || bytes[data + 11] !== 0 || bytes[data + 12] !== 0) throw new Error("PNG precisa de 8 bits por canal e sem interlace");
       if (color === 6) channels = 4;
       else if (color === 2) channels = 3;
-      else throw new Error("PNG precisa ser RGBA ou RGB (tipo de cor " + color + ")");
+      else if (color === 3) { channels = 1; indexada = true; }
+      else throw new Error("PNG precisa ser RGBA, RGB ou paleta (tipo de cor " + color + ")");
+    } else if (type === 1347179589) { // PLTE
+      let q = 0; while (q < length) { paleta.push(bytes[data + q]); q = q + 1; }
+    } else if (type === 1951551059) { // tRNS
+      let q = 0; while (q < length) { alfas.push(bytes[data + q]); q = q + 1; }
     } else if (type === 1229209940) { // IDAT
       idatTotal = idatTotal + length;
     } else if (type === 1229278788) { ended = true; offset = bytes.length; } // IEND
@@ -81,6 +90,19 @@ export function decodePNG(bytes: any, maxPixels: number): DecodedImage {
   }
   if (channels === 4) return new DecodedImage(width, height, linha);
   const rgba = new Uint8Array(width * height * 4);
+  if (indexada) {
+    if (paleta.length < 3) throw new Error("PNG de paleta sem PLTE");
+    const entradas = (paleta.length / 3) | 0;
+    let q = 0;
+    while (q < width * height) {
+      let e = linha[q];
+      if (e >= entradas) e = 0;
+      rgba[q * 4] = paleta[e * 3]; rgba[q * 4 + 1] = paleta[e * 3 + 1]; rgba[q * 4 + 2] = paleta[e * 3 + 2];
+      rgba[q * 4 + 3] = e < alfas.length ? alfas[e] : 255;
+      q = q + 1;
+    }
+    return new DecodedImage(width, height, rgba);
+  }
   let k = 0;
   while (k < width * height) {
     rgba[k * 4] = linha[k * 3]; rgba[k * 4 + 1] = linha[k * 3 + 1]; rgba[k * 4 + 2] = linha[k * 3 + 2]; rgba[k * 4 + 3] = 255;

@@ -30,6 +30,14 @@ while (y < 2) {
 }
 check(certo === 1, "cada pixel RGB decodificado certo, alfa 255");
 
+// ── PNG de paleta 3x2 com tRNS: vermelho(alfa 255), verde(alfa 128), azul ──
+const pal = decodePNG(fs.read_all("tests/fixtures_paleta_3x2.png"), 64);
+check(pal.width === 3 && pal.height === 2, "paleta 3x2");
+check(pal.pixels[0] === 255 && pal.pixels[1] === 0 && pal.pixels[3] === 255, "entrada 0 = vermelho opaco");
+check(pal.pixels[4] === 0 && pal.pixels[5] === 255 && pal.pixels[7] === 128, "entrada 1 = verde com alfa 128 (tRNS)");
+check(pal.pixels[8] === 0 && pal.pixels[10] === 255 && pal.pixels[11] === 255, "entrada 2 = azul, sem tRNS -> 255");
+check(pal.pixels[12] === 0 && pal.pixels[14] === 255, "2a linha comeca com a entrada 2");
+
 // ── PNG RGBA (ícone do editor) continua funcionando ────────────────────────
 const icone = decodePNG(fs.read_all("assets/editor/icons/info.png"), 64);
 check(icone.width === 32 && icone.height === 32 && icone.pixels.length === 32 * 32 * 4, "icone RGBA 32x32");
@@ -63,4 +71,4 @@ const mv = volta.behaviors[0] as Material;
 check(mv.typeName() === "Material" && mv.tile === 0.25 && mv.procedural === "tijolo", "Tiling e Procedural voltam da cena");
 check(volta.matIdx === 0, "matIdx cacheado no objeto restaurado");
 
-io.print("[PASSOU] Texturas: PNG RGB/RGBA, erros, Material com Tiling/Procedural");
+io.print("[PASSOU] Texturas: PNG RGB/RGBA/paleta, erros, Material com Tiling/Procedural");
