@@ -126,6 +126,7 @@ export function cmdPose(parts: string[]): string {
   const bone = resolveBoneArg(sk, parts[2]);
   if (bone < 0 || bone >= sk.boneCount()) return "[erro] osso invalido: " + parts[2];
   const mode = parts[3];
+  if (mode === undefined || mode === "") return "[erro] falta o modo (rot ou pos)";
   if (mode === "rot") {
     const yaw = parseFloat(parts[4]); const pitch = parseFloat(parts[5]); const roll = parseFloat(parts[6]);
     if (yaw !== yaw || pitch !== pitch || roll !== roll) return "[erro] rot precisa de yaw, pitch e roll numericos";

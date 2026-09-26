@@ -56,8 +56,16 @@ function execCommandInner(w: number, h: number, line: string): string {
   const cmd = parts[0];
   const np = parts.length;
   // UNDO: snapshot da cena ANTES de qualquer operação mutante.
+  //
+  // `anim ... state` é uma CONSULTA (não muda a pose/clipe/tempo — só lê e
+  // formata), mas `cmd` sozinho é só a palavra "anim", igual a `anim ... play`.
+  // Sem o `parts[2] !== "state"` abaixo, uma IA que faz polling de
+  // `anim N state` empilharia um snapshot por chamada (sem NENHUMA mudança
+  // real) e limparia a pilha de redo (history.snapshot() zera `this.r`) a
+  // cada leitura — undo/redo ficam inúteis para quem também está editando a
+  // pose ao mesmo tempo.
   if (cmd === "clear" || cmd === "loadscene") playMode.stop();
-  if (isMutating(cmd)) history.snapshot();
+  if (isMutating(cmd) && !(cmd === "anim" && parts[2] === "state")) history.snapshot();
   switch (cmd) {
     case "undo": {
       if (history.undo() !== 0) return "[ok] undo (estado restaurado)";
