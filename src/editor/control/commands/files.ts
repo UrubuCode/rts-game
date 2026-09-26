@@ -9,14 +9,16 @@ import { objectToData, instantiatePrefab } from "@editor/sceneio";
 import { loadTexture } from "@engine/render/gpu3d";
 import { isModelPath } from "@engine/render/model";
 import { instantiateAt } from "@editor/dnd";
+import { argNum, argInt, argObj, erroObj, argsNumericos } from "@editor/control/args";
+import { erroUso } from "@editor/control/builtin_commands";
 
 /// makeprefab <path> [i] — salva o objeto (default=selecionado) como PREFAB (JSON de
 /// 1 objeto), pra instanciar depois via o asset browser (duplo-clique) ou prefab.
 export function cmdMakePrefab(parts: string[]): string {
-  if (parts.length < 2) return "[erro] uso: makeprefab <path> [i]";
+  if (parts.length < 2) return erroUso("makeprefab");
   let i = S.selected;
-  if (parts.length > 2) i = parseFloat(parts[2]) | 0;
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (parts.length > 2) { i = argObj(parts, 2); if (i < 0) return erroObj(parts, 2); }
+  if (i < 0 || i >= scene.objects.length) return "[erro] nenhum objeto selecionado";
   const d = objectToData(scene.objects[i]);
   d.parent = 0 - 1;   // prefab é raiz (sem parent do contexto atual)
   fs.write(parts[1], JSON.stringify(d));
@@ -25,7 +27,7 @@ export function cmdMakePrefab(parts: string[]): string {
 
 /// instprefab <path> — instancia um PREFAB (JSON de 1 objeto) na cena e o seleciona.
 export function cmdInstPrefab(parts: string[]): string {
-  if (parts.length < 2) return "[erro] uso: instprefab <path>";
+  if (parts.length < 2) return erroUso("instprefab");
   if (!fs.exists(parts[1])) return "[erro] nao existe: " + parts[1];
   const before = scene.objects.length;
   instantiatePrefab(parts[1]);
@@ -36,9 +38,10 @@ export function cmdInstPrefab(parts: string[]): string {
 
 /// setcustom <objIdx> <meshId> — DEBUG: força o customMesh de um objeto (0=primitivo).
 export function cmdSetCustom(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
-  const mid = parseFloat(parts[2]) | 0;
-  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
+  const oi = argObj(parts, 1);
+  if (oi < 0) return parts.length < 2 ? erroUso("setcustom") : erroObj(parts, 1);
+  const mid = argInt(parts, 2);
+  if (!(mid >= 0)) return erroUso("setcustom") + " (meshId inteiro >= 0)";
   scene.objects[oi].customMesh = mid;
   scene.objects[oi].refreshCollide();
   return "[ok] setcustom #" + oi + " customMesh=" + mid;
@@ -48,11 +51,15 @@ export function cmdSetCustom(parts: string[]): string {
 /// cria o(s) objeto(s) com ele. Multi-material vira uma raiz + uma filha por
 /// submesh (mesma regra do drag & drop — a lógica é compartilhada em editor/dnd).
 export function cmdLoadObj(parts: string[]): string {
+  if (parts.length < 2) return erroUso("loadobj");
   const path = parts[1];
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
   if (!isModelPath(path)) return "[erro] nao e um modelo (.obj/.glb/.gltf): " + path;
   let x: f64 = 0.0; let y: f64 = 1.0; let z: f64 = 0.0;
-  if (parts.length > 5) { x = parseFloat(parts[3]); y = parseFloat(parts[4]); z = parseFloat(parts[5]); }
+  if (parts.length > 3) {
+    if (!argsNumericos(parts, 3, 3)) return erroUso("loadobj") + " (x, y e z numericos)";
+    x = argNum(parts, 3); y = argNum(parts, 4); z = argNum(parts, 5);
+  }
   const before = scene.objects.length;
   // instantiateAt assenta sobre o chão quando `placed`; aqui a posição é
   // explícita (coordenada de mundo), então passamos y já como o centro.
@@ -68,9 +75,9 @@ export function cmdLoadObj(parts: string[]): string {
 /// loadtex <objIdx> <path> — carrega uma imagem REAL (PNG/JPG/BMP/WebP) do disco,
 /// sobe pra VRAM e aplica como textura (triplanar) no objeto <objIdx>.
 export function cmdLoadTex(parts: string[]): string {
-  if (parts.length < 3) return "[erro] uso: loadtex <objIdx> <path>";
-  const oi = parseFloat(parts[1]) | 0;
-  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido: " + oi;
+  if (parts.length < 3) return erroUso("loadtex");
+  const oi = argObj(parts, 1);
+  if (oi < 0) return erroObj(parts, 1);
   const path = parts[2];
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
   const tex = loadTexture(S.win, path) | 0;
@@ -100,12 +107,14 @@ export function cmdLs(parts: string[]): string {
 
 /// mkdir <path> — cria a pasta (e pais que faltarem).
 export function cmdMkdir(parts: string[]): string {
+  if (parts.length < 2 || parts[1].length === 0) return erroUso("mkdir");
   const r = fs.create_dir_all(parts[1]);
   return "[ok] mkdir " + parts[1] + " (r=" + r + ")";
 }
 
 /// rmpath <path> — deleta arquivo ou pasta (recursivo).
 export function cmdRmpath(parts: string[]): string {
+  if (parts.length < 2 || parts[1].length === 0) return erroUso("rmpath");
   const p = parts[1];
   if (!fs.exists(p)) return "[erro] nao existe: " + p;
   if (fs.is_dir(p)) fs.remove_dir_all(p);
@@ -115,6 +124,7 @@ export function cmdRmpath(parts: string[]): string {
 
 /// readfile <path> — devolve o conteúdo do arquivo.
 export function cmdReadFile(parts: string[]): string {
+  if (parts.length < 2 || parts[1].length === 0) return erroUso("readfile");
   const p = parts[1];
   if (!fs.exists(p)) return "[erro] nao existe: " + p;
   return "[file] " + p + ":\n" + fs.read_text(p);
@@ -122,6 +132,7 @@ export function cmdReadFile(parts: string[]): string {
 
 /// writefile <path> <conteudo...> — escreve (conteúdo = resto da linha).
 export function cmdWriteFile(parts: string[]): string {
+  if (parts.length < 2 || parts[1].length === 0) return erroUso("writefile");
   const p = parts[1];
   let content = "";
   let i = 2;
@@ -136,6 +147,7 @@ export function cmdWriteFile(parts: string[]): string {
 
 /// mv <de> <para> — renomeia/move.
 export function cmdMv(parts: string[]): string {
+  if (parts.length < 3) return erroUso("mv");
   const r = fs.rename(parts[1], parts[2]);
   return "[ok] mv " + parts[1] + " -> " + parts[2] + " (r=" + r + ")";
 }

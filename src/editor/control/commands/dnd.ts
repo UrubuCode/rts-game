@@ -15,6 +15,8 @@ import { VISTA_FLOATS } from "@editor/gizmo";
 import { isModelPath } from "@engine/render/model";
 import { thumbReport, TH_IMAGE, TH_MODEL, TH_PREFAB, TH_SCENE } from "@editor/thumbs";
 import { subStr } from "@editor/widgets";
+import { argNum, argObj, erroObj, argsNumericos } from "@editor/control/args";
+import { erroUso } from "@editor/control/builtin_commands";
 
 const FOV: f64 = 1.0472;
 
@@ -35,7 +37,8 @@ const ponto = new Float64Array(4);
 /// mouse ali; sem eles, cai na posição padrão do asset.
 /// Aceita o mesmo que o Project aceita: prefab, .obj, imagem, cena.
 export function cmdDrop(parts: string[], w: number, h: number): string {
-  if (parts.length < 2) return "[erro] uso: drop <path> [sx sy]";
+  if (parts.length < 2) return erroUso("drop");
+  if (parts.length >= 3 && !argsNumericos(parts, 2, 2)) return erroUso("drop") + " (sx e sy numericos)";
   const path = parts[1];
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
   const kind = kindOfPath(path);
@@ -45,8 +48,8 @@ export function cmdDrop(parts: string[], w: number, h: number): string {
   let placed = 0;
   let where = "(posicao padrao)";
   if (parts.length >= 4) {
-    const sx = parseFloat(parts[2]);
-    const sy = parseFloat(parts[3]);
+    const sx = argNum(parts, 2);
+    const sy = argNum(parts, 3);
     vistaDaSessao(vista, w, h, focal(h));
     groundAt(ponto, vista, sx, sy);
     wx = ponto[0]; wy = ponto[1]; wz = ponto[2];
@@ -67,14 +70,14 @@ export function cmdDrop(parts: string[], w: number, h: number): string {
 /// dropat <path> <x> <y> <z> — solta o asset direto numa posição de MUNDO
 /// (sem passar por coordenada de tela). Útil pra script/automação.
 export function cmdDropAt(parts: string[]): string {
-  if (parts.length < 5) return "[erro] uso: dropat <path> <x> <y> <z>";
+  if (parts.length < 5 || !argsNumericos(parts, 2, 3)) return erroUso("dropat") + " (x, y e z numericos)";
   const path = parts[1];
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
   const kind = kindOfPath(path);
   if (kind === "other") return "[erro] asset nao soltavel na cena: " + path;
-  const x = parseFloat(parts[2]);
-  const y = parseFloat(parts[3]);
-  const z = parseFloat(parts[4]);
+  const x = argNum(parts, 2);
+  const y = argNum(parts, 3);
+  const z = argNum(parts, 4);
   ponto[0] = x; ponto[1] = y; ponto[2] = z;
   const idx = instantiateAt(kind, path, ponto);
   if (idx < 0) {
@@ -88,11 +91,11 @@ export function cmdDropAt(parts: string[]): string {
 /// no slot do inspector / na linha da hierarquia:
 ///   imagem → vira a TEXTURA do objeto | .obj → vira a MESH do objeto
 export function cmdDropOn(parts: string[]): string {
-  if (parts.length < 3) return "[erro] uso: dropon <path> <objIdx>";
+  if (parts.length < 3) return erroUso("dropon");
   const path = parts[1];
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
-  const oi = parseFloat(parts[2]) | 0;
-  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido: " + oi;
+  const oi = argObj(parts, 2);
+  if (oi < 0) return erroObj(parts, 2);
   const kind = kindOfPath(path);
   if (kind === "tex") {
     const tid = applyTexToObject(oi, path, S.win);
@@ -112,9 +115,9 @@ export function cmdDropOn(parts: string[]): string {
 /// pickat <sx> <sy> — qual objeto está sob esse pixel da tela? (-1 = nenhum).
 /// É o hit-test que o drop de textura usa pra decidir "aplicar" vs "criar novo".
 export function cmdPickAt(parts: string[], w: number, h: number): string {
-  if (parts.length < 3) return "[erro] uso: pickat <sx> <sy>";
-  const sx = parseFloat(parts[1]);
-  const sy = parseFloat(parts[2]);
+  if (!argsNumericos(parts, 1, 2)) return erroUso("pickat");
+  const sx = argNum(parts, 1);
+  const sy = argNum(parts, 2);
   vistaDaSessao(vista, w, h, focal(h));
   const i = pickAt(vista, sx, sy);
   if (i < 0) return "[pickat] (" + sx + "," + sy + ") -> nenhum objeto";
@@ -125,11 +128,11 @@ export function cmdPickAt(parts: string[], w: number, h: number): string {
 /// (a própria imagem, ou um render 3D da malha). Devolve estatísticas dos pixels
 /// + preview ASCII, pra validar o preview SEM screenshot. cols default 16.
 export function cmdThumb(parts: string[]): string {
-  if (parts.length < 2) return "[erro] uso: thumb <path> [cols]";
+  if (parts.length < 2) return erroUso("thumb");
   const path = parts[1];
   if (!fs.exists(path)) return "[erro] nao existe: " + path;
   let cols = 16;
-  if (parts.length > 2) cols = parseFloat(parts[2]) | 0;
+  if (parts.length > 2) { const pedido = argNum(parts, 2); if (pedido !== pedido) return erroUso("thumb") + " (cols numerico)"; cols = pedido | 0; }
   if (cols < 4) cols = 4;
   if (cols > 48) cols = 48;
   // classifica pela extensão, do mesmo jeito que o asset browser: modelo e
@@ -157,9 +160,9 @@ export function cmdThumb(parts: string[]): string {
 /// groundat <sx> <sy> — ponto do CHÃO (plano Y=0) sob esse pixel. É a conversão
 /// tela→mundo que posiciona o objeto arrastado; útil pra mirar antes de soltar.
 export function cmdGroundAt(parts: string[], w: number, h: number): string {
-  if (parts.length < 3) return "[erro] uso: groundat <sx> <sy>";
-  const sx = parseFloat(parts[1]);
-  const sy = parseFloat(parts[2]);
+  if (!argsNumericos(parts, 1, 2)) return erroUso("groundat");
+  const sx = argNum(parts, 1);
+  const sy = argNum(parts, 2);
   vistaDaSessao(vista, w, h, focal(h));
   groundAt(ponto, vista, sx, sy);
   return "[groundat] (" + sx + "," + sy + ") -> mundo(" + ponto[0] + "," + ponto[1] + "," + ponto[2] + ")";

@@ -16,6 +16,8 @@ import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
 import { commandIndex, commandMutates, runCommand } from "../api";
+import { comandoEmbutido, MUTA_SIM } from "@editor/control/builtin_commands";
+import { sceneToJSON, sceneFromJSON } from "@editor/sceneio";
 import { scene, S } from "./session";
 import { history } from "../undo";
 import { cmdStop } from "./commands/scene";
@@ -25,48 +27,66 @@ import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport,
 import { profReport, profEnable, profReset, profEnabled } from "@engine/core/profiler";
 import { stepsLastFrame, stepDiscards, stepAlpha } from "@engine/core/fixedstep";
 
-/// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo).
+/// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo):
+/// os marcados `MUTA_SIM` no manifesto (builtin_commands.ts).
 function isMutating(c: string): boolean {
-  return c === "spawn" || c === "move" || c === "scl" || c === "mesh" || c === "color" ||
-    c === "spin" || c === "delete" || c === "dup" || c === "clear" || c === "loadscene" ||
-    c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
-    c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex" ||
-    c === "rename" || c === "reset" || c === "grid" || c === "instprefab" ||
-    c === "drop" || c === "dropat" || c === "dropon" ||
-    c === "addskel" || c === "pose" || c === "resetpose" || c === "anim";
+  const info = comandoEmbutido(c);
+  return info !== null && info.muta === MUTA_SIM;
 }
 
-/// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`;
-/// esta camada existe só para o registro, porque o `switch` lá dentro tem
-/// `return` em cada caso e capturar em todos seria repetir 60 vezes.
-///
-/// `log` e `state` não são registrados: são consultas, e registrá-las encheria
-/// o histórico com as próprias perguntas — inclusive a consulta ao log.
+/// Consultas: não vão para o log (encheriam o histórico com as próprias
+/// perguntas — inclusive a consulta ao log).
+const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc"];
+const ERRO_PREFIXO: string = "[erro]";
+
+/// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`,
+/// chamado por `execProtegido`; esta camada existe só para o registro, porque
+/// o `switch` lá dentro tem `return` em cada caso e capturar em todos seria
+/// repetir 80 vezes.
 export function execCommand(w: number, h: number, line: string): string {
-  const out = execCommandInner(w, h, line);
+  const out = execProtegido(w, h, line);
   const c = line.split(" ")[0];
-  if (c !== "log" && c !== "state" && c !== "help" && c !== "doc") {
+  if (NAO_REGISTRAR.indexOf(c) < 0) {
     // erro do comando vira nível de erro: é o que se procura ao investigar
-    if (out.length > 6 && out.charCodeAt(1) === 101 && out.charCodeAt(2) === 114) {
-      logError(line + "  ->  " + out);
-    } else {
-      logInfo(line + "  ->  " + out);
-    }
+    if (out.indexOf(ERRO_PREFIXO) === 0) logError(line + "  ->  " + out);
+    else logInfo(line + "  ->  " + out);
+  }
+  return out;
+}
+
+/// O ÚNICO ponto protegido da porta de controle (embutidos e comandos de
+/// pacote). Um comando que lança responde `[erro] <cmd>: <mensagem>` em vez de
+/// subir pelo `pumpEvents()` até o quadro e derrubar o editor.
+///
+/// Desfazer: se a resposta é `[erro]` (validação ou exceção), o snapshot que o
+/// despacho tirou é descartado e o Refazer volta como estava. Se o comando
+/// lançou DEPOIS de mudar a cena, ela volta ao snapshot.
+///
+/// O `try` fica AQUI, numa função que só roda quando chega um comando: no RTS a
+/// função que contém `try` aloca a cada chamada (CLAUDE.md, "Custo por quadro").
+function execProtegido(w: number, h: number, line: string): string {
+  const undoAntes = history.u.slice();
+  const redoAntes = history.r;
+  let out = "";
+  let lancou = false;
+  try { out = execCommandInner(w, h, line); }
+  catch (error) {
+    lancou = true;
+    out = ERRO_PREFIXO + " " + line.split(" ")[0] + ": " + (error instanceof Error ? error.message : String(error));
+  }
+  if (out.indexOf(ERRO_PREFIXO) === 0 && history.u.length !== undoAntes.length) {
+    const antes = history.u[history.u.length - 1];
+    if (lancou && antes !== sceneToJSON()) sceneFromJSON(antes);
+    history.u = undoAntes; history.r = redoAntes; history.versao = history.versao + 1;
   }
   return out;
 }
 
 /// Comando registrado por script (@editor/api). Só `muta = true` tira snapshot
-/// de Desfazer; se a resposta for `[erro]`, o snapshot é descartado e a pilha de
-/// Refazer volta como estava (um erro não deixa entrada vazia no Desfazer).
+/// de Desfazer; um `[erro]` (ou exceção) descarta o snapshot em `execProtegido`.
 function runRegistered(i: number, parts: string[]): string {
-  if (!commandMutates(i)) return runCommand(i, parts);
-  const undoAntes = history.u.slice();
-  const redoAntes = history.r;
-  history.snapshot();
-  const out = runCommand(i, parts);
-  if (out.indexOf("[erro]") === 0) { history.u = undoAntes; history.r = redoAntes; }
-  return out;
+  if (commandMutates(i)) history.snapshot();
+  return runCommand(i, parts);
 }
 
 function execCommandInner(w: number, h: number, line: string): string {

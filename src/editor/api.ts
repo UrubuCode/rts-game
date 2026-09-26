@@ -61,9 +61,9 @@ export function registerCommand(nome: string, ajuda: string, muta: boolean, fn: 
 export function commandIndex(nome: string): number { return estado.nomes.indexOf(nome); }
 export function commandMutates(i: number): boolean { return estado.mutam[i]; }
 export function runCommand(i: number, partes: string[]): string {
-  let out = "";
-  try { out = estado.fns[i](partes); }
-  catch (error) { out = "[erro] " + estado.nomes[i] + ": " + (error instanceof Error ? error.message : String(error)); }
+  // Sem `try` aqui: a exceção sobe até o ponto protegido único do despacho
+  // (dispatch.ts execProtegido), que responde "[erro] <nome>: <mensagem>".
+  let out = estado.fns[i](partes);
   if (out.length === 0 || out.charCodeAt(0) !== COLCHETE) out = "[ok] " + out;
   return out;
 }

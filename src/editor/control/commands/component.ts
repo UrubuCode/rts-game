@@ -2,11 +2,13 @@
 // remove componentes e edita os campos de config, igual ao inspector faz.
 import { scene } from "../session";
 import { COMPONENT_NAMES, createComponent } from "@editor/components";
+import { argInt, argObj, erroObj } from "@editor/control/args";
+import { erroUso } from "@editor/control/builtin_commands";
 
 /// comps <objIdx> — lista os componentes do objeto + campos e valores.
 export function cmdComps(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
-  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
+  const oi = argObj(parts, 1);
+  if (oi < 0) return parts.length < 2 ? erroUso("comps") : erroObj(parts, 1);
   const o = scene.objects[oi];
   let m = "[comps] #" + oi + " " + o.name + " (" + o.behaviors.length + ")";
   let bc = 0;
@@ -34,9 +36,10 @@ export function cmdCompList(): string {
 
 /// addcomp <objIdx> <nome> — anexa um componente ao objeto.
 export function cmdAddComp(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
-  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
-  if (COMPONENT_NAMES.indexOf(parts[2]) < 0) return "[erro] componente nao registrado: " + parts[2];
+  if (parts.length < 3) return erroUso("addcomp");
+  const oi = argObj(parts, 1);
+  if (oi < 0) return erroObj(parts, 1);
+  if (COMPONENT_NAMES.indexOf(parts[2]) < 0) return "[erro] componente nao registrado: " + parts[2] + " (veja complist)";
   const o = scene.objects[oi];
   const component = createComponent(parts[2]);
   o.addBehavior(component); component.mount();
@@ -56,10 +59,11 @@ export function cmdAddComp(parts: string[]): string {
 
 /// rmcomp <objIdx> <compIdx> — remove o componente.
 export function cmdRmComp(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
-  const ci = parseFloat(parts[2]) | 0;
-  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
-  if (ci < 0 || ci >= scene.objects[oi].behaviors.length) return "[erro] componente invalido";
+  if (parts.length < 3) return erroUso("rmcomp");
+  const oi = argObj(parts, 1);
+  if (oi < 0) return erroObj(parts, 1);
+  const ci = argInt(parts, 2);
+  if (!(ci >= 0 && ci < scene.objects[oi].behaviors.length)) return "[erro] componente invalido: '" + parts[2] + "' (#" + oi + " tem " + scene.objects[oi].behaviors.length + ")";
   scene.objects[oi].removeBehavior(ci);
   scene.markCollidersDirty();
   return "[ok] rmcomp #" + oi + "[" + ci + "]";
@@ -67,14 +71,15 @@ export function cmdRmComp(parts: string[]): string {
 
 /// setfield <objIdx> <compIdx> <fieldIdx> <valor> — edita um campo de config.
 export function cmdSetField(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
-  const ci = parseFloat(parts[2]) | 0;
-  const fi = parseFloat(parts[3]) | 0;
-  if (oi < 0 || oi >= scene.objects.length) return "[erro] objeto invalido";
+  if (parts.length < 5) return erroUso("setfield");
+  const oi = argObj(parts, 1);
+  if (oi < 0) return erroObj(parts, 1);
   const o = scene.objects[oi];
-  if (ci < 0 || ci >= o.behaviors.length) return "[erro] componente invalido";
+  const ci = argInt(parts, 2);
+  if (!(ci >= 0 && ci < o.behaviors.length)) return "[erro] componente invalido: '" + parts[2] + "' (#" + oi + " tem " + o.behaviors.length + ")";
   const component = o.behaviors[ci];
-  if (fi < 0 || fi >= component.fieldCount()) return "[erro] campo invalido";
+  const fi = argInt(parts, 3);
+  if (!(fi >= 0 && fi < component.fieldCount())) return "[erro] campo invalido: '" + parts[3] + "' (" + component.typeName() + " tem " + component.fieldCount() + ")";
   if (component.fieldType(fi) === "string") {
     const value = parts.slice(4).join(" ");
     component.fieldStringSet(fi, value);

@@ -2,6 +2,7 @@
 // Skeleton, lista/posiciona ossos e toca clipes, igual ao que um humano faria
 // no Inspector, mas em texto. Segue o mesmo padrão de commands/component.ts
 // (objeto por índice, validação, mensagens `[ok]`/`[erro]`).
+import { argObj, erroObj } from "@editor/control/args";
 import { scene, S } from "../session";
 import type { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
@@ -48,9 +49,9 @@ function resolveBoneArg(sk: Skeleton, arg: string): number {
 /// antes de devolver `[ok]`; se falhar, o objeto não fica com componente
 /// quebrado (desfaz a troca / remove o que acabou de criar).
 export function cmdAddSkel(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const path = parts[2];
   if (path === undefined || path === "") return "[erro] caminho do modelo obrigatorio";
   const existing = skeletonOfObject(o);
@@ -85,9 +86,9 @@ export function cmdAddSkel(parts: string[]): string {
 
 /// bones <obj> — lista os ossos do Skeleton, com pai.
 export function cmdBones(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
@@ -111,9 +112,9 @@ export function cmdBones(parts: string[]): string {
 /// a mesma dos campos do Inspector (bone_gizmo.ts). Editar encerra a prévia do
 /// objeto, como no Inspector e no gizmo.
 export function cmdPose(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
@@ -158,9 +159,9 @@ export function cmdPose(parts: string[]): string {
 
 /// resetpose <obj> — volta o Skeleton ao repouso e esquece a pose manual.
 export function cmdResetPose(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.resetPose();
@@ -174,9 +175,9 @@ export function cmdResetPose(parts: string[]): string {
 /// editor, sem undo). O objeto precisa já estar selecionado (`select <obj>`):
 /// trocar de objeto limpa o osso escolhido.
 export function cmdSelBone(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   if (S.selected !== oi) return "[erro] selecione o objeto antes (select " + oi + ")";
   if (parts[2] === "-1") { selectBone(null, 0 - 1); return "[ok] selbone #" + oi + " nenhum (gizmo no objeto)"; }
   const sk = skeletonOfObject(o);
@@ -191,9 +192,9 @@ export function cmdSelBone(parts: string[]): string {
 
 /// anims <obj> — lista os clipes do modelo (nome + duração).
 export function cmdAnims(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
@@ -214,9 +215,9 @@ export function cmdAnims(parts: string[]): string {
 /// (`preview` = a prévia do Inspector fora do Play: sem undo, sem mudar a cena
 /// salva — só trocar o clipe entra no undo)
 export function cmdAnim(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const ap = findAnimPlayer(o);
   if (ap === null) return "[erro] objeto sem AnimationPlayer";
   const sub = parts[2];

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 const read = p => fs.readFileSync(new URL('../' + p, import.meta.url), 'utf8');
 test('BUILTIN_COMMANDS lists exactly the dispatch switch cases', () => {
   const cases = [...read('src/editor/control/dispatch.ts').matchAll(/case "([a-z]+)":/g)].map(m => m[1]).sort();
-  const listed = [...read('src/editor/control/builtin_commands.ts').matchAll(/"([a-z]+)"/g)].map(m => m[1]).sort();
+  const listed = [...read('src/editor/control/builtin_commands.ts').matchAll(/c\("([a-z]+)"/g)].map(m => m[1]).sort();
   assert.deepEqual(listed, cases);
 });
 test('the game build swaps the component registry by exact alias', () => {

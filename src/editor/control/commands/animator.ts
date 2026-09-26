@@ -13,6 +13,7 @@
 // snapshot aqui mesmo, e só depois de validar o arquivo e só se o caminho
 // mudar (o dispatch não tira o snapshot genérico de `animator`). Fora do Play, `set`/`trigger` começam a prévia do Animator
 // (skeleton_preview.ts): ele avança só na pose de trabalho até a prévia acabar.
+import { argObj, erroObj } from "@editor/control/args";
 import { scene } from "../session";
 import type { GameObject } from "@engine/core/gameobject";
 import type { Animator } from "@engine/core/animator";
@@ -42,9 +43,9 @@ export function animatorParamText(an: Animator, i: number): string {
 }
 
 export function cmdAnimator(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrNull(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const an = animatorOfObject(o);
   if (an === null) return "[erro] objeto sem Animator";
   const sub = parts[2];

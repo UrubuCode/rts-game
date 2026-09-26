@@ -8,18 +8,25 @@ import { loadSceneFrom, instantiateSceneUnder, cloneObject } from "@editor/scene
 import { sceneDocument } from "@editor/scene_document";
 import { GameObject } from "@engine/core/gameobject";
 import { playMode } from "@editor/play_mode";
+import { argNum, argInt, argObj, erroObj, argsNumericos } from "@editor/control/args";
+import { erroUso } from "@editor/control/builtin_commands";
+
+/// Cópias máximas de um `dupn`.
+const DUPN_MAX: number = 200;
 
 export function cmdSelect(parts: string[]): string {
-  S.selected = parseFloat(parts[1]) | 0;
+  const i = argObj(parts, 1);
+  if (i < 0) return parts.length < 2 ? erroUso("select") : erroObj(parts, 1);
+  S.selected = i;
   S.selection = [];   // seleção ÚNICA (limpa a multi)
   return "[ok] select #" + S.selected;
 }
 
 /// selectadd <i> — adiciona à MULTI-seleção (o gizmo manipula todos juntos).
 export function cmdSelectAdd(parts: string[]): string {
-  if (parts.length < 2) return "[erro] uso: selectadd <i>";
-  const i = parseFloat(parts[1]) | 0;
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (parts.length < 2) return erroUso("selectadd");
+  const i = argObj(parts, 1);
+  if (i < 0) return erroObj(parts, 1);
   // garante o selected atual na lista + adiciona i (sem duplicar)
   if (S.selection.length === 0 && S.selected >= 0) S.selection.push(S.selected);
   let j = 0; let has = 0;
@@ -33,7 +40,11 @@ export function cmdSelectAdd(parts: string[]): string {
 /// com -1) mostra todos de volta. Útil pra focar num objeto numa cena cheia.
 export function cmdIso(parts: string[]): string {
   let i = S.selected;
-  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
+  if (parts.length > 1) {
+    const pedido = argInt(parts, 1);
+    if (pedido !== pedido || pedido >= scene.objects.length) return erroObj(parts, 1);
+    i = pedido;
+  }
   // se já está isolado (algum inativo e o alvo ativo), ou i<0 → mostra todos
   let anyHidden = 0;
   let k = 0;
@@ -77,8 +88,8 @@ export function cmdGroup(parts: string[]): string {
 /// nos filhos diretos (pra não pularem) e remove o nó do grupo (os filhos viram raiz).
 export function cmdUngroup(parts: string[]): string {
   let gi = S.selected;
-  if (parts.length > 1) gi = parseFloat(parts[1]) | 0;
-  if (gi < 0 || gi >= scene.objects.length) return "[erro] objeto invalido: " + gi;
+  if (parts.length > 1) { gi = argObj(parts, 1); if (gi < 0) return erroObj(parts, 1); }
+  if (gi < 0 || gi >= scene.objects.length) return "[erro] nenhum objeto selecionado";
   let k = 0; let n = 0;
   while (k < scene.objects.length) {
     const o = scene.objects[k];
@@ -97,8 +108,8 @@ export function cmdUngroup(parts: string[]): string {
 /// vis [i] — TOGGLE de visibilidade do objeto (active). O render pula os inativos.
 export function cmdVis(parts: string[]): string {
   let i = S.selected;
-  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (parts.length > 1) { i = argObj(parts, 1); if (i < 0) return erroObj(parts, 1); }
+  if (i < 0 || i >= scene.objects.length) return "[erro] nenhum objeto selecionado";
   const o = scene.objects[i];
   o.active = o.active !== 0 ? 0 : 1;
   return "[ok] vis #" + i + " = " + (o.active !== 0 ? "on" : "off");
@@ -126,8 +137,9 @@ export function cmdLight(parts: string[]): string {
   if (parts.length < 5) {
     return "[light] pos(" + S.lightX + "," + S.lightY + "," + S.lightZ + ") amb=" + S.lightAmb + " (use: light x y z ambient)";
   }
-  S.lightX = parseFloat(parts[1]); S.lightY = parseFloat(parts[2]); S.lightZ = parseFloat(parts[3]);
-  S.lightAmb = parseFloat(parts[4]);
+  if (!argsNumericos(parts, 1, 4)) return erroUso("light") + " (x, y, z e amb numericos)";
+  S.lightX = argNum(parts, 1); S.lightY = argNum(parts, 2); S.lightZ = argNum(parts, 3);
+  S.lightAmb = argNum(parts, 4);
   return "[ok] light pos(" + S.lightX + "," + S.lightY + "," + S.lightZ + ") amb=" + S.lightAmb;
 }
 
@@ -182,9 +194,9 @@ export function cmdView(parts: string[]): string {
 
 /// rename <i> <nome...> — renomeia o objeto (nome = resto da linha).
 export function cmdRename(parts: string[]): string {
-  if (parts.length < 3) return "[erro] uso: rename <i> <nome>";
-  const i = parseFloat(parts[1]) | 0;
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (parts.length < 3) return erroUso("rename");
+  const i = argObj(parts, 1);
+  if (i < 0) return erroObj(parts, 1);
   let nm = parts[2];
   let k = 3;
   while (k < parts.length) { nm = nm + " " + parts[k]; k = k + 1; }
@@ -200,8 +212,8 @@ export function cmdSelectClear(parts: string[]): string {
 
 /// focus <i> — enquadra a câmera do editor no objeto (Unity "frame selected").
 export function cmdFocus(parts: string[]): string {
-  const idx = parseFloat(parts[1]) | 0;
-  if (idx < 0 || idx >= scene.objects.length) return "[erro] objeto invalido";
+  const idx = argObj(parts, 1);
+  if (idx < 0) return parts.length < 2 ? erroUso("focus") : erroObj(parts, 1);
   const o = scene.objects[idx];
   const wx: f64 = o.transform.wx; const wy: f64 = o.transform.wy; const wz: f64 = o.transform.wz;
   let sz: f64 = o.transform.sx;
@@ -214,13 +226,12 @@ export function cmdFocus(parts: string[]): string {
 }
 
 export function cmdDelete(parts: string[]): string {
-  const i = parseFloat(parts[1]) | 0;
+  if (parts.length < 2) return erroUso("delete");
+  const i = argInt(parts, 1);
   // `removeAt` ignora índice fora da faixa, então sem esta checagem o comando
   // reportava "[ok] delete" sem ter apagado nada — falha em silêncio, que é o
   // pior tipo. Apareceu no log: `delete 99999 -> [ok] delete`.
-  if (i < 0 || i >= scene.objects.length) {
-    return "[erro] indice invalido: " + i + " (a cena tem " + scene.objects.length + " objetos)";
-  }
+  if (!(i >= 0 && i < scene.objects.length)) return erroObj(parts, 1);
   const nome = scene.objects[i].name;
   scene.removeAt(i);
   if (S.selected >= scene.objects.length) S.selected = scene.objects.length - 1;
@@ -259,8 +270,9 @@ export function cmdDelSel(parts: string[]): string {
 }
 
 export function cmdCam(parts: string[]): string {
-  S.camX = parseFloat(parts[1]); S.camY = parseFloat(parts[2]); S.camZ = parseFloat(parts[3]);
-  S.camYaw = parseFloat(parts[4]); S.camPitch = parseFloat(parts[5]);
+  if (!argsNumericos(parts, 1, 5)) return erroUso("cam") + " (5 numeros)";
+  S.camX = argNum(parts, 1); S.camY = argNum(parts, 2); S.camZ = argNum(parts, 3);
+  S.camYaw = argNum(parts, 4); S.camPitch = argNum(parts, 5);
   return "[ok] cam";
 }
 
@@ -276,6 +288,7 @@ export function cmdClear(): string {
 }
 
 export function cmdLoad(parts: string[]): string {
+  if (parts.length < 2 || parts[1].length === 0) return erroUso("loadscene");
   playMode.stop();
   loadSceneFrom(parts[1]);
   sceneDocument.opened(parts[1]);
@@ -294,8 +307,8 @@ export function cmdSaveScene(parts: string[]): string {
 /// seleciona a cópia. (Clone raso: copia transform+aparência; behaviors ainda não.)
 export function cmdDup(parts: string[]): string {
   let i = S.selected;
-  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (parts.length > 1) { i = argObj(parts, 1); if (i < 0) return erroObj(parts, 1); }
+  if (i < 0 || i >= scene.objects.length) return "[erro] nenhum objeto selecionado";
   const g = cloneObject(scene.objects[i]);   // transform+aparência + scripts de gameplay
   g.transform.px = g.transform.px + 1.0;
   scene.add(g);
@@ -306,13 +319,14 @@ export function cmdDup(parts: string[]): string {
 /// dupn <count> <espaco> [i] — duplica o objeto em ARRAY: `count` cópias em linha no
 /// X, espaçadas por `espaco`. Útil pra montar níveis (cercas, colunas, etc).
 export function cmdDupN(parts: string[]): string {
-  if (parts.length < 3) return "[erro] uso: dupn <count> <espaco> [i]";
-  const count = parseFloat(parts[1]) | 0;
-  const gap = parseFloat(parts[2]);
+  if (parts.length < 3) return erroUso("dupn");
+  const count = argInt(parts, 1);
+  const gap = argNum(parts, 2);
+  if (!(count >= 1 && count <= DUPN_MAX)) return "[erro] n precisa ser inteiro de 1 a " + DUPN_MAX + ": " + parts[1];
+  if (gap !== gap) return "[erro] espaco precisa ser numerico: " + parts[2];
   let i = S.selected;
-  if (parts.length > 3) i = parseFloat(parts[3]) | 0;
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
-  if (count < 1 || count > 200) return "[erro] count fora de 1..200";
+  if (parts.length > 3) { i = argObj(parts, 3); if (i < 0) return erroObj(parts, 3); }
+  if (i < 0 || i >= scene.objects.length) return "[erro] nenhum objeto selecionado";
   const src = scene.objects[i];
   let k = 0;
   while (k < count) {
@@ -328,9 +342,9 @@ export function cmdDupN(parts: string[]): string {
 /// instscene <path> [hostIdx] — CENA DENTRO DE CENA: instancia uma cena inteira
 /// sob o objeto hostIdx (default = selecionado). Mover o host move a sub-cena toda.
 export function cmdInstScene(parts: string[]): string {
-  if (parts.length < 2) return "[erro] uso: instscene <path> [hostIdx]";
+  if (parts.length < 2) return erroUso("instscene");
   let host = S.selected;
-  if (parts.length > 2) host = parseFloat(parts[2]) | 0;
+  if (parts.length > 2) { host = argObj(parts, 2); if (host < 0) return erroObj(parts, 2); }
   const before = scene.objects.length;
   const n = instantiateSceneUnder(parts[1], host) | 0;
   if (n === 0) return "[erro] falha ao instanciar (arquivo/objetos): " + parts[1];
@@ -347,7 +361,9 @@ export function cmdInstScene(parts: string[]): string {
 export function cmdHier(parts: string[]): string {
   const n = scene.objects.length;
   if (parts.length > 1) {
-    let want = parseFloat(parts[1]) | 0;
+    const pedido = argInt(parts, 1);
+    if (pedido !== pedido) return erroUso("hier") + " (linha inteira)";
+    let want = pedido;
     let maxS = n - S.hierVis;
     if (maxS < 0) maxS = 0;
     if (want < 0) want = 0;

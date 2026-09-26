@@ -1,15 +1,21 @@
 // Comandos de TRANSFORM/aparência de 1 objeto: move, scl, mesh, color, spin, tool.
 import { scene, S } from "../session";
 import { Spinner } from "@scripts/spinner";
+import { argNum, argInt, argObj, erroObj, argsNumericos } from "@editor/control/args";
+import { erroUso } from "@editor/control/builtin_commands";
+
+/// Maior `meshKind` primitivo (0 = vazio, 1 cubo, 2 pirâmide, 3 octaedro, 4 esfera).
+const MESH_KIND_MAX: number = 4;
+/// Faixa de um canal de cor do objeto.
+const COR_MAX: number = 255;
 
 /// align [i] [step] — arredonda a POSIÇÃO do objeto pro grid na hora (default step 0.5).
 export function cmdAlign(parts: string[]): string {
   let i = S.selected;
   let step = 0.5;
-  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
-  if (parts.length > 2) step = parseFloat(parts[2]);
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
-  if (step <= 0.0) step = 0.5;
+  if (parts.length > 1) { i = argObj(parts, 1); if (i < 0) return erroObj(parts, 1); }
+  if (parts.length > 2) { step = argNum(parts, 2); if (!(step > 0.0)) return "[erro] passo do grid precisa ser um numero > 0: " + parts[2]; }
+  if (i < 0 || i >= scene.objects.length) return "[erro] nenhum objeto selecionado";
   const t = scene.objects[i].transform;
   t.px = snapAt(t.px, step); t.py = snapAt(t.py, step); t.pz = snapAt(t.pz, step);
   if (scene.objects[i].stationary !== 0) scene.markCollidersDirty();
@@ -27,8 +33,8 @@ function snapAt(v: f64, step: f64): f64 {
 /// mantém a posição. Equivale ao "Reset" do Transform da Unity (sem mover pra origem).
 export function cmdReset(parts: string[]): string {
   let i = S.selected;
-  if (parts.length > 1) i = parseFloat(parts[1]) | 0;
-  if (i < 0 || i >= scene.objects.length) return "[erro] objeto invalido: " + i;
+  if (parts.length > 1) { i = argObj(parts, 1); if (i < 0) return erroObj(parts, 1); }
+  if (i < 0 || i >= scene.objects.length) return "[erro] nenhum objeto selecionado";
   const t = scene.objects[i].transform;
   t.rx = 0.0; t.ry = 0.0; t.rz = 0.0;
   t.sx = 1.0; t.sy = 1.0; t.sz = 1.0;
@@ -61,39 +67,61 @@ export function cmdTool(parts: string[]): string {
 }
 
 export function cmdMove(parts: string[]): string {
-  const o = scene.objects[parseFloat(parts[1]) | 0];
-  o.transform.px = parseFloat(parts[2]);
-  o.transform.py = parseFloat(parts[3]);
-  o.transform.pz = parseFloat(parts[4]);
+  const i = argObj(parts, 1);
+  if (i < 0) return parts.length < 2 ? erroUso("move") : erroObj(parts, 1);
+  if (!argsNumericos(parts, 2, 3)) return erroUso("move") + " (x, y e z numericos)";
+  const o = scene.objects[i];
+  o.transform.px = argNum(parts, 2);
+  o.transform.py = argNum(parts, 3);
+  o.transform.pz = argNum(parts, 4);
   if (o.stationary !== 0) scene.markCollidersDirty();
   return "[ok] move";
 }
 
 export function cmdScl(parts: string[]): string {
-  const o = scene.objects[parseFloat(parts[1]) | 0];
+  const i = argObj(parts, 1);
+  if (i < 0) return parts.length < 2 ? erroUso("scl") : erroObj(parts, 1);
+  if (!argsNumericos(parts, 2, 3)) return erroUso("scl") + " (sx, sy e sz numericos)";
+  const o = scene.objects[i];
   scene.markStaticDirty();   // a escala define o raio de colisão (cacheado em Scene)
-  o.transform.sx = parseFloat(parts[2]);
-  o.transform.sy = parseFloat(parts[3]);
-  o.transform.sz = parseFloat(parts[4]);
+  o.transform.sx = argNum(parts, 2);
+  o.transform.sy = argNum(parts, 3);
+  o.transform.sz = argNum(parts, 4);
   return "[ok] scl";
 }
 
 export function cmdMesh(parts: string[]): string {
-  scene.objects[parseFloat(parts[1]) | 0].meshKind = parseFloat(parts[2]) | 0;
+  const i = argObj(parts, 1);
+  if (i < 0) return parts.length < 2 ? erroUso("mesh") : erroObj(parts, 1);
+  const k = argInt(parts, 2);
+  if (!(k >= 0 && k <= MESH_KIND_MAX)) return "[erro] kind invalido: '" + (parts.length > 2 ? parts[2] : "") + "' (0.." + MESH_KIND_MAX + ")";
+  scene.objects[i].meshKind = k;
   return "[ok] mesh";
 }
 
 export function cmdColor(parts: string[]): string {
-  const o = scene.objects[parseFloat(parts[1]) | 0];
-  o.cr = parseFloat(parts[2]) | 0;
-  o.cg = parseFloat(parts[3]) | 0;
-  o.cb = parseFloat(parts[4]) | 0;
+  const i = argObj(parts, 1);
+  if (i < 0) return parts.length < 2 ? erroUso("color") : erroObj(parts, 1);
+  let c = 2;
+  while (c < 5) {
+    const v = argNum(parts, c);
+    if (!(v >= 0 && v <= COR_MAX)) return erroUso("color") + " (r, g e b de 0 a " + COR_MAX + ")";
+    c = c + 1;
+  }
+  const o = scene.objects[i];
+  o.cr = argNum(parts, 2) | 0;
+  o.cg = argNum(parts, 3) | 0;
+  o.cb = argNum(parts, 4) | 0;
   return "[ok] color";
 }
 
 export function cmdSpin(parts: string[], np: number): string {
+  const i = argObj(parts, 1);
+  if (i < 0) return parts.length < 2 ? erroUso("spin") : erroObj(parts, 1);
+  const sy = argNum(parts, 2);
+  if (sy !== sy) return erroUso("spin") + " (spdY numerico)";
   let sx: f64 = 0.0;
-  if (np > 3) sx = parseFloat(parts[3]);
-  scene.objects[parseFloat(parts[1]) | 0].addBehavior(new Spinner(parseFloat(parts[2]), sx));
+  if (np > 3) { sx = argNum(parts, 3); if (sx !== sx) return erroUso("spin") + " (spdX numerico)"; }
+  scene.objects[i].addBehavior(new Spinner(sy, sx));
   return "[ok] spin";
 }
