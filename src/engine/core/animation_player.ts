@@ -26,7 +26,7 @@
 //
 // `sampleClipInto` também abre o canal de ROTAÇÃO (o mais comum: pernas,
 // braços, cabeça) inline no caso `weight>=1` (sem crossfade), em vez de
-// chamar `sampleQuatInto` — 0 chamadas de função extra por osso nesse
+// chamar uma função de amostra de quaternion — 0 chamadas de função extra por osso nesse
 // caminho, e ainda 4 parâmetros no total (`sk,clip,t,weight`), então ainda
 // seguro pelo mesmo motivo. Isso tirou a margem de "quase no limite" (17
 // personagens x 1000 quadros por volta de 0,28-0,34 ms, flutuando pra cima
@@ -36,7 +36,6 @@ import { Behavior } from "./behavior";
 import type { GameObject } from "./gameobject";
 import { Skeleton } from "./skeleton";
 import { AnimClip } from "../render/gltf_anim";
-import { quatNlerpInto } from "../render/quat";
 
 // mesma codificação de AnimClip.chPath (gltf_anim.ts): 0=translation(3)
 // 1=rotation(4) 2=scale(3). Redeclarado aqui porque gltf_anim.ts não exporta
@@ -54,8 +53,6 @@ const PATH_SCALE: number = 2;
 // parâmetros `f64` escalares — ver o comentário do topo do arquivo sobre por
 // que isto importa neste runtime.
 const SCR_V3: Float64Array = new Float64Array(3);
-const SCR_Q: Float64Array = new Float64Array(4);
-const SCR_QA: Float64Array = new Float64Array(4);
 
 /// Busca binária: último índice `k` com `times[k] <= t` (0 se `t` for menor
 /// que o primeiro tempo, `n-1` no máximo). `times` tem pelo menos 1 elemento
@@ -92,38 +89,6 @@ function sampleVec3Into(times: Float64Array, values: Float64Array, t: f64, out: 
   out[2] = values[k * 3 + 2] * u + values[(k + 1) * 3 + 2] * f;
 }
 
-/// Amostra um canal de rotação (stride 4) em `t`: nlerp (caminho curto,
-/// normalizado) entre as duas chaves vizinhas, matemática igual a
-/// `quatNlerpInto` (quat.ts) mas ABERTA em locais lendo direto de `values`
-/// por índice — sem ela (e sem ir/voltar por `SCR_*`) dá 1 chamada de função
-/// a menos por canal de rotação (a maioria dos canais de um clipe humano:
-/// pernas/braços/cabeça). MEDIDO seguro (sem alocar, `RTS_GC_DEBUG=1`) apesar
-/// de ~15 locais `f64` vivos: só 4 parâmetros — ver o comentário do topo do
-/// arquivo, o gatilho do defeito é o número de PARÂMETROS escalares, não o
-/// de locais.
-function sampleQuatInto(times: Float64Array, values: Float64Array, t: f64, out: Float64Array): void {
-  const n = times.length;
-  const k = findKeyIndex(times, t);
-  const ko = k * 4;
-  if (k >= n - 1) {
-    out[0] = values[ko]; out[1] = values[ko + 1]; out[2] = values[ko + 2]; out[3] = values[ko + 3];
-    return;
-  }
-  const t0 = times[k]; const t1 = times[k + 1];
-  let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
-  if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
-  const ko2 = ko + 4;
-  const ax = values[ko]; const ay = values[ko + 1]; const az = values[ko + 2]; const aw = values[ko + 3];
-  const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
-  const dot = ax * bx + ay * by + az * bz + aw * bw;
-  const s: f64 = dot < 0.0 ? 0.0 - 1.0 : 1.0;
-  const u = 1.0 - f;
-  let x = ax * u + bx * s * f; let y = ay * u + by * s * f; let z = az * u + bz * s * f; let w = aw * u + bw * s * f;
-  const len = Math.sqrt(x * x + y * y + z * z + w * w);
-  if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
-  out[0] = x; out[1] = y; out[2] = z; out[3] = w;
-}
-
 /// Mistura `src` (vetor de 3, já amostrado) no osso `bone` de `dest` por
 /// `weight` (1 = substitui, <1 = lerp com o valor atual de `dest`).
 function blendVec3Into(dest: Float64Array, bone: number, src: Float64Array, weight: f64): void {
@@ -135,18 +100,6 @@ function blendVec3Into(dest: Float64Array, bone: number, src: Float64Array, weig
   dest[o + 2] = dest[o + 2] * u + src[2] * weight;
 }
 
-/// Mistura `src` (quaternion já amostrado) no osso `bone` de `dest` por
-/// `weight`, com nlerp (caminho curto, normalizado) contra o valor atual.
-/// Copia o valor atual de `dest` pro buffer de módulo `SCR_QA` em vez de 4
-/// locais `ax,ay,az,aw` — mesmo motivo de `sampleQuatInto`.
-function blendQuatInto(dest: Float64Array, bone: number, src: Float64Array, weight: f64): void {
-  const o = bone * 4;
-  if (weight >= 1.0) { dest[o] = src[0]; dest[o + 1] = src[1]; dest[o + 2] = src[2]; dest[o + 3] = src[3]; return; }
-  SCR_QA[0] = dest[o]; SCR_QA[1] = dest[o + 1]; SCR_QA[2] = dest[o + 2]; SCR_QA[3] = dest[o + 3];
-  quatNlerpInto(SCR_Q, SCR_QA, src, weight);
-  dest[o] = SCR_Q[0]; dest[o + 1] = SCR_Q[1]; dest[o + 2] = SCR_Q[2]; dest[o + 3] = SCR_Q[3];
-}
-
 /// Três buffers de pose por osso (T 3, R 4, S 3) — o destino de
 /// `samplePoseInto`. Pode apontar para a pose de TRABALHO de um Skeleton
 /// (`sampleClipInto` faz isso) ou para buffers próprios de quem mistura várias
@@ -156,10 +109,17 @@ export class PoseBuffers {
   t: Float64Array;
   r: Float64Array;
   s: Float64Array;
+  /// Máscara de ossos do DESTINO (null = todos): `samplePoseInto` só escreve
+  /// nos ossos com `mask[osso] !== 0`. Deixa uma camada com máscara amostrar
+  /// direto na pose do esqueleto, sem copiar a pose inteira para um buffer e
+  /// misturar de volta (o Animator usa uma "vista" por camada com os arrays do
+  /// Skeleton e a máscara da camada).
+  mask: Uint8Array | null;
   constructor(bones: number) {
     this.t = new Float64Array(bones * 3);
     this.r = new Float64Array(bones * 4);
     this.s = new Float64Array(bones * 3);
+    this.mask = null;
   }
 }
 
@@ -180,12 +140,16 @@ export function sampleClipInto(sk: Skeleton, clip: AnimClip, t: f64, weight: f64
 
 /// O amostrador de verdade (o ÚNICO do motor): `sampleClipInto` com destino
 /// arbitrário. Mesma semântica de peso e de ossos sem canal. O número de ossos
-/// vem do tamanho de `dst.r`.
+/// vem do tamanho de `dst.r`; `dst.mask` (se houver) limita os ossos escritos.
+/// A rotação com `weight < 1` (mistura 1D do Animator, crossfade) também é
+/// aberta aqui — amostra e nlerp contra o valor atual sem as 3 chamadas de
+/// função por canal que havia antes (amostrar, misturar, nlerp) — MEDIDO: o
+/// caminho com peso custava ~2,4x o de peso 1.
 export function samplePoseInto(dst: PoseBuffers, clip: AnimClip, t: f64, weight: f64): void {
   const n = clip.chBone.length;
   const boneCount = dst.r.length >> 2;
   // caso comum (sem crossfade, weight=1): amostra e escreve DIRETO no osso,
-  // sem os passos por `sampleQuatInto`/`blendQuatInto` (chamadas de função) —
+  // sem chamadas de função por canal —
   // tudo aberto aqui dentro, porque `sampleClipInto` continua com só 4
   // parâmetros (sk,clip,t,weight): é o número de parâmetros ESCALARES da
   // função que importa pro defeito de alocação deste runtime (ver comentário
@@ -194,10 +158,12 @@ export function samplePoseInto(dst: PoseBuffers, clip: AnimClip, t: f64, weight:
   const poseT = dst.t; const poseR = dst.r; const poseS = dst.s;
   const chTimes = clip.chTimes; const chValues = clip.chValues;
   const chBone = clip.chBone; const chPath = clip.chPath;
+  const mask = dst.mask;
+  const wu = 1.0 - weight;
   let i = 0;
   while (i < n) {
     const bone = chBone[i];
-    if (bone >= 0 && bone < boneCount) {
+    if (bone >= 0 && bone < boneCount && (mask === null || mask[bone] !== 0)) {
       const path = chPath[i];
       const times = chTimes[i]; const values = chValues[i];
       if (path === PATH_ROTATION) {
@@ -224,8 +190,33 @@ export function samplePoseInto(dst: PoseBuffers, clip: AnimClip, t: f64, weight:
             poseR[o] = x; poseR[o + 1] = y; poseR[o + 2] = z; poseR[o + 3] = w;
           }
         } else {
-          sampleQuatInto(times, values, t, SCR_Q);
-          blendQuatInto(poseR, bone, SCR_Q, weight);
+          // amostra (nlerp entre chaves) e mistura (nlerp contra o valor atual
+          // do osso, pelo caminho curto) — a mesma matemática de
+          // de `quatNlerpInto` (quat.ts), aberta duas vezes
+          const tn = times.length;
+          const k = findKeyIndex(times, t);
+          const ko = k * 4;
+          const o = bone * 4;
+          let x = values[ko]; let y = values[ko + 1]; let z = values[ko + 2]; let w = values[ko + 3];
+          if (k < tn - 1) {
+            const t0 = times[k]; const t1 = times[k + 1];
+            let f: f64 = t1 > t0 ? (t - t0) / (t1 - t0) : 0.0;
+            if (f < 0.0) f = 0.0; if (f > 1.0) f = 1.0;
+            const ko2 = ko + 4;
+            const bx = values[ko2]; const by = values[ko2 + 1]; const bz = values[ko2 + 2]; const bw = values[ko2 + 3];
+            const s: f64 = x * bx + y * by + z * bz + w * bw < 0.0 ? 0.0 - 1.0 : 1.0;
+            const u = 1.0 - f;
+            x = x * u + bx * s * f; y = y * u + by * s * f; z = z * u + bz * s * f; w = w * u + bw * s * f;
+            const len = Math.sqrt(x * x + y * y + z * z + w * w);
+            if (len > 1e-12) { x = x / len; y = y / len; z = z / len; w = w / len; } else { x = 0.0; y = 0.0; z = 0.0; w = 1.0; }
+          }
+          const ax = poseR[o]; const ay = poseR[o + 1]; const az = poseR[o + 2]; const aw = poseR[o + 3];
+          const sg: f64 = ax * x + ay * y + az * z + aw * w < 0.0 ? 0.0 - 1.0 : 1.0;
+          let rx = ax * wu + x * sg * weight; let ry = ay * wu + y * sg * weight;
+          let rz = az * wu + z * sg * weight; let rw = aw * wu + w * sg * weight;
+          const rl = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw);
+          if (rl > 1e-12) { rx = rx / rl; ry = ry / rl; rz = rz / rl; rw = rw / rl; } else { rx = 0.0; ry = 0.0; rz = 0.0; rw = 1.0; }
+          poseR[o] = rx; poseR[o + 1] = ry; poseR[o + 2] = rz; poseR[o + 3] = rw;
         }
       } else if (path === PATH_TRANSLATION) {
         sampleVec3Into(times, values, t, SCR_V3);
@@ -241,15 +232,10 @@ export function samplePoseInto(dst: PoseBuffers, clip: AnimClip, t: f64, weight:
   }
 }
 
-/// Copia a pose inteira de `src` para `dst` (mesmo número de ossos).
+/// Copia a pose inteira de `src` para `dst` (mesmo número de ossos). Cópia
+/// nativa (`TypedArray.set`), bem mais barata que o laço por elemento aqui.
 export function copyPoseInto(dst: PoseBuffers, src: PoseBuffers): void {
-  const dt = dst.t; const dr = dst.r; const ds = dst.s;
-  const st = src.t; const sr = src.r; const ss = src.s;
-  const n3 = st.length; const n4 = sr.length;
-  let i = 0;
-  while (i < n3) { dt[i] = st[i]; ds[i] = ss[i]; i = i + 1; }
-  i = 0;
-  while (i < n4) { dr[i] = sr[i]; i = i + 1; }
+  dst.t.set(src.t); dst.r.set(src.r); dst.s.set(src.s);
 }
 
 /// Mistura a pose `src` em `dst` com peso `weight` (1 = substitui; lerp em T/S,

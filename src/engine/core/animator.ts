@@ -95,6 +95,10 @@ export class Animator extends Behavior {
   private bufB: PoseBuffers;
   /** @nonSerialized */
   private allMask: Uint8Array;
+  // por camada: "vista" da pose do esqueleto (mesmos arrays) com a máscara
+  // da camada — camada com máscara sem fade amostra direto aqui
+  /** @nonSerialized */
+  private layerView: PoseBuffers[];
   // saída de pickBlend (evita devolver 3 valores)
   /** @nonSerialized */
   private pickA: number;
@@ -115,6 +119,7 @@ export class Animator extends Behavior {
     this.fadeT = new Float64Array(0); this.fadeDur = new Float64Array(0);
     this.skPose = new PoseBuffers(0); this.bufA = new PoseBuffers(0); this.bufB = new PoseBuffers(0);
     this.allMask = new Uint8Array(0);
+    this.layerView = [];
     this.pickA = 0; this.pickB = 0; this.pickW = 0.0;
   }
 
@@ -233,7 +238,7 @@ export class Animator extends Behavior {
     const sk = this.sk;
     const c = this.ctrl;
     if (sk === null || c === null) return;
-    sk.applyManualPose();   // base: repouso + pose do autor
+    sk.applyManualPose();   // base: repouso + pose do autor (3 cópias nativas)
     const n = this.layerCur.length;
     let l = 0;
     while (l < n) {
@@ -295,6 +300,15 @@ export class Animator extends Behavior {
       this.allMask = m;
     }
     this.skPose.t = sk.poseT; this.skPose.r = sk.poseR; this.skPose.s = sk.poseS;
+    const views: PoseBuffers[] = [];
+    let l = 0;
+    while (l < c.layerNames.length) {
+      const v = new PoseBuffers(0);
+      v.t = sk.poseT; v.r = sk.poseR; v.s = sk.poseS; v.mask = b.layerMask[l];
+      views.push(v);
+      l = l + 1;
+    }
+    this.layerView = views;
     if (this.layerCur.length !== c.layerNames.length) this.resetRuntime();
     this.err = "";
     this.failedSk = null; this.failedAsset = null; this.failedCtrl = null;
@@ -422,28 +436,37 @@ export class Animator extends Behavior {
     const w = c.layerWeight[l];
     if (w <= 0.0) return;
     const direct = w >= 1.0 && c.layerMaskNames[l].length === 0;
+    const prev = this.layerPrev[l];
+    const cur = this.layerCur[l];
+    // camada com máscara/peso sem fade: amostra DIRETO na pose do esqueleto
+    // pela vista mascarada (sem copiar a pose num buffer e misturar de volta).
+    // Mistura 1D com peso < 1 não cabe numa amostra só: vai pelo buffer.
+    if (!direct && prev < 0 && (w >= 1.0 || c.stateKind[cur] === STATE_CLIP)) {
+      this.evalState(cur, this.curNorm[l], this.layerView[l], w);
+      return;
+    }
     const sk = this.skPose;
     const dst = direct ? sk : this.bufA;
     if (!direct) copyPoseInto(dst, sk);
-    const prev = this.layerPrev[l];
     if (prev >= 0) {
       // o estado de saída vai em `dst`, o de entrada num buffer que parte da
       // MESMA base; depois mistura pelo progresso do fade
       const b = this.bufB;
       copyPoseInto(b, dst);
-      this.evalState(prev, this.prevNorm[l], dst);
-      this.evalState(this.layerCur[l], this.curNorm[l], b);
+      this.evalState(prev, this.prevNorm[l], dst, 1.0);
+      this.evalState(cur, this.curNorm[l], b, 1.0);
       const d = this.fadeDur[l];
       blendPoseInto(dst, b, d > 0.0 ? Math.min(1.0, this.fadeT[l] / d) : 1.0, this.allMask);
     } else {
-      this.evalState(this.layerCur[l], this.curNorm[l], dst);
+      this.evalState(cur, this.curNorm[l], dst, 1.0);
     }
     if (!direct) blendPoseInto(sk, dst, w, this.bind!.layerMask[l]);
   }
 
   // Amostra o estado `s` no tempo normalizado `norm` em `dst` (laço envolve,
-  // sem laço grampeia no fim).
-  private evalState(s: number, norm: f64, dst: PoseBuffers): void {
+  // sem laço grampeia no fim). `weight` < 1 só para estado de clipe (mistura
+  // contra o que já está em `dst`); a mistura 1D sempre usa peso 1.
+  private evalState(s: number, norm: f64, dst: PoseBuffers, weight: f64): void {
     const c = this.ctrl!; const b = this.bind!;
     const clips = b.asset.clips;
     let phase = norm;
@@ -451,7 +474,7 @@ export class Animator extends Behavior {
     else if (phase > 1.0) phase = 1.0;
     else if (phase < 0.0) phase = 0.0;
     if (c.stateKind[s] === STATE_CLIP) {
-      samplePoseInto(dst, clips[b.stateClip[s]], phase * b.stateDur[s], 1.0);
+      samplePoseInto(dst, clips[b.stateClip[s]], phase * b.stateDur[s], weight);
       return;
     }
     this.pickBlend(s);
