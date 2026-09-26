@@ -13,8 +13,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
-const fixture = process.env.RTS_UI_FIXTURE ||
-  path.resolve(root, '..', '..', '..', 'rts-uv-mundo', 'target', 'release', 'examples', 'ui_fixture.exe');
+// Sobe a partir da raiz até achar a pasta irmã `rts-uv-mundo` (vale para worktrees aninhadas).
+function acharFixture() {
+  let d = root;
+  for (let i = 0; i < 6; i++) {
+    const c = path.join(d, 'rts-uv-mundo', 'target', 'release', 'examples', 'ui_fixture.exe');
+    if (fs.existsSync(c)) return c;
+    d = path.dirname(d);
+  }
+  return 'ui_fixture.exe';
+}
+const fixture = process.env.RTS_UI_FIXTURE || acharFixture();
 
 const args = process.argv.slice(2);
 function arg(name, def) { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : def; }
