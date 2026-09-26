@@ -128,7 +128,9 @@ export class Camera extends Behavior {
     ui.field("ortografica");
     if (this.ortografica) ui.field("tamanhoOrto");
     ui.field("near"); ui.field("far");
-    this.fundo = FUNDOS_CAMERA[ui.dropdown(ROTULO_FUNDO, FUNDOS_CAMERA, Math.max(0, FUNDOS_CAMERA.indexOf(this.fundo)))];
+    const fundo = Math.max(0, FUNDOS_CAMERA.indexOf(this.fundo));
+    const novoFundo = ui.dropdown(ROTULO_FUNDO, FUNDOS_CAMERA, fundo);
+    if (novoFundo !== fundo) this.fundo = FUNDOS_CAMERA[novoFundo];
     if (this.fundo === "cor") this.corFundo = ui.color(ROTULO_COR_FUNDO, this.corFundo);
     ui.field("viewportX"); ui.field("viewportY"); ui.field("viewportW"); ui.field("viewportH");
     ui.field("profundidade");

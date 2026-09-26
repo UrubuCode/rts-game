@@ -70,7 +70,9 @@ export class Light extends Behavior {
   lightCastsShadow(): number { return this.sombra ? 1 : 0; }
   /// Tipo como lista, cor em #RRGGBB e só os campos que valem para o tipo.
   onInspectorGUI(ui: InspectorUI): void {
-    this.tipo = TIPOS_LUZ[ui.dropdown(ROTULO_TIPO, TIPOS_LUZ, Math.max(0, TIPOS_LUZ.indexOf(this.tipo)))];
+    const tipo = Math.max(0, TIPOS_LUZ.indexOf(this.tipo));
+    const novoTipo = ui.dropdown(ROTULO_TIPO, TIPOS_LUZ, tipo);
+    if (novoTipo !== tipo) this.tipo = TIPOS_LUZ[novoTipo];
     this.cor = ui.color(ROTULO_COR, this.cor);
     ui.field("intensidade");
     if (this.tipo !== "direcional") ui.field("alcance");

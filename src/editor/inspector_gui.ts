@@ -31,10 +31,16 @@ export class InspectorGUIEditor extends InspectorUI {
   slot: number;
   /// Por slot: chave do controle, texto mostrado e de onde ele veio.
   slotChave: string[]; slotTexto: string[]; slotRotulo: string[]; slotSufixo: string[]; slotNum: number[];
+  /// Campo de texto em edição (cor): o que foi digitado até agora e de qual
+  /// componente. O `textField` do app não guarda estado — devolve o valor
+  /// recebido mais o que foi digitado —, então o rascunho fica aqui enquanto o
+  /// campo tem o foco, como o filtro da Hierarquia guarda o próprio texto.
+  slotRascunho: string[]; slotEditando: boolean[]; slotDono: (Behavior | null)[];
   constructor(insp: Inspector) {
     super(); this.insp = insp; this.comp = null; this.chave = ""; this.y = 0; this.seq = 0; this.pose = new Float64Array(5);
     this.prefixos = []; this.slots = []; this.lista = 0; this.slot = 0;
     this.slotChave = []; this.slotTexto = []; this.slotRotulo = []; this.slotSufixo = []; this.slotNum = [];
+    this.slotRascunho = []; this.slotEditando = []; this.slotDono = [];
   }
   begin(comp: Behavior, chave: string, y: number): void {
     this.comp = comp; this.chave = chave; this.y = y; this.seq = 0; this.usos = 0;
@@ -47,6 +53,7 @@ export class InspectorGUIEditor extends InspectorUI {
     if (this.seq >= lista.length) {
       this.slotChave.push(this.chave + G.guiKey + this.seq);
       this.slotTexto.push(""); this.slotRotulo.push(""); this.slotSufixo.push(""); this.slotNum.push(0 - 1);
+      this.slotRascunho.push(""); this.slotEditando.push(false); this.slotDono.push(null);
       lista.push(this.slotChave.length - 1);
     }
     this.slot = lista[this.seq];
@@ -126,10 +133,20 @@ export class InspectorGUIEditor extends InspectorUI {
     const k = this.proxima(); let novo = rgb;
     if (this.insp.visible(this.y, L.rowH)) {
       const f = this.insp.ui.control(k, "propertyText", this.colunaX(), this.y, this.colunaW(), L.rowH, rotulo, this.insp.enabledInput);
-      const antes = this.textoCor(rgb);
+      const s = this.slot;
+      const app = this.insp.ui.app;
+      // Com o foco neste campo (do mesmo componente), continua o rascunho;
+      // sem foco, mostra a cor atual.
+      const continua = this.slotEditando[s] && this.slotDono[s] === this.comp && app.isFocused(f.id);
+      const antes = continua ? this.slotRascunho[s] : this.textoCor(rgb);
       f.textValue = antes; this.insp.ui.draw(f);
-      if (f.textValue !== antes) {
-        const lida = lerCorHex(f.textValue);
+      const texto = f.textValue;
+      if (app.isFocused(f.id)) { this.slotRascunho[s] = texto; this.slotEditando[s] = true; this.slotDono[s] = this.comp; }
+      else this.slotEditando[s] = false;
+      // Aplica assim que o texto forma uma cor válida; um texto incompleto
+      // fica só no rascunho (e some ao perder o foco).
+      if (texto !== antes) {
+        const lida = lerCorHex(texto);
         if (lida >= 0 && lida !== rgb) { this.insp.snapshot(); novo = lida; }
       }
     }
@@ -153,5 +170,6 @@ export class InspectorGUIEditor extends InspectorUI {
     this.insp.snapshot();
     this.pose[0] = S.camX; this.pose[1] = S.camY; this.pose[2] = S.camZ; this.pose[3] = S.camYaw; this.pose[4] = S.camPitch;
     definirPoseDeMundo(scene, o, this.pose);
+    scene.markCollidersDirty();
   }
 }

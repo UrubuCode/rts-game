@@ -187,6 +187,13 @@ test('@menuItem errors: not static, required argument, unknown root, duplicate p
     assert.throws(() => discoverEditorExtensions(root), error);
   }
 });
+test('@menuItem only counts as a JSDoc tag: prose and // comments are ignored, non-method members fail', t => {
+  const { root, write } = fixture(t);
+  write('assets/pacotes/p/m.ts', 'export class A {\n  /** Veja o exemplo @menuItem Criar/Prosa no README. */\n  static a(): void {}\n  // @menuItem Criar/Linha\n  static b(): void {}\n  /**\n   * Cria.\n   * @menuItem Criar/Tag\n   */\n  static c(): void {}\n}');
+  assert.deepEqual(discoverEditorExtensions(root).menuItems.map(i => i.caminho), ['Criar/Tag']);
+  write('assets/pacotes/p/m.ts', 'export class A { /** @menuItem Criar/X */ x: number = 1; }');
+  assert.throws(() => discoverEditorExtensions(root), /so vale em um metodo static/);
+});
 test('fieldName is generated for visible fields', t => {
   const { root, write } = fixture(t);
   write('assets/scripts/F.ts', importBase + 'export class F extends Behavior { velocidade: number = 1; nome: string = ""; }');

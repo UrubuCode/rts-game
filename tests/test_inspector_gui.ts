@@ -15,11 +15,22 @@ import { Spinner } from "@scripts/spinner";
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 class TestApp {
   _win: number = 0; focus: number = -1; clickId: number = -1; textoId: number = -1; texto: string = "";
+  // Digitação como a do app real: textField SEM estado devolve o valor recebido
+  // mais a tecla do frame (e Backspace tira o último caractere).
+  digitado: string = ""; apagar: boolean = false; checkRotulo: string = "";
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string { return id === this.textoId ? this.texto : value; }
+  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string {
+    if (id === this.textoId) return this.texto;
+    let out = value;
+    if (enabled && id === this.focus) {
+      out = out + this.digitado;
+      if (this.apagar) out = out.slice(0, out.length - 1);
+    }
+    return out;
+  }
   clickable(id: number, x: number, y: number, width: number, height: number): number { return id === this.clickId ? 3 : 0; }
-  checkbox(x: number, y: number, value: number, label: string): number { return value; }
+  checkbox(x: number, y: number, value: number, label: string): number { return label === this.checkRotulo ? 1 - value : value; }
   box(x: number, y: number, width: number, height: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
 }
@@ -53,6 +64,26 @@ app.textoId = cor.id; app.texto = "#FF8000"; render(); app.textoId = -1; render(
 check(luz.cor === 0xFF8000, "campo de cor em #RRGGBB");
 app.textoId = cor.id; app.texto = "#zz"; render(); app.textoId = -1; render();
 check(luz.cor === 0xFF8000, "cor inválida é ignorada");
+// digitação real, UMA tecla por frame: o rascunho incompleto sobrevive entre frames
+const antesCor = history.undoDepth();
+function tecla(t: string): void { if (t === "<") app.apagar = true; else app.digitado = t; render(); app.apagar = false; app.digitado = ""; }
+app.focus = cor.id;
+tecla("<");
+check(luz.cor === 0xFF8000 && cor.textValue === "#FF800", "Backspace deixa o rascunho no campo: " + cor.textValue);
+render();
+check(cor.textValue === "#FF800", "o rascunho sobrevive ao frame seguinte: " + cor.textValue);
+let nTecla = 0;
+while (nTecla < 5) { tecla("<"); nTecla = nTecla + 1; }
+check(cor.textValue === "#", "apagou até o #: " + cor.textValue);
+const teclas = "00ff0";
+nTecla = 0;
+while (nTecla < teclas.length) { tecla(teclas.slice(nTecla, nTecla + 1)); nTecla = nTecla + 1; }
+check(luz.cor === 0xFF8000 && cor.textValue === "#00ff0", "incompleto ainda não aplica: " + cor.textValue);
+tecla("0");
+check(luz.cor === 0x00FF00, "a última tecla forma a cor e aplica");
+app.focus = 0 - 1; render();
+check(cor.textValue === "#00FF00", "sem foco, o campo volta a mostrar a cor: " + cor.textValue);
+check(history.undoDepth() === antesCor + 1, "a digitação vira 1 passo de Desfazer");
 // componente sem GUI continua com os campos automáticos
 const s = scene.createGameObject("Gira"); s.addBehavior(new Spinner());
 S.selected = 1; S.selection = [1]; render();
@@ -67,6 +98,9 @@ inspector.render(app, 0, 0, 290, PANEL_H, r.px + 1, r.py + 1, 1, 1, false, 0, 0)
 inspector.render(app, 0, 0, 290, PANEL_H, r.px + r.sx + 50, r.py + 1, 1, 0, false, 0, 0);
 inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0);
 check(Math.abs(cam.fov * 180.0 / Math.PI - 150.0) < 1e-6, "arrastar o slider até o fim = 150°: " + cam.fov * 180.0 / Math.PI);
+const antesMain = history.undoDepth();
+app.checkRotulo = "Principal"; render(); app.checkRotulo = ""; render();
+check(cam.isMain === 0 && history.undoDepth() === antesMain + 1, "toggle Principal desliga com 1 Desfazer");
 S.camX = 3.0; S.camY = 4.0; S.camZ = 5.0; S.camYaw = 0.5; S.camPitch = 0 - 0.2;
 const antes = history.undoDepth();
 click(porRotulo("Alinhar com a vista"));
@@ -82,4 +116,4 @@ S.selected = scene.objects.indexOf(cf); S.selection = [S.selected]; render();
 click(porRotulo("Alinhar com a vista"));
 scene.computeWorld();
 check(Math.abs(cf.transform.wx - 3.0) < 1e-9 && Math.abs(cf.transform.wz - 5.0) < 1e-9 && Math.abs(cf.transform.wry - 0.5) < 1e-9, "filha: pose de mundo = vista");
-io.print("[PASSOU] inspector gui: substitui a lista, dropdown, cor, slider, sem GUI, alinhar raiz e filha");
+io.print("[PASSOU] inspector gui: substitui a lista, dropdown, cor (digitada tecla a tecla), slider, toggle, sem GUI, alinhar raiz e filha");

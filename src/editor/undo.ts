@@ -79,6 +79,13 @@ export class History {
     return 1;
   }
 
+  /// Descarta o último snapshot quando a operação acabou sem mudar nada;
+  /// `redoAntes` é a pilha de redo de antes do snapshot (que a limpou).
+  discard(redoAntes: string[]): void {
+    if (this.u.length > 0) this.u.pop();
+    this.r = redoAntes;
+  }
+
   undoDepth(): number { return this.u.length; }
   redoDepth(): number { return this.r.length; }
 }

@@ -7,6 +7,7 @@ import { cmdMenu } from "@editor/control/commands/menu";
 import { corHex, lerCorHex } from "@engine/core/cor";
 import { definirPoseDeMundo } from "@engine/core/pose";
 import { Scene } from "@engine/core/scene";
+import { history } from "@editor/undo";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 const caminhos: string[] = ["Criar/Luz/Pontual", "Janela/Ambiente", "Criar/Câmera"];
@@ -29,4 +30,8 @@ check(Math.abs(t.wx - 3.0) < 1e-9 && Math.abs(t.wy - 4.0) < 1e-9 && Math.abs(t.w
 check(Math.abs(t.wry - 0.5) < 1e-9 && Math.abs(t.wrx + 0.2) < 1e-9, "filha: ângulos de mundo pedidos");
 check(cmdMenu(["menu", "Criar/Inexistente"]).indexOf("[erro]") === 0, "caminho inexistente = erro");
 check(cmdMenu(["menu"]).indexOf("[menu]") === 0, "lista");
-io.print("[PASSOU] menu: montagem, cor, pose de mundo, comando menu");
+// item de Criar/ que não cria nada: o snapshot é descartado e o Refazer volta
+history.u = []; history.r = ["estado"];
+const redoAntes = history.r; history.snapshot(); history.discard(redoAntes);
+check(history.undoDepth() === 0 && history.redoDepth() === 1, "discard tira o snapshot vazio e devolve o Refazer");
+io.print("[PASSOU] menu: montagem, cor, pose de mundo, comando menu, snapshot descartado");

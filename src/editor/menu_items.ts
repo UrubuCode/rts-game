@@ -30,16 +30,19 @@ export function montarMenu(prefixo: string, fixos: string[], caminhos: string[])
 }
 export function menuDoCatalogo(prefixo: string, fixos: string[]): MenuDinamico { return montarMenu(prefixo, fixos, MENU_ITEMS); }
 export function indiceDoCaminho(caminho: string): number { return MENU_ITEMS.indexOf(caminho); }
-/// Roda o item; itens de "Criar/" entram no Desfazer, aninham o primeiro objeto
+/// Roda o item; itens de "Criar/" que criam algo entram no Desfazer, aninham o primeiro objeto
 /// criado em `pai` (>= 0) e selecionam o último criado. Devolve "" ou o erro.
 export function executarItemDeMenu(indice: number, pai: number): string {
   let erro = "";
   if (indice < 0 || indice >= MENU_ITEMS.length) erro = "item de menu inexistente";
   else {
     const cria = MENU_ITEMS[indice].indexOf(MENU_CRIAR) === 0;
+    const redoAntes = history.r;
     if (cria) history.snapshot();
     const antes = scene.objects.length;
     try { runMenuItem(indice); } catch (e) { erro = String(e); logError("Menu " + MENU_ITEMS[indice] + ": " + erro); }
+    // nada criado (no-op ou erro): o snapshot não vira um passo vazio de Desfazer
+    if (cria && scene.objects.length <= antes) history.discard(redoAntes);
     if (cria && scene.objects.length > antes) {
       if (pai >= 0 && pai < antes) scene.moveSubtree(antes, scene.objects.length, pai);
       S.selected = scene.objects.length - 1; S.selection = [S.selected];

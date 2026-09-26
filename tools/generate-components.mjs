@@ -219,14 +219,18 @@ const fromGenerated = source => {
   const r = slash(path.posix.relative('src/engine/generated', source)).replace(/\.ts$/, '');
   return r.startsWith('.') ? r : './' + r;
 };
-/// Valor de `@menuItem` nos comentarios antes do membro, ou null. Lido do texto
-/// porque a API de JSDoc do TS ignora o comentario na mesma linha do codigo anterior.
+/// Valor de `@menuItem` no bloco JSDoc (`/** ... */`) logo antes do membro, ou null.
+/// Lido do texto porque a API de JSDoc do TS ignora o bloco na mesma linha do
+/// codigo anterior. So vale como TAG: no inicio de uma linha do bloco (depois do
+/// `*`) ou logo apos o `/**`; mencao no meio de uma frase e comentario `//` nao contam.
 function menuTag(member) {
   const text = member.getSourceFile().text;
-  // "trailing" = os comentarios ainda na linha anterior ao membro; "leading" = os das linhas seguintes.
-  const achados = [...(ts.getTrailingCommentRanges(text, member.pos) ?? []), ...(ts.getLeadingCommentRanges(text, member.pos) ?? [])]
-    .map(r => /@menuItem\b[ \t]*([^\r\n*]*)/.exec(text.slice(r.pos, r.end))).filter(Boolean);
-  return achados.length > 0 ? achados[achados.length - 1][1].trim() : null;
+  // "trailing" = comentarios ainda na linha anterior ao membro; "leading" = os das linhas seguintes.
+  const blocos = [...(ts.getTrailingCommentRanges(text, member.pos) ?? []), ...(ts.getLeadingCommentRanges(text, member.pos) ?? [])]
+    .map(r => text.slice(r.pos, r.end)).filter(c => c.startsWith('/**'));
+  if (blocos.length === 0) return null;
+  const tag = /(?:^\/\*\*|\n)[ \t]*\*?[ \t]*@menuItem\b[ \t]*([^\r\n*]*)/.exec(blocos[blocos.length - 1]);
+  return tag ? tag[1].trim() : null;
 }
 /// Arquivos `@editorOnly` (componentes ou não): só o editor os importa.
 export function discoverEditorExtensions(root = projectRoot, project = createProject(root)) {
@@ -239,8 +243,9 @@ export function discoverEditorExtensions(root = projectRoot, project = createPro
     for (const node of source.statements) {
       if (!ts.isClassDeclaration(node) || !node.name || !hasModifier(node, ts.SyntaxKind.ExportKeyword)) continue;
       for (const member of node.members) {
-        const caminho = ts.isMethodDeclaration(member) ? menuTag(member) : null;
+        const caminho = menuTag(member);
         if (caminho === null) continue;
+        if (!ts.isMethodDeclaration(member)) fail(member, '@menuItem so vale em um metodo static.');
         if (!hasModifier(member, ts.SyntaxKind.StaticKeyword)) fail(member, '@menuItem precisa de um metodo static.');
         if (!member.parameters.every(p => p.initializer || p.questionToken)) fail(member, '@menuItem precisa de um metodo static sem argumentos obrigatorios.');
         const partes = caminho.split('/');
