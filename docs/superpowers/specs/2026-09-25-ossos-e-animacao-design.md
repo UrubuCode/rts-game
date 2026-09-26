@@ -64,6 +64,22 @@ cliente): `idle` parado, `walk`/`sprint` pela velocidade, braço direito em
 `holding-right` (e `holding-right-shoot` ao atirar), `die` ao morrer. A arma
 vai no osso `arm-right`.
 
+### Editor (níveis 1 e 2, aprovados em 2026-09-25)
+1. **Ver e testar.** Objeto com `Skeleton` selecionado: o Inspector mostra a
+   árvore de ossos, a lista de clipes do `AnimationPlayer`, tocar/pausar e uma
+   barra de tempo arrastável; a viewport mostra a pose (no Play e fora dele —
+   fora do Play o preview não altera a cena salva).
+2. **Posicionar ossos.** Selecionar um osso (na árvore ou clicando na peça na
+   viewport) e girá-lo/movê-lo com o gizmo existente; a pose manual é salva na
+   cena (`Skeleton.poseOverride`, só dos ossos alterados) e entra no
+   Desfazer/Refazer como as outras edições. Um clipe tocando sobrepõe a pose
+   manual; "Resetar pose" volta ao repouso.
+   Medidas, rótulos e cores dos controles novos em `src/editor/ui_config.ts`;
+   controles como GameObjects da `UIScene` (CLAUDE.md).
+
+Nível 3 (linha do tempo e gravação de keyframes em `.anim.json`) fica para
+outro desenho.
+
 ## 4. Custo alvo
 
 Por personagem por frame: amostrar ~6 canais + compor 6 ossos + 6 desenhos.
@@ -88,6 +104,8 @@ escala (10× frames → mesmas coletas).
 1. rts: quaternion no `drawMesh` (+ testes do scene3d) — PR.
 2. rts-game: `quat`, `gltf_anim`, `Skeleton`, `AnimationPlayer`, testes.
 3. rts-fps: personagens animados; arma presa no osso.
+4. Editor nível 1 (árvore de ossos, clipes, tocar/pausar/arrastar tempo).
+5. Editor nível 2 (selecionar osso e posicionar com o gizmo; pose salva; desfazer).
 
 ## 7. Fora deste desenho
 
