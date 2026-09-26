@@ -26,9 +26,10 @@ const ONLY = arg('only', '');
 const OUT = arg('out', path.join('bench', 'out', `frame-bench-${LABEL}.json`));
 
 const CENARIOS = [
-  { tag: 'ed-padrao', file: 'main.ts', env: { RTS_SCENE: 'scenes/shadowdemo.json' } },
+  // Sem seleção = -1: a sessão abre com o objeto 0 selecionado (S.selected = 0).
+  { tag: 'ed-padrao', file: 'main.ts', env: { RTS_SCENE: 'scenes/shadowdemo.json', RTS_BENCH_SELECT: '-1' } },
   { tag: 'ed-padrao-sel', file: 'main.ts', env: { RTS_SCENE: 'scenes/shadowdemo.json', RTS_BENCH_SELECT: '1' } },
-  { tag: 'ed-vitrine', file: 'main.ts', env: { RTS_SCENE: 'scenes/vitrine.json' } },
+  { tag: 'ed-vitrine', file: 'main.ts', env: { RTS_SCENE: 'scenes/vitrine.json', RTS_BENCH_SELECT: '-1' } },
   { tag: 'ed-vitrine-sel', file: 'main.ts', env: { RTS_SCENE: 'scenes/vitrine.json', RTS_BENCH_SELECT: '0' } },
   { tag: 'jogo-vitrine', file: 'game.ts', env: {} },
 ].filter(c => ONLY === '' || ONLY.split(',').includes(c.tag));
