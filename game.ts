@@ -45,7 +45,7 @@ import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
 let H = 720;
-const app = createAppAt(process.env("RTS_TITULO") !== "" ? process.env("RTS_TITULO") : "RTS Game", W, H, 100, 60);
+const app = createAppAt(process.env("RTS_TITULO") !== "" ? process.env("RTS_TITULO") : "RTS Game", W, H, process.env("RTS_JANELA_X") !== "" ? parseInt(process.env("RTS_JANELA_X")) : 100, process.env("RTS_JANELA_Y") !== "" ? parseInt(process.env("RTS_JANELA_Y")) : 60);
 const WIN = app._win;
 
 const FOV: f64 = 1.05;

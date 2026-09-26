@@ -76,6 +76,12 @@ let dragY0: f64 = 0.0;
 // entradas do diretório atual (arrays paralelos — nada de objetos aninhados)
 let names: string[] = [];
 let types: number[] = [];
+// Por entrada, feitos uma vez no `rescan` (Task 10.5: nada de concatenar/cortar por
+// tile por quadro): caminho completo, nome cortado do tile e do fantasma, payload do arrasto.
+let fulls: string[] = [];
+let curtos: string[] = [];
+let curtosFantasma: string[] = [];
+let payloads: string[] = [];
 let count = 0;
 
 // ── classificação por extensão ───────────────────────────────────────────────
@@ -129,6 +135,7 @@ function rescan(): void {
   lastClickIdx = 0 - 1;
   names = [];
   types = [];
+  fulls = []; curtos = []; curtosFantasma = []; payloads = [];
   count = 0;
   selIdx = 0 - 1;
   deleteArmed = 0;
@@ -147,6 +154,23 @@ function rescan(): void {
   while (i < list.length) {
     const nm = list[i];
     if (!fs.is_dir(curDir + "/" + nm)) { names.push(nm); types.push(classify(nm, 0)); count = count + 1; }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < count) {
+    const nm = names[i]; const t = types[i];
+    const full = curDir + "/" + nm;
+    fulls.push(full);
+    curtos.push(nm.length > 12 ? subStr(nm, 0, 11) + "…" : nm);
+    curtosFantasma.push(nm.length > 13 ? subStr(nm, 0, 12) + "…" : nm);
+    let pay = "other:";
+    if (t === T_FOLDER) pay = "dir:";
+    else if (t === T_SCENE) pay = "scene:";
+    else if (t === T_PREFAB) pay = "prefab:";
+    else if (t === T_IMAGE) pay = "tex:";
+    else if (t === T_MODEL) pay = "model:";
+    else if (t === T_SCRIPT) pay = "script:";
+    payloads.push(pay + full);
     i = i + 1;
   }
   selIdx = 0 - 1;
@@ -201,15 +225,7 @@ export function assetDragActive(): number {
 /// "prefab:<path>", "scene:<path>", "model:<path>", "dir:<path>"...). "" se nada.
 export function assetDragPayload(): string {
   if (assetDragActive() === 0) return "";
-  const t = types[dragIdx];
-  const full = curDir + "/" + names[dragIdx];
-  if (t === T_FOLDER) return "dir:" + full;
-  if (t === T_SCENE) return "scene:" + full;
-  if (t === T_PREFAB) return "prefab:" + full;
-  if (t === T_IMAGE) return "tex:" + full;
-  if (t === T_MODEL) return "model:" + full;
-  if (t === T_SCRIPT) return "script:" + full;
-  return "other:" + full;
+  return payloads[dragIdx];
 }
 /// Nome do arquivo sendo arrastado (pra desenhar o "fantasma" que segue o mouse).
 export function assetDragName(): string {
@@ -229,9 +245,7 @@ export function drawAssetDragGhost(win: i64, mx: f64, my: f64): void {
   const t = types[dragIdx];
   pincel(UI_C.assetDragGhost, 1, typeColor(t), 4); caixa(mx + 12, my - 10, 128, 26);
   pincel(typeColor(t), 0, 0, 3); caixa(mx + 16, my - 6, 18, 18);
-  let nm = names[dragIdx];
-  if (nm.length > 13) nm = subStr(nm, 0, 12) + "…";
-  texto(mx + 40, my - 5, nm, estiloTexto(TEXT, 12));
+  texto(mx + 40, my - 5, curtosFantasma[dragIdx], estiloTexto(TEXT, 12));
 }
 
 // ── OPERAÇÕES REAIS DE ARQUIVO (gerenciamento de pastas de verdade) ──────────
@@ -261,7 +275,7 @@ function drawIcon(x: number, y: number, s: number, i: number): void {
   const t = types[i];
   if (t === T_IMAGE || t === T_MODEL || t === T_PREFAB || t === T_SCENE) {
     thumbAt(x, y, s);
-    if (drawThumb(curDir + "/" + names[i], t) !== 0) {
+    if (drawThumb(fulls[i], t) !== 0) {
       pincel(0, 1, BORDER, 3); caixa(x, y, s, s);   // moldura por cima do preview
       const tg = typeTag(t);
       if (tg.length > 0) texto(x + 3, y + s - 13, tg, estiloTexto(UI_C.buildText, 10));
@@ -464,9 +478,7 @@ export function drawAssets(win: i64): string {
       pincel(bg, 1, BORDER, 4); caixa(tx, ty, tileW, tileH);
       drawIcon(tx + (tileW - iconS) / 2, ty + 6, iconS, i);
       // nome (corta se longo)
-      let nm = names[i];
-      if (nm.length > 12) nm = subStr(nm, 0, 11) + "…";
-      texto(tx + 5, ty + tileH - 15, nm, estiloTexto(TEXT, 11));
+      texto(tx + 5, ty + tileH - 15, curtos[i], estiloTexto(TEXT, 11));
 
       // realce do tile que está sendo arrastado
       if (i === dragIdx && dragArmed !== 0) { pincel(UI_C.assetSelectionGhost, 0, 0, 4); caixa(tx, ty, tileW, tileH); }
@@ -484,7 +496,7 @@ export function drawAssets(win: i64): string {
         dragIdx = i; dragArmed = 0; dragX0 = mx; dragY0 = my;
         if (dbl !== 0) {
           const t = types[i];
-          const full = curDir + "/" + names[i];
+          const full = fulls[i];
           if (t === T_FOLDER) { navigateTo(full); return ""; }
           else if (t === T_SCENE) action = "scene:" + full;
           else if (t === T_PREFAB) action = "prefab:" + full;

@@ -50,7 +50,8 @@ function runOnce(c, k) {
     const logDir = path.join(root, 'bench', 'out', 'logs');
     fs.mkdirSync(logDir, { recursive: true });
     const log = path.join(logDir, `${LABEL}-${c.tag}-${k}.log`);
-    const env = { ...process.env, ...c.env, RTS_VSYNC: '0', RTS_GC_DEBUG: '1',
+    // Janela no 2º monitor por padrão (RTS_JANELA_X/Y sobrescrevem): o usuário usa o principal.
+    const env = { RTS_JANELA_X: '1930', RTS_JANELA_Y: '312', ...process.env, ...c.env, RTS_VSYNC: '0', RTS_GC_DEBUG: '1',
       RTS_BENCH: String(FRAMES), RTS_BENCH_WARMUP: String(WARMUP), RTS_BENCH_TAG: c.tag };
     const cpu = spawn('typeperf', [CPU_COUNTER, '-si', '1'], { stdio: ['ignore', 'pipe', 'ignore'] });
     let cpuTxt = '';

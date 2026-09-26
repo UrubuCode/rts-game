@@ -1,11 +1,13 @@
 import fs from "@compat/fs";
 import { decodePNG } from "@engine/render/png";
-import { imagemEm, imagem } from "@compat/draw2d.ts";
+import { imagemEm, imagem, imagemId, registrarImagem } from "@compat/draw2d.ts";
 import { logWarn } from "@engine/core/logger";
 import { UI_ICONS } from "./ui_config";
 
 export class IconImage {
   width: number; height: number; pixels: Uint8Array;
+  /// Textura retida na janela (0 = ainda não registrada): o ícone sobe uma vez.
+  texId: number = 0;
   constructor(w: number, h: number, pixels: Uint8Array) { this.width = w; this.height = h; this.pixels = pixels; }
 }
 // O leitor de PNG agora é do motor (`@engine/render/png`), compartilhado com
@@ -30,6 +32,8 @@ export function iconAt(x: number, y: number, size: number): void { icX = x; icY 
 let icX = 0.0; let icY = 0.0; let icS = 0.0;
 export function drawEditorIcon(name: string): boolean {
   const icon = editorIcon(name); if (icon === null) return false;
+  if (icon.texId === 0) icon.texId = registrarImagem(icon.pixels, icon.width, icon.height);
   imagemEm(icX, icY, icS, icS);
-  imagem(icon.pixels, icon.width, icon.height); return true;
+  if (icon.texId === 0) imagem(icon.pixels, icon.width, icon.height); else imagemId(icon.texId);
+  return true;
 }

@@ -28,7 +28,7 @@
 //
 // A janela é a do `createAppAt` (`janela2D` é chamado lá): o editor e o jogo
 // desenham numa janela só. Cores são `0xRRGGBBAA`, como no `drawRect`.
-import { drawRect, drawText, drawLine, drawImage } from "rts:egui";
+import { drawRect, drawText, drawLine, drawImage, imageRegister, drawImageId, imageRelease } from "rts:egui";
 import { dcRect, dcText, dcLine } from "./drawcount.ts";
 
 let win2d = 0;
@@ -88,7 +88,27 @@ const oImg = { x: 0.0, y: 0.0, w: 0.0, h: 0.0, pixels: SEM_PIXELS, imgWidth: 0, 
 export function imagemEm(x: number, y: number, w: number, h: number): void {
   oImg.x = x; oImg.y = y; oImg.w = w; oImg.h = h;
 }
-/// Pixels RGBA8 (`iw` × `ih`) no retângulo do último `imagemEm`.
+// Imagem RETIDA (Task 10.5): `drawImage` sobe textura nova a cada chamada, então
+// um ícone ou miniatura que não muda pagava um upload por quadro. Registre uma
+// vez e desenhe pelo id; solte com `soltarImagem` quando os pixels mudarem.
+const oImgReg = { pixels: SEM_PIXELS, imgWidth: 0, imgHeight: 0 };
+const bufImgId = new Float64Array(5);
+/// Sobe os pixels RGBA8 (`iw` × `ih`) uma vez; devolve o id (0 = falhou).
+export function registrarImagem(pixels: Uint8Array, iw: number, ih: number): number {
+  oImgReg.pixels = pixels; oImgReg.imgWidth = iw; oImgReg.imgHeight = ih;
+  const id = imageRegister(win2d, oImgReg);
+  oImgReg.pixels = SEM_PIXELS;
+  return id;
+}
+/// Desenha a imagem registrada `id` no retângulo do último `imagemEm`.
+export function imagemId(id: number): void {
+  bufImgId[0] = id; bufImgId[1] = oImg.x; bufImgId[2] = oImg.y; bufImgId[3] = oImg.w; bufImgId[4] = oImg.h;
+  drawImageId(win2d, bufImgId);
+}
+/// Solta a imagem registrada `id`.
+export function soltarImagem(id: number): void { imageRelease(win2d, id); }
+/// Pixels RGBA8 (`iw` × `ih`) no retângulo do último `imagemEm`, com upload nesta
+/// chamada (para pixels que mudam a cada quadro; o resto usa `registrarImagem`).
 export function imagem(pixels: Uint8Array, iw: number, ih: number): void {
   oImg.pixels = pixels; oImg.imgWidth = iw; oImg.imgHeight = ih;
   drawImage(win2d, oImg);

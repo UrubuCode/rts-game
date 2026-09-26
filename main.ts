@@ -139,7 +139,7 @@ let previaTitulo = ""; let previaTituloDe = "";
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
 let H = 720;
-const app = createAppAt(process.env("RTS_TITULO") !== "" ? process.env("RTS_TITULO") : "Engine RTS — editor", W, H, 120, 90);
+const app = createAppAt(process.env("RTS_TITULO") !== "" ? process.env("RTS_TITULO") : "Engine RTS — editor", W, H, process.env("RTS_JANELA_X") !== "" ? parseInt(process.env("RTS_JANELA_X")) : 120, process.env("RTS_JANELA_Y") !== "" ? parseInt(process.env("RTS_JANELA_Y")) : 90);
 const WIN = app._win;
 
 // layout do editor
