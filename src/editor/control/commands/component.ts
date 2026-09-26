@@ -2,9 +2,8 @@
 // remove componentes e edita os campos de config, igual ao inspector faz.
 import { scene } from "../session";
 import { COMPONENT_NAMES, createComponent } from "@editor/components";
-import { argInt, argObj, erroObj, numeroEstrito } from "@editor/control/args";
-import { tipoCampo, textoCampo, definirCampo, validarCampo, TIPO_STRING, TIPO_NUMBER, TIPO_ENUM, TIPO_VECTOR } from "@editor/control/fields";
-import { graus } from "@editor/control/commands/describe";
+import { argInt, argObj, erroObj, numeroEstrito, graus } from "@editor/control/args";
+import { tipoCampo, textoCampo, definirCampo, TIPO_STRING, TIPO_NUMBER, TIPO_ENUM, TIPO_VECTOR } from "@editor/control/fields";
 import { DEG2RAD } from "@editor/bone_gizmo";
 import { history } from "@editor/undo";
 import type { Behavior } from "@engine/core/behavior";
@@ -186,8 +185,8 @@ const TOLERANCIA_AJUSTE: f64 = 1e-9;
 
 /// setfield <obj> <comp|Nome> <campo|nome> <valor> — edita um campo como o
 /// Inspector (fieldSet/fieldStringSet, que rodam onValidate e os limites). O
-/// valor é o resto da linha. O snapshot de Desfazer é tirado aqui, depois de
-/// validar tudo e antes de gravar.
+/// valor é o resto da linha. O snapshot de Desfazer é tirado aqui, antes de
+/// gravar (um valor inválido o descarta pelo [erro]).
 export function cmdSetField(parts: string[]): string {
   if (parts.length < 5) return erroUso("setfield");
   const oi = argObj(parts, 1);
@@ -199,10 +198,11 @@ export function cmdSetField(parts: string[]): string {
   const b = scene.objects[oi].behaviors[ci];
   const fi = acharCampo(b, parts[3]);
   if (fi < 0) return "[erro] " + motivo[0];
-  const problema = validarCampo(b, fi, texto);
-  if (problema.length > 0) return "[erro] " + problema;
+  // Snapshot antes de gravar; se o valor não servir, definirCampo não grava e
+  // o [erro] faz o despacho descartar o snapshot (execProtegido).
   history.snapshot();
-  definirCampo(b, fi, texto);
+  const problema = definirCampo(b, fi, texto);
+  if (problema.length > 0) return "[erro] " + problema;
   if (b.fieldType(fi) !== TIPO_STRING) scene.markCollidersDirty();
   return "[ok] setfield #" + oi + "[" + ci + "] " + b.typeName() + "." + b.fieldName(fi) + " = " + textoCampo(b, fi) +
     (foiAjustado(b, fi, texto) ? " (pedido " + texto + ", ajustado pelo componente)" : "");

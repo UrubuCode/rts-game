@@ -17,9 +17,8 @@ import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
 import { commandIndex, commandMutates, runCommand } from "../api";
-import { comandoEmbutido, MUTA_SIM } from "@editor/control/builtin_commands";
+import { comandoEmbutido, registraNoLog, MUTA_SIM } from "@editor/control/builtin_commands";
 import { resolverArgsObjeto } from "@editor/control/object_ref";
-import { sceneToJSON, sceneFromJSON } from "@editor/sceneio";
 import { scene, S } from "./session";
 import { history } from "../undo";
 import { cmdStop } from "./commands/scene";
@@ -36,9 +35,6 @@ function isMutating(c: string): boolean {
   return info !== null && info.muta === MUTA_SIM;
 }
 
-/// Consultas: não vão para o log (encheriam o histórico com as próprias
-/// perguntas — inclusive a consulta ao log).
-const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc", "describe", "scene", "find", "getfield"];
 const ERRO_PREFIXO: string = "[erro]";
 
 /// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`,
@@ -48,7 +44,7 @@ const ERRO_PREFIXO: string = "[erro]";
 export function execCommand(w: number, h: number, line: string): string {
   const out = execProtegido(w, h, line);
   const c = line.split(" ")[0];
-  if (NAO_REGISTRAR.indexOf(c) < 0) {
+  if (registraNoLog(c)) {
     // erro do comando vira nível de erro: é o que se procura ao investigar
     if (out.indexOf(ERRO_PREFIXO) === 0) logError(line + "  ->  " + out);
     else logInfo(line + "  ->  " + out);
@@ -69,6 +65,8 @@ export function execCommand(w: number, h: number, line: string): string {
 function execProtegido(w: number, h: number, line: string): string {
   const undoAntes = history.u.slice();
   const redoAntes = history.r;
+  const versaoAntes = history.versao;
+  history.abrirComando();
   let out = "";
   let lancou = false;
   try { out = execCommandInner(w, h, line); }
@@ -76,11 +74,9 @@ function execProtegido(w: number, h: number, line: string): string {
     lancou = true;
     out = ERRO_PREFIXO + " " + line.split(" ")[0] + ": " + (error instanceof Error ? error.message : String(error));
   }
-  if (out.indexOf(ERRO_PREFIXO) === 0 && history.u.length !== undoAntes.length) {
-    const antes = history.u[history.u.length - 1];
-    if (lancou && antes !== sceneToJSON()) sceneFromJSON(antes);
-    history.u = undoAntes; history.r = redoAntes; history.versao = history.versao + 1;
-  }
+  // `versao` sobe a cada snapshot (o tamanho da pilha não: no teto ela empurra e descarta)
+  if (out.indexOf(ERRO_PREFIXO) === 0 && history.versao !== versaoAntes) history.desfazerComando(undoAntes, redoAntes, lancou);
+  history.abrirComando();   // não segura a cena serializada até o próximo comando
   return out;
 }
 

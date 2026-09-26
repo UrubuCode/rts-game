@@ -14,9 +14,14 @@ uma mensagem só (pode ter várias linhas).
 
 Saída:
     padrão   "[comando] -> resposta", com a saudação do editor antes.
-    --json   só as respostas, cruas, uma por comando; quando a resposta é
-             "[etiqueta] {...}" ou "[etiqueta] [...]" (describe json, scene json,
-             doc json, ambienteinfo), só o JSON — dá para passar a um parser.
+    --json   um objeto JSON por linha e por comando, sempre com a mesma forma:
+             {"cmd", "ok", "tag", "text", "data"}. "text" é a resposta crua;
+             "data" é o JSON quando a resposta é "[etiqueta] {...}"/"[...]"
+             (describe json, scene json, doc json, ambienteinfo), senão null;
+             "ok" é false para [erro] e para resposta que não chegou.
+
+Um argumento com várias linhas vira um comando por linha (o editor responde
+uma mensagem por linha, e todas são lidas).
 
 Código de saída: 0 se todas as respostas vieram sem "[erro"; 1 se alguma é
 [erro] ou não chegou; 2 se não conectou.
@@ -68,18 +73,32 @@ def recompor_argumento(arg):
     return arg
 
 
-def so_json(resposta):
-    """"[etiqueta] {..}" -> "{..}"; o resto volta como veio."""
-    fecha = resposta.find("] ")
-    if resposta.startswith("[") and fecha > 0:
-        corpo = resposta[fecha + 2:]
-        if corpo[:1] in ("{", "["):
-            try:
-                json.loads(corpo)
-                return corpo
-            except ValueError:
-                pass
-    return resposta
+def como_json(comando, resposta):
+    """O objeto do modo --json (mesma forma para toda resposta)."""
+    tag = None
+    dados = None
+    if resposta is not None and resposta.startswith("["):
+        fecha = resposta.find("]")
+        if fecha > 0:
+            tag = resposta[:fecha + 1]
+            corpo = resposta[fecha + 1:].lstrip(" ")
+            if corpo[:1] in ("{", "["):
+                try:
+                    dados = json.loads(corpo)
+                except ValueError:
+                    dados = None
+    ok = resposta is not None and not resposta.startswith(PREFIXO_ERRO)
+    return json.dumps({"cmd": comando, "ok": ok, "tag": tag, "text": resposta, "data": dados}, ensure_ascii=False)
+
+
+def linhas_de(comandos):
+    """Um comando por linha: o editor responde uma mensagem por linha."""
+    out = []
+    for c in comandos:
+        for l in c.replace("\r", "").split("\n"):
+            if l.strip():
+                out.append(l)
+    return out
 
 
 async def rodar(comandos, porta, modo_json, timeout):
@@ -91,7 +110,11 @@ async def rodar(comandos, porta, modo_json, timeout):
         print("[cliente] nao conectou em ws://127.0.0.1:%d: %s" % (porta, erro), file=sys.stderr)
         return 2
     async with w:
-        saudacao = await asyncio.wait_for(w.recv(), timeout)
+        try:
+            saudacao = await asyncio.wait_for(w.recv(), timeout)
+        except asyncio.TimeoutError:
+            print("[cliente] conectou em ws://127.0.0.1:%d mas o editor nao saudou em %ss" % (porta, timeout), file=sys.stderr)
+            return 2
         if not modo_json:
             print("<-", saudacao)
         for c in comandos:
@@ -101,13 +124,13 @@ async def rodar(comandos, porta, modo_json, timeout):
             except asyncio.TimeoutError:
                 falhou = True
                 if modo_json:
-                    print(json.dumps({"cmd": c, "erro": "sem resposta em %ss" % timeout}, ensure_ascii=False))
+                    print(como_json(c, None))
                 else:
                     print("[" + c + "] -> (sem resposta em %ss)" % timeout)
                 continue
             if resposta.startswith(PREFIXO_ERRO):
                 falhou = True
-            print(so_json(resposta) if modo_json else "[" + c + "] -> " + resposta)
+            print(como_json(c, resposta) if modo_json else "[" + c + "] -> " + resposta)
     return 1 if falhou else 0
 
 
@@ -130,7 +153,7 @@ def main():
         comandos += [l.rstrip("\r") for l in entrada.split("\n") if l.strip()]
     if not comandos:
         p.error("nenhum comando")
-    sys.exit(asyncio.run(rodar(comandos, a.port, a.json, a.timeout)))
+    sys.exit(asyncio.run(rodar(linhas_de(comandos), a.port, a.json, a.timeout)))
 
 
 if __name__ == "__main__":

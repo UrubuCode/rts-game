@@ -8,8 +8,9 @@ import { loadSceneFrom, instantiateSceneUnder, cloneObject } from "@editor/scene
 import { sceneDocument } from "@editor/scene_document";
 import { GameObject } from "@engine/core/gameobject";
 import { playMode } from "@editor/play_mode";
-import { argNum, argInt, argObj, erroObj, argsNumericos } from "@editor/control/args";
+import { argNum, argInt, argObj, erroObj, argsNumericos, numeroEstrito } from "@editor/control/args";
 import { erroUso } from "@editor/control/builtin_commands";
+import { semAspasExternas } from "@editor/control/fields";
 
 /// Cópias máximas de um `dupn`.
 const DUPN_MAX: number = 200;
@@ -200,6 +201,8 @@ export function cmdRename(parts: string[]): string {
   let nm = parts[2];
   let k = 3;
   while (k < parts.length) { nm = nm + " " + parts[k]; k = k + 1; }
+  nm = semAspasExternas(nm);   // "Caixa Vermelha" = Caixa Vermelha, como no setfield
+  if (nm.length === 0) return erroUso("rename");
   scene.objects[i].name = nm;
   return "[ok] rename #" + i + " -> " + nm;
 }
@@ -387,13 +390,14 @@ export function cmdHier(parts: string[]): string {
 /// está vivo: o retorno diz se o dispositivo abriu e quantas vozes estão
 /// soando, o que é inspecionável por teste.
 export function cmdSnd(parts: string[]): string {
+  if (parts.length > 1 && !argsNumericos(parts, 1, parts.length - 1)) return erroUso("snd") + " (numeros)";
   if (audioReady() === 0) return "[snd] sem dispositivo de audio (o jogo roda mudo)";
   let f: f64 = 440.0;
   let d: f64 = 0.2;
   let v: f64 = 0.3;
-  if (parts.length > 1) f = parseFloat(parts[1]);
-  if (parts.length > 2) d = parseFloat(parts[2]);
-  if (parts.length > 3) v = parseFloat(parts[3]);
+  if (parts.length > 1) f = argNum(parts, 1);
+  if (parts.length > 2) d = argNum(parts, 2);
+  if (parts.length > 3) v = argNum(parts, 3);
   const got = playTone(f, d, v);
   return "[snd] " + (got !== 0 ? "tocando" : "SEM VOZ LIVRE") +
          " freq=" + f + " dur=" + d + " vol=" + v +
@@ -423,7 +427,7 @@ export function cmdLog(parts: string[]): string {
     else if (a === "warn" || a === "aviso") level = LOG_WARN;
     else if (a === "debug") level = LOG_DEBUG;
     else {
-      const num = parseFloat(a);
+      const num = numeroEstrito(a);
       if (num === num && num > 0.0) n = num | 0;   // NaN !== NaN: não é número
       else filter = a;
     }
@@ -453,6 +457,7 @@ export function setInspectFluid(f: Fluid, first: number): void {
 /// Sem argumento: resumo (extensão, velocidade, densidade, quantas paradas).
 /// Com um número: também as N primeiras partículas, uma a uma.
 export function cmdFluid(parts: string[]): string {
+  if (parts.length > 1 && !(argInt(parts, 1) >= 0)) return erroUso("fluid") + " (n inteiro >= 0)";
   const f = inspFluid;
   if (f === null) return "[fluid] nenhum simulador registrado (rode fluid_demo.ts)";
   const n = f.n;
@@ -505,7 +510,7 @@ export function cmdFluid(parts: string[]): string {
           " | paradas=" + paradas + "/" + n +
           " | FORA da caixa=" + fora;
   if (parts.length > 1) {
-    let q = parseFloat(parts[1]) | 0;
+    let q = argInt(parts, 1);
     if (q > n) q = n;
     let i = 0;
     while (i < q) {

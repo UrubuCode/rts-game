@@ -12,6 +12,8 @@ import { execCommand } from "@editor/control/dispatch";
 import { history } from "@editor/undo";
 import { scene, S } from "@editor/control/session";
 import { sceneToJSON } from "@editor/sceneio";
+import { selectBone } from "@editor/bone_gizmo";
+import { skeletonOfObject } from "@editor/skeleton_preview";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 /// A cena serializada SEM os ids: voltar ao snapshot (como o Desfazer) recria
@@ -63,7 +65,7 @@ const ruins: string[] = [
   "loadscene", "loadscene build/nao_existe.json", "loadscene build/claude-cena-invalida.json",
   "makeprefab", "makeprefab build/x.json 99",
   "gameview camera 99", "pickat", "pickat x 1", "groundat 1", "gizmoat",
-  "vsync", "vsync x", "hier x", "thumb",
+  "vsync", "vsync x", "hier x", "thumb", "snap x", "snap 2", "gizmoat 1x 2", "snd 440x", "fluid x", "rename 0 \"\"",
   "teste_lanca", "teste_lanca_muta",
 ];
 let i = 0;
@@ -86,4 +88,39 @@ check(S.selected === 1, "seleção intacta");
 // o editor segue respondendo depois dos erros
 check(execCommand(800, 600, "move 1 7 8 9").indexOf("[ok]") === 0 && scene.objects[1].transform.px === 7.0, "segue funcionando");
 check(history.undoDepth() === undoAntes + 1 && history.redoDepth() === 0, "o comando valido empilha 1 Desfazer");
+
+// ── Desfazer CHEIO (no teto, o snapshot empurra e descarta: o tamanho não muda) ──
+function mesmaPilha(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  let k = 0; while (k < a.length) { if (a[k] !== b[k]) return false; k = k + 1; } return true;
+}
+check(registerCommand("teste_erro_muta", "teste_erro_muta :: muta e recusa", true, (p: string[]) => "[erro] recusado"), "registra");
+let n = 0; while (n < 45) { history.snapshot(); n = n + 1; }
+check(history.undoDepth() === 40, "setup: Desfazer no teto (" + history.undoDepth() + ")");
+history.r = [sceneToJSON()];
+const cheioU = history.u.slice(); const cheioR = history.r.slice(); const cheioCena = cena();
+const noTeto: string[] = ["move 999 0 0 0", "teste_erro_muta", "teste_lanca_muta", "loadscene build/nao_existe.json", "setfield 0 0 0 1"];
+n = 0;
+while (n < noTeto.length) {
+  const out = execCommand(800, 600, noTeto[n]);
+  check(out.indexOf("[erro]") === 0, noTeto[n] + " no teto: " + out);
+  check(mesmaPilha(history.u, cheioU) && mesmaPilha(history.r, cheioR), noTeto[n] + ": Desfazer/Refazer identicos no teto");
+  check(cena() === cheioCena, noTeto[n] + ": cena identica no teto");
+  n = n + 1;
+}
+
+// ── exceção depois de mudar a cena, com um osso escolhido ─────────────────────
+scene.clear(); history.u = []; history.r = [];
+check(execCommand(800, 600, "spawn heroi 0 0 0").indexOf("[ok]") === 0, "spawn heroi");
+check(execCommand(800, 600, "addskel 0 assets/models/kenney/character-a.glb").indexOf("[ok]") === 0, "addskel");
+const sk = skeletonOfObject(scene.objects[0]);
+check(sk !== null, "Skeleton");
+const osso = sk!.boneIndex("arm-right");
+S.selected = 0;
+selectBone(scene.objects[0], osso);
+check(S.selectedBone === osso && S.selectedBoneOwner === scene.objects[0], "setup: osso escolhido");
+const antigo = scene.objects[0];
+check(execCommand(800, 600, "teste_lanca_muta").indexOf("[erro]") === 0, "lanca depois de mudar");
+check(scene.objects[0].name === "heroi" && scene.objects[0] !== antigo, "a cena voltou ao snapshot (objetos recriados)");
+check(S.selectedBone === osso && S.selectedBoneOwner === scene.objects[0], "o osso escolhido segue no objeto restaurado, sem dono pendurado");
 println("[PASSOU] ws robustez: argumentos validados, excecoes viram [erro], cena e Desfazer intactos");

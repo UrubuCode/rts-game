@@ -1,8 +1,7 @@
 // Comandos de CONSULTA (só leem estado): state, res, help.
 import { scene, S } from "../session";
 import { setVsync } from "@engine/render/gpu3d";
-import { argInt } from "@editor/control/args";
-import { graus } from "@editor/control/commands/describe";
+import { argInt, graus } from "@editor/control/args";
 import { erroUso } from "@editor/control/builtin_commands";
 
 /// Estado completo da cena + câmera (para a IA inspecionar).

@@ -47,17 +47,23 @@ export class History {
   /// Sobe a cada snapshot/desfazer/refazer/descarte: o documento usa para saber
   /// que algo pode ter mudado sem serializar a cena (scene_document.ts).
   versao: number;
+  /// Estado guardado pelo PRIMEIRO snapshot desde `abrirComando` ("" = nenhum):
+  /// a cena de antes do comando, para `desfazerComando` voltar a ela.
+  antesDoComando: string;
 
   constructor() {
     this.u = [];
     this.r = [];
     this.versao = 0;
+    this.antesDoComando = "";
   }
 
   /// Guarda o estado ATUAL antes de uma operação mutante; limpa a pilha de redo.
   snapshot(): void {
     this.versao = this.versao + 1;
-    this.u.push(sceneToJSON());
+    const estado = sceneToJSON();
+    if (this.antesDoComando.length === 0) this.antesDoComando = estado;
+    this.u.push(estado);
     this.r = [];
     while (this.u.length > CAP) this.u.shift();
   }
@@ -67,11 +73,30 @@ export class History {
     if (this.u.length === 0) return 0;
     this.versao = this.versao + 1;
     this.r.push(sceneToJSON());
-    const s = this.u.pop();
+    this.aplicar(this.u.pop());
+    return 1;
+  }
+
+  /// Restaura um estado serializado pelo caminho do Desfazer (inclui manter
+  /// ou zerar o osso escolhido).
+  aplicar(s: string): void {
     const bonePath = selectedBoneModel();
     sceneFromJSON(s);
     rebindSelectedBone(bonePath);
-    return 1;
+  }
+
+  /// Marca o início de um comando da porta de controle (ver `desfazerComando`).
+  abrirComando(): void { this.antesDoComando = ""; }
+
+  /// Um comando falhou: devolve as pilhas como estavam antes dele e, se
+  /// `restaurarCena`, volta a cena ao primeiro snapshot que ele tirou (pelo
+  /// caminho do Desfazer, com o osso escolhido). Comparar tamanhos das pilhas
+  /// não serve: no teto (CAP) o snapshot empurra e descarta o mais antigo.
+  desfazerComando(undoAntes: string[], redoAntes: string[], restaurarCena: boolean): void {
+    if (restaurarCena && this.antesDoComando.length > 0 && this.antesDoComando !== sceneToJSON()) this.aplicar(this.antesDoComando);
+    this.u = undoAntes; this.r = redoAntes;
+    this.versao = this.versao + 1;
+    this.antesDoComando = "";
   }
 
   /// Refaz: restaura o último estado desfeito (empurra o atual pro undo). 1=ok, 0=vazio.
@@ -79,10 +104,7 @@ export class History {
     if (this.r.length === 0) return 0;
     this.versao = this.versao + 1;
     this.u.push(sceneToJSON());
-    const s = this.r.pop();
-    const bonePath = selectedBoneModel();
-    sceneFromJSON(s);
-    rebindSelectedBone(bonePath);
+    this.aplicar(this.r.pop());
     return 1;
   }
 

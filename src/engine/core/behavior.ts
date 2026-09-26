@@ -14,7 +14,6 @@ import { componentMetadata } from "./component_metadata";
 export const FIELD_HINT_COLOR: string = "color";
 /// `fieldHint`: o campo string só aceita uma de `fieldOptions`.
 export const FIELD_HINT_ENUM: string = "enum";
-const SEM_OPCOES: string[] = [];
 // só de TIPO: GameObject importa Behavior por valor, então isto teria que
 // ser ciclo se não fosse `import type` (apagado na compilação).
 import type { GameObject } from "./gameobject";
@@ -165,9 +164,10 @@ export class Behavior {
   /// (um number 0xRRGGBB) ou FIELD_HINT_ENUM (um string restrito a
   /// `fieldOptions(i)`). Lida pela porta de controle (setfield/getfield/describe)
   /// para aceitar #RRGGBB e validar a opção; o componente sobrescreve.
-  fieldHint(i: number): string { return ""; }
+  /// A base delega à reflexão (hoje sempre ""); Light e Camera sobrescrevem.
+  fieldHint(i: number): string { return componentMetadata.provider.fieldHint(this, i); }
   /// Opções de um campo FIELD_HINT_ENUM (as mesmas da lista do Inspector).
-  fieldOptions(i: number): string[] { return SEM_OPCOES; }
+  fieldOptions(i: number): string[] { return componentMetadata.provider.fieldOptions(this, i); }
 
   // ── IDENTIDADE do component (modelo uniforme) ───────────────────────────────
   /// O TIPO deste component (uma das consts KIND_*). Systems e o render acham um

@@ -49,3 +49,13 @@ export function erroObj(parts: string[], i: number): string {
   if (tok.length === 0) return "[erro] falta o objeto (indice, nome ou caminho Pai/Filho; veja tree ou find)";
   return "[erro] objeto invalido: '" + tok + "' (a cena tem " + scene.objects.length + " objetos, indices 0.." + (scene.objects.length - 1) + ")";
 }
+
+/// Graus por radiano (a porta de controle fala em graus; o Transform guarda radianos).
+export const GRAUS_POR_RADIANO: f64 = 180.0 / Math.PI;
+/// Casas mantidas ao converter para graus (tira o ruído de 89.99999999).
+const ARREDONDA_GRAUS: f64 = 1e6;
+
+/// Radianos -> graus, arredondado.
+export function graus(rad: f64): f64 {
+  return Math.round(rad * GRAUS_POR_RADIANO * ARREDONDA_GRAUS) / ARREDONDA_GRAUS;
+}

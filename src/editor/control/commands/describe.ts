@@ -6,23 +6,15 @@
 // fieldType) e os dados completos de `componentToData`: nada é listado à mão,
 // então um componente novo aparece aqui sem mudar este arquivo.
 import { scene } from "@editor/control/session";
-import { argObj, erroObj } from "@editor/control/args";
+import { argObj, erroObj, graus } from "@editor/control/args";
 import { erroUso } from "@editor/control/builtin_commands";
 import { caminhoObjeto, filhosObjeto } from "@editor/control/object_ref";
 import { objectToData, sceneToJSON } from "@editor/sceneio";
 import { componentToData } from "@engine/components";
-import { DEG2RAD } from "@editor/bone_gizmo";
 import type { Behavior } from "@engine/core/behavior";
 import { tipoCampo, valorCampoJson, TIPO_ENUM, TIPO_STRING } from "@editor/control/fields";
 
-/// Casas mantidas ao converter para graus (tira o ruído de 89.99999999).
-const ARREDONDA_GRAUS: f64 = 1e6;
 const NL: string = "\n";
-
-/// Radianos -> graus, arredondado.
-export function graus(rad: f64): f64 {
-  return Math.round((rad / DEG2RAD) * ARREDONDA_GRAUS) / ARREDONDA_GRAUS;
-}
 
 /// Um componente: índice, tipo, ativo, dados completos e campos da reflexão
 /// (tipo com as dicas color/enum; cor em #RRGGBB; opções do enum).

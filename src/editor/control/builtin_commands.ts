@@ -100,7 +100,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("gameview", "vista", MUTA_NAO, [
     "gameview [jogo|cena|proporcao livre|16:9|4:3|previa on|off] :: aba Jogo: varias cameras, proporcao com faixas, previa na vista de Cena (estado do editor, sem Desfazer) :: gameview proporcao 16:9",
     "gameview camera todas|<obj> :: camera unica da aba Jogo (objeto com Camera) ou todas :: gameview camera Camera"]),
-  c("getfield", "componentes", MUTA_NAO, ["getfield <obj> <comp|Nome> <campo|nome> :: le um campo com o tipo (number, boolean, string, color, enum com opcoes, vector no Transform) :: getfield Luz Light cor"]),
+  c("getfield", "consulta", MUTA_NAO, ["getfield <obj> <comp|Nome> <campo|nome> :: le um campo com o tipo (number, boolean, string, color, enum com opcoes, vector no Transform) :: getfield Luz Light cor"]),
   c("gizmoat", "arrastar", MUTA_NAO, ["gizmoat <sx> <sy> :: seleciona o dono do icone de gizmo sob o pixel (a mesma area do clique) :: gizmoat 700 400"]),
   c("grid", "objetos", MUTA_SIM, ["grid :: TOGGLE de um chao-grade (plano xadrez) em y=0 :: grid"]),
   c("groundat", "arrastar", MUTA_NAO, ["groundat <sx> <sy> :: ponto do CHAO (Y=0) sob esse pixel (a conversao tela->mundo do drop) :: groundat 700 400"]),
@@ -114,7 +114,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("loadobj", "arquivos", MUTA_SIM, ["loadobj <path> [nome] [x] [y] [z] :: carrega um MODELO (.obj/.glb/.gltf) e cria o(s) objeto(s); multi-material vira raiz + 1 filha por submesh :: loadobj assets/models/torus.obj Torus 0 2 0"]),
   c("loadscene", "cena", MUTA_SIM, ["loadscene <path> :: carrega uma cena JSON (substitui a atual e para o Play) :: loadscene scenes/shadowdemo.json"]),
   c("loadtex", "arquivos", MUTA_SIM, ["loadtex <obj> <path> :: carrega uma imagem (PNG/JPG/BMP) e aplica como textura no Material do objeto :: loadtex 0 assets/textures/images.jpg"]),
-  c("log", "sistema", MUTA_NAO, ["log [n|erro|warn|debug|texto|clear] :: fim do log da engine com resumo de contagens :: log erro"]),
+  c("log", "consulta", MUTA_NAO, ["log [n|erro|warn|debug|texto|clear] :: fim do log da engine com resumo de contagens :: log erro"]),
   c("ls", "arquivos", MUTA_NAO, ["ls [path] :: lista uma pasta (/ marca subpastas) :: ls assets/scenes"]),
   c("makeprefab", "arquivos", MUTA_NAO, ["makeprefab <path> [obj] :: salva o objeto como PREFAB (JSON de 1 objeto) :: makeprefab assets/box.json 1"]),
   c("menu", "objetos", MUTA_PROPRIO, ["menu [caminho] :: sem argumento lista os itens @menuItem; com caminho executa (Criar/ entra no Desfazer) :: menu Criar/Luz/Pontual"]),
@@ -183,6 +183,15 @@ export function comandoEmbutido(nome: string): ComandoInfo | null {
   const i = BUILTIN_COMMANDS.indexOf(nome);
   return i >= 0 ? BUILTIN_MANIFEST[i] : null;
 }
+
+/// Consultas puras (muta NAO no grupo "consulta"): o despacho não as registra
+/// no log — encheriam o histórico com as próprias perguntas, inclusive a
+/// consulta ao log. Comando desconhecido ou de pacote é registrado.
+export function registraNoLog(nome: string): boolean {
+  const info = comandoEmbutido(nome);
+  return info === null || !(info.muta === MUTA_NAO && info.grupo === GRUPO_CONSULTA);
+}
+export const GRUPO_CONSULTA: string = "consulta";
 
 /// "[erro] uso: <assinaturas>" do comando embutido (todas as formas).
 export function erroUso(nome: string): string {

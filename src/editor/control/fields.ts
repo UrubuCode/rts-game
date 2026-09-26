@@ -110,11 +110,6 @@ function interpretar(b: Behavior, fi: number, texto: string): string {
   return "";
 }
 
-/// "" se `texto` serve para o campo `fi`, senão o motivo (nada é gravado).
-export function validarCampo(b: Behavior, fi: number, texto: string): string {
-  return interpretar(b, fi, texto);
-}
-
 /// Grava `texto` no campo `fi` pelo fieldSet/fieldStringSet do componente (o
 /// caminho do Inspector: onValidate e limites). Devolve "" ou o motivo do erro.
 export function definirCampo(b: Behavior, fi: number, texto: string): string {

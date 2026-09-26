@@ -1,9 +1,8 @@
 // Comandos de TRANSFORM/aparência de 1 objeto: move, scl, mesh, color, spin, tool.
 import { scene, S } from "../session";
 import { Spinner } from "@scripts/spinner";
-import { argNum, argInt, argObj, erroObj, argsNumericos } from "@editor/control/args";
+import { argNum, argInt, argObj, erroObj, argsNumericos, graus } from "@editor/control/args";
 import { erroUso } from "@editor/control/builtin_commands";
-import { graus } from "@editor/control/commands/describe";
 import { DEG2RAD } from "@editor/bone_gizmo";
 import { history } from "@editor/undo";
 
@@ -48,7 +47,9 @@ export function cmdReset(parts: string[]): string {
 /// snap [0|1] — liga/desliga (ou consulta) o snap-to-grid do gizmo (move 0.5, rot 15°).
 export function cmdSnap(parts: string[]): string {
   if (parts.length < 2) return "[snap] " + (S.snap !== 0 ? "on" : "off") + " (use: snap 0|1)";
-  S.snap = (parseFloat(parts[1]) | 0) !== 0 ? 1 : 0;
+  const v = argInt(parts, 1);
+  if (v !== 0 && v !== 1) return erroUso("snap");
+  S.snap = v;
   return "[ok] snap = " + (S.snap !== 0 ? "on" : "off");
 }
 

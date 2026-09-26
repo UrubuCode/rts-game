@@ -12,6 +12,8 @@ check(cmdAddSkel(["addskel", "0", "assets/models/kenney/character-a.glb"]).index
 const b = cmdBones(["bones", "0"]); check(b.indexOf("arm-right") > 0 && b.indexOf("(pai") > 0, "bones lista com pais: " + b);
 check(cmdPose(["pose", "0", "torso", "rot", "90", "0", "0"]).indexOf("[ok]") === 0, "pose por nome");
 check(cmdPose(["pose", "0", "99", "rot", "0", "0", "0"]).indexOf("[erro]") === 0, "osso invalido = erro");
+check(cmdPose(["pose", "0", "torso", "rot", "90x", "0", "0"]).indexOf("[erro]") === 0, "angulo com lixo = erro (leitura estrita)");
+check(cmdPose(["pose", "0", "1x", "rot", "0", "0", "0"]).indexOf("[erro]") === 0, "osso 1x nao vira 1");
 check(cmdResetPose(["resetpose", "0"]).indexOf("[ok]") === 0, "resetpose");
 // turn/shift: o mesmo caminho do gizmo (eixo e deslocamento de MUNDO)
 check(cmdPose(["pose", "0", "arm-right", "turn", "y", "30"]).indexOf("[ok]") === 0, "pose turn");
@@ -31,6 +33,7 @@ check(cmdAnims(["anims", "0"]).indexOf("walk") > 0, "anims lista walk");
 check(cmdAnim(["anim", "0", "play", "walk", "loop"]).indexOf("[ok]") === 0, "anim play");
 check(cmdAnim(["anim", "0", "play", "corrida"]).indexOf("[erro]") === 0, "clipe inexistente = erro legivel");
 check(cmdAnim(["anim", "0", "seek", "0.3"]).indexOf("[ok]") === 0, "seek");
+check(cmdAnim(["anim", "0", "seek", "0.3s"]).indexOf("[erro]") === 0, "seek com lixo = erro");
 const st = cmdAnim(["anim", "0", "state"]); check(st.indexOf("walk") > 0 && st.indexOf("0.3") > 0, "state: " + st);
 check(cmdAnim(["anim", "5", "state"]).indexOf("[erro]") === 0, "objeto invalido = erro");
 
