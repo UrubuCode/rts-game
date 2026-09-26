@@ -3,6 +3,9 @@ import { scene, S } from "../session";
 import { Spinner } from "@scripts/spinner";
 import { argNum, argInt, argObj, erroObj, argsNumericos } from "@editor/control/args";
 import { erroUso } from "@editor/control/builtin_commands";
+import { graus } from "@editor/control/commands/describe";
+import { DEG2RAD } from "@editor/bone_gizmo";
+import { history } from "@editor/undo";
 
 /// Maior `meshKind` primitivo (0 = vazio, 1 cubo, 2 pirâmide, 3 octaedro, 4 esfera).
 const MESH_KIND_MAX: number = 4;
@@ -124,4 +127,29 @@ export function cmdSpin(parts: string[], np: number): string {
   if (np > 3) { sx = argNum(parts, 3); if (sx !== sx) return erroUso("spin") + " (spdX numerico)"; }
   scene.objects[i].addBehavior(new Spinner(sy, sx));
   return "[ok] spin";
+}
+
+/// rot <obj> <yaw> <pitch> [roll] — rotação LOCAL em graus (yaw = Y, pitch = X,
+/// roll = Z, padrão 0): a convenção do `pose rot` e dos campos X/Y/Z do
+/// Inspector. `rot <obj>` só lê (local e de mundo). O snapshot de Desfazer é
+/// tirado aqui, depois de validar, e só quando define.
+export function cmdRot(parts: string[]): string {
+  if (parts.length < 2) return erroUso("rot");
+  const i = argObj(parts, 1);
+  if (i < 0) return erroObj(parts, 1);
+  const o = scene.objects[i];
+  const t = o.transform;
+  if (parts.length === 2) {
+    return "[rot] #" + i + " " + o.name + " yaw=" + graus(t.ry) + " pitch=" + graus(t.rx) + " roll=" + graus(t.rz) +
+      " | mundo yaw=" + graus(t.wry) + " pitch=" + graus(t.wrx);
+  }
+  if (parts.length < 4 || parts.length > 5 || !argsNumericos(parts, 2, parts.length - 2)) return erroUso("rot") + " (angulos numericos em graus)";
+  const roll = parts.length > 4 ? argNum(parts, 4) : 0.0;
+  history.snapshot();
+  t.ry = argNum(parts, 2) * DEG2RAD;
+  t.rx = argNum(parts, 3) * DEG2RAD;
+  t.rz = roll * DEG2RAD;
+  // girar um ESTÁTICO invalida o índice espacial estático, como no Inspector
+  if (o.stationary !== 0) scene.markCollidersDirty();
+  return "[ok] rot #" + i + " yaw=" + argNum(parts, 2) + " pitch=" + argNum(parts, 3) + " roll=" + roll;
 }

@@ -139,6 +139,9 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("resetpose", "esqueleto", MUTA_SIM, ["resetpose <obj> :: volta o Skeleton ao repouso, esquecendo a pose manual :: resetpose 0"]),
   c("rmcomp", "componentes", MUTA_SIM, ["rmcomp <obj> <comp> :: remove o componente (indice em comps) :: rmcomp 1 0"]),
   c("rmpath", "arquivos", MUTA_NAO, ["rmpath <path> :: deleta arquivo ou pasta (recursivo) :: rmpath assets/tmp"]),
+  c("rot", "transform", MUTA_PROPRIO, [
+    "rot <obj> <yaw> <pitch> [roll] :: define a ROTACAO local em graus (yaw = Y, pitch = X, roll = Z, padrao 0; a mesma convencao do pose rot; no Inspector X=pitch Y=yaw Z=roll) :: rot 0 90 0",
+    "rot <obj> :: le a rotacao local e de mundo em graus (consulta: sem Desfazer) :: rot Cubo"]),
   c("savescene", "cena", MUTA_NAO, ["savescene <path> :: SALVA a cena num JSON e passa a ser o documento aberto (dispara o gancho salvar) :: savescene assets/minhacena.json"]),
   c("scene", "consulta", MUTA_NAO, ["scene json [obj] :: a cena inteira no JSON que o save grava (ou so um objeto), SEM salvar nem mudar o documento :: scene json"]),
   c("scl", "transform", MUTA_SIM, ["scl <obj> <sx> <sy> <sz> :: escala NAO-uniforme :: scl 0 1 6 1"]),

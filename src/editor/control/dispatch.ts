@@ -2,7 +2,7 @@
 // comando (definidos em commands/*.ts). Devolve a resposta em texto.
 import { cmdState, cmdRes, cmdHelp, cmdVsync } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
-import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
+import { cmdMove, cmdScl, cmdRot, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
 import { logInfo, logError } from "@engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
@@ -197,6 +197,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "spawn": return cmdSpawn(parts, np);
     case "move": return cmdMove(parts);
     case "scl": return cmdScl(parts);
+    case "rot": return cmdRot(parts);
     case "tool": return cmdTool(parts);
     case "snap": return cmdSnap(parts);
     case "reset": return cmdReset(parts);
