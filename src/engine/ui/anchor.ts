@@ -19,7 +19,9 @@ export function anchorY(anchor: number, oy: f64, winH: f64, elemH: f64): f64 {
   return oy;
 }
 
-/// 1 se (mx, my) está dentro do retângulo.
-export function hitRect(mx: f64, my: f64, x: f64, y: f64, w: f64, h: f64): number {
-  return (mx >= x && mx < x + w && my >= y && my < y + h) ? 1 : 0;
+/// 1 se (mx, my) está dentro do retângulo `r` = [x, y, w, h] (≤ 4 parâmetros:
+/// roda por botão por quadro, e 5+ parâmetros alocam por chamada no RTS).
+export function hitRect(r: Float64Array, mx: f64, my: f64): number {
+  const x = r[0]; const y = r[1];
+  return (mx >= x && mx < x + r[2] && my >= y && my < y + r[3]) ? 1 : 0;
 }

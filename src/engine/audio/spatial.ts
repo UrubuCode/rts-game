@@ -33,10 +33,11 @@ let rx: f64 = 1.0; let rz: f64 = 0.0;
 
 /// Onde está e para onde olha quem ouve. Chamar uma vez por frame, na mesma
 /// linha do `pumpAudio()` — ganho e som saem do mesmo instante.
-export function setListener(x: f64, y: f64, z: f64, yaw: f64, pitch: f64): void {
-  lx = x; ly = y; lz = z; lYaw = yaw; lPitch = pitch;
-  rx = math.cos(yaw);
-  rz = 0.0 - math.sin(yaw);
+/// `pose` = [x, y, z, yaw, pitch] (≤ 4 parâmetros: 5+ alocam por chamada no RTS).
+export function setListener(pose: Float64Array): void {
+  lx = pose[0]; ly = pose[1]; lz = pose[2]; lYaw = pose[3]; lPitch = pose[4];
+  rx = math.cos(lYaw);
+  rz = 0.0 - math.sin(lYaw);
 }
 
 export function listenerX(): f64 { return lx; }

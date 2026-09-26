@@ -12,6 +12,9 @@ import { anchorX, anchorY, hitRect, ANCHOR_TL } from "@engine/ui/anchor";
 import input from "rts:input";
 
 import { caixa, estiloTexto, pincel, texto } from "@compat/draw2d.ts";
+/// Retângulo do botão para `hitRect`, reaproveitado (um desenho por vez).
+const retBotao = new Float64Array(4);
+
 /**
  * @componentCategory UI
  * @componentDescription Botão na tela do jogo; o clique chega em onUIClick(label) dos scripts do mesmo objeto.
@@ -50,7 +53,8 @@ export class UIButton extends Behavior {
     const y = anchorY(this.anchor, this.host.py, h, this.h);
     const mx: f64 = input.mouseX(win);
     const my: f64 = input.mouseY(win);
-    this.hot = hitRect(mx, my, x, y, this.w, this.h);
+    retBotao[0] = x; retBotao[1] = y; retBotao[2] = this.w; retBotao[3] = this.h;
+    this.hot = hitRect(retBotao, mx, my);
     this.clicked = (this.hot !== 0 && input.mousePressed(win, 0)) ? 1 : 0;
     pincel(this.hot !== 0 ? this.hoverColor : this.color, 1, 0x00000088, 5); caixa(x, y, this.w, this.h);
     const size: f64 = 14;

@@ -509,7 +509,7 @@ export class Scene {
       this.cIdx.length = 0;
       this.sIdx.length = 0;
       this.bIdx.length = 0;
-      collectColliders(objs, this.trs, this.cIdx, this.sIdx, this.bIdx);
+      collectColliders(this);
       this.colMaxR = ccMaxR;
       this.colDirty = 0;
     }
@@ -520,7 +520,7 @@ export class Scene {
     if (m === 0 && this.bIdx.length === 0) return;
 
     // Poucos dinâmicos: laço direto (todos × todos + grandes + estáticos).
-    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m, this.sIdx, this.bIdx); return; }
+    if (m < 24) { collideRangeInto(this, m); return; }
 
     // ── 2) monta o grid ──────────────────────────────────────────────────────
     // Célula = 2× o maior raio: assim dois objetos que se tocam NUNCA estão a
@@ -534,7 +534,7 @@ export class Scene {
     // a REMONTAGEM vive numa função livre tipada: dentro do método, os acessos
     // a campo do laço caíam no caminho dinâmico — 5,8 ms POR FRAME com a cena
     // inteira dormindo (o custo fixo que impedia os 60 fps no repouso)
-    buildSceneGrid(this.trs, this.cIdx, m, this.gHead, this.gNext, this.gCell, this.gUsed, inv);
+    buildSceneGrid(this, m, inv);
     this.gUsed = m;
 
     // ── 3) resolve ───────────────────────────────────────────────────────────
@@ -542,17 +542,13 @@ export class Scene {
     // do `computeWorld` (ver `computeWorldInto`): dentro de um método os locais
     // perdem as provas de tipo e cada `this.objects[i].transform.px` cai no
     // caminho dinâmico de propriedade. Este é o laço mais quente do motor.
-    resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, this.bIdx, 1);
+    resolveInto(this, m, inv, 1);
     // SEGUNDA iteração, SEM a reatividade: uma pilha alta empurra o bloco de
     // baixo para dentro do chão mais do que UMA resolução devolve — o de baixo
     // afundava 0.34 em regime e, espremido o bastante, era CUSPIDO pelo fundo
     // (medido: bloco a y=-6 com vy=-10). A segunda passada redistribui as
     // correções de baixo para cima. Corpos dormindo continuam fora.
-    resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, this.bIdx, 0);
+    resolveInto(this, m, inv, 0);
   }
 
 }
@@ -561,10 +557,15 @@ export class Scene {
 /// mesmo motivo do `computeWorldInto`: dentro de um método `this.objects[i]`
 /// e `.transform.px` caem no caminho dinâmico de propriedade. Aqui o compilador
 /// conhece os shapes e lê cada campo por offset constante.
-function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
-                     gHead: number[], gNext: number[],
-                     lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64,
-                     sIdx: number[], bIdx: number[], reactive: number): void {
+///
+/// Task 10.5: eram 13 parâmetros (5+ alocam por chamada no RTS). Os arrays da
+/// cena são lidos para LOCAIS TIPADOS aqui, uma vez por chamada — a regra desta
+/// função (nada de leitura de campo/módulo dentro do laço) continua valendo.
+function resolveInto(sc: Scene, m: number, inv: f64, reactive: number): void {
+  const objs: GameObject[] = sc.objects; const trs: Transform[] = sc.trs; const cIdx: number[] = sc.cIdx;
+  const gHead: number[] = sc.gHead; const gNext: number[] = sc.gNext;
+  const lastX: f64[] = sc.lastX; const lastY: f64[] = sc.lastY; const lastZ: f64[] = sc.lastZ;
+  const sIdx: number[] = sc.sIdx; const bIdx: number[] = sc.bIdx;
   // O `const` de MÓDULO lido para um LOCAL, uma vez. É a mesma regra que este
   // arquivo já aplica aos arrays de voz e ao `trs`, e ela vale para constantes
   // também: `CGRID_MASK` era lido do escopo de módulo NOVE vezes por objeto por
@@ -781,8 +782,9 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
 }
 
 /// Laço direto A×B (usado quando há poucos objetos pro grid valer a pena).
-function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
-                          sIdx: number[], bIdx: number[]): void {
+function collideRangeInto(sc: Scene, m: number): void {
+  const objs: GameObject[] = sc.objects; const trs: Transform[] = sc.trs; const cIdx: number[] = sc.cIdx;
+  const sIdx: number[] = sc.sIdx; const bIdx: number[] = sc.bIdx;
   const ns = sIdx.length;
   const nb = bIdx.length;
   let i = 0;
@@ -1374,9 +1376,10 @@ const CGRID_CAP = 8192;
 const CGRID_MASK = 8191;
 
 /// Remontagem do grid da colisão como FUNÇÃO LIVRE tipada (ver o chamador).
-function buildSceneGrid(trs: Transform[], cIdx: number[], m: number,
-                        gHead: number[], gNext: number[], gCell: number[],
-                        gUsedPrev: number, inv: f64): void {
+function buildSceneGrid(sc: Scene, m: number, inv: f64): void {
+  const trs: Transform[] = sc.trs; const cIdx: number[] = sc.cIdx;
+  const gHead: number[] = sc.gHead; const gNext: number[] = sc.gNext; const gCell: number[] = sc.gCell;
+  const gUsedPrev = sc.gUsed;
   // local, não o `const` de módulo — ver a nota longa em `resolveInto`
   const mask = CGRID_MASK;
   // limpa APENAS os buckets que a passada anterior sujou (no máximo m)
@@ -1604,8 +1607,9 @@ const csEvents: number[] = [];
 let curContacts: ContactEvents | null = null;
 const csTipo: number[] = [];
 
-function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
-                          outStatic: number[], outBig: number[]): void {
+function collectColliders(sc: Scene): void {
+  const objs: GameObject[] = sc.objects; const trs: Transform[] = sc.trs;
+  const out: number[] = sc.cIdx; const outStatic: number[] = sc.sIdx; const outBig: number[] = sc.bIdx;
   const n = objs.length;
   // As tabelas crescem DENSAS, com um `push` por índice, e nunca por atribuição
   // num índice de array vazio: um array com buracos sai do caminho de elementos

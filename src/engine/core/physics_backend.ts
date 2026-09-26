@@ -615,38 +615,35 @@ export function rigidLevel(): number {
 export function rigidHullCount(): number { return pbCascas; }
 export function rigidOffsetCount(): number { return pbOffsets; }
 
+/// Estado da decisão AUTO: [ativo, candidato, sequência, nível]; `pbDecideAuto`
+/// lê e escreve os três primeiros (Task 10.5: eram 6 parâmetros e um objeto
+/// literal devolvido por passo).
+export const PB_DEC_ATIVO = 0; export const PB_DEC_CANDIDATO = 1; export const PB_DEC_SEQUENCIA = 2; export const PB_DEC_NIVEL = 3;
+const pbDecisao = new Float64Array(4);
+
 /// Decisão pura de modo AUTO com histerese (20% de margem sustentada por 10 passos).
-export function pbDecideAuto(
-  n: number,
-  threads: number,
-  curAtivo: number,
-  candidate: number,
-  streak: number,
-  nivelArg?: number,
-): { nextAtivo: number; nextCandidate: number; nextStreak: number } {
-  const nivel: number = nivelArg !== undefined ? nivelArg : PHYSICS_LEVEL_SIMPLES;
+/// `e` = [ativo, candidato, sequência, nível]; devolve o novo ativo e atualiza `e`.
+export function pbDecideAuto(n: number, threads: number, e: Float64Array): number {
+  const curAtivo = e[PB_DEC_ATIVO]; const candidate = e[PB_DEC_CANDIDATO]; const streak = e[PB_DEC_SEQUENCIA];
+  const nivel: number = e[PB_DEC_NIVEL];
   const quem = profBest(n, threads, nivel);
   const novoCandidato = quem === PROF_GPU ? PB_MODO_GPU : PB_MODO_RUST;
-  if (curAtivo === 0) {
-    return { nextAtivo: novoCandidato, nextCandidate: novoCandidato, nextStreak: 0 };
-  }
-  if (novoCandidato === curAtivo) {
-    return { nextAtivo: curAtivo, nextCandidate: curAtivo, nextStreak: 0 };
-  }
-  const curMs = curAtivo === PB_MODO_GPU ? profGpuMs(n, nivel) : profRustMs(n, threads, nivel);
-  const candMs = novoCandidato === PB_MODO_GPU ? profGpuMs(n, nivel) : profRustMs(n, threads, nivel);
-  // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
-  if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
-    if (novoCandidato === candidate) {
-      const nextStreak = streak + 1;
-      if (nextStreak >= 10) {
-        return { nextAtivo: novoCandidato, nextCandidate: novoCandidato, nextStreak: 0 };
-      }
-      return { nextAtivo: curAtivo, nextCandidate: novoCandidato, nextStreak: nextStreak };
+  let ativo = curAtivo; let cand = curAtivo; let seq = 0;
+  if (curAtivo === 0) { ativo = novoCandidato; cand = novoCandidato; }
+  else if (novoCandidato !== curAtivo) {
+    const curMs = curAtivo === PB_MODO_GPU ? profGpuMs(n, nivel) : profRustMs(n, threads, nivel);
+    const candMs = novoCandidato === PB_MODO_GPU ? profGpuMs(n, nivel) : profRustMs(n, threads, nivel);
+    // Margem de 20%: candidato deve ser pelo menos 20% mais rápido que o atual
+    if (curMs > 0.0 && candMs >= 0.0 && (curMs - candMs) / curMs >= 0.20) {
+      cand = novoCandidato;
+      if (novoCandidato === candidate) {
+        seq = streak + 1;
+        if (seq >= 10) { ativo = novoCandidato; seq = 0; }
+      } else seq = 1;
     }
-    return { nextAtivo: curAtivo, nextCandidate: novoCandidato, nextStreak: 1 };
   }
-  return { nextAtivo: curAtivo, nextCandidate: curAtivo, nextStreak: 0 };
+  e[PB_DEC_ATIVO] = ativo; e[PB_DEC_CANDIDATO] = cand; e[PB_DEC_SEQUENCIA] = seq;
+  return ativo;
 }
 
 /// Qual backend DEVE rodar este passo: 0 = CPU, 1 = GPU, 2 = Rust. Separado do
@@ -698,10 +695,11 @@ function pbAlvo(): number {
       modo = PB_MODO_RUST;
     } else {
       const threads = crThreads();
-      const dec = pbDecideAuto(pbBodies, threads, pbAutoAtivo, pbAutoCandidate, pbAutoStreak, pbNivel);
-      pbAutoAtivo = dec.nextAtivo;
-      pbAutoCandidate = dec.nextCandidate;
-      pbAutoStreak = dec.nextStreak;
+      pbDecisao[PB_DEC_ATIVO] = pbAutoAtivo; pbDecisao[PB_DEC_CANDIDATO] = pbAutoCandidate;
+      pbDecisao[PB_DEC_SEQUENCIA] = pbAutoStreak; pbDecisao[PB_DEC_NIVEL] = pbNivel;
+      pbAutoAtivo = pbDecideAuto(pbBodies, threads, pbDecisao);
+      pbAutoCandidate = pbDecisao[PB_DEC_CANDIDATO];
+      pbAutoStreak = pbDecisao[PB_DEC_SEQUENCIA];
       modo = pbAutoAtivo;
     }
   }
