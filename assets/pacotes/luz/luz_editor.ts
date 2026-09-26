@@ -4,7 +4,8 @@
 import { Editor, registerCommand, registerGizmo, Gizmos } from "@editor/api";
 import type { GameObject } from "@engine/core/gameobject";
 import type { Behavior } from "@engine/core/behavior";
-import { Light, TIPOS_LUZ, FLOATS_POR_LUZ, LUZ_DIRECIONAL, LUZ_PONTUAL, LUZ_SPOT, LUZ_PADRAO_PITCH, LUZ_PADRAO_YAW } from "@engine/core/light";
+import { Light, TIPOS_LUZ, FLOATS_POR_LUZ, LUZ_DIRECIONAL, LUZ_PONTUAL, LUZ_SPOT, LUZ_PADRAO_PITCH, LUZ_PADRAO_YAW,
+         haDirecionalComSombra } from "@engine/core/light";
 import { corHex, lerCorHex } from "@engine/core/cor";
 
 const ICONES_LUZ: string[] = ["luz-direcional", "luz-pontual", "luz-spot"];
@@ -16,6 +17,9 @@ const PITCH_SPOT: number = 0.0 - 1.5707963267948966;
 const pacote = new Float64Array(FLOATS_POR_LUZ);
 const p0 = new Float64Array(3); const p1 = new Float64Array(3); const dir = new Float64Array(3);
 const ponto = new Float64Array(5);
+/// Dica no Console quando a primeira Light entra numa cena sem nenhuma: até
+/// ali valia a luz legada (bloco "light" da cena), que deixa de valer.
+export const DICA_LUZ_LEGADA: string = "Luz: a cena agora usa as luzes da cena (componentes Light); a luz legada do bloco \"light\" deixa de valer. Não há conversão automática: ajuste a nova luz se precisar.";
 
 function desenharLuz(g: Gizmos, dono: GameObject, comp: Behavior): void {
   const luz = comp as Light;
@@ -46,7 +50,13 @@ function criarLuz(tipo: string, pos: Float64Array | null): GameObject | null {
     else o.transform.setPosition(pos[0], pos[1], pos[2]);
     if (t === LUZ_DIRECIONAL) { o.transform.rx = LUZ_PADRAO_PITCH; o.transform.ry = LUZ_PADRAO_YAW; }
     if (t === LUZ_SPOT) o.transform.rx = PITCH_SPOT;
-    const l = new Light(); l.tipo = tipo; o.addBehavior(l);
+    const l = new Light(); l.tipo = tipo;
+    // a primeira direcional com sombra nasce com sombra (como a luz da cena nova):
+    // sem isso, numa cena legada, criar a luz apagava o sol e as sombras.
+    if (t === LUZ_DIRECIONAL) l.sombra = !haDirecionalComSombra(sc);
+    const primeira = sc.lightObjs.length === 0;
+    o.addBehavior(l);
+    if (primeira) Editor.log(DICA_LUZ_LEGADA);
   }
   return o;
 }

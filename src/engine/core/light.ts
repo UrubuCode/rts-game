@@ -113,19 +113,17 @@ function capacidadePara(n: number): number {
 
 /// Preenche `buf` com até MAX_LUZES luzes e devolve quantas. A direcional
 /// PRINCIPAL vem primeiro (slot 0) — e é ela que `aplicarLuzes` manda pro
-/// shadow map quando tem sombra. Prioridade: a de nome `solNome` (reservado
-/// para o Ambiente do Task 5 — hoje `Scene.collectLights` sempre chama com ""
-/// e a prioridade abaixo decide), senão a primeira direcional ATIVA com
-/// `sombra`, senão a primeira direcional ativa qualquer. As demais luzes
+/// shadow map quando tem sombra. Prioridade: a primeira direcional ATIVA com
+/// `sombra`, senão a primeira direcional ativa qualquer (o `ambiente.sol` não
+/// entra aqui: só aponta o disco do céu, ver `direcaoSol`). As demais luzes
 /// seguem por distância a `cam` [x, y, z]. Sem alocação: as distâncias ficam
 /// em `sc.luzDist`, que só cresce. Inativas (inclusive por ancestral) e
 /// desligadas ficam fora.
-export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, solNome: string): number {
+export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array): number {
   const lista: GameObject[] = sc.lightObjs;
   const total = lista.length;
   if (sc.luzDist.length < total) sc.luzDist = new Float64Array(capacidadePara(total));
   const dist: Float64Array = sc.luzDist;
-  let principal = 0 - 1;
   let primeiraDir = 0 - 1;
   let primeiraComSombra = 0 - 1;
   let i = 0;
@@ -138,7 +136,6 @@ export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, so
         dist[i] = 0.0;
         if (primeiraDir < 0) primeiraDir = i;
         if (primeiraComSombra < 0 && l.lightCastsShadow() !== 0) primeiraComSombra = i;
-        if (principal < 0 && solNome.length > 0 && o.name === solNome) principal = i;
       } else {
         const t = o.transform;
         const dx = t.wx - cam[0]; const dy = t.wy - cam[1]; const dz = t.wz - cam[2];
@@ -147,7 +144,7 @@ export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, so
     }
     i = i + 1;
   }
-  if (principal < 0) principal = primeiraComSombra >= 0 ? primeiraComSombra : primeiraDir;
+  const principal = primeiraComSombra >= 0 ? primeiraComSombra : primeiraDir;
   let n = 0;
   if (principal >= 0) {
     const op = lista[principal];
@@ -199,6 +196,21 @@ export function direcaoSol(sc: Scene, nome: string, out: Float64Array): number {
     i = i + 1;
   }
   return 0;
+}
+
+/// Há alguma direcional ativa e ligada com `sombra`? (a que ocuparia o shadow
+/// map em `coletarLuzes`). Quem cria uma direcional usa isto para que a
+/// primeira nasça com sombra, como a luz padrão da cena nova.
+export function haDirecionalComSombra(sc: Scene): boolean {
+  const lista = sc.lightObjs;
+  let i = 0;
+  while (i < lista.length) {
+    const o = lista[i];
+    const l = o.behaviors[o.lightIdx];
+    if (l.enabled !== 0 && l.lightType() === LUZ_DIRECIONAL && l.lightCastsShadow() !== 0 && activeInScene(sc.objects, o)) return true;
+    i = i + 1;
+  }
+  return false;
 }
 
 /// A "Luz Direcional" com sombra que toda cena nova ganha.

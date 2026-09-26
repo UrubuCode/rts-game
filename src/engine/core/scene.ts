@@ -294,7 +294,7 @@ export class Scene {
     // só a regra do Task 3 (primeira ativa com sombra, senão a primeira ativa).
     // `ambiente.sol` escolhe apenas pra onde o disco do céu aponta — ver
     // `direcaoSol` em light.ts e `aplicarAmbiente` em scene_lighting.ts.
-    return coletarLuzes(this, buf, cam, "");
+    return coletarLuzes(this, buf, cam);
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do

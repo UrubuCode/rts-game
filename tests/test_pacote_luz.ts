@@ -11,6 +11,8 @@ import { gizmosDoEditor, coletarGizmos } from "@editor/gizmo_pass";
 import { gizmosBegin, GIZMO_SEGMENTOS_CIRCULO, GIZMO_ARESTAS_CONE } from "@engine/core/gizmos";
 import { scene, S } from "@editor/control/session";
 import { history } from "@editor/undo";
+import { logEntries, LOG_INFO } from "@engine/core/logger";
+import { DICA_LUZ_LEGADA } from "../assets/pacotes/luz/luz_editor";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 instalarEditorReal();
@@ -48,4 +50,24 @@ check(gizmosDoEditor.nSeg === GIZMO_SEGMENTOS_CIRCULO + GIZMO_ARESTAS_CONE, "spo
 l.tipo = "direcional";
 gizmosBegin(gizmosDoEditor, gp); coletarGizmos(gizmosDoEditor, scene, 0);
 check(gizmosDoEditor.nSeg === 1, "direcional selecionada: uma seta");
-io.print("[PASSOU] pacote luz: comandos, consulta, menus, gizmo por tipo");
+
+// cena legada (sem Light, vale o bloco "light"): a primeira direcional nasce
+// com sombra — senão apagaria o sol e as sombras — e o Console explica a troca
+// uma vez; a segunda direcional já não disputa o shadow map.
+function dicas(): number { return logEntries(LOG_INFO, "luz legada").length; }
+scene.clear(); history.u = []; history.r = [];
+const dicasAntes = dicas();
+check(executarItemDeMenu(indiceDoCaminho("Criar/Luz/Direcional"), 0 - 1) === "", "Criar/Luz/Direcional");
+const d1 = scene.objects[S.selected].behaviors[0] as Light;
+check(d1.tipo === "direcional" && d1.sombra, "a primeira direcional nasce com sombra");
+check(dicas() === dicasAntes + 1 && DICA_LUZ_LEGADA.indexOf("luz legada") >= 0, "dica da luz legada no Console, uma vez");
+const buf = new Float64Array(16 * 8); const cam0 = new Float64Array(3);
+check(scene.collectLights(buf, cam0) === 1 && buf[14] === 1.0, "o slot 0 lança sombra");
+check(execCommand(800, 600, "luz add direcional 0 5 0").indexOf("[ok]") === 0, "luz add direcional");
+const d2 = scene.objects[S.selected].behaviors[0] as Light;
+check(!d2.sombra && dicas() === dicasAntes + 1, "a segunda direcional nasce sem sombra e sem nova dica");
+d1.enabled = 0;
+check(execCommand(800, 600, "luz add direcional 0 6 0").indexOf("[ok]") === 0, "luz add direcional com a de sombra desligada");
+check((scene.objects[S.selected].behaviors[0] as Light).sombra, "sem direcional com sombra ativa: a nova ganha sombra");
+check(execCommand(800, 600, "luz add pontual 0 1 0").indexOf("[ok]") === 0 && !(scene.objects[S.selected].behaviors[0] as Light).sombra, "pontual segue sem sombra");
+io.print("[PASSOU] pacote luz: comandos, consulta, menus, gizmo por tipo, primeira direcional com sombra, dica da luz legada");
