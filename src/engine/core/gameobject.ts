@@ -3,7 +3,7 @@
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
 import { Transform } from "./transform";
-import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI, KIND_LIGHT } from "./behavior";
+import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI, KIND_LIGHT, KIND_CAMERA } from "./behavior";
 import { Material } from "./material";
 
 /// Formas de colisor (ver `GameObject.colShape`).
@@ -29,6 +29,7 @@ export function getNextGameObjectId(): number {
 export interface UIOwner {
   uiChanged(go: GameObject): void;
   lightChanged(go: GameObject): void;
+  cameraChanged(go: GameObject): void;
 }
 
 export class GameObject {
@@ -103,6 +104,9 @@ export class GameObject {
   /// Índice do component Light (KIND_LIGHT) em behaviors, -1 se nenhum. Cache
   /// para `Scene.lightObjs` saber quem tem luz sem varrer behaviors.
   lightIdx: number;
+  /// Índice do component Camera (KIND_CAMERA) em behaviors, -1 se nenhum. Cache
+  /// para `Scene.camObjs` saber quem tem câmera sem varrer behaviors.
+  camIdx: number;
   /// A cena que registra este objeto na lista de UI (null fora de cena).
   uiOwner: UIOwner | null;
   /// Índice deste objeto nas tabelas paralelas do índice espacial (sObjs), ou -1 se não indexado.
@@ -144,6 +148,7 @@ export class GameObject {
     this.colIdx = 0 - 1;
     this.uiIdx = 0 - 1;
     this.lightIdx = 0 - 1;
+    this.camIdx = 0 - 1;
     this.uiOwner = null;
     this.spatialSlot = 0 - 1;
     this.spatialDynSlot = 0 - 1;
@@ -177,6 +182,9 @@ export class GameObject {
     const hadLight = this.lightIdx;
     this.lightIdx = this.componentIdx(KIND_LIGHT);
     if (this.uiOwner !== null && (hadLight >= 0) !== (this.lightIdx >= 0)) this.uiOwner.lightChanged(this);
+    const hadCam = this.camIdx;
+    this.camIdx = this.componentIdx(KIND_CAMERA);
+    if (this.uiOwner !== null && (hadCam >= 0) !== (this.camIdx >= 0)) this.uiOwner.cameraChanged(this);
   }
 
   /// Renderer do objeto: um que se desenha sozinho (Skeleton) tem prioridade

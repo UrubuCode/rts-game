@@ -124,7 +124,7 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component8) {
-      return 0;
+      return 13;
     }
     if (component instanceof Component9) {
       return 6;
@@ -208,7 +208,19 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component8) {
-
+      if (index === 0) return "FOV (rad)";
+      if (index === 1) return "Main";
+      if (index === 2) return "Near";
+      if (index === 3) return "Far";
+      if (index === 4) return "Ortografica";
+      if (index === 5) return "Tamanho orto";
+      if (index === 6) return "Fundo";
+      if (index === 7) return "Cor do fundo";
+      if (index === 8) return "Viewport X";
+      if (index === 9) return "Viewport Y";
+      if (index === 10) return "Viewport W";
+      if (index === 11) return "Viewport H";
+      if (index === 12) return "Profundidade";
       return "";
     }
     if (component instanceof Component9) {
@@ -325,7 +337,19 @@ class GeneratedReflection extends ComponentReflection {
       return "number";
     }
     if (component instanceof Component8) {
-
+      if (index === 0) return "number";
+      if (index === 1) return "number";
+      if (index === 2) return "number";
+      if (index === 3) return "number";
+      if (index === 4) return "boolean";
+      if (index === 5) return "number";
+      if (index === 6) return "string";
+      if (index === 7) return "number";
+      if (index === 8) return "number";
+      if (index === 9) return "number";
+      if (index === 10) return "number";
+      if (index === 11) return "number";
+      if (index === 12) return "number";
       return "number";
     }
     if (component instanceof Component9) {
@@ -442,7 +466,19 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component8) {
-
+      if (index === 0) return component["fov"];
+      if (index === 1) return component["isMain"];
+      if (index === 2) return component["near"];
+      if (index === 3) return component["far"];
+      if (index === 4) return (component["ortografica"] ? 1 : 0);
+      if (index === 5) return component["tamanhoOrto"];
+      if (index === 6) return 0;
+      if (index === 7) return component["corFundo"];
+      if (index === 8) return component["viewportX"];
+      if (index === 9) return component["viewportY"];
+      if (index === 10) return component["viewportW"];
+      if (index === 11) return component["viewportH"];
+      if (index === 12) return component["profundidade"];
       return 0;
     }
     if (component instanceof Component9) {
@@ -559,7 +595,19 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component8) {
-
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      if (index === 6) return component["fundo"];
+      if (index === 7) return "";
+      if (index === 8) return "";
+      if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
       return "";
     }
     if (component instanceof Component9) {
@@ -676,7 +724,19 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component8) {
+      if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["fov"] = value; component.onValidate("fov"); return; }
+      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["isMain"] = value; component.onValidate("isMain"); return; }
+      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["near"] = value; component.onValidate("near"); return; }
+      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["far"] = value; component.onValidate("far"); return; }
+      if (index === 4) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["ortografica"] = value !== 0; component.onValidate("ortografica"); return; }
+      if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["tamanhoOrto"] = value; component.onValidate("tamanhoOrto"); return; }
 
+      if (index === 7) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["corFundo"] = value; component.onValidate("corFundo"); return; }
+      if (index === 8) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["viewportX"] = Math.max(0, Math.min(1, value)); component.onValidate("viewportX"); return; }
+      if (index === 9) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["viewportY"] = Math.max(0, Math.min(1, value)); component.onValidate("viewportY"); return; }
+      if (index === 10) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["viewportW"] = Math.max(0.01, Math.min(1, value)); component.onValidate("viewportW"); return; }
+      if (index === 11) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["viewportH"] = Math.max(0.01, Math.min(1, value)); component.onValidate("viewportH"); return; }
+      if (index === 12) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["profundidade"] = value; component.onValidate("profundidade"); return; }
       return;
     }
     if (component instanceof Component9) {
@@ -792,6 +852,18 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component8) {
+
+
+
+
+
+
+      if (index === 6) { component["fundo"] = value; component.onValidate("fundo"); return; }
+
+
+
+
+
 
       return;
     }
@@ -968,7 +1040,7 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component8) {
-      return null;
+      return { "fov": component["fov"], "isMain": component["isMain"], "near": component["near"], "far": component["far"], "ortografica": component["ortografica"], "tamanhoOrto": component["tamanhoOrto"], "fundo": component["fundo"], "corFundo": component["corFundo"], "viewportX": component["viewportX"], "viewportY": component["viewportY"], "viewportW": component["viewportW"], "viewportH": component["viewportH"], "profundidade": component["profundidade"] };
     }
     if (component instanceof Component9) {
       return null;
@@ -1040,6 +1112,20 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component8) {
+      if (fields === null || fields === undefined) return;
+      if (typeof fields["fov"] === "number" && fields["fov"] === fields["fov"] && fields["fov"] > -1e30 && fields["fov"] < 1e30) component["fov"] = fields["fov"];
+      if (typeof fields["isMain"] === "number" && fields["isMain"] === fields["isMain"] && fields["isMain"] > -1e30 && fields["isMain"] < 1e30) component["isMain"] = fields["isMain"];
+      if (typeof fields["near"] === "number" && fields["near"] === fields["near"] && fields["near"] > -1e30 && fields["near"] < 1e30) component["near"] = fields["near"];
+      if (typeof fields["far"] === "number" && fields["far"] === fields["far"] && fields["far"] > -1e30 && fields["far"] < 1e30) component["far"] = fields["far"];
+      if (typeof fields["ortografica"] === "boolean" && true) component["ortografica"] = fields["ortografica"];
+      if (typeof fields["tamanhoOrto"] === "number" && fields["tamanhoOrto"] === fields["tamanhoOrto"] && fields["tamanhoOrto"] > -1e30 && fields["tamanhoOrto"] < 1e30) component["tamanhoOrto"] = fields["tamanhoOrto"];
+      if (typeof fields["fundo"] === "string" && true) component["fundo"] = fields["fundo"];
+      if (typeof fields["corFundo"] === "number" && fields["corFundo"] === fields["corFundo"] && fields["corFundo"] > -1e30 && fields["corFundo"] < 1e30) component["corFundo"] = fields["corFundo"];
+      if (typeof fields["viewportX"] === "number" && fields["viewportX"] === fields["viewportX"] && fields["viewportX"] > -1e30 && fields["viewportX"] < 1e30) component["viewportX"] = Math.max(0, Math.min(1, fields["viewportX"]));
+      if (typeof fields["viewportY"] === "number" && fields["viewportY"] === fields["viewportY"] && fields["viewportY"] > -1e30 && fields["viewportY"] < 1e30) component["viewportY"] = Math.max(0, Math.min(1, fields["viewportY"]));
+      if (typeof fields["viewportW"] === "number" && fields["viewportW"] === fields["viewportW"] && fields["viewportW"] > -1e30 && fields["viewportW"] < 1e30) component["viewportW"] = Math.max(0.01, Math.min(1, fields["viewportW"]));
+      if (typeof fields["viewportH"] === "number" && fields["viewportH"] === fields["viewportH"] && fields["viewportH"] > -1e30 && fields["viewportH"] < 1e30) component["viewportH"] = Math.max(0.01, Math.min(1, fields["viewportH"]));
+      if (typeof fields["profundidade"] === "number" && fields["profundidade"] === fields["profundidade"] && fields["profundidade"] > -1e30 && fields["profundidade"] < 1e30) component["profundidade"] = fields["profundidade"];
       return;
     }
     if (component instanceof Component9) {

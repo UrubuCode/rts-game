@@ -52,4 +52,6 @@ export const S = new Session();
 
 // cena compartilhada (singleton) — main + comandos operam nela
 import { Scene } from "@engine/core/scene";
+import { setActiveScene } from "@engine/core/active_scene";
 export const scene = new Scene("Main");
+setActiveScene(scene);

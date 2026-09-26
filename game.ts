@@ -29,9 +29,12 @@ import { drawGameUI } from "@engine/ui/game_ui";
 import { rigidStep } from "@engine/core/physics_backend";
 import { resolveMaterialTexture } from "@engine/render/material_tex";
 import { GameObject } from "@engine/core/gameobject";
-import { initMeshes, setCam, drawGPU, drawGPUMesh,
-         frustumBegin, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
+import { initMeshes, setCam, drawGPU, drawGPUMesh, setFundoCeu, setViewportBuf,
+         frustumBegin, frustumParams, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
 import { aplicarLuzes } from "@engine/render/scene_lighting";
+import { Camera } from "@engine/core/camera";
+import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
+         posicaoDaVista } from "@engine/render/camera_views";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
@@ -64,7 +67,9 @@ if (fs.exists(sceneFile)) {
 
 // câmera de jogo: começa na posição salva na sessão (mesma default do editor)
 let frames = 0;
+const vistas = new VistasDeCamera();
 const luzCam = new Float64Array(3); const luzLegada = new Float64Array(4);
+const fParams: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 function frame(): void {
   logTick();
@@ -77,11 +82,12 @@ function frame(): void {
   const dts: f64 = dt / 1000.0;
   frames = frames + 1;
 
-  // ── CÂMERA DA CENA: o jogo renderiza pelo GameObject que tem o component
-  // Camera (marcado como Main). Se a cena não tiver nenhum, cai na câmera livre
-  // da sessão — assim uma cena antiga ainda abre.
-  const camIdx = scene.mainCameraIdx();
-  const hasCam = camIdx >= 0 ? 1 : 0;
+  // ── CÂMERA DA CENA: o jogo renderiza por todas as câmeras ativas (ver o
+  // bloco de render); o controle de voo move a Main (Camera.main()). Se a cena
+  // não tiver nenhuma, cai na câmera livre da sessão — assim uma cena antiga
+  // ainda abre.
+  const camMain = Camera.main();
+  const camGo = camMain !== null ? camMain.owner : null;
 
   // ── CONTROLE: os mesmos controles de voo do editor (WASD + setas + botão dir) ─
   const kW = app.keyDown(122); const kS = app.keyDown(118);
@@ -94,8 +100,8 @@ function frame(): void {
   // câmera é um GameObject de verdade — scripts e parent também podem movê-la.
   let cx: f64 = S.camX; let cy: f64 = S.camY; let cz: f64 = S.camZ;
   let yaw: f64 = S.camYaw; let pitch: f64 = S.camPitch;
-  if (hasCam !== 0) {
-    const ct = scene.objects[camIdx].transform;
+  if (camGo !== null) {
+    const ct = camGo.transform;
     cx = ct.px; cy = ct.py; cz = ct.pz;
     yaw = ct.ry; pitch = ct.rx;
   }
@@ -124,8 +130,8 @@ function frame(): void {
   if (kSp !== 0) cy = cy + moveSpeed;
 
   // devolve a pose ao transform do objeto-câmera (ou à sessão, sem câmera)
-  if (hasCam !== 0) {
-    const ct2 = scene.objects[camIdx].transform;
+  if (camGo !== null) {
+    const ct2 = camGo.transform;
     ct2.px = cx; ct2.py = cy; ct2.pz = cz;
     ct2.ry = yaw; ct2.rx = pitch;
   } else {
@@ -139,24 +145,36 @@ function frame(): void {
   if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
   scene.computeWorld();
 
-  // ── RENDER pela câmera da cena ────────────────────────────────────────────
+  // ── RENDER pelas câmeras da cena ─────────────────────────────────────────
   // Depois do computeWorld: se a câmera for FILHA de outro objeto, a pose de
   // mundo já está resolvida (uma câmera presa a um veículo segue o veículo).
-  let vx = cx; let vy = cy; let vz = cz;
-  let vyaw = yaw; let vfov = FOV;
-  if (hasCam !== 0) {
-    const co = scene.objects[camIdx];
-    const ct3 = co.transform;
-    vx = ct3.wx; vy = ct3.wy; vz = ct3.wz;
-    vyaw = ct3.wry;
-    const ci = co.componentIdx(5);   // KIND_CAMERA
-    if (ci >= 0) vfov = co.behaviors[ci].camFov();
+  // Cada câmera ativa vira uma vista (viewport + fundo + câmera), em ordem de
+  // profundidade; a fila de desenho abaixo é uma só para todas.
+  vistas.area[0] = 0.0; vistas.area[1] = 0.0; vistas.area[2] = W; vistas.area[3] = H;
+  vistas.tela[0] = W; vistas.tela[1] = H;
+  const nVistas = coletarCameras(vistas, scene, null);
+  if (nVistas > 0) {
+    aplicarVistas(WIN, vistas);
+    frustumDasVistas(vistas, fParams);
+    posicaoDaVista(vistas, luzCam);
+  } else {
+    // cena sem câmera: a câmera livre da sessão, como antes
+    // (vista de tela cheia: um frame anterior com câmeras pode ter deixado um retângulo menor)
+    vistas.vpBuf[0] = 0.0; vistas.vpBuf[1] = 0.0; vistas.vpBuf[2] = 1.0; vistas.vpBuf[3] = 1.0; vistas.vpBuf[4] = 1.0;
+    setViewportBuf(WIN, vistas.vpBuf);
+    setFundoCeu(WIN);
+    setCam(WIN, cx, cy, cz, yaw, pitch, FOV, W / H);
+    frustumBegin(cx, cy, cz, yaw, pitch, FOV, W / H);
+    frustumParams(fParams);
+    luzCam[0] = cx; luzCam[1] = cy; luzCam[2] = cz;
   }
-  setCam(WIN, vx, vy, vz, vyaw, pitch, vfov, W / H);
-  luzCam[0] = vx; luzCam[1] = vy; luzCam[2] = vz;
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);
-  frustumBegin(vx, vy, vz, vyaw, pitch, vfov, W / H);
+  // Uma vista em perspectiva: `inFrustumFast` lê o frustum do módulo gpu3d.
+  if (nVistas === 1 && fParams[7] >= 0.0) {
+    const c0 = vistas.cams[0];
+    frustumBegin(fParams[0], fParams[1], fParams[2], c0.host.wry, c0.host.wrx, c0.fov, fParams[7] / fParams[8]);
+  }
 
   let oi = 0;
   let drawnN = 0;
@@ -180,7 +198,7 @@ function frame(): void {
       let rmax: f64 = tr.sx;
       if (tr.sy > rmax) rmax = tr.sy;
       if (tr.sz > rmax) rmax = tr.sz;
-      const vis = inFrustumFast(tr.wx, tr.wy, tr.wz, rmax * 0.87);
+      const vis = fParams[7] < 0.0 ? 1 : inFrustumFast(tr.wx, tr.wy, tr.wz, rmax * 0.87);
       if (vis !== 0) {
         const col = ((o.cr | 0) << 16) | ((o.cg | 0) << 8) | (o.cb | 0);
         let texArg = o.tex;

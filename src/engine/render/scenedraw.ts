@@ -118,14 +118,17 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
     const z1: f64 = dx * syw + dz * cyw;
     const y2: f64 = dy * cpt - z1 * spt;
     const z2: f64 = dy * spt + z1 * cpt;
-    if (z2 + r < 0.1) { oi = oi + 1; continue; }          // atrás do near
-    if (z2 - r > 500.0) { oi = oi + 1; continue; }        // além do far
-    const limH: f64 = z2 * tanH;
-    if (x1 - r > limH) { oi = oi + 1; continue; }
-    if (0.0 - x1 - r > limH) { oi = oi + 1; continue; }
-    const limV: f64 = z2 * tanV;
-    if (y2 - r > limV) { oi = oi + 1; continue; }
-    if (0.0 - y2 - r > limV) { oi = oi + 1; continue; }
+    // tanH < 0 = várias vistas (ver camera_views.frustumDasVistas): sem descarte.
+    if (tanH >= 0.0) {
+      if (z2 + r < 0.1) { oi = oi + 1; continue; }          // atrás do near
+      if (z2 - r > 500.0) { oi = oi + 1; continue; }        // além do far
+      const limH: f64 = z2 * tanH;
+      if (x1 - r > limH) { oi = oi + 1; continue; }
+      if (0.0 - x1 - r > limH) { oi = oi + 1; continue; }
+      const limV: f64 = z2 * tanV;
+      if (y2 - r > limV) { oi = oi + 1; continue; }
+      if (0.0 - y2 - r > limV) { oi = oi + 1; continue; }
+    }
 
     // RENDERER QUE SE DESENHA (Skeleton: várias peças por objeto, rotação em
     // quaternion). Não entra no lote; conta como um objeto desenhado.

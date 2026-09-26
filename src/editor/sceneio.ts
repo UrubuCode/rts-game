@@ -116,7 +116,8 @@ function recreateBehaviorInner(sd: any): Behavior {
     return c;
   }
   if (t === "camera") {
-    const c = new Camera(sd.fov);
+    const c = new Camera();
+    if (typeof sd.fov === "number") c.fov = sd.fov;
     if (sd.isMain !== undefined) c.isMain = sd.isMain;
     return c;
   }

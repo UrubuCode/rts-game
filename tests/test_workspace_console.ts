@@ -71,7 +71,7 @@ check(consolePanel.scroll === 2 + consolePanel.rows.length - previousRows, "paus
 consolePanel.query = "does not exist"; consolePanel.refresh(); consolePanel.render(0, 0, 600, 240, false);
 check(consolePanel.rows.length === 0 && consolePanel.selected === -1, "empty search clears stale selection");
 scene.clear(); views.camera(1); check(!views.hasCamera, "empty scene has no game camera");
-const camObject = scene.createGameObject("MainCamera"); const cam = new Camera(0.8); camObject.addBehavior(cam);
+const camObject = scene.createGameObject("MainCamera"); const cam = new Camera(); cam.fov = 0.8; camObject.addBehavior(cam);
 camObject.transform.setPosition(3, 4, 5); camObject.transform.ry = 0.4; scene.computeWorld();
 const authorX = S.camX; views.camera(1);
 check(views.hasCamera && views.x === 3 && views.y === 4 && views.fov === 0.8 && S.camX === authorX, "game view uses scene camera without moving editor camera");

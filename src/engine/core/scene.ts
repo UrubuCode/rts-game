@@ -123,6 +123,9 @@ export class Scene {
   /// e por `GameObject.refreshComponentCache` via `lightChanged`. `Scene.collectLights`
   /// lê daqui: zero varredura por frame.
   lightObjs: GameObject[];
+  /// Objetos desta cena com componente Camera, mantida como `lightObjs`.
+  /// `Camera.main()/all()` e `coletarCameras` leem daqui.
+  camObjs: GameObject[];
   /// Rascunho de distâncias de `coletarLuzes` (ver light.ts): só cresce, nunca
   /// realoca por frame.
   luzDist: Float64Array;
@@ -146,6 +149,7 @@ export class Scene {
     this.contacts = new ContactEvents();
     this.uiObjs = [];
     this.lightObjs = [];
+    this.camObjs = [];
     this.luzDist = new Float64Array(LUZ_DIST_INICIAL);
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
@@ -198,6 +202,18 @@ export class Scene {
     if (k >= 0) this.lightObjs.splice(k, 1);
   }
 
+  /// `GameObject.refreshComponentCache` avisa quando o objeto ganhou ou perdeu
+  /// componente Camera depois de estar na cena.
+  cameraChanged(go: GameObject): void {
+    if (go.camIdx >= 0) { if (this.camObjs.indexOf(go) < 0) this.camObjs.push(go); }
+    else this.cameraForget(go);
+  }
+
+  cameraForget(go: GameObject): void {
+    const k = this.camObjs.indexOf(go);
+    if (k >= 0) this.camObjs.splice(k, 1);
+  }
+
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
   markStaticDirty(): void {
     this.markCollidersDirty();
@@ -210,6 +226,7 @@ export class Scene {
     go.uiOwner = this;
     if (go.uiIdx >= 0) this.uiObjs.push(go);
     if (go.lightIdx >= 0) this.lightObjs.push(go);
+    if (go.camIdx >= 0) this.camObjs.push(go);
     if (bodyTypeOf(go) === BODY_STATIC) {
       this.markCollidersDirty();
     } else {
@@ -262,6 +279,7 @@ export class Scene {
     this.trs = [];
     this.uiObjs.length = 0;
     this.lightObjs.length = 0;
+    this.camObjs.length = 0;
     this.markStaticDirty();
   }
 
@@ -395,6 +413,7 @@ export class Scene {
     removedObj.uiOwner = null;
     if (removedObj.uiIdx >= 0) this.uiForget(removedObj);
     if (removedObj.lightIdx >= 0) this.lightForget(removedObj);
+    if (removedObj.camIdx >= 0) this.cameraForget(removedObj);
 
     if (isStatic) {
       this.markCollidersDirty();

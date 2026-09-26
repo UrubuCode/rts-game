@@ -59,8 +59,8 @@ export const COMPONENT_CATALOG = [
   {
     "name": "Camera",
     "category": "Renderização",
-    "description": "Define a câmera usada pelo jogo.",
-    "keywords": "camera visão perspectiva",
+    "description": "Câmera do jogo: perspectiva ou ortográfica, viewport, fundo e ordem de desenho.",
+    "keywords": "camera câmera visão perspectiva ortográfica viewport",
     "source": "src/engine/core/camera.ts"
   },
   {
