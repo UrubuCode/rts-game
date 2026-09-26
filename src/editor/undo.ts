@@ -44,14 +44,19 @@ const CAP: number = 40;   // teto de estados guardados
 export class History {
   u: string[];   // pilha de undo (estados anteriores)
   r: string[];   // pilha de redo
+  /// Sobe a cada snapshot/desfazer/refazer/descarte: o documento usa para saber
+  /// que algo pode ter mudado sem serializar a cena (scene_document.ts).
+  versao: number;
 
   constructor() {
     this.u = [];
     this.r = [];
+    this.versao = 0;
   }
 
   /// Guarda o estado ATUAL antes de uma operação mutante; limpa a pilha de redo.
   snapshot(): void {
+    this.versao = this.versao + 1;
     this.u.push(sceneToJSON());
     this.r = [];
     while (this.u.length > CAP) this.u.shift();
@@ -60,6 +65,7 @@ export class History {
   /// Desfaz: restaura o último estado guardado (empurra o atual pro redo). 1=ok, 0=vazio.
   undo(): number {
     if (this.u.length === 0) return 0;
+    this.versao = this.versao + 1;
     this.r.push(sceneToJSON());
     const s = this.u.pop();
     const bonePath = selectedBoneModel();
@@ -71,6 +77,7 @@ export class History {
   /// Refaz: restaura o último estado desfeito (empurra o atual pro undo). 1=ok, 0=vazio.
   redo(): number {
     if (this.r.length === 0) return 0;
+    this.versao = this.versao + 1;
     this.u.push(sceneToJSON());
     const s = this.r.pop();
     const bonePath = selectedBoneModel();
@@ -82,6 +89,7 @@ export class History {
   /// Descarta o último snapshot quando a operação acabou sem mudar nada;
   /// `redoAntes` é a pilha de redo de antes do snapshot (que a limpou).
   discard(redoAntes: string[]): void {
+    this.versao = this.versao + 1;
     if (this.u.length > 0) this.u.pop();
     this.r = redoAntes;
   }

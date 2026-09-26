@@ -96,6 +96,21 @@ export class Inspector extends Behavior {
   compSel: number[] = []; compJanela: number[] = [];
   compChave: string[] = []; compHeader: string[] = []; compRemove: string[] = []; compEnabled: string[] = [];
   compTitulo: string[] = []; compTituloDe: string[] = []; compTituloAberto: boolean[] = [];
+  // Chaves e rótulos derivados, criados uma vez (Task 10.5: sem concatenar por quadro).
+  /// "v  Texto"/">  Texto" de cada cabeçalho fixo (texto → rótulo).
+  cabecalhoAberto: Map<string, string> = new Map<string, string>();
+  cabecalhoFechado: Map<string, string> = new Map<string, string>();
+  /// Chaves de `vector`: índice de `key` → [key/Label, key/<eixo0>, key/<eixo1>, key/<eixo2>].
+  vetorIndice: Map<string, number> = new Map<string, number>();
+  vetorChaves: string[][] = []; vetorNomes: string[][] = [];
+  /// Chaves `key/Field/<i>` por `key` de componente.
+  campoIndice: Map<string, number> = new Map<string, number>();
+  campoChaves: string[][] = [];
+  /// Valores passados a `vector` pelo Transform (reaproveitados).
+  posValores: number[] = [0, 0, 0]; rotValores: number[] = [0, 0, 0]; escValores: number[] = [0, 0, 0];
+  /// Rótulo "Pai: <nome>", refeito só quando o nome do pai muda.
+  paiRotulo: string = ""; paiDe: string = "";
+  addRotulo: string = "+ " + P.title;
 
   constructor(app: any) {
     super();
@@ -116,10 +131,38 @@ export class Inspector extends Behavior {
     const label = this.ui.control(key, "label", text, false);
     this.ui.draw(label);
   }
+  /// "v  texto" ou ">  texto", criado uma vez por texto.
+  rotuloCabecalho(text: string, expanded: boolean): string {
+    const mapa = expanded ? this.cabecalhoAberto : this.cabecalhoFechado;
+    const achado = mapa.get(text);
+    if (achado !== undefined) return achado;
+    const novo = (expanded ? L.expandedMark : L.collapsedMark) + text;
+    mapa.set(text, novo);
+    return novo;
+  }
+  /// Chave `key/Field/<i>`, criada uma vez.
+  chaveCampo(key: string, i: number): string {
+    let k = this.campoIndice.get(key);
+    if (k === undefined) { k = this.campoChaves.length; this.campoChaves.push([]); this.campoIndice.set(key, k); }
+    const lista = this.campoChaves[k];
+    while (lista.length <= i) lista.push(key + L.fieldKey + lista.length);
+    return lista[i];
+  }
+  /// Chaves de `vector(key)` para os eixos `names`: [Label, eixo0, eixo1, eixo2], criadas uma vez.
+  chavesVetor(key: string, names: string[]): string[] {
+    const achado = this.vetorIndice.get(key);
+    if (achado !== undefined && this.vetorNomes[achado] === names) return this.vetorChaves[achado];
+    const chaves: string[] = [key + L.labelKey];
+    let i = 0;
+    while (i < names.length) { chaves.push(key + "/" + names[i]); i = i + 1; }
+    if (achado !== undefined) { this.vetorChaves[achado] = chaves; this.vetorNomes[achado] = names; }
+    else { this.vetorIndice.set(key, this.vetorChaves.length); this.vetorChaves.push(chaves); this.vetorNomes.push(names); }
+    return chaves;
+  }
   header(key: string, y: number, text: string, expanded: boolean): boolean {
     if (!this.visible(y, L.headerH)) return expanded;
     this.ui.at(this.x + L.padding, y, this.width - L.padding * 2, L.headerH);
-    const header = this.ui.control(key, "header", (expanded ? "v  " : ">  ") + text, this.enabledInput);
+    const header = this.ui.control(key, "header", this.rotuloCabecalho(text, expanded), this.enabledInput);
     header.fill = UI_C.componentHeader;
     this.ui.draw(header);
     return header.clicked ? !expanded : expanded;
@@ -129,7 +172,7 @@ export class Inspector extends Behavior {
   fieldRow(component: Behavior, key: string, fieldIndex: number, rowY: number): void {
     const fieldType = component.fieldType(fieldIndex);
     this.ui.at(this.x + L.padding + L.gap, rowY, this.width - L.padding * 2 - L.gap, L.rowH);
-    const field = this.ui.control(key + "/Field/" + fieldIndex, fieldType === "boolean" ? "toggle" : fieldType === "string" ? "propertyText" : "number", component.fieldLabel(fieldIndex), this.enabledInput);
+    const field = this.ui.control(this.chaveCampo(key, fieldIndex), fieldType === "boolean" ? "toggle" : fieldType === "string" ? "propertyText" : "number", component.fieldLabel(fieldIndex), this.enabledInput);
     if (fieldType === "string") {
       const before = component.fieldStringGet(fieldIndex);
       field.textValue = before; this.ui.draw(field);
@@ -145,15 +188,15 @@ export class Inspector extends Behavior {
   vector(key: string, y: number, label: string, values: number[]): number[] {
     const names = this.vectorNames; this.vectorNames = UI_AXIS_NAMES;
     if (!this.visible(y, L.rowH)) return values;
-    this.label(key + "/Label", y, label);
-    const colors = [AXIS_X, AXIS_Y, AXIS_Z];
+    const chaves = this.chavesVetor(key, names);
+    this.label(chaves[0], y, label);
     const valueX = this.x + L.padding + L.labelW;
     const fieldWidth = (this.width - L.padding * 2 - L.labelW - L.axisGap * 2) / 3;
     let axisIndex = 0;
     while (axisIndex < names.length) {
       this.ui.at(valueX + axisIndex * (fieldWidth + L.axisGap), y, fieldWidth, L.rowH);
-      const axis = this.ui.control(key + "/" + names[axisIndex], "axis", names[axisIndex], this.enabledInput);
-      axis.color = colors[axisIndex]; axis.value = values[axisIndex];
+      const axis = this.ui.control(chaves[axisIndex + 1], "axis", names[axisIndex], this.enabledInput);
+      axis.color = axisIndex === 0 ? AXIS_X : axisIndex === 1 ? AXIS_Y : AXIS_Z; axis.value = values[axisIndex];
       this.ui.draw(axis);
       if (axis.value !== values[axisIndex]) { this.snapshot(); values[axisIndex] = axis.value; }
       axisIndex = axisIndex + 1;
@@ -616,7 +659,9 @@ export class Inspector extends Behavior {
     }
     let rowY = this.top - this.scroll;
     if (object.parent >= 0 && object.parent < scene.objects.length) {
-      this.label("Parent/Name", rowY, L.parent + scene.objects[object.parent].name);
+      const nomePai = scene.objects[object.parent].name;
+      if (this.paiRotulo.length === 0 || this.paiDe !== nomePai) { this.paiDe = nomePai; this.paiRotulo = L.parent + nomePai; }
+      this.label("Parent/Name", rowY, this.paiRotulo);
       rowY = rowY + L.rowH;
       if (this.visible(rowY, L.rowH)) {
         this.ui.at(x + L.padding, rowY, width - L.padding * 2, L.rowH);
@@ -634,7 +679,8 @@ export class Inspector extends Behavior {
     rowY = rowY + L.headerH + L.gap;
     if (this.transformOpen) {
       const transform = object.transform;
-      const position = this.vector("Transform/Position", rowY, L.position, [transform.px, transform.py, transform.pz]);
+      const pv = this.posValores; pv[0] = transform.px; pv[1] = transform.py; pv[2] = transform.pz;
+      const position = this.vector("Transform/Position", rowY, L.position, pv);
       // Mover um ESTATICO invalida o indice espacial estatico (o dinamico segue o transform sozinho).
       if (object.stationary !== 0 && (position[0] !== transform.px || position[1] !== transform.py || position[2] !== transform.pz)) scene.markCollidersDirty();
       transform.px = position[0]; transform.py = position[1]; transform.pz = position[2];
@@ -642,13 +688,15 @@ export class Inspector extends Behavior {
       const rxDegrees = transform.rx * DEGREES_PER_RADIAN;
       const ryDegrees = transform.ry * DEGREES_PER_RADIAN;
       const rzDegrees = transform.rz * DEGREES_PER_RADIAN;
-      const rotation = this.vector("Transform/Rotation", rowY, L.rotation, [rxDegrees, ryDegrees, rzDegrees]);
+      const rv = this.rotValores; rv[0] = rxDegrees; rv[1] = ryDegrees; rv[2] = rzDegrees;
+      const rotation = this.vector("Transform/Rotation", rowY, L.rotation, rv);
       if (object.stationary !== 0 && (rotation[0] !== rxDegrees || rotation[1] !== ryDegrees || rotation[2] !== rzDegrees)) scene.markCollidersDirty();
       if (rotation[0] !== rxDegrees) transform.rx = rotation[0] / DEGREES_PER_RADIAN;
       if (rotation[1] !== ryDegrees) transform.ry = rotation[1] / DEGREES_PER_RADIAN;
       if (rotation[2] !== rzDegrees) transform.rz = rotation[2] / DEGREES_PER_RADIAN;
       rowY = rowY + L.rowH;
-      const scale = this.vector("Transform/Scale", rowY, L.scale, [transform.sx, transform.sy, transform.sz]);
+      const ev = this.escValores; ev[0] = transform.sx; ev[1] = transform.sy; ev[2] = transform.sz;
+      const scale = this.vector("Transform/Scale", rowY, L.scale, ev);
       if (scale[0] !== transform.sx || scale[1] !== transform.sy || scale[2] !== transform.sz) scene.markCollidersDirty();
       transform.sx = scale[0]; transform.sy = scale[1]; transform.sz = scale[2];
       rowY = rowY + L.rowH + L.gap;
@@ -714,7 +762,7 @@ export class Inspector extends Behavior {
     const footer = this.ui.control("Footer", "panel", "", false);
     footer.fill = UI_C.panelHeader; this.ui.draw(footer);
     this.ui.at(x + L.padding, this.bottom + L.gap, width - L.padding * 2, L.rowH);
-    const add = this.ui.control("AddComponent", "button", "+ " + P.title, !blocked);
+    const add = this.ui.control("AddComponent", "button", this.addRotulo, !blocked);
     this.ui.draw(add);
     if (add.clicked) { this.opened = this.opened === 0 ? 1 : 0; nfCancel(); if (this.opened !== 0) this.picker.begin(app); else app.setFocus(0 - 1); }
     if (this.opened !== 0) {

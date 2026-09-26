@@ -93,6 +93,8 @@ import "@engine/generated/editor_extensions";
 import { initAudio, pumpAudio } from "@engine/audio/audio";
 import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
+import { RotuloNumero, RotuloPar, RotulosDeLinha } from "@editor/rotulos";
+import { UI_ROTULOS } from "@editor/ui_config";
 import { menuDoCatalogo, executarItemDeMenu, MENU_CRIAR, MENU_JANELA } from "@editor/menu_items";
 import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_PROJECT_DEFAULT,
          UI_HIER_MIN, UI_INSP_MIN, UI_PROJECT_MIN, UI_SCENE_MIN_W, UI_SCENE_MIN_H,
@@ -346,7 +348,7 @@ function hierRowAt(sy: f64): number {
   if (rel < 0.0) return 0 - 1;
   const row = ((rel / UI_HIER_ROW_H) | 0) + hierScroll;
   if (hierFilter.length > 0) {
-    if (row >= hierShown.length) return 0 - 1;
+    if (row >= hierShownN) return 0 - 1;
     return hierShown[row];
   }
   if (row >= scene.objects.length) return 0 - 1;
@@ -429,6 +431,14 @@ let hierDrag = 0 - 1;
 let hierScroll = 0;
 let hierFilter = "";
 let hierShown: number[] = [];
+/// Quantos índices de `hierShown` valem neste quadro (o array é reaproveitado).
+let hierShownN = 0;
+// Rótulos refeitos só quando mudam (editor/rotulos.ts).
+const rotTitulo = new RotuloPar(UI_ROTULOS.titlePrefix); const rotFps = new RotuloNumero(UI_ROTULOS.fpsPrefix, "");
+const rotObjs = new RotuloNumero("", UI_ROTULOS.objCount); const rotResultados = new RotuloNumero("", UI_ROTULOS.results);
+const rotStatusN = new RotuloNumero(UI_ROTULOS.statusSep, UI_ROTULOS.statusObjects); const rotStatus = new RotuloPar("");
+const rotLinhas = new RotulosDeLinha(); let rotFilhoNome = ""; let rotFilhoTexto = "";
+let fpsAtualizadoMs: f64 = 0.0 - 1.0e9;
 /// 1 = arrastando o polegar da barra de scroll da hierarquia.
 let hierBarDrag = 0;
 
@@ -1094,7 +1104,7 @@ function frame(): void {
     menuButtonX = menuButtonX + UI_MENU_BUTTON_W[mt] + UI_MENU_GAP;
     mt = mt + 1;
   }
-  texto(14, 39, "RTS • " + scene.name + (sceneDocument.dirty ? " *" : ""), estiloTexto(UI_C.brandText, 16));
+  texto(14, 39, rotTitulo.de(scene.name, sceneDocument.dirty ? UI_ROTULOS.dirtyMark : ""), estiloTexto(UI_C.brandText, 16));
 
   playToolbar.render(W, menuOpen !== 0 || helpOpen !== 0 || addMenuOpen !== 0);
 
@@ -1129,8 +1139,9 @@ function frame(): void {
   texto(bxRedo + 11, 38, ">", estiloTexto(UI_C.primaryText, 15));
   if (stRedoB === 3 && menuOpen === 0 && helpOpen === 0) history.redo();
 
-  S.fpsLast = math.floor(app.fps());   // publica pro ws `dbg` (medir perf sem screenshot)
-  texto(W - 74, 39, "fps " + S.fpsLast, estiloTexto(UI_C.secondaryText, 12));
+  // publica pro ws `dbg` (medir perf sem screenshot); o rótulo muda a cada UI_ROTULOS.fpsMs, não por quadro
+  if (clockNow() - fpsAtualizadoMs >= UI_ROTULOS.fpsMs) { fpsAtualizadoMs = clockNow(); S.fpsLast = math.floor(app.fps()); }
+  texto(W - 74, 39, rotFps.de(S.fpsLast), estiloTexto(UI_C.secondaryText, 12));
 
   // Ferramentas de transformação pertencem à vista de cena, como um overlay.
   const sceneX = HIER_W;
@@ -1169,7 +1180,7 @@ function frame(): void {
   pincel(UI_C.panelHeader, 0, 0, 0); caixa(0, BAR_H, HIER_W, UI_HIER_HEADER_H);
   pincel(UI_C.panelTab, 0, 0, 3); caixa(4, BAR_H + 2, 88, 20);
   texto(12, BAR_H + 5, "Hierarquia", estiloTexto(UI_C.panelTitle, 12));
-  texto(HIER_W - 52, BAR_H + 5, scene.objects.length + " obj", estiloTexto(UI_C.panelCount, 11));
+  texto(HIER_W - 52, BAR_H + 5, rotObjs.de(scene.objects.length), estiloTexto(UI_C.panelCount, 11));
   traco(1, UI_C.border); linha(0, BAR_H + UI_HIER_HEADER_H, HIER_W, BAR_H + UI_HIER_HEADER_H);
 
   app.at(8, BAR_H + 28, 72, 22);
@@ -1186,16 +1197,19 @@ function frame(): void {
     app.setFocus(0 - 1);
   }
   if (hierFilter !== oldFilter) { hierScroll = 0; S.hierScroll = 0; }
-  hierShown = [];
+  hierShownN = 0;
   if (hierFilter.length > 0) {
     let fi = 0;
     while (fi < scene.objects.length) {
-      if (containsCI(scene.objects[fi].name, hierFilter)) hierShown.push(fi);
+      if (containsCI(scene.objects[fi].name, hierFilter)) {
+        if (hierShownN < hierShown.length) hierShown[hierShownN] = fi; else hierShown.push(fi);
+        hierShownN = hierShownN + 1;
+      }
       fi = fi + 1;
     }
   }
-  const totalRows = hierFilter.length > 0 ? hierShown.length : scene.objects.length;
-  if (hierFilter.length > 0) texto(14, BAR_H + 60, totalRows + " resultado(s)", estiloTexto(UI_C.searchResult, 11));
+  const totalRows = hierFilter.length > 0 ? hierShownN : scene.objects.length;
+  if (hierFilter.length > 0) texto(14, BAR_H + 60, rotResultados.de(totalRows), estiloTexto(UI_C.searchResult, 11));
   else texto(14, BAR_H + 60, "Duplo clique enquadra  •  arraste organiza", estiloTexto(UI_C.hint, 11));
 
   // TREEVIEW com SLOTS de inserção (estilo Unity): por linha, o terço de cima =
@@ -1275,7 +1289,7 @@ function frame(): void {
     if (obj.meshKind === 2) icon = "[P]";
     if (obj.meshKind === 3) icon = "[O]";
     if (obj.meshKind === 4) icon = "[S]";
-    texto(14 + indent, ry0 + 6, icon + " " + obj.name, estiloTexto(UI_C.primaryText, 13));
+    texto(14 + indent, ry0 + 6, rotLinhas.de(hi, icon, obj.name, obj.meshKind), estiloTexto(UI_C.primaryText, 13));
     row = row + 1;
   }
   if (totalRows === 0) texto(14, HIER_LIST_TOP + 12, "Nenhum objeto encontrado", estiloTexto(UI_C.emptyText, 12));
@@ -1363,7 +1377,7 @@ function frame(): void {
   let modeTxt = UI_PLAY.editing;
   if (S.simulating !== 0) modeTxt = S.playing !== 0 ? UI_PLAY.running : UI_PLAY.paused;
   if (playMode.error.length > 0) modeTxt = playMode.error;
-  texto(vpx + 10, H - 19, modeTxt + "  •  " + scene.objects.length + " objetos", estiloTexto(UI_C.statusText, 12));
+  texto(vpx + 10, H - 19, rotStatus.de(modeTxt, rotStatusN.de(scene.objects.length)), estiloTexto(UI_C.statusText, 12));
   // O resultado detalhado do build fica no Console, sem cobrir o Inspector.
   if (editorBuild.status.length > 0) {
     if (vpw > 520 && S.simulating === 0) texto(vpx + 185, H - 19, editorBuild.running ? UI_WORKSPACE.buildRunning : UI_WORKSPACE.buildResult, estiloTexto(UI_C.dropMarker, 11));
@@ -1534,7 +1548,11 @@ function frame(): void {
     // cabeçalho: mostra SE vai criar como filho, e de quem
     let head = "Criar na raiz";
     if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
-      head = "Filho de " + subStr(scene.objects[ctxTarget].name, 0, 14);
+      const nomeAlvo = scene.objects[ctxTarget].name;
+      if (rotFilhoTexto.length === 0 || rotFilhoNome !== nomeAlvo) {
+        rotFilhoNome = nomeAlvo; rotFilhoTexto = UI_ROTULOS.childOf + subStr(nomeAlvo, 0, UI_ROTULOS.childOfChars);
+      }
+      head = rotFilhoTexto;
     }
     texto(cx + 10, cy + 6, head, estiloTexto(UI_C.scrollbarDrag, 11));
     let iy = cy + UI_CONTEXT_ROW_H;

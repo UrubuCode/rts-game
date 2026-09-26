@@ -57,6 +57,15 @@ function r2(v: f64): f64 {
   return math.floor(v * 100.0 + 0.5) / 100.0;
 }
 
+/// Texto que um campo mostra, refeito só quando o valor (ou a largura/o caminho) muda.
+/// Um por controle (EditorControl.campo): sem `"" + valor` nem `subStr` por quadro.
+export class CampoCache {
+  id: number = 0;
+  valor: f64 = 0.0; largura: number = 0 - 1; texto: string = "";
+  caminho: string = ""; mostrado: string = "";
+  rotulo: string = ""; rotuloN: number = 0 - 1; rotuloTexto: string = "";
+}
+
 // ── retângulo e mouse do próximo widget ──────────────────────────────────────
 // Os widgets recebem no máximo 4 parâmetros (Task 10.5: 5+ parâmetros alocam
 // por chamada no RTS). Quem desenha chama `widgetRect` e `widgetMouse` antes.
@@ -89,7 +98,7 @@ export function button(s: string, base: number): number {
 ///   `dragOK`    — 1 se o asset sendo arrastado é COMPATÍVEL com este slot
 /// Retorna 1 quando o cursor está sobre o slot (o chamador usa isso, junto com
 /// o release do mouse, pra confirmar o drop).
-export function assetField(lbl: string, cur: string, dragOK: number): number {
+export function assetField(c: CampoCache, lbl: string, cur: string, dragOK: number): number {
   const x = wX; const y = wY; const w = wW; const h = wH; const mx = wMx; const my = wMy;
   const over = mx >= x && mx < x + w && my >= y && my < y + h ? 1 : 0;
   texto(x, y + (h / 2 - 7), lbl, estiloTexto(TEXT_DIM, 12));
@@ -101,25 +110,30 @@ export function assetField(lbl: string, cur: string, dragOK: number): number {
   if (dragOK !== 0 && over !== 0) { fill = UI_C.rowDropTarget; brd = UI_C.dropMarker; }
   else if (dragOK !== 0) brd = UI_C.componentEnabled;   // slots compatíveis "acendem" durante o drag
   pincel(fill, 1, brd, 3); caixa(fx, y, fw, h);
-  // mostra só o nome do arquivo (o path inteiro não cabe)
-  let show = cur;
-  if (show.length === 0) show = "None";
-  else {
-    let cut = 0 - 1;
-    let i = 0;
-    while (i < show.length) { if (show.charCodeAt(i) === 47) cut = i; i = i + 1; }   // '/'
-    if (cut >= 0) show = subStr(show, cut + 1, show.length);
-  }
+  // mostra só o nome do arquivo (o path inteiro não cabe); refeito só quando o caminho ou a largura mudam
   const maxc = ((fw - 14) / 7) | 0;
-  if (show.length > maxc && maxc > 1) show = subStr(show, 0, maxc - 1) + "…";
-  texto(fx + 7, y + (h / 2 - 7), show, estiloTexto(cur.length === 0 ? TEXT_DIM : TEXT, 12));
+  if (c.caminho !== cur || c.largura !== maxc || c.mostrado.length === 0) {
+    c.caminho = cur; c.largura = maxc;
+    let show = cur;
+    if (show.length === 0) show = "None";
+    else {
+      let cut = 0 - 1;
+      let i = 0;
+      while (i < show.length) { if (show.charCodeAt(i) === 47) cut = i; i = i + 1; }   // '/'
+      if (cut >= 0) show = subStr(show, cut + 1, show.length);
+    }
+    if (show.length > maxc && maxc > 1) show = subStr(show, 0, maxc - 1) + "…";
+    c.mostrado = show;
+  }
+  texto(fx + 7, y + (h / 2 - 7), c.mostrado, estiloTexto(cur.length === 0 ? TEXT_DIM : TEXT, 12));
   return over;
 }
 
 /// Campo numérico estilo Unity: aba colorida (X/Y/Z) = ARRASTAR faz scrub; área
 /// do VALOR = CLICAR entra em modo digitação (input de texto → parseFloat no
 /// Enter/clique fora). `id` estável por campo. Devolve o valor atual.
-export function numField(id: number, lbl: string, tab: number, value: f64): f64 {
+export function numField(c: CampoCache, lbl: string, tab: number, value: f64): f64 {
+  const id = c.id;
   const win = janelaAtual2D();
   const x = wX; const y = wY; const w = wW; const mx = wMx; const my = wMy; const mDown = wDown; const mPressed = wPressed;
   const tabWidth = lbl.length === 0 ? 0 : N.axisWidth;
@@ -179,21 +193,29 @@ export function numField(id: number, lbl: string, tab: number, value: f64): f64 
     return value;   // enquanto digita, mantém o valor até confirmar
   }
   const valueChars = math.max(1, ((valueWidth - N.padding * 2) / N.charWidth) | 0);
-  let valueText = "" + r2(v);
-  if (valueText.length > valueChars) valueText = subStr(valueText, 0, valueChars - 1) + "…";
-  texto(valueX + N.padding, y + N.textY, valueText, estiloTexto(UI_C.popupText, N.font));
+  // "" + r2(v) só quando o valor mostrado ou a largura mudam (não por quadro)
+  if (c.valor !== v || c.largura !== valueChars || c.texto.length === 0) {
+    c.valor = v; c.largura = valueChars;
+    let valueText = "" + r2(v);
+    if (valueText.length > valueChars) valueText = subStr(valueText, 0, valueChars - 1) + "…";
+    c.texto = valueText;
+  }
+  texto(valueX + N.padding, y + N.textY, c.texto, estiloTexto(UI_C.popupText, N.font));
   return v;
 }
 
 // Propriedades de componentes: rotulo legivel em uma coluna, valor na outra.
 // Reusa a edicao numerica sem a aba de eixo, que so comporta X/Y/Z.
-export function propertyField(id: number, lbl: string, value: f64): f64 {
+export function propertyField(c: CampoCache, lbl: string, value: f64): f64 {
   const x = wX; const y = wY; const w = wW;
   const labelWidth = (w * N.labelFraction) | 0;
   const chars = math.max(1, ((labelWidth - N.labelGap) / N.charWidth) | 0);
-  let labelText = lbl;
-  if (labelText.length > chars) labelText = subStr(labelText, 0, chars - 1) + "…";
-  texto(x, y + N.textY, labelText, estiloTexto(TEXT, N.font));
+  // rótulo cortado: o chamador passa o mesmo `lbl` a cada quadro; refeito só quando muda
+  if (c.rotulo !== lbl || c.rotuloN !== chars) {
+    c.rotulo = lbl; c.rotuloN = chars;
+    c.rotuloTexto = lbl.length > chars ? subStr(lbl, 0, chars - 1) + "…" : lbl;
+  }
+  texto(x, y + N.textY, c.rotuloTexto, estiloTexto(TEXT, N.font));
   wX = x + labelWidth; wW = w - labelWidth;
-  return numField(id, "", FIELD, value);
+  return numField(c, "", FIELD, value);
 }

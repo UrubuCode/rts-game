@@ -54,6 +54,8 @@ export const UI_INSPECTOR = {
   /// Prefixos das chaves dos controles de componente (objeto selecionado / janela).
   componentsKey: "Components/", windowComponentsKey: "Window/Components/",
   headerKey: "/Header", removeKey: "/Remove", enabledKey: "/Enabled", expandedMark: "v  ", collapsedMark: ">  ",
+  /// Sufixos das chaves de campo automático ("<comp>/Field/<i>") e do rótulo de vetor ("<chave>/Label").
+  fieldKey: "/Field/", labelKey: "/Label",
 };
 // onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
 // "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
@@ -190,8 +192,17 @@ export const UI_DOCUMENT = {
   title: "Alteracoes nao salvas", hint: "Deseja salvar antes de continuar?",
   save: "Salvar e continuar", discard: "Descartar", cancel: "Cancelar",
   untitled: "Sem titulo", pollMs: 750,
+  /// A cada quantos `refresh` sem mudança na assinatura rápida a comparação completa roda mesmo assim.
+  fullCheckEvery: 8,
 };
 
+/// Rótulos dinâmicos da barra, Hierarquia e status (montados por `editor/rotulos.ts` só quando mudam).
+export const UI_ROTULOS = {
+  titlePrefix: "RTS • ", dirtyMark: " *", fpsPrefix: "fps ", objCount: " obj", results: " resultado(s)",
+  statusSep: "  •  ", statusObjects: " objetos", childOf: "Filho de ", childOfChars: 14,
+  /// Intervalo (ms) entre atualizações do rótulo de fps.
+  fpsMs: 250,
+};
 /// Textos do host de @editor/api (editor_host.ts).
 export const UI_EDITOR_API = { undoPrefix: "Desfazer: " };
 
