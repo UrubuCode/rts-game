@@ -14,6 +14,7 @@ import { MeshRenderer } from "../engine/core/meshrenderer";
 import { Skeleton } from "../engine/core/skeleton";
 import { Camera } from "../engine/core/camera";
 import { SceneRef } from "../engine/core/sceneref";
+import { Ambiente, ambienteToData, ambienteFromData, copiarAmbiente } from "../engine/core/ambiente";
 import { Spinner } from "../scripts/spinner";
 import { Bobber } from "../scripts/bobber";
 import { Rigidbody } from "../scripts/rigidbody";
@@ -201,7 +202,8 @@ export function sceneToJSON(): string {
     name: scene.name,
     objects: objs,
     camera: [S.camX, S.camY, S.camZ, S.camYaw, S.camPitch],
-    light: [S.lightX, S.lightY, S.lightZ, S.lightAmb]
+    light: [S.lightX, S.lightY, S.lightZ, S.lightAmb],
+    ambiente: ambienteToData(scene.ambiente)
   };
   return JSON.stringify(data);
 }
@@ -248,6 +250,8 @@ export function sceneFromJSON(s: string, sc?: Scene): void {
   const arr = data.objects;
   if (data.camera !== undefined) validateVector(data.camera, 5, "camera");
   if (data.light !== undefined) validateVector(data.light, 4, "light");
+  const ambienteLido = new Ambiente();
+  if (data.ambiente !== undefined) ambienteFromData(ambienteLido, data.ambiente);
   const next: GameObject[] = [];
   const idSet = buildIdSet(targetScene);
   let i = 0;
@@ -278,6 +282,7 @@ export function sceneFromJSON(s: string, sc?: Scene): void {
     throw error;
   }
   if (typeof data.name === "string") targetScene.name = data.name;
+  copiarAmbiente(targetScene.ambiente, ambienteLido);
   if (targetScene !== scene) return;
   if (Array.isArray(data.camera) && data.camera.length >= 5) {
     S.camX = data.camera[0]; S.camY = data.camera[1]; S.camZ = data.camera[2]; S.camYaw = data.camera[3]; S.camPitch = data.camera[4];

@@ -9,7 +9,7 @@ import { criarLuzDirecionalPadrao } from "@engine/core/light";
 export function authoredSignature(json: string): string {
   const data = JSON.parse(json);
   // Moving the editor camera is not a change to authored game objects.
-  return JSON.stringify({ name: data.name, objects: data.objects, light: data.light });
+  return JSON.stringify({ name: data.name, objects: data.objects, light: data.light, ambiente: data.ambiente });
 }
 
 export class SceneDocument {

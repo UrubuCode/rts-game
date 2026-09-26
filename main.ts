@@ -43,7 +43,7 @@ import { chooseSceneFile } from "@editor/scene_dialog";
 import { EditorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCam, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
-import { aplicarLuzes } from "@engine/render/scene_lighting";
+import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { scene, S } from "@editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE,
   GIZMO_ROTATE_PER_UNIT, SNAP_MOVE_STEP, SNAP_ROTATE_STEP } from "@editor/gizmo";
@@ -865,6 +865,7 @@ function frame(): void {
   luzCam[0] = workspaceViews.x; luzCam[1] = workspaceViews.y; luzCam[2] = workspaceViews.z;
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);
+  aplicarAmbiente(WIN, scene);
   // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
   secBegin(P_MUNDO3D);
   frustumBegin(workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);

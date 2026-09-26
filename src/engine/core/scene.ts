@@ -13,6 +13,7 @@ import { eventsOf } from "./collider";
 import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 import math from "@compat/math.ts";
 import { coletarLuzes, LUZ_DIST_INICIAL } from "./light";
+import { Ambiente } from "./ambiente";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
 /// MÓDULO e não um contador por cena: quem compara versões (o backend de
@@ -129,6 +130,8 @@ export class Scene {
   /// Rascunho de distâncias de `coletarLuzes` (ver light.ts): só cresce, nunca
   /// realoca por frame.
   luzDist: Float64Array;
+  /// Céu, neblina, luz ambiente e qual direcional é o sol (ver ambiente.ts).
+  ambiente: Ambiente;
 
   constructor(name: string) {
     this.name = name;
@@ -151,6 +154,7 @@ export class Scene {
     this.lightObjs = [];
     this.camObjs = [];
     this.luzDist = new Float64Array(LUZ_DIST_INICIAL);
+    this.ambiente = new Ambiente();
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
@@ -286,7 +290,7 @@ export class Scene {
   /// Até MAX_LUZES luzes ativas em `buf` (16 números cada); devolve quantas.
   /// `cam` = [x, y, z] de quem vê. Sem alocação (ver `coletarLuzes`).
   collectLights(buf: Float64Array, cam: Float64Array): number {
-    return coletarLuzes(this, buf, cam, "");
+    return coletarLuzes(this, buf, cam, this.ambiente.sol);
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do

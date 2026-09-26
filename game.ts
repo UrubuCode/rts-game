@@ -31,7 +31,7 @@ import { resolveMaterialTexture } from "@engine/render/material_tex";
 import { GameObject } from "@engine/core/gameobject";
 import { initMeshes, setCam, drawGPU, drawGPUMesh, setFundoCeu, setViewportBuf,
          frustumBegin, frustumParams, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
-import { aplicarLuzes } from "@engine/render/scene_lighting";
+import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { Camera } from "@engine/core/camera";
 import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
          posicaoDaVista } from "@engine/render/camera_views";
@@ -170,6 +170,7 @@ function frame(): void {
   }
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);
+  aplicarAmbiente(WIN, scene);
   let oi = 0;
   let drawnN = 0;
   const objs: GameObject[] = scene.objects;   // tipado: campos por offset constante
