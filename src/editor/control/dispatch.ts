@@ -12,6 +12,7 @@ import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc } from "./commands/doc";
+import { cmdDescribe, cmdScene } from "@editor/control/commands/describe";
 import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
@@ -36,7 +37,7 @@ function isMutating(c: string): boolean {
 
 /// Consultas: não vão para o log (encheriam o histórico com as próprias
 /// perguntas — inclusive a consulta ao log).
-const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc"];
+const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc", "describe", "scene"];
 const ERRO_PREFIXO: string = "[erro]";
 
 /// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`,
@@ -121,6 +122,8 @@ function execCommandInner(w: number, h: number, line: string): string {
       return "[redo] nada pra refazer";
     }
     case "state": return cmdState();
+    case "describe": return cmdDescribe(parts);
+    case "scene": return cmdScene(parts);
     // A TABELA DE DESEMPENHO — onde o frame foi gasto, por seção.
     //
     // Existe porque adivinhar errou duas vezes nesta engine: primeiro culpando o

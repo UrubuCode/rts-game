@@ -3,6 +3,7 @@ import { scene, S } from "../session";
 import { setVsync } from "@engine/render/gpu3d";
 import { commandHelpLine } from "../../api";
 import { argInt } from "@editor/control/args";
+import { graus } from "@editor/control/commands/describe";
 import { erroUso } from "@editor/control/builtin_commands";
 
 /// Estado completo da cena + câmera (para a IA inspecionar).
@@ -14,6 +15,7 @@ export function cmdState(): string {
     const o = scene.objects[i];
     m = m + " | #" + i + " " + o.name + " k" + o.meshKind + " cm" + o.customMesh +
         " pos(" + o.transform.px + "," + o.transform.py + "," + o.transform.pz + ")" +
+        " rot(" + graus(o.transform.ry) + "," + graus(o.transform.rx) + "," + graus(o.transform.rz) + ")" +
         " scl(" + o.transform.sx + "," + o.transform.sy + "," + o.transform.sz + ")";
     i = i + 1;
   }

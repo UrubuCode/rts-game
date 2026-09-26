@@ -81,6 +81,9 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("dbg", "sistema", MUTA_NAO, ["dbg :: diagnostico: fisica, corpos, fps, ativos, wouldDraw, drawnLast :: dbg"]),
   c("delete", "objetos", MUTA_SIM, ["delete <obj> :: remove o objeto :: delete 3"]),
   c("delsel", "objetos", MUTA_SIM, ["delsel :: remove TODOS os objetos da multi-selecao (ou o unico selecionado) :: delsel"]),
+  c("describe", "consulta", MUTA_NAO, [
+    "describe <obj> :: TUDO de um objeto em texto: nome, indice, caminho, ativo, transform (pos, rot em graus, escala, mundo), aparencia, filhos e cada componente com todos os campos :: describe Cubo",
+    "describe <obj> json :: o mesmo em JSON (depois de '[describe] ') :: describe Pai/Filho json"]),
   c("doc", "consulta", MUTA_NAO, [
     "doc [prefixo] :: esta documentacao (todos ou filtrado pelo inicio da linha) :: doc addcomp",
     "doc json :: manifesto de TODOS os comandos (embutidos + de pacote) em JSON: nome, sintaxe, ajuda, muta, grupo :: doc json"]),
@@ -137,6 +140,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("rmcomp", "componentes", MUTA_SIM, ["rmcomp <obj> <comp> :: remove o componente (indice em comps) :: rmcomp 1 0"]),
   c("rmpath", "arquivos", MUTA_NAO, ["rmpath <path> :: deleta arquivo ou pasta (recursivo) :: rmpath assets/tmp"]),
   c("savescene", "cena", MUTA_NAO, ["savescene <path> :: SALVA a cena num JSON e passa a ser o documento aberto (dispara o gancho salvar) :: savescene assets/minhacena.json"]),
+  c("scene", "consulta", MUTA_NAO, ["scene json [obj] :: a cena inteira no JSON que o save grava (ou so um objeto), SEM salvar nem mudar o documento :: scene json"]),
   c("scl", "transform", MUTA_SIM, ["scl <obj> <sx> <sy> <sz> :: escala NAO-uniforme :: scl 0 1 6 1"]),
   c("selbone", "esqueleto", MUTA_NAO, ["selbone <obj> <osso|nome|-1> :: escolhe o osso do gizmo/Inspector (objeto ja selecionado; -1 = volta ao objeto) :: selbone 0 arm-right"]),
   c("select", "objetos", MUTA_NAO, ["select <obj> :: seleciona o objeto (limpa a multi-selecao) :: select 3"]),
@@ -148,7 +152,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("snd", "sistema", MUTA_NAO, ["snd [freq dur vol] :: toca um beep e mostra o estado do mixer :: snd 440 0.2 0.3"]),
   c("spawn", "objetos", MUTA_SIM, ["spawn <nome> <x> <y> <z> [kind] [escala] :: cria objeto; kind 1=cubo 2=piramide 3=octaedro 4=esfera; nasce estatico :: spawn Cubo 0 2 0 1 1.5"]),
   c("spin", "transform", MUTA_SIM, ["spin <obj> <spdY> [spdX] :: anexa um Spinner (atalho) :: spin 0 1.2"]),
-  c("state", "consulta", MUTA_NAO, ["state :: estado da cena e da camera; por objeto: kind, pos, escala :: state"]),
+  c("state", "consulta", MUTA_NAO, ["state :: estado da cena e da camera; por objeto: kind, pos, rot (yaw,pitch,roll em graus), escala :: state"]),
   c("stop", "play", MUTA_NAO, ["stop :: descarta a simulacao e restaura a cena de edicao e seu historico :: stop"]),
   c("thumb", "arrastar", MUTA_NAO, ["thumb <path> [cols] :: INSPECIONA o thumbnail que o Project mostra pro asset: estatisticas de pixel + preview ASCII (| = quebra de linha) :: thumb assets/models/torus.obj 16"]),
   c("tool", "transform", MUTA_NAO, ["tool [move|rotate|scale|select] :: troca/consulta a ferramenta do gizmo da viewport :: tool rotate"]),
