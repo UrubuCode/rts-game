@@ -38,7 +38,7 @@ import { UI_PLAY } from "@editor/ui_config";
 import { UI_WORKSPACE, UI_DOCUMENT } from "@editor/ui_config";
 import { UI_GIZMO } from "@editor/ui_config";
 import { gizmosBegin } from "@engine/core/gizmos";
-import { gizmosDoEditor, coletarGizmos, pintarGizmos, gizmoIconAt } from "@editor/gizmo_pass";
+import { gizmosDoEditor, passeDeGizmosProtegido, pintarGizmos, gizmoIconAt } from "@editor/gizmo_pass";
 import { ConsolePanel } from "@editor/console_panel";
 import { WorkspaceViews } from "@editor/workspace_views";
 import { sceneDocument } from "@editor/scene_document";
@@ -1020,7 +1020,7 @@ function frame(): void {
     gizmoPose[5] = FOV; gizmoPose[6] = W; gizmoPose[7] = H;
     gizmosBegin(gizmosDoEditor, gizmoPose);
     gizmosDoEditor.lado = UI_GIZMO.iconSize;
-    coletarGizmos(gizmosDoEditor, scene, S.selected);
+    passeDeGizmosProtegido(gizmosDoEditor, scene, S.selected);
     pintarGizmos(app, WIN, gizmosDoEditor);
   }
   // Moldura (só contorno) e nome da câmera da prévia, por cima do 3D.
@@ -1377,7 +1377,7 @@ function frame(): void {
   // Inspector: raiz e controles sao GameObjects de uma UIScene do editor.
   inspector.area(W - INSP_W, BAR_H, INSP_W, H - BAR_H);
   inspector.mouse(mx, my, mDownNow, mPressed);
-  inspector.render(app, menuOpen !== 0 || helpOpen !== 0, dndModel, dndTex);
+  inspector.renderProtegido(app, menuOpen !== 0 || helpOpen !== 0, dndModel, dndTex);
   addMenuOpen = inspector.opened;
   slotMeshHot = inspector.meshHot;
   slotTexHot = inspector.textureHot;

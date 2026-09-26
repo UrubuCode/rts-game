@@ -22,7 +22,8 @@ import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { assetsInit, assetsArea, assetsMouse, drawAssets } from "@editor/assets";
 import { drawSceneObjects, prepararDesenho, fParams, DS_FLOATS } from "@engine/render/scenedraw";
 import { rigidStep } from "@engine/core/physics_backend";
-import { gizmosDoEditor, coletarGizmos, pintarGizmos } from "@editor/gizmo_pass";
+import { gizmosDoEditor, passeDeGizmosProtegido, pintarGizmos } from "@editor/gizmo_pass";
+import { Scene } from "@engine/core/scene";
 import { gizmosBegin } from "@engine/core/gizmos";
 import { editorIcon, iconAt, drawEditorIcon } from "@editor/icon_images";
 import { interpolateSync } from "@engine/core/interpolate";
@@ -64,7 +65,7 @@ const cfg = new Float64Array(DS_FLOATS);
 const pixels = new Uint8Array(16 * 16 * 4);
 assetsInit();
 // aquece cada caminho uma vez (caches, rótulos, texturas, strings de 1ª vez)
-function painelInspector(): void { inspector.area(910.0, 70.0, 290.0, 650.0); inspector.mouse(0 - 1, 0 - 1, 0, 0); inspector.render(app, false, 0, 0); }
+function painelInspector(): void { inspector.area(910.0, 70.0, 290.0, 650.0); inspector.mouse(0 - 1, 0 - 1, 0, 0); inspector.renderProtegido(app, false, 0, 0); }
 function painelProject(): void { assetsArea(250.0, 500.0, 660.0, 200.0); assetsMouse(0 - 1, 0 - 1, 0, 0); drawAssets(0); }
 function quadroJogo(): void {
   scene.update(1.0 / 60.0);
@@ -113,7 +114,13 @@ io.print("FASE gizmos " + nPainel);
 const poseGiz = new Float64Array(8);
 poseGiz[1] = 3.0; poseGiz[2] = 0.0 - 12.0; poseGiz[5] = 1.05; poseGiz[6] = 1200.0; poseGiz[7] = 720.0;
 i = 0;
-while (i < nPainel) { gizmosBegin(gizmosDoEditor, poseGiz); coletarGizmos(gizmosDoEditor, scene, 1); pintarGizmos(app, 0, gizmosDoEditor); i = i + 1; }
+while (i < nPainel) { gizmosBegin(gizmosDoEditor, poseGiz); passeDeGizmosProtegido(gizmosDoEditor, scene, 1); pintarGizmos(app, 0, gizmosDoEditor); i = i + 1; }
+// O `try` do passe protegido (uma chamada por quadro) isolado, em GC_N
+// chamadas: numa cena vazia o custo é só o da função que contém o `try`.
+const cenaVazia = new Scene("vazia");
+io.print("FASE try-gizmos " + n);
+i = 0;
+while (i < n) { passeDeGizmosProtegido(gizmosDoEditor, cenaVazia, 0 - 1); i = i + 1; }
 io.print("FASE inspector " + nPainel);
 i = 0;
 while (i < nPainel) { painelInspector(); i = i + 1; }

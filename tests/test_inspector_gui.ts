@@ -11,6 +11,9 @@ import { history } from "@editor/undo";
 import { Light } from "@engine/core/light";
 import { Camera } from "@engine/core/camera";
 import { Spinner } from "@scripts/spinner";
+import { Behavior, FALHA_GUI } from "@engine/core/behavior";
+import type { InspectorUI } from "@engine/core/inspector_ui";
+import { logEntries, LOG_ERROR } from "@engine/core/logger";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 class TestApp {
@@ -127,4 +130,31 @@ S.selected = scene.objects.indexOf(cf); S.selection = [S.selected]; render();
 click(porRotulo("Alinhar com a vista"));
 scene.computeWorld();
 check(Math.abs(cf.transform.wx - 3.0) < 1e-9 && Math.abs(cf.transform.wz - 5.0) < 1e-9 && Math.abs(cf.transform.wry - 0.5) < 1e-9, "filha: pose de mundo = vista");
-io.print("[PASSOU] inspector gui: substitui a lista, dropdown, cor (digitada tecla a tecla), slider, toggle, sem GUI, alinhar raiz e filha");
+
+// onInspectorGUI que lança: o Inspector termina o quadro (renderProtegido), o
+// erro vai ao Console uma vez e o componente passa aos campos automáticos.
+class GuiQuebrada extends Behavior {
+  n: number = 0;
+  valor: number = 3.0;
+  typeName(): string { return "GuiQuebrada"; }
+  fieldCount(): number { return 1; }
+  fieldLabel(i: number): string { return "Valor"; }
+  fieldName(i: number): string { return "valor"; }
+  fieldType(i: number): string { return "number"; }
+  fieldGet(i: number): f64 { return this.valor; }
+  fieldSet(i: number, v: f64): void { this.valor = v; }
+  onInspectorGUI(ui: InspectorUI): void { this.n = this.n + 1; ui.field("valor"); throw new Error("GUI quebrada de propósito"); }
+}
+function renderProtegido(): void { inspector.area(0, 0, 290, PANEL_H); inspector.mouse(-1, -1, 0, 0); inspector.renderProtegido(app, false, 0, 0); }
+function errosDaGui(): number { return logEntries(LOG_ERROR, "GuiQuebrada").length; }
+scene.clear(); history.u = []; history.r = [];
+const oq = scene.createGameObject("Quebrada"); const gq = new GuiQuebrada(); oq.addBehavior(gq);
+S.selected = 0; S.selection = [0];
+const errosGuiAntes = errosDaGui();
+renderProtegido();
+check(gq.n === 1 && (gq.falhasEditor & FALHA_GUI) !== 0 && inspector.guiEmCurso === null, "a GUI que lançou fica desligada");
+check(errosDaGui() === errosGuiAntes + 1, "erro registrado uma vez");
+renderProtegido();
+check(gq.n === 1 && inspector.ui.names.indexOf("Components/0/Field/0") >= 0, "no quadro seguinte: campos automáticos, sem chamar a GUI");
+check(errosDaGui() === errosGuiAntes + 1, "sem repetir o erro");
+io.print("[PASSOU] inspector gui: substitui a lista, dropdown, cor (digitada tecla a tecla), slider, toggle, sem GUI, alinhar raiz e filha, exceção de script contida");

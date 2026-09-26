@@ -8,7 +8,9 @@ import { Behavior } from "@engine/core/behavior";
 import { Scene } from "@engine/core/scene";
 import { GameObject } from "@engine/core/gameobject";
 import { Gizmos, gizmosBegin, registerGizmoDrawer, GIZMO_SEGMENTOS_CIRCULO, GIZMO_ARESTAS_CONE } from "@engine/core/gizmos";
-import { coletarGizmos, gizmoIconAt, gizmosDoEditor } from "@editor/gizmo_pass";
+import { coletarGizmos, gizmoIconAt, gizmosDoEditor, passeDeGizmosProtegido } from "@editor/gizmo_pass";
+import { FALHA_GIZMO } from "@engine/core/behavior";
+import { logEntries, LOG_ERROR } from "@engine/core/logger";
 import { cmdGizmoAt } from "@editor/control/commands/gizmo";
 import { S } from "@editor/control/session";
 import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
@@ -77,4 +79,42 @@ gizmosDoEditor.icon("camera", v3(0, 0, 10));
 check(cmdGizmoAt(["gizmoat", "640", "360"]).indexOf("[ok] #0") === 0 && S.selected === 0, "gizmoat seleciona o dono");
 check(cmdGizmoAt(["gizmoat", "10", "10"]).indexOf("[gizmoat] nenhum") === 0, "fora de ícone: nenhum");
 check(cmdGizmoAt(["gizmoat", "x"]).indexOf("[erro]") === 0, "argumentos inválidos = erro");
-io.print("[PASSOU] gizmos: projeção, corte, esfera/cone, ícone clicável, reuso, só no editor, gizmoat");
+
+// script que lança em onDrawGizmos: o quadro do editor termina, o erro vai ao
+// Console uma vez e o gizmo desse componente fica desligado; os demais seguem.
+class GizmoQuebrado extends Behavior {
+  n: number = 0;
+  typeName(): string { return "GizmoQuebrado"; }
+  onDrawGizmos(gz: Gizmos): void { this.n = this.n + 1; throw new Error("gizmo quebrado de propósito"); }
+}
+class GizmoBom extends Behavior {
+  typeName(): string { return "GizmoBom"; }
+}
+// desenhador por tipo: o bom desenha um ícone; o do quebrado lançaria também
+// (nunca chega a rodar: o onDrawGizmos lança antes e o componente é desligado)
+registerGizmoDrawer("GizmoBom", (gz: Gizmos, dono: GameObject, comp: Behavior) => { gz.icon("camera", v3(0, 0, 10)); });
+registerGizmoDrawer("GizmoQuebrado", (gz: Gizmos, dono: GameObject, comp: Behavior) => { throw new Error("desenhador quebrado"); });
+function errosDoGizmo(): number { return logEntries(LOG_ERROR, "GizmoQuebrado").length; }
+const sq = new Scene("gizmo quebrado");
+sq.createGameObject("Bom").addBehavior(new GizmoBom());
+const quebrado = new GizmoQuebrado(); sq.createGameObject("Q").addBehavior(quebrado);
+sq.computeWorld();
+const errosAntes = errosDoGizmo();
+gizmosBegin(g, pose);
+check(passeDeGizmosProtegido(g, sq, 0 - 1) === 2, "o passe protegido termina o quadro");
+check(quebrado.n === 1 && (quebrado.falhasEditor & FALHA_GIZMO) !== 0, "o componente que lançou fica com o gizmo desligado");
+check(g.nIc === 1, "o quadro recoleta sem duplicar o gizmo dos outros: " + g.nIc);
+check(errosDoGizmo() === errosAntes + 1, "erro registrado uma vez com o tipo");
+check(logEntries(LOG_ERROR, "em 'Q'").length >= 1, "o erro nomeia o objeto");
+gizmosBegin(g, pose);
+check(passeDeGizmosProtegido(g, sq, 0 - 1) === 2 && quebrado.n === 1 && g.nIc === 1, "quadros seguintes pulam o gizmo desligado");
+check(errosDoGizmo() === errosAntes + 1, "sem repetir o erro");
+// desenhador registrado (pacote) que lança: mesmo tratamento
+class SoDesenhador extends Behavior { typeName(): string { return "SoDesenhador"; } }
+registerGizmoDrawer("SoDesenhador", (gz: Gizmos, dono: GameObject, comp: Behavior) => { throw new Error("desenhador de pacote quebrado"); });
+const sd = new SoDesenhador(); sq.createGameObject("D").addBehavior(sd);
+const errosDesenhador = logEntries(LOG_ERROR, "SoDesenhador").length;
+gizmosBegin(g, pose);
+check(passeDeGizmosProtegido(g, sq, 0 - 1) === 3 && (sd.falhasEditor & FALHA_GIZMO) !== 0 && g.nIc === 1, "desenhador que lança: desligado, quadro completo");
+check(logEntries(LOG_ERROR, "SoDesenhador").length === errosDesenhador + 1, "erro do desenhador registrado uma vez");
+io.print("[PASSOU] gizmos: projeção, corte, esfera/cone, ícone clicável, reuso, só no editor, gizmoat, exceção de script contida");

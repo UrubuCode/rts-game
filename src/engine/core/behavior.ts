@@ -29,6 +29,11 @@ export const KIND_COLLIDER: number = 6;   // a FORMA que colide (pode nao ser a 
 export const KIND_LIGHT: number = 7;      // luz (direcional/pontual/spot) usada pelo renderer
 // novos kinds entram aqui
 
+/// Bits de `Behavior.falhasEditor`: o gancho do EDITOR que lançou exceção e
+/// ficou desligado para este componente (o editor segue rodando).
+export const FALHA_GIZMO: number = 1;
+export const FALHA_GUI: number = 2;
+
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
   enabled: number;
@@ -40,6 +45,10 @@ export class Behavior {
   /// (cache), em vez de varrer a cena — não é herdado por Transform, que é
   /// compartilhado por todos os behaviors do objeto mas não sabe quem os tem.
   owner: GameObject | null;
+  /// FALHA_GIZMO / FALHA_GUI: onDrawGizmos(Selected)/desenhador ou
+  /// onInspectorGUI lançou; o editor pula esse gancho deste componente daí em
+  /// diante (gizmo_pass.ts, inspector.ts). Estado do editor, não serializado.
+  falhasEditor: number;
 
   constructor() {
     this.host = new Transform();
@@ -47,6 +56,7 @@ export class Behavior {
     this.collapsed = 0;
     this.bodyType = 0;
     this.owner = null;
+    this.falhasEditor = 0;
   }
 
   /// Liga o script ao transform do GameObject dono.

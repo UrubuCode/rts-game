@@ -1,4 +1,5 @@
-import { Behavior, KIND_UI } from "@engine/core/behavior";
+import { Behavior, KIND_UI, FALHA_GUI } from "@engine/core/behavior";
+import { logError } from "@engine/core/logger";
 import { GameObject } from "@engine/core/gameobject";
 import { EditorUI } from "./ui_controls";
 import { MeshRenderer } from "@engine/core/meshrenderer";
@@ -46,6 +47,9 @@ export class Inspector extends Behavior {
   skeletonLabelsAsset: any = null;
   bonesTitle: string = "";
   clipLabels: string[] = [];
+  /// Componente cujo onInspectorGUI está rodando agora (null fora dele): se o
+  /// script lançar, `renderProtegido` sabe quem passa aos campos automáticos.
+  guiEmCurso: Behavior | null = null;
   timelineLabel: string = "";
   timelineTime: f64 = 0 - 1;
   timelineDuration: f64 = 0 - 1;
@@ -553,7 +557,11 @@ export class Inspector extends Behavior {
         if (editavel) rowY = rowY + L.rowH;
         // GUI própria do componente; sem nenhum controle pedido, a lista automática.
         this.gui.begin(component, key, rowY);
-        component.onInspectorGUI(this.gui);
+        if ((component.falhasEditor & FALHA_GUI) === 0) {
+          this.guiEmCurso = component;
+          component.onInspectorGUI(this.gui);
+          this.guiEmCurso = null;
+        }
         if (this.gui.usos > 0) rowY = this.gui.y;
         else {
           let fieldIndex = 0;
@@ -613,6 +621,24 @@ export class Inspector extends Behavior {
   /// Mouse do quadro (chamar antes de `render`).
   mouse(mx: number, my: number, down: number, pressed: number): void {
     this.inMx = mx; this.inMy = my; this.inDown = down; this.inPressed = pressed;
+  }
+  /// Entrada do Inspector por quadro: `render` com a exceção de um
+  /// onInspectorGUI de script contida. O componente que lançou é registrado no
+  /// Console uma vez e passa a mostrar os campos automáticos. O `try` fica
+  /// nesta função pequena, chamada uma vez por quadro (no RTS a função que
+  /// contém `try` aloca por chamada).
+  renderProtegido(app: any, blocked: boolean, modelDrag: number, textureDrag: number): void {
+    try { this.render(app, blocked, modelDrag, textureDrag); }
+    catch (e) { this.desligarGuiQueFalhou(e); }
+  }
+  private desligarGuiQueFalhou(e: any): void {
+    const b = this.guiEmCurso;
+    this.guiEmCurso = null;
+    if (b === null) throw e;
+    b.falhasEditor = b.falhasEditor | FALHA_GUI;
+    const dono = b.owner !== null ? b.owner.name : "?";
+    logError("Inspector: onInspectorGUI de " + b.typeName() + " em '" + dono + "' lançou: " + String(e) + " — usando os campos automáticos deste componente.");
+    this.ui.end();
   }
   render(app: any, blocked: boolean, modelDrag: number, textureDrag: number): void {
     const x = this.areaX; const y = this.areaY; const width = this.areaW; const height = this.areaH;
