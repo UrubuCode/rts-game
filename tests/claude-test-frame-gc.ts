@@ -24,6 +24,8 @@ import { drawSceneObjects, prepararDesenho, fParams, DS_FLOATS } from "@engine/r
 import { rigidStep } from "@engine/core/physics_backend";
 import { gizmosDoEditor, passeDeGizmosProtegido, pintarGizmos } from "@editor/gizmo_pass";
 import { Scene } from "@engine/core/scene";
+import { vooDoJogo, VOO_POSE_FLOATS } from "@engine/core/voo_livre";
+import { simularTecla, TECLA_W } from "@engine/core/entrada";
 import { gizmosBegin } from "@engine/core/gizmos";
 import { editorIcon, iconAt, drawEditorIcon } from "@editor/icon_images";
 import { interpolateSync } from "@engine/core/interpolate";
@@ -121,6 +123,15 @@ const cenaVazia = new Scene("vazia");
 io.print("FASE try-gizmos " + n);
 i = 0;
 while (i < n) { passeDeGizmosProtegido(gizmosDoEditor, cenaVazia, 0 - 1); i = i + 1; }
+// Voo embutido do jogo (game.ts): com câmera (lê/escreve o transform e varre
+// os componentes atrás de um controle por script) e sem câmera (pose da sessão).
+const poseVoo = new Float64Array(VOO_POSE_FLOATS);
+const camVoo = scene.objects[0];
+simularTecla(TECLA_W, true);
+io.print("FASE voo " + n);
+i = 0;
+while (i < n) { vooDoJogo(camVoo, poseVoo, 1.0 / 60.0); vooDoJogo(null, poseVoo, 1.0 / 60.0); i = i + 1; }
+simularTecla(TECLA_W, false);
 io.print("FASE inspector " + nPainel);
 i = 0;
 while (i < nPainel) { painelInspector(); i = i + 1; }
