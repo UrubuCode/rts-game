@@ -9,6 +9,12 @@
 import type { ContactInfo } from "./contact_events";
 import { Transform } from "./transform";
 import { componentMetadata } from "./component_metadata";
+
+/// `fieldHint`: o campo number é uma cor 0xRRGGBB.
+export const FIELD_HINT_COLOR: string = "color";
+/// `fieldHint`: o campo string só aceita uma de `fieldOptions`.
+export const FIELD_HINT_ENUM: string = "enum";
+const SEM_OPCOES: string[] = [];
 // só de TIPO: GameObject importa Behavior por valor, então isto teria que
 // ser ciclo se não fosse `import type` (apagado na compilação).
 import type { GameObject } from "./gameobject";
@@ -155,6 +161,13 @@ export class Behavior {
   fieldStringSet(i: number, v: string): void { componentMetadata.provider.fieldStringSet(this, i, v); }
   /// Chamado depois de editar um campo automatico; use para atualizar dados derivados.
   onValidate(field: string): void {}
+  /// Semântica extra do campo `i` além do tipo: "" (nenhuma), FIELD_HINT_COLOR
+  /// (um number 0xRRGGBB) ou FIELD_HINT_ENUM (um string restrito a
+  /// `fieldOptions(i)`). Lida pela porta de controle (setfield/getfield/describe)
+  /// para aceitar #RRGGBB e validar a opção; o componente sobrescreve.
+  fieldHint(i: number): string { return ""; }
+  /// Opções de um campo FIELD_HINT_ENUM (as mesmas da lista do Inspector).
+  fieldOptions(i: number): string[] { return SEM_OPCOES; }
 
   // ── IDENTIDADE do component (modelo uniforme) ───────────────────────────────
   /// O TIPO deste component (uma das consts KIND_*). Systems e o render acham um

@@ -5,7 +5,7 @@ import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdRot, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
 import { logInfo, logError } from "@engine/core/logger";
-import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
+import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField, cmdGetField } from "./commands/component";
 import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "./commands/skeleton";
 import { cmdAnimator } from "./commands/animator";
 import { cmdTree, cmdParent, cmdMoveTree, cmdFind } from "./commands/hierarchy";
@@ -38,7 +38,7 @@ function isMutating(c: string): boolean {
 
 /// Consultas: não vão para o log (encheriam o histórico com as próprias
 /// perguntas — inclusive a consulta ao log).
-const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc", "describe", "scene", "find"];
+const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc", "describe", "scene", "find", "getfield"];
 const ERRO_PREFIXO: string = "[erro]";
 
 /// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`,
@@ -244,6 +244,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "addcomp": return cmdAddComp(parts);
     case "rmcomp": return cmdRmComp(parts);
     case "setfield": return cmdSetField(parts);
+    case "getfield": return cmdGetField(parts);
     case "addskel": return cmdAddSkel(parts);
     case "bones": return cmdBones(parts);
     case "pose": return cmdPose(parts);

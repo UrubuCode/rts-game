@@ -13,6 +13,7 @@ import { objectToData, sceneToJSON } from "@editor/sceneio";
 import { componentToData } from "@engine/components";
 import { DEG2RAD } from "@editor/bone_gizmo";
 import type { Behavior } from "@engine/core/behavior";
+import { tipoCampo, valorCampoJson, TIPO_ENUM, TIPO_STRING } from "@editor/control/fields";
 
 /// Casas mantidas ao converter para graus (tira o ruído de 89.99999999).
 const ARREDONDA_GRAUS: f64 = 1e6;
@@ -23,20 +24,16 @@ export function graus(rad: f64): f64 {
   return Math.round((rad / DEG2RAD) * ARREDONDA_GRAUS) / ARREDONDA_GRAUS;
 }
 
-/// Valor do campo `fi` no tipo do JSON (number, boolean ou string).
-export function valorCampo(b: Behavior, fi: number): any {
-  const tipo = b.fieldType(fi);
-  if (tipo === "string") return b.fieldStringGet(fi);
-  if (tipo === "boolean") return b.fieldGet(fi) !== 0;
-  return b.fieldGet(fi);
-}
-
-/// Um componente: índice, tipo, ativo, dados completos e campos da reflexão.
+/// Um componente: índice, tipo, ativo, dados completos e campos da reflexão
+/// (tipo com as dicas color/enum; cor em #RRGGBB; opções do enum).
 function componenteParaDados(b: Behavior, ci: number): any {
   const campos: any[] = [];
   let fi = 0;
   while (fi < b.fieldCount()) {
-    campos.push({ index: fi, name: b.fieldName(fi), label: b.fieldLabel(fi), type: b.fieldType(fi), value: valorCampo(b, fi) });
+    const tipo = tipoCampo(b, fi);
+    const campo: any = { index: fi, name: b.fieldName(fi), label: b.fieldLabel(fi), type: tipo, value: valorCampoJson(b, fi) };
+    if (tipo === TIPO_ENUM) campo.options = b.fieldOptions(fi);
+    campos.push(campo);
     fi = fi + 1;
   }
   return { index: ci, type: b.typeName(), enabled: b.enabled !== 0, data: componentToData(b), fields: campos };
@@ -90,7 +87,7 @@ function descreverTexto(d: any): string {
     let fi = 0;
     while (fi < c.fields.length) {
       const f = c.fields[fi];
-      m = m + " | " + f.index + " " + f.name + ":" + f.type + "=" + (f.type === "string" ? JSON.stringify(f.value) : "" + f.value);
+      m = m + " | " + f.index + " " + f.name + ":" + f.type + "=" + (f.type === TIPO_STRING ? JSON.stringify(f.value) : "" + f.value);
       fi = fi + 1;
     }
     if (c.fields.length === 0) m = m + " dados=" + JSON.stringify(c.data);

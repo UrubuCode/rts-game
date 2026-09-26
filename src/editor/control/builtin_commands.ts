@@ -100,6 +100,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("gameview", "vista", MUTA_NAO, [
     "gameview [jogo|cena|proporcao livre|16:9|4:3|previa on|off] :: aba Jogo: varias cameras, proporcao com faixas, previa na vista de Cena (estado do editor, sem Desfazer) :: gameview proporcao 16:9",
     "gameview camera todas|<obj> :: camera unica da aba Jogo (objeto com Camera) ou todas :: gameview camera Camera"]),
+  c("getfield", "componentes", MUTA_NAO, ["getfield <obj> <comp|Nome> <campo|nome> :: le um campo com o tipo (number, boolean, string, color, enum com opcoes, vector no Transform) :: getfield Luz Light cor"]),
   c("gizmoat", "arrastar", MUTA_NAO, ["gizmoat <sx> <sy> :: seleciona o dono do icone de gizmo sob o pixel (a mesma area do clique) :: gizmoat 700 400"]),
   c("grid", "objetos", MUTA_SIM, ["grid :: TOGGLE de um chao-grade (plano xadrez) em y=0 :: grid"]),
   c("groundat", "arrastar", MUTA_NAO, ["groundat <sx> <sy> :: ponto do CHAO (Y=0) sob esse pixel (a conversao tela->mundo do drop) :: groundat 700 400"]),
@@ -151,7 +152,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("selectadd", "objetos", MUTA_NAO, ["selectadd <obj> :: adiciona o objeto a MULTI-selecao :: selectadd 2"]),
   c("selectclear", "objetos", MUTA_NAO, ["selectclear :: volta pra selecao unica (esvazia a multi) :: selectclear"]),
   c("setcustom", "arquivos", MUTA_SIM, ["setcustom <obj> <meshId> :: DEBUG: forca o customMesh de um objeto (0=primitivo) :: setcustom 1 5"]),
-  c("setfield", "componentes", MUTA_SIM, ["setfield <obj> <comp> <campo> <valor> :: edita um campo de config do componente (indices em comps) :: setfield 1 0 0 2.5"]),
+  c("setfield", "componentes", MUTA_PROPRIO, ["setfield <obj> <comp|Nome> <campo|nome> <valor> :: edita um campo como o Inspector (roda onValidate). valor: numero, true/false, texto (entre aspas ou resto da linha), #RRGGBB (cor), opcao da lista (enum), x,y,z (Transform position/rotation/scale; rotation em graus X,Y,Z do Inspector) :: setfield Luz Light cor #FF8800"]),
   c("snap", "transform", MUTA_NAO, ["snap [0|1] :: liga/desliga o snap-to-grid do gizmo (move 0.5, rotate 15) :: snap 1"]),
   c("snd", "sistema", MUTA_NAO, ["snd [freq dur vol] :: toca um beep e mostra o estado do mixer :: snd 440 0.2 0.3"]),
   c("spawn", "objetos", MUTA_SIM, ["spawn <nome> <x> <y> <z> [kind] [escala] :: cria objeto; kind 1=cubo 2=piramide 3=octaedro 4=esfera; nasce estatico :: spawn Cubo 0 2 0 1 1.5"]),

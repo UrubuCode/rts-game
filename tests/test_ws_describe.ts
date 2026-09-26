@@ -54,7 +54,7 @@ check(luz.type === "Light", "Light");
 let nomes = "";
 let k = 0;
 while (k < luz.fields.length) { nomes = nomes + luz.fields[k].name + ":" + luz.fields[k].type + "=" + luz.fields[k].value + " "; k = k + 1; }
-check(nomes.indexOf("tipo:string=direcional") >= 0 && nomes.indexOf("intensidade:number=1") >= 0 && nomes.indexOf("sombra:boolean=false") >= 0,
+check(nomes.indexOf("tipo:enum=direcional") >= 0 && nomes.indexOf("cor:color=#FFFFFF") >= 0 && nomes.indexOf("intensidade:number=1") >= 0 && nomes.indexOf("sombra:boolean=false") >= 0,
   "campos da reflexao com nome, tipo e valor: " + nomes);
 const dp = corpo(execCommand(800, 600, "describe 0 json"), "[describe]");
 check(dp.path === "Pai" && dp.children.length === 1 && dp.children[0] === 1 && dp.parent === -1, "pai lista o filho");
