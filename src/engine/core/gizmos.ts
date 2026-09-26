@@ -39,6 +39,8 @@ export class Gizmos {
   pa: Float64Array; pb: Float64Array;              // pontos projetados
   wa: Float64Array; wb: Float64Array; cb: Float64Array;   // pontos de mundo; centro da base do cone
   u: Float64Array; w: Float64Array;                // eixos do plano do círculo
+  /// Raio da base do cone sendo desenhado (wireCone → coneArame).
+  raioCone: number;
   constructor() {
     this.cam = new Float64Array(10);
     this.seg = new Float64Array(SEGMENTOS_INICIAIS * FLOATS_SEGMENTO); this.nSeg = 0;
@@ -47,13 +49,15 @@ export class Gizmos {
     this.pa = new Float64Array(2); this.pb = new Float64Array(2);
     this.wa = new Float64Array(3); this.wb = new Float64Array(3); this.cb = new Float64Array(3);
     this.u = new Float64Array(3); this.w = new Float64Array(3);
+    this.raioCone = 0.0;
   }
   color(rgb: number): void { this.cor = (rgb & 0xFFFFFF) * 256 + 255; }
   line(a: Float64Array, b: Float64Array): void { segmentoMundo(this, a, b); }
   wireSphere(c: Float64Array, r: number): void { circulo(this, c, r, 0); circulo(this, c, r, 1); circulo(this, c, r, 2); }
   /// Ápice `apice`, eixo `dir` (unitário), altura `comprimento`, abertura TOTAL `anguloGraus`.
   wireCone(apice: Float64Array, dir: Float64Array, comprimento: number, anguloGraus: number): void {
-    coneArame(this, apice, dir, comprimento, anguloGraus);
+    this.raioCone = comprimento * math.tan(anguloGraus * 0.5 * RAD_POR_GRAU);
+    coneArame(this, apice, dir, comprimento);
   }
   icon(nome: string, pos: Float64Array): void { iconeMundo(this, nome, pos); }
 }
@@ -131,8 +135,9 @@ function circulo(g: Gizmos, c: Float64Array, r: number, plano: number): void {
   g.w[0] = 0.0; g.w[1] = plano === 2 ? 1.0 : 0.0; g.w[2] = plano === 2 ? 0.0 : 1.0;
   anel(g, c, r);
 }
-function coneArame(g: Gizmos, apice: Float64Array, dir: Float64Array, comprimento: number, anguloGraus: number): void {
-  const raio = comprimento * math.tan(anguloGraus * 0.5 * RAD_POR_GRAU);
+/// Raio da base em g.raioCone. 4 parâmetros: com 5+ o RTS aloca a cada chamada (rts#2760).
+function coneArame(g: Gizmos, apice: Float64Array, dir: Float64Array, comprimento: number): void {
+  const raio = g.raioCone;
   // u = normalize(dir × aux), w = dir × u; aux = +Y, ou +X quando dir ~ ±Y
   const ax = Math.abs(dir[1]) > QUASE_VERTICAL ? 1.0 : 0.0; const ay = 1.0 - ax;
   g.u[0] = 0.0 - dir[2] * ay; g.u[1] = dir[2] * ax; g.u[2] = dir[0] * ay - dir[1] * ax;

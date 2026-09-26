@@ -15,6 +15,9 @@ export const LUZ_DIRECIONAL: number = 0;
 export const LUZ_PONTUAL: number = 1;
 export const LUZ_SPOT: number = 2;
 export const TIPOS_LUZ: string[] = ["direcional", "pontual", "spot"];
+/// Abertura total aceita do spot, em graus (a mesma faixa do @range do campo).
+export const SPOT_ANGULO_MIN: number = 1.0;
+export const SPOT_ANGULO_MAX: number = 179.0;
 /// O cone interno do spot é esta fração do externo; a borda suave fica entre os dois.
 export const SPOT_FRACAO_INTERNA: number = 0.8;
 /// Pose da "Luz Direcional" de uma cena nova: sol a 50° de altura, azimute de 30°.
@@ -66,6 +69,9 @@ export class Light extends Behavior {
   }
   onValidate(field: string): void {
     if (field === "tipo" && TIPOS_LUZ.indexOf(this.tipo) < 0) this.tipo = "direcional";
+    // `!(v >= min)` também pega NaN.
+    if (!(this.anguloSpot >= SPOT_ANGULO_MIN)) this.anguloSpot = SPOT_ANGULO_MIN;
+    if (this.anguloSpot > SPOT_ANGULO_MAX) this.anguloSpot = SPOT_ANGULO_MAX;
   }
   lightCastsShadow(): number { return this.sombra ? 1 : 0; }
   /// Tipo como lista, cor em #RRGGBB e só os campos que valem para o tipo.

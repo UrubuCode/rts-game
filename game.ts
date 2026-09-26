@@ -33,6 +33,7 @@ import { initMeshes, setCam, drawGPU, drawGPUMesh, setFundoCeu, setViewportBuf,
          frustumBegin, frustumParams, inFrustumFast, winWidth, winHeight } from "@engine/render/gpu3d";
 import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { Camera } from "@engine/core/camera";
+import { definirJanelaEntrada } from "@engine/core/entrada";
 import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
          posicaoDaVista } from "@engine/render/camera_views";
 
@@ -54,6 +55,7 @@ if (!fs.exists(sceneFile)) sceneFile = "scenes/shadowdemo.json";
 if (!fs.exists(sceneFile)) sceneFile = "scenes/solar.json";
 
 S.win = WIN;
+definirJanelaEntrada(WIN);
 initMeshes(WIN);
 if (fs.exists(sceneFile)) {
   loadSceneFrom(sceneFile);

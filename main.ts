@@ -22,7 +22,7 @@ import { Scene } from "@engine/core/scene";
 import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
 import { Transform } from "@engine/core/transform";
 import { subStr, nfEditing, nfCancel } from "@editor/widgets";
-import { createComponent } from "@editor/components";
+import { definirJanelaEntrada } from "@engine/core/entrada";
 import { Inspector } from "@editor/inspector";
 import { previewFrame } from "@editor/skeleton_preview";
 import { EditorUI } from "@editor/ui_controls";
@@ -243,13 +243,7 @@ function menuEntries(menu: number): string[] {
 function createMenuObject(choice: number, parentIdx: number): void {
   if (choice < 0 || choice >= OBJECT_PRESETS.length) return;
   const preset = OBJECT_PRESETS[choice];
-  const obj = ctxCreate(preset.name, preset.meshKind, preset.r, preset.g, preset.b, parentIdx);
-  if (preset.camera !== 0) {
-    obj.transform.setPosition(S.camX, S.camY, S.camZ);
-    obj.transform.ry = S.camYaw;
-    obj.transform.rx = S.camPitch;
-    obj.addBehavior(createComponent("Camera"));
-  }
+  ctxCreate(preset.name, preset.meshKind, preset.r, preset.g, preset.b, parentIdx);
 }
 
 function frameObject(idx: number): void {
@@ -440,6 +434,7 @@ profEnable(1);
 // o vsync explicitamente quando precisam medir o custo real do frame.
 setVsync(WIN, 1);
 S.win = WIN;
+definirJanelaEntrada(WIN);
 // áudio: se a máquina não tiver saída, `initAudio` devolve 0 e o editor segue mudo
 initAudio();
 

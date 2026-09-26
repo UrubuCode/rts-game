@@ -4,26 +4,30 @@ import { ComponentReflection, componentMetadata } from "../core/component_metada
 import { AnimationPlayer as Component0 } from "../core/animation_player";
 import { Animator as Component1 } from "../core/animator";
 import { KeyframeAnimator as Component2 } from "../../scripts/keyframeanimator";
-import { VitrineContador as Component3 } from "../../../assets/scripts/VitrineContador";
-import { VitrineHud as Component4 } from "../../../assets/scripts/VitrineHud";
-import { Collider as Component5 } from "../core/collider";
-import { PhysicsMaterial as Component6 } from "../../scripts/physicsmaterial";
-import { Rigidbody as Component7 } from "../../scripts/rigidbody";
-import { Camera as Component8 } from "../core/camera";
-import { Light as Component9 } from "../core/light";
-import { Material as Component10 } from "../core/material";
-import { MeshRenderer as Component11 } from "../core/meshrenderer";
-import { Skeleton as Component12 } from "../core/skeleton";
-import { Bobber as Component13 } from "../../scripts/bobber";
-import { MotionSettings as Component14 } from "../../../assets/scripts/MotionSettings";
-import { Mover as Component15 } from "../../scripts/mover";
-import { Orbit as Component16 } from "../../scripts/orbit";
-import { Patrol as Component17 } from "../../scripts/patrol";
-import { Pulse as Component18 } from "../../scripts/pulse";
-import { Spinner as Component19 } from "../../scripts/spinner";
-import { UIButton as Component20 } from "../core/ui_button";
-import { UIText as Component21 } from "../core/ui_text";
-import { AudioSource as Component22 } from "../../scripts/audiosource";
+import { CameraOrbita as Component3 } from "../../../assets/pacotes/camera/camera_orbita";
+import { CameraPrimeiraPessoa as Component4 } from "../../../assets/pacotes/camera/camera_primeira_pessoa";
+import { CameraRTS as Component5 } from "../../../assets/pacotes/camera/camera_rts";
+import { CameraSeguir as Component6 } from "../../../assets/pacotes/camera/camera_seguir";
+import { VitrineContador as Component7 } from "../../../assets/scripts/VitrineContador";
+import { VitrineHud as Component8 } from "../../../assets/scripts/VitrineHud";
+import { Collider as Component9 } from "../core/collider";
+import { PhysicsMaterial as Component10 } from "../../scripts/physicsmaterial";
+import { Rigidbody as Component11 } from "../../scripts/rigidbody";
+import { Camera as Component12 } from "../core/camera";
+import { Light as Component13 } from "../core/light";
+import { Material as Component14 } from "../core/material";
+import { MeshRenderer as Component15 } from "../core/meshrenderer";
+import { Skeleton as Component16 } from "../core/skeleton";
+import { Bobber as Component17 } from "../../scripts/bobber";
+import { MotionSettings as Component18 } from "../../../assets/scripts/MotionSettings";
+import { Mover as Component19 } from "../../scripts/mover";
+import { Orbit as Component20 } from "../../scripts/orbit";
+import { Patrol as Component21 } from "../../scripts/patrol";
+import { Pulse as Component22 } from "../../scripts/pulse";
+import { Spinner as Component23 } from "../../scripts/spinner";
+import { UIButton as Component24 } from "../core/ui_button";
+import { UIText as Component25 } from "../core/ui_text";
+import { AudioSource as Component26 } from "../../scripts/audiosource";
 class GeneratedReflection extends ComponentReflection {
   create(name: string): any { return createRegisteredComponent(name); }
   name(component: any): string {
@@ -37,63 +41,75 @@ class GeneratedReflection extends ComponentReflection {
       return "KeyframeAnimator";
     }
     if (component instanceof Component3) {
-      return "VitrineContador";
+      return "CameraOrbita";
     }
     if (component instanceof Component4) {
-      return "VitrineHud";
+      return "CameraPrimeiraPessoa";
     }
     if (component instanceof Component5) {
-      return "Collider";
+      return "CameraRTS";
     }
     if (component instanceof Component6) {
-      return "PhysicsMaterial";
+      return "CameraSeguir";
     }
     if (component instanceof Component7) {
-      return "Rigidbody";
+      return "VitrineContador";
     }
     if (component instanceof Component8) {
-      return "Camera";
+      return "VitrineHud";
     }
     if (component instanceof Component9) {
-      return "Light";
+      return "Collider";
     }
     if (component instanceof Component10) {
-      return "Material";
+      return "PhysicsMaterial";
     }
     if (component instanceof Component11) {
-      return "MeshRenderer";
+      return "Rigidbody";
     }
     if (component instanceof Component12) {
-      return "Skeleton";
+      return "Camera";
     }
     if (component instanceof Component13) {
-      return "Bobber";
+      return "Light";
     }
     if (component instanceof Component14) {
-      return "MotionSettings";
+      return "Material";
     }
     if (component instanceof Component15) {
-      return "Mover";
+      return "MeshRenderer";
     }
     if (component instanceof Component16) {
-      return "Orbit";
+      return "Skeleton";
     }
     if (component instanceof Component17) {
-      return "Patrol";
+      return "Bobber";
     }
     if (component instanceof Component18) {
-      return "Pulse";
+      return "MotionSettings";
     }
     if (component instanceof Component19) {
-      return "Spinner";
+      return "Mover";
     }
     if (component instanceof Component20) {
-      return "UIButton";
+      return "Orbit";
     }
     if (component instanceof Component21) {
-      return "UIText";
+      return "Patrol";
     }
     if (component instanceof Component22) {
+      return "Pulse";
+    }
+    if (component instanceof Component23) {
+      return "Spinner";
+    }
+    if (component instanceof Component24) {
+      return "UIButton";
+    }
+    if (component instanceof Component25) {
+      return "UIText";
+    }
+    if (component instanceof Component26) {
       return "AudioSource";
     }
     return "Script";
@@ -109,25 +125,25 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component3) {
-      return 1;
+      return 4;
     }
     if (component instanceof Component4) {
-      return 2;
+      return 3;
     }
     if (component instanceof Component5) {
-      return 0;
+      return 6;
     }
     if (component instanceof Component6) {
-      return 0;
+      return 6;
     }
     if (component instanceof Component7) {
-      return 0;
+      return 1;
     }
     if (component instanceof Component8) {
-      return 13;
+      return 2;
     }
     if (component instanceof Component9) {
-      return 6;
+      return 0;
     }
     if (component instanceof Component10) {
       return 0;
@@ -136,36 +152,48 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component12) {
-      return 1;
+      return 13;
     }
     if (component instanceof Component13) {
-      return 3;
+      return 6;
     }
     if (component instanceof Component14) {
-      return 3;
+      return 0;
     }
     if (component instanceof Component15) {
-      return 3;
+      return 0;
     }
     if (component instanceof Component16) {
-      return 4;
+      return 1;
     }
     if (component instanceof Component17) {
-      return 2;
+      return 3;
     }
     if (component instanceof Component18) {
       return 3;
     }
     if (component instanceof Component19) {
-      return 2;
+      return 3;
     }
     if (component instanceof Component20) {
-      return 0;
+      return 4;
     }
     if (component instanceof Component21) {
-      return 0;
+      return 2;
     }
     if (component instanceof Component22) {
+      return 3;
+    }
+    if (component instanceof Component23) {
+      return 2;
+    }
+    if (component instanceof Component24) {
+      return 0;
+    }
+    if (component instanceof Component25) {
+      return 0;
+    }
+    if (component instanceof Component26) {
       return 0;
     }
     return 0;
@@ -187,27 +215,58 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component3) {
-      if (index === 0) return "Contatos";
+      if (index === 0) return "Alvo";
+      if (index === 1) return "Distancia";
+      if (index === 2) return "Sensibilidade";
+      if (index === 3) return "Passo Zoom";
       return "";
     }
     if (component instanceof Component4) {
+      if (index === 0) return "Velocidade";
+      if (index === 1) return "Sensibilidade";
+      if (index === 2) return "Exigir Botao Direito";
+      return "";
+    }
+    if (component instanceof Component5) {
+      if (index === 0) return "Velocidade";
+      if (index === 1) return "Zoom Min";
+      if (index === 2) return "Zoom Max";
+      if (index === 3) return "Zoom";
+      if (index === 4) return "Passo Zoom";
+      if (index === 5) return "Inclinacao";
+      return "";
+    }
+    if (component instanceof Component6) {
+      if (index === 0) return "Alvo";
+      if (index === 1) return "Desloc X";
+      if (index === 2) return "Desloc Y";
+      if (index === 3) return "Desloc Z";
+      if (index === 4) return "Suavizacao";
+      if (index === 5) return "Olhar Alvo";
+      return "";
+    }
+    if (component instanceof Component7) {
+      if (index === 0) return "Contatos";
+      return "";
+    }
+    if (component instanceof Component8) {
       if (index === 0) return "Titulo";
       if (index === 1) return "Alvo";
       return "";
     }
-    if (component instanceof Component5) {
+    if (component instanceof Component9) {
 
       return "";
     }
-    if (component instanceof Component6) {
+    if (component instanceof Component10) {
 
       return "";
     }
-    if (component instanceof Component7) {
+    if (component instanceof Component11) {
 
       return "";
     }
-    if (component instanceof Component8) {
+    if (component instanceof Component12) {
       if (index === 0) return "FOV";
       if (index === 1) return "Main";
       if (index === 2) return "Near";
@@ -223,7 +282,7 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 12) return "Profundidade";
       return "";
     }
-    if (component instanceof Component9) {
+    if (component instanceof Component13) {
       if (index === 0) return "Tipo";
       if (index === 1) return "Cor";
       if (index === 2) return "Intensidade";
@@ -232,68 +291,68 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 5) return "Sombra";
       return "";
     }
-    if (component instanceof Component10) {
+    if (component instanceof Component14) {
 
       return "";
     }
-    if (component instanceof Component11) {
+    if (component instanceof Component15) {
 
       return "";
     }
-    if (component instanceof Component12) {
+    if (component instanceof Component16) {
       if (index === 0) return "Model Path";
       return "";
     }
-    if (component instanceof Component13) {
+    if (component instanceof Component17) {
       if (index === 0) return "Amp";
       if (index === 1) return "Freq";
       if (index === 2) return "Base Y";
       return "";
     }
-    if (component instanceof Component14) {
+    if (component instanceof Component18) {
       if (index === 0) return "Speed";
       if (index === 1) return "Moving";
       if (index === 2) return "Label";
       return "";
     }
-    if (component instanceof Component15) {
+    if (component instanceof Component19) {
       if (index === 0) return "Vx";
       if (index === 1) return "Vy";
       if (index === 2) return "Vz";
       return "";
     }
-    if (component instanceof Component16) {
+    if (component instanceof Component20) {
       if (index === 0) return "Radius";
       if (index === 1) return "Speed";
       if (index === 2) return "Cx";
       if (index === 3) return "Cz";
       return "";
     }
-    if (component instanceof Component17) {
+    if (component instanceof Component21) {
       if (index === 0) return "Range";
       if (index === 1) return "Speed";
       return "";
     }
-    if (component instanceof Component18) {
+    if (component instanceof Component22) {
       if (index === 0) return "Amp";
       if (index === 1) return "Freq";
       if (index === 2) return "Base";
       return "";
     }
-    if (component instanceof Component19) {
+    if (component instanceof Component23) {
       if (index === 0) return "SpdY";
       if (index === 1) return "SpdX";
       return "";
     }
-    if (component instanceof Component20) {
+    if (component instanceof Component24) {
 
       return "";
     }
-    if (component instanceof Component21) {
+    if (component instanceof Component25) {
 
       return "";
     }
-    if (component instanceof Component22) {
+    if (component instanceof Component26) {
 
       return "";
     }
@@ -316,27 +375,58 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component3) {
-      if (index === 0) return "contatos";
+      if (index === 0) return "alvo";
+      if (index === 1) return "distancia";
+      if (index === 2) return "sensibilidade";
+      if (index === 3) return "passoZoom";
       return "";
     }
     if (component instanceof Component4) {
+      if (index === 0) return "velocidade";
+      if (index === 1) return "sensibilidade";
+      if (index === 2) return "exigirBotaoDireito";
+      return "";
+    }
+    if (component instanceof Component5) {
+      if (index === 0) return "velocidade";
+      if (index === 1) return "zoomMin";
+      if (index === 2) return "zoomMax";
+      if (index === 3) return "zoom";
+      if (index === 4) return "passoZoom";
+      if (index === 5) return "inclinacao";
+      return "";
+    }
+    if (component instanceof Component6) {
+      if (index === 0) return "alvo";
+      if (index === 1) return "deslocX";
+      if (index === 2) return "deslocY";
+      if (index === 3) return "deslocZ";
+      if (index === 4) return "suavizacao";
+      if (index === 5) return "olharAlvo";
+      return "";
+    }
+    if (component instanceof Component7) {
+      if (index === 0) return "contatos";
+      return "";
+    }
+    if (component instanceof Component8) {
       if (index === 0) return "titulo";
       if (index === 1) return "alvo";
       return "";
     }
-    if (component instanceof Component5) {
+    if (component instanceof Component9) {
 
       return "";
     }
-    if (component instanceof Component6) {
+    if (component instanceof Component10) {
 
       return "";
     }
-    if (component instanceof Component7) {
+    if (component instanceof Component11) {
 
       return "";
     }
-    if (component instanceof Component8) {
+    if (component instanceof Component12) {
       if (index === 0) return "fov";
       if (index === 1) return "isMain";
       if (index === 2) return "near";
@@ -352,7 +442,7 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 12) return "profundidade";
       return "";
     }
-    if (component instanceof Component9) {
+    if (component instanceof Component13) {
       if (index === 0) return "tipo";
       if (index === 1) return "cor";
       if (index === 2) return "intensidade";
@@ -361,68 +451,68 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 5) return "sombra";
       return "";
     }
-    if (component instanceof Component10) {
+    if (component instanceof Component14) {
 
       return "";
     }
-    if (component instanceof Component11) {
+    if (component instanceof Component15) {
 
       return "";
     }
-    if (component instanceof Component12) {
+    if (component instanceof Component16) {
       if (index === 0) return "modelPath";
       return "";
     }
-    if (component instanceof Component13) {
+    if (component instanceof Component17) {
       if (index === 0) return "amp";
       if (index === 1) return "freq";
       if (index === 2) return "baseY";
       return "";
     }
-    if (component instanceof Component14) {
+    if (component instanceof Component18) {
       if (index === 0) return "speed";
       if (index === 1) return "moving";
       if (index === 2) return "label";
       return "";
     }
-    if (component instanceof Component15) {
+    if (component instanceof Component19) {
       if (index === 0) return "vx";
       if (index === 1) return "vy";
       if (index === 2) return "vz";
       return "";
     }
-    if (component instanceof Component16) {
+    if (component instanceof Component20) {
       if (index === 0) return "radius";
       if (index === 1) return "speed";
       if (index === 2) return "cx";
       if (index === 3) return "cz";
       return "";
     }
-    if (component instanceof Component17) {
+    if (component instanceof Component21) {
       if (index === 0) return "range";
       if (index === 1) return "speed";
       return "";
     }
-    if (component instanceof Component18) {
+    if (component instanceof Component22) {
       if (index === 0) return "amp";
       if (index === 1) return "freq";
       if (index === 2) return "base";
       return "";
     }
-    if (component instanceof Component19) {
+    if (component instanceof Component23) {
       if (index === 0) return "speedY";
       if (index === 1) return "speedX";
       return "";
     }
-    if (component instanceof Component20) {
+    if (component instanceof Component24) {
 
       return "";
     }
-    if (component instanceof Component21) {
+    if (component instanceof Component25) {
 
       return "";
     }
-    if (component instanceof Component22) {
+    if (component instanceof Component26) {
 
       return "";
     }
@@ -445,27 +535,58 @@ class GeneratedReflection extends ComponentReflection {
       return "number";
     }
     if (component instanceof Component3) {
-      if (index === 0) return "number";
+      if (index === 0) return "string";
+      if (index === 1) return "number";
+      if (index === 2) return "number";
+      if (index === 3) return "number";
       return "number";
     }
     if (component instanceof Component4) {
+      if (index === 0) return "number";
+      if (index === 1) return "number";
+      if (index === 2) return "boolean";
+      return "number";
+    }
+    if (component instanceof Component5) {
+      if (index === 0) return "number";
+      if (index === 1) return "number";
+      if (index === 2) return "number";
+      if (index === 3) return "number";
+      if (index === 4) return "number";
+      if (index === 5) return "number";
+      return "number";
+    }
+    if (component instanceof Component6) {
+      if (index === 0) return "string";
+      if (index === 1) return "number";
+      if (index === 2) return "number";
+      if (index === 3) return "number";
+      if (index === 4) return "number";
+      if (index === 5) return "boolean";
+      return "number";
+    }
+    if (component instanceof Component7) {
+      if (index === 0) return "number";
+      return "number";
+    }
+    if (component instanceof Component8) {
       if (index === 0) return "string";
       if (index === 1) return "string";
       return "number";
     }
-    if (component instanceof Component5) {
+    if (component instanceof Component9) {
 
       return "number";
     }
-    if (component instanceof Component6) {
+    if (component instanceof Component10) {
 
       return "number";
     }
-    if (component instanceof Component7) {
+    if (component instanceof Component11) {
 
       return "number";
     }
-    if (component instanceof Component8) {
+    if (component instanceof Component12) {
       if (index === 0) return "number";
       if (index === 1) return "number";
       if (index === 2) return "number";
@@ -481,7 +602,7 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 12) return "number";
       return "number";
     }
-    if (component instanceof Component9) {
+    if (component instanceof Component13) {
       if (index === 0) return "string";
       if (index === 1) return "number";
       if (index === 2) return "number";
@@ -490,68 +611,68 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 5) return "boolean";
       return "number";
     }
-    if (component instanceof Component10) {
+    if (component instanceof Component14) {
 
       return "number";
     }
-    if (component instanceof Component11) {
+    if (component instanceof Component15) {
 
       return "number";
     }
-    if (component instanceof Component12) {
+    if (component instanceof Component16) {
       if (index === 0) return "string";
       return "number";
     }
-    if (component instanceof Component13) {
+    if (component instanceof Component17) {
       if (index === 0) return "number";
       if (index === 1) return "number";
       if (index === 2) return "number";
       return "number";
     }
-    if (component instanceof Component14) {
+    if (component instanceof Component18) {
       if (index === 0) return "number";
       if (index === 1) return "boolean";
       if (index === 2) return "string";
       return "number";
     }
-    if (component instanceof Component15) {
+    if (component instanceof Component19) {
       if (index === 0) return "number";
       if (index === 1) return "number";
       if (index === 2) return "number";
       return "number";
     }
-    if (component instanceof Component16) {
+    if (component instanceof Component20) {
       if (index === 0) return "number";
       if (index === 1) return "number";
       if (index === 2) return "number";
       if (index === 3) return "number";
       return "number";
     }
-    if (component instanceof Component17) {
+    if (component instanceof Component21) {
       if (index === 0) return "number";
       if (index === 1) return "number";
       return "number";
     }
-    if (component instanceof Component18) {
+    if (component instanceof Component22) {
       if (index === 0) return "number";
       if (index === 1) return "number";
       if (index === 2) return "number";
       return "number";
     }
-    if (component instanceof Component19) {
+    if (component instanceof Component23) {
       if (index === 0) return "number";
       if (index === 1) return "number";
       return "number";
     }
-    if (component instanceof Component20) {
+    if (component instanceof Component24) {
 
       return "number";
     }
-    if (component instanceof Component21) {
+    if (component instanceof Component25) {
 
       return "number";
     }
-    if (component instanceof Component22) {
+    if (component instanceof Component26) {
 
       return "number";
     }
@@ -574,27 +695,58 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component3) {
-      if (index === 0) return component["contatos"];
+      if (index === 0) return 0;
+      if (index === 1) return component["distancia"];
+      if (index === 2) return component["sensibilidade"];
+      if (index === 3) return component["passoZoom"];
       return 0;
     }
     if (component instanceof Component4) {
+      if (index === 0) return component["velocidade"];
+      if (index === 1) return component["sensibilidade"];
+      if (index === 2) return (component["exigirBotaoDireito"] ? 1 : 0);
+      return 0;
+    }
+    if (component instanceof Component5) {
+      if (index === 0) return component["velocidade"];
+      if (index === 1) return component["zoomMin"];
+      if (index === 2) return component["zoomMax"];
+      if (index === 3) return component["zoom"];
+      if (index === 4) return component["passoZoom"];
+      if (index === 5) return component["inclinacao"];
+      return 0;
+    }
+    if (component instanceof Component6) {
+      if (index === 0) return 0;
+      if (index === 1) return component["deslocX"];
+      if (index === 2) return component["deslocY"];
+      if (index === 3) return component["deslocZ"];
+      if (index === 4) return component["suavizacao"];
+      if (index === 5) return (component["olharAlvo"] ? 1 : 0);
+      return 0;
+    }
+    if (component instanceof Component7) {
+      if (index === 0) return component["contatos"];
+      return 0;
+    }
+    if (component instanceof Component8) {
       if (index === 0) return 0;
       if (index === 1) return 0;
       return 0;
     }
-    if (component instanceof Component5) {
+    if (component instanceof Component9) {
 
       return 0;
     }
-    if (component instanceof Component6) {
+    if (component instanceof Component10) {
 
       return 0;
     }
-    if (component instanceof Component7) {
+    if (component instanceof Component11) {
 
       return 0;
     }
-    if (component instanceof Component8) {
+    if (component instanceof Component12) {
       if (index === 0) return component["fov"];
       if (index === 1) return component["isMain"];
       if (index === 2) return component["near"];
@@ -610,7 +762,7 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 12) return component["profundidade"];
       return 0;
     }
-    if (component instanceof Component9) {
+    if (component instanceof Component13) {
       if (index === 0) return 0;
       if (index === 1) return component["cor"];
       if (index === 2) return component["intensidade"];
@@ -619,68 +771,68 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 5) return (component["sombra"] ? 1 : 0);
       return 0;
     }
-    if (component instanceof Component10) {
+    if (component instanceof Component14) {
 
       return 0;
     }
-    if (component instanceof Component11) {
+    if (component instanceof Component15) {
 
       return 0;
     }
-    if (component instanceof Component12) {
+    if (component instanceof Component16) {
       if (index === 0) return 0;
       return 0;
     }
-    if (component instanceof Component13) {
+    if (component instanceof Component17) {
       if (index === 0) return component["amp"];
       if (index === 1) return component["freq"];
       if (index === 2) return component["baseY"];
       return 0;
     }
-    if (component instanceof Component14) {
+    if (component instanceof Component18) {
       if (index === 0) return component["speed"];
       if (index === 1) return (component["moving"] ? 1 : 0);
       if (index === 2) return 0;
       return 0;
     }
-    if (component instanceof Component15) {
+    if (component instanceof Component19) {
       if (index === 0) return component["vx"];
       if (index === 1) return component["vy"];
       if (index === 2) return component["vz"];
       return 0;
     }
-    if (component instanceof Component16) {
+    if (component instanceof Component20) {
       if (index === 0) return component["radius"];
       if (index === 1) return component["speed"];
       if (index === 2) return component["cx"];
       if (index === 3) return component["cz"];
       return 0;
     }
-    if (component instanceof Component17) {
+    if (component instanceof Component21) {
       if (index === 0) return component["range"];
       if (index === 1) return component["speed"];
       return 0;
     }
-    if (component instanceof Component18) {
+    if (component instanceof Component22) {
       if (index === 0) return component["amp"];
       if (index === 1) return component["freq"];
       if (index === 2) return component["base"];
       return 0;
     }
-    if (component instanceof Component19) {
+    if (component instanceof Component23) {
       if (index === 0) return component["speedY"];
       if (index === 1) return component["speedX"];
       return 0;
     }
-    if (component instanceof Component20) {
+    if (component instanceof Component24) {
 
       return 0;
     }
-    if (component instanceof Component21) {
+    if (component instanceof Component25) {
 
       return 0;
     }
-    if (component instanceof Component22) {
+    if (component instanceof Component26) {
 
       return 0;
     }
@@ -703,27 +855,58 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component3) {
-      if (index === 0) return "";
+      if (index === 0) return component["alvo"];
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
       return "";
     }
     if (component instanceof Component4) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component5) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component6) {
+      if (index === 0) return component["alvo"];
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component7) {
+      if (index === 0) return "";
+      return "";
+    }
+    if (component instanceof Component8) {
       if (index === 0) return component["titulo"];
       if (index === 1) return component["alvo"];
       return "";
     }
-    if (component instanceof Component5) {
+    if (component instanceof Component9) {
 
       return "";
     }
-    if (component instanceof Component6) {
+    if (component instanceof Component10) {
 
       return "";
     }
-    if (component instanceof Component7) {
+    if (component instanceof Component11) {
 
       return "";
     }
-    if (component instanceof Component8) {
+    if (component instanceof Component12) {
       if (index === 0) return "";
       if (index === 1) return "";
       if (index === 2) return "";
@@ -739,7 +922,7 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 12) return "";
       return "";
     }
-    if (component instanceof Component9) {
+    if (component instanceof Component13) {
       if (index === 0) return component["tipo"];
       if (index === 1) return "";
       if (index === 2) return "";
@@ -748,68 +931,68 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 5) return "";
       return "";
     }
-    if (component instanceof Component10) {
+    if (component instanceof Component14) {
 
       return "";
     }
-    if (component instanceof Component11) {
+    if (component instanceof Component15) {
 
       return "";
     }
-    if (component instanceof Component12) {
+    if (component instanceof Component16) {
       if (index === 0) return component["modelPath"];
       return "";
     }
-    if (component instanceof Component13) {
+    if (component instanceof Component17) {
       if (index === 0) return "";
       if (index === 1) return "";
       if (index === 2) return "";
       return "";
     }
-    if (component instanceof Component14) {
+    if (component instanceof Component18) {
       if (index === 0) return "";
       if (index === 1) return "";
       if (index === 2) return component["label"];
       return "";
     }
-    if (component instanceof Component15) {
+    if (component instanceof Component19) {
       if (index === 0) return "";
       if (index === 1) return "";
       if (index === 2) return "";
       return "";
     }
-    if (component instanceof Component16) {
+    if (component instanceof Component20) {
       if (index === 0) return "";
       if (index === 1) return "";
       if (index === 2) return "";
       if (index === 3) return "";
       return "";
     }
-    if (component instanceof Component17) {
+    if (component instanceof Component21) {
       if (index === 0) return "";
       if (index === 1) return "";
       return "";
     }
-    if (component instanceof Component18) {
+    if (component instanceof Component22) {
       if (index === 0) return "";
       if (index === 1) return "";
       if (index === 2) return "";
       return "";
     }
-    if (component instanceof Component19) {
+    if (component instanceof Component23) {
       if (index === 0) return "";
       if (index === 1) return "";
       return "";
     }
-    if (component instanceof Component20) {
+    if (component instanceof Component24) {
 
       return "";
     }
-    if (component instanceof Component21) {
+    if (component instanceof Component25) {
 
       return "";
     }
-    if (component instanceof Component22) {
+    if (component instanceof Component26) {
 
       return "";
     }
@@ -832,27 +1015,58 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component3) {
-      if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["contatos"] = value; component.onValidate("contatos"); return; }
+
+      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["distancia"] = Math.max(0.5, Math.min(1000, value)); component.onValidate("distancia"); return; }
+      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["sensibilidade"] = value; component.onValidate("sensibilidade"); return; }
+      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["passoZoom"] = value; component.onValidate("passoZoom"); return; }
       return;
     }
     if (component instanceof Component4) {
-
-
+      if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["velocidade"] = value; component.onValidate("velocidade"); return; }
+      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["sensibilidade"] = value; component.onValidate("sensibilidade"); return; }
+      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["exigirBotaoDireito"] = value !== 0; component.onValidate("exigirBotaoDireito"); return; }
       return;
     }
     if (component instanceof Component5) {
-
+      if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["velocidade"] = value; component.onValidate("velocidade"); return; }
+      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["zoomMin"] = value; component.onValidate("zoomMin"); return; }
+      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["zoomMax"] = value; component.onValidate("zoomMax"); return; }
+      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["zoom"] = value; component.onValidate("zoom"); return; }
+      if (index === 4) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["passoZoom"] = value; component.onValidate("passoZoom"); return; }
+      if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["inclinacao"] = Math.max(10, Math.min(89, value)); component.onValidate("inclinacao"); return; }
       return;
     }
     if (component instanceof Component6) {
 
+      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["deslocX"] = value; component.onValidate("deslocX"); return; }
+      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["deslocY"] = value; component.onValidate("deslocY"); return; }
+      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["deslocZ"] = value; component.onValidate("deslocZ"); return; }
+      if (index === 4) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["suavizacao"] = Math.max(0.01, Math.min(10, value)); component.onValidate("suavizacao"); return; }
+      if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["olharAlvo"] = value !== 0; component.onValidate("olharAlvo"); return; }
       return;
     }
     if (component instanceof Component7) {
-
+      if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["contatos"] = value; component.onValidate("contatos"); return; }
       return;
     }
     if (component instanceof Component8) {
+
+
+      return;
+    }
+    if (component instanceof Component9) {
+
+      return;
+    }
+    if (component instanceof Component10) {
+
+      return;
+    }
+    if (component instanceof Component11) {
+
+      return;
+    }
+    if (component instanceof Component12) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["fov"] = value; component.onValidate("fov"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["isMain"] = value; component.onValidate("isMain"); return; }
       if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["near"] = value; component.onValidate("near"); return; }
@@ -868,7 +1082,7 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 12) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["profundidade"] = value; component.onValidate("profundidade"); return; }
       return;
     }
-    if (component instanceof Component9) {
+    if (component instanceof Component13) {
 
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["cor"] = value; component.onValidate("cor"); return; }
       if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["intensidade"] = Math.max(0, Math.min(100, value)); component.onValidate("intensidade"); return; }
@@ -877,68 +1091,68 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["sombra"] = value !== 0; component.onValidate("sombra"); return; }
       return;
     }
-    if (component instanceof Component10) {
+    if (component instanceof Component14) {
 
       return;
     }
-    if (component instanceof Component11) {
+    if (component instanceof Component15) {
 
       return;
     }
-    if (component instanceof Component12) {
+    if (component instanceof Component16) {
 
       return;
     }
-    if (component instanceof Component13) {
+    if (component instanceof Component17) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["amp"] = value; component.onValidate("amp"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["freq"] = value; component.onValidate("freq"); return; }
       if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["baseY"] = value; component.onValidate("baseY"); return; }
       return;
     }
-    if (component instanceof Component14) {
+    if (component instanceof Component18) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["speed"] = Math.max(0, Math.min(20, value)); component.onValidate("speed"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["moving"] = value !== 0; component.onValidate("moving"); return; }
 
       return;
     }
-    if (component instanceof Component15) {
+    if (component instanceof Component19) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["vx"] = value; component.onValidate("vx"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["vy"] = value; component.onValidate("vy"); return; }
       if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["vz"] = value; component.onValidate("vz"); return; }
       return;
     }
-    if (component instanceof Component16) {
+    if (component instanceof Component20) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["radius"] = value; component.onValidate("radius"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["speed"] = value; component.onValidate("speed"); return; }
       if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["cx"] = value; component.onValidate("cx"); return; }
       if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["cz"] = value; component.onValidate("cz"); return; }
       return;
     }
-    if (component instanceof Component17) {
+    if (component instanceof Component21) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["range"] = value; component.onValidate("range"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["speed"] = value; component.onValidate("speed"); return; }
       return;
     }
-    if (component instanceof Component18) {
+    if (component instanceof Component22) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["amp"] = value; component.onValidate("amp"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["freq"] = value; component.onValidate("freq"); return; }
       if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["base"] = value; component.onValidate("base"); return; }
       return;
     }
-    if (component instanceof Component19) {
+    if (component instanceof Component23) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["speedY"] = value; component.onValidate("speedY"); return; }
       if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["speedX"] = value; component.onValidate("speedX"); return; }
       return;
     }
-    if (component instanceof Component20) {
+    if (component instanceof Component24) {
 
       return;
     }
-    if (component instanceof Component21) {
+    if (component instanceof Component25) {
 
       return;
     }
-    if (component instanceof Component22) {
+    if (component instanceof Component26) {
 
       return;
     }
@@ -960,19 +1174,33 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component3) {
+      if (index === 0) { component["alvo"] = value; component.onValidate("alvo"); return; }
+
+
 
       return;
     }
     if (component instanceof Component4) {
-      if (index === 0) { component["titulo"] = value; component.onValidate("titulo"); return; }
-      if (index === 1) { component["alvo"] = value; component.onValidate("alvo"); return; }
+
+
+
       return;
     }
     if (component instanceof Component5) {
 
+
+
+
+
+
       return;
     }
     if (component instanceof Component6) {
+      if (index === 0) { component["alvo"] = value; component.onValidate("alvo"); return; }
+
+
+
+
 
       return;
     }
@@ -981,6 +1209,23 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component8) {
+      if (index === 0) { component["titulo"] = value; component.onValidate("titulo"); return; }
+      if (index === 1) { component["alvo"] = value; component.onValidate("alvo"); return; }
+      return;
+    }
+    if (component instanceof Component9) {
+
+      return;
+    }
+    if (component instanceof Component10) {
+
+      return;
+    }
+    if (component instanceof Component11) {
+
+      return;
+    }
+    if (component instanceof Component12) {
 
 
 
@@ -996,7 +1241,7 @@ class GeneratedReflection extends ComponentReflection {
 
       return;
     }
-    if (component instanceof Component9) {
+    if (component instanceof Component13) {
       if (index === 0) { component["tipo"] = value; component.onValidate("tipo"); return; }
 
 
@@ -1005,44 +1250,20 @@ class GeneratedReflection extends ComponentReflection {
 
       return;
     }
-    if (component instanceof Component10) {
-
-      return;
-    }
-    if (component instanceof Component11) {
-
-      return;
-    }
-    if (component instanceof Component12) {
-      if (index === 0) { component["modelPath"] = value; component.onValidate("modelPath"); return; }
-      return;
-    }
-    if (component instanceof Component13) {
-
-
-
-      return;
-    }
     if (component instanceof Component14) {
 
-
-      if (index === 2) { component["label"] = value; component.onValidate("label"); return; }
       return;
     }
     if (component instanceof Component15) {
 
-
-
       return;
     }
     if (component instanceof Component16) {
-
-
-
-
+      if (index === 0) { component["modelPath"] = value; component.onValidate("modelPath"); return; }
       return;
     }
     if (component instanceof Component17) {
+
 
 
       return;
@@ -1050,23 +1271,47 @@ class GeneratedReflection extends ComponentReflection {
     if (component instanceof Component18) {
 
 
-
+      if (index === 2) { component["label"] = value; component.onValidate("label"); return; }
       return;
     }
     if (component instanceof Component19) {
+
 
 
       return;
     }
     if (component instanceof Component20) {
 
+
+
+
       return;
     }
     if (component instanceof Component21) {
 
+
       return;
     }
     if (component instanceof Component22) {
+
+
+
+      return;
+    }
+    if (component instanceof Component23) {
+
+
+      return;
+    }
+    if (component instanceof Component24) {
+
+      return;
+    }
+    if (component instanceof Component25) {
+
+      return;
+    }
+    if (component instanceof Component26) {
 
       return;
     }
@@ -1082,25 +1327,25 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component3) {
-      return { type: "script:assets/scripts/VitrineContador.ts#VitrineContador", fields: { "contatos": component["contatos"] } };
+      return { type: "script:assets/pacotes/camera/camera_orbita.ts#CameraOrbita", fields: { "alvo": component["alvo"], "distancia": component["distancia"], "sensibilidade": component["sensibilidade"], "passoZoom": component["passoZoom"] } };
     }
     if (component instanceof Component4) {
-      return { type: "script:assets/scripts/VitrineHud.ts#VitrineHud", fields: { "titulo": component["titulo"], "alvo": component["alvo"] } };
+      return { type: "script:assets/pacotes/camera/camera_primeira_pessoa.ts#CameraPrimeiraPessoa", fields: { "velocidade": component["velocidade"], "sensibilidade": component["sensibilidade"], "exigirBotaoDireito": component["exigirBotaoDireito"] } };
     }
     if (component instanceof Component5) {
-      return null;
+      return { type: "script:assets/pacotes/camera/camera_rts.ts#CameraRTS", fields: { "velocidade": component["velocidade"], "zoomMin": component["zoomMin"], "zoomMax": component["zoomMax"], "zoom": component["zoom"], "passoZoom": component["passoZoom"], "inclinacao": component["inclinacao"] } };
     }
     if (component instanceof Component6) {
-      return null;
+      return { type: "script:assets/pacotes/camera/camera_seguir.ts#CameraSeguir", fields: { "alvo": component["alvo"], "deslocX": component["deslocX"], "deslocY": component["deslocY"], "deslocZ": component["deslocZ"], "suavizacao": component["suavizacao"], "olharAlvo": component["olharAlvo"] } };
     }
     if (component instanceof Component7) {
-      return null;
+      return { type: "script:assets/scripts/VitrineContador.ts#VitrineContador", fields: { "contatos": component["contatos"] } };
     }
     if (component instanceof Component8) {
-      return null;
+      return { type: "script:assets/scripts/VitrineHud.ts#VitrineHud", fields: { "titulo": component["titulo"], "alvo": component["alvo"] } };
     }
     if (component instanceof Component9) {
-      return { type: "script:src/engine/core/light.ts#Light", fields: { "tipo": component["tipo"], "cor": component["cor"], "intensidade": component["intensidade"], "alcance": component["alcance"], "anguloSpot": component["anguloSpot"], "sombra": component["sombra"] } };
+      return null;
     }
     if (component instanceof Component10) {
       return null;
@@ -1112,10 +1357,10 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component13) {
-      return null;
+      return { type: "script:src/engine/core/light.ts#Light", fields: { "tipo": component["tipo"], "cor": component["cor"], "intensidade": component["intensidade"], "alcance": component["alcance"], "anguloSpot": component["anguloSpot"], "sombra": component["sombra"] } };
     }
     if (component instanceof Component14) {
-      return { type: "script:assets/scripts/MotionSettings.ts#MotionSettings", fields: { "speed": component["speed"], "moving": component["moving"], "label": component["label"] } };
+      return null;
     }
     if (component instanceof Component15) {
       return null;
@@ -1127,7 +1372,7 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component18) {
-      return null;
+      return { type: "script:assets/scripts/MotionSettings.ts#MotionSettings", fields: { "speed": component["speed"], "moving": component["moving"], "label": component["label"] } };
     }
     if (component instanceof Component19) {
       return null;
@@ -1139,6 +1384,18 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component22) {
+      return null;
+    }
+    if (component instanceof Component23) {
+      return null;
+    }
+    if (component instanceof Component24) {
+      return null;
+    }
+    if (component instanceof Component25) {
+      return null;
+    }
+    if (component instanceof Component26) {
       return null;
     }
     return null;
@@ -1169,7 +1426,7 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component8) {
-      return { "fov": component["fov"], "isMain": component["isMain"], "near": component["near"], "far": component["far"], "ortografica": component["ortografica"], "tamanhoOrto": component["tamanhoOrto"], "fundo": component["fundo"], "corFundo": component["corFundo"], "viewportX": component["viewportX"], "viewportY": component["viewportY"], "viewportW": component["viewportW"], "viewportH": component["viewportH"], "profundidade": component["profundidade"] };
+      return null;
     }
     if (component instanceof Component9) {
       return null;
@@ -1181,36 +1438,48 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component12) {
-      return { "modelPath": component["modelPath"] };
+      return { "fov": component["fov"], "isMain": component["isMain"], "near": component["near"], "far": component["far"], "ortografica": component["ortografica"], "tamanhoOrto": component["tamanhoOrto"], "fundo": component["fundo"], "corFundo": component["corFundo"], "viewportX": component["viewportX"], "viewportY": component["viewportY"], "viewportW": component["viewportW"], "viewportH": component["viewportH"], "profundidade": component["profundidade"] };
     }
     if (component instanceof Component13) {
-      return { "amp": component["amp"], "freq": component["freq"], "baseY": component["baseY"] };
+      return null;
     }
     if (component instanceof Component14) {
       return null;
     }
     if (component instanceof Component15) {
-      return { "vx": component["vx"], "vy": component["vy"], "vz": component["vz"] };
+      return null;
     }
     if (component instanceof Component16) {
-      return { "radius": component["radius"], "speed": component["speed"], "cx": component["cx"], "cz": component["cz"] };
+      return { "modelPath": component["modelPath"] };
     }
     if (component instanceof Component17) {
-      return { "range": component["range"], "speed": component["speed"] };
+      return { "amp": component["amp"], "freq": component["freq"], "baseY": component["baseY"] };
     }
     if (component instanceof Component18) {
-      return { "amp": component["amp"], "freq": component["freq"], "base": component["base"] };
+      return null;
     }
     if (component instanceof Component19) {
-      return { "speedY": component["speedY"], "speedX": component["speedX"] };
+      return { "vx": component["vx"], "vy": component["vy"], "vz": component["vz"] };
     }
     if (component instanceof Component20) {
-      return null;
+      return { "radius": component["radius"], "speed": component["speed"], "cx": component["cx"], "cz": component["cz"] };
     }
     if (component instanceof Component21) {
-      return null;
+      return { "range": component["range"], "speed": component["speed"] };
     }
     if (component instanceof Component22) {
+      return { "amp": component["amp"], "freq": component["freq"], "base": component["base"] };
+    }
+    if (component instanceof Component23) {
+      return { "speedY": component["speedY"], "speedX": component["speedX"] };
+    }
+    if (component instanceof Component24) {
+      return null;
+    }
+    if (component instanceof Component25) {
+      return null;
+    }
+    if (component instanceof Component26) {
       return null;
     }
     return null;
@@ -1241,6 +1510,18 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component8) {
+      return;
+    }
+    if (component instanceof Component9) {
+      return;
+    }
+    if (component instanceof Component10) {
+      return;
+    }
+    if (component instanceof Component11) {
+      return;
+    }
+    if (component instanceof Component12) {
       if (fields === null || fields === undefined) return;
       if (typeof fields["fov"] === "number" && fields["fov"] === fields["fov"] && fields["fov"] > -1e30 && fields["fov"] < 1e30) component["fov"] = fields["fov"];
       if (typeof fields["isMain"] === "number" && fields["isMain"] === fields["isMain"] && fields["isMain"] > -1e30 && fields["isMain"] < 1e30) component["isMain"] = fields["isMain"];
@@ -1257,38 +1538,38 @@ class GeneratedReflection extends ComponentReflection {
       if (typeof fields["profundidade"] === "number" && fields["profundidade"] === fields["profundidade"] && fields["profundidade"] > -1e30 && fields["profundidade"] < 1e30) component["profundidade"] = fields["profundidade"];
       return;
     }
-    if (component instanceof Component9) {
-      return;
-    }
-    if (component instanceof Component10) {
-      return;
-    }
-    if (component instanceof Component11) {
-      return;
-    }
-    if (component instanceof Component12) {
-      if (fields === null || fields === undefined) return;
-      if (typeof fields["modelPath"] === "string" && true) component["modelPath"] = fields["modelPath"];
-      return;
-    }
     if (component instanceof Component13) {
-      if (fields === null || fields === undefined) return;
-      if (typeof fields["amp"] === "number" && fields["amp"] === fields["amp"] && fields["amp"] > -1e30 && fields["amp"] < 1e30) component["amp"] = fields["amp"];
-      if (typeof fields["freq"] === "number" && fields["freq"] === fields["freq"] && fields["freq"] > -1e30 && fields["freq"] < 1e30) component["freq"] = fields["freq"];
-      if (typeof fields["baseY"] === "number" && fields["baseY"] === fields["baseY"] && fields["baseY"] > -1e30 && fields["baseY"] < 1e30) component["baseY"] = fields["baseY"];
       return;
     }
     if (component instanceof Component14) {
       return;
     }
     if (component instanceof Component15) {
+      return;
+    }
+    if (component instanceof Component16) {
+      if (fields === null || fields === undefined) return;
+      if (typeof fields["modelPath"] === "string" && true) component["modelPath"] = fields["modelPath"];
+      return;
+    }
+    if (component instanceof Component17) {
+      if (fields === null || fields === undefined) return;
+      if (typeof fields["amp"] === "number" && fields["amp"] === fields["amp"] && fields["amp"] > -1e30 && fields["amp"] < 1e30) component["amp"] = fields["amp"];
+      if (typeof fields["freq"] === "number" && fields["freq"] === fields["freq"] && fields["freq"] > -1e30 && fields["freq"] < 1e30) component["freq"] = fields["freq"];
+      if (typeof fields["baseY"] === "number" && fields["baseY"] === fields["baseY"] && fields["baseY"] > -1e30 && fields["baseY"] < 1e30) component["baseY"] = fields["baseY"];
+      return;
+    }
+    if (component instanceof Component18) {
+      return;
+    }
+    if (component instanceof Component19) {
       if (fields === null || fields === undefined) return;
       if (typeof fields["vx"] === "number" && fields["vx"] === fields["vx"] && fields["vx"] > -1e30 && fields["vx"] < 1e30) component["vx"] = fields["vx"];
       if (typeof fields["vy"] === "number" && fields["vy"] === fields["vy"] && fields["vy"] > -1e30 && fields["vy"] < 1e30) component["vy"] = fields["vy"];
       if (typeof fields["vz"] === "number" && fields["vz"] === fields["vz"] && fields["vz"] > -1e30 && fields["vz"] < 1e30) component["vz"] = fields["vz"];
       return;
     }
-    if (component instanceof Component16) {
+    if (component instanceof Component20) {
       if (fields === null || fields === undefined) return;
       if (typeof fields["radius"] === "number" && fields["radius"] === fields["radius"] && fields["radius"] > -1e30 && fields["radius"] < 1e30) component["radius"] = fields["radius"];
       if (typeof fields["speed"] === "number" && fields["speed"] === fields["speed"] && fields["speed"] > -1e30 && fields["speed"] < 1e30) component["speed"] = fields["speed"];
@@ -1296,32 +1577,32 @@ class GeneratedReflection extends ComponentReflection {
       if (typeof fields["cz"] === "number" && fields["cz"] === fields["cz"] && fields["cz"] > -1e30 && fields["cz"] < 1e30) component["cz"] = fields["cz"];
       return;
     }
-    if (component instanceof Component17) {
+    if (component instanceof Component21) {
       if (fields === null || fields === undefined) return;
       if (typeof fields["range"] === "number" && fields["range"] === fields["range"] && fields["range"] > -1e30 && fields["range"] < 1e30) component["range"] = fields["range"];
       if (typeof fields["speed"] === "number" && fields["speed"] === fields["speed"] && fields["speed"] > -1e30 && fields["speed"] < 1e30) component["speed"] = fields["speed"];
       return;
     }
-    if (component instanceof Component18) {
+    if (component instanceof Component22) {
       if (fields === null || fields === undefined) return;
       if (typeof fields["amp"] === "number" && fields["amp"] === fields["amp"] && fields["amp"] > -1e30 && fields["amp"] < 1e30) component["amp"] = fields["amp"];
       if (typeof fields["freq"] === "number" && fields["freq"] === fields["freq"] && fields["freq"] > -1e30 && fields["freq"] < 1e30) component["freq"] = fields["freq"];
       if (typeof fields["base"] === "number" && fields["base"] === fields["base"] && fields["base"] > -1e30 && fields["base"] < 1e30) component["base"] = fields["base"];
       return;
     }
-    if (component instanceof Component19) {
+    if (component instanceof Component23) {
       if (fields === null || fields === undefined) return;
       if (typeof fields["speedY"] === "number" && fields["speedY"] === fields["speedY"] && fields["speedY"] > -1e30 && fields["speedY"] < 1e30) component["speedY"] = fields["speedY"];
       if (typeof fields["speedX"] === "number" && fields["speedX"] === fields["speedX"] && fields["speedX"] > -1e30 && fields["speedX"] < 1e30) component["speedX"] = fields["speedX"];
       return;
     }
-    if (component instanceof Component20) {
+    if (component instanceof Component24) {
       return;
     }
-    if (component instanceof Component21) {
+    if (component instanceof Component25) {
       return;
     }
-    if (component instanceof Component22) {
+    if (component instanceof Component26) {
       return;
     }
   }
@@ -1395,6 +1676,18 @@ class GeneratedReflection extends ComponentReflection {
     if (component instanceof Component22) {
       return false;
     }
+    if (component instanceof Component23) {
+      return false;
+    }
+    if (component instanceof Component24) {
+      return false;
+    }
+    if (component instanceof Component25) {
+      return false;
+    }
+    if (component instanceof Component26) {
+      return false;
+    }
     return false;
   }
 }
@@ -1403,26 +1696,30 @@ export function createRegisteredComponent(name: string): Behavior {
   if (name === "AnimationPlayer") return new Component0();
   if (name === "Animator") return new Component1();
   if (name === "KeyframeAnimator") return Component2.createDefault();
-  if (name === "VitrineContador") return new Component3();
-  if (name === "VitrineHud") return new Component4();
-  if (name === "Collider") return new Component5();
-  if (name === "PhysicsMaterial") return new Component6();
-  if (name === "Rigidbody") return new Component7();
-  if (name === "Camera") return new Component8();
-  if (name === "Light") return new Component9();
-  if (name === "Material") return new Component10();
-  if (name === "MeshRenderer") return new Component11();
-  if (name === "Skeleton") return new Component12();
-  if (name === "Bobber") return new Component13();
-  if (name === "MotionSettings") return new Component14();
-  if (name === "Mover") return new Component15();
-  if (name === "Orbit") return new Component16();
-  if (name === "Patrol") return new Component17();
-  if (name === "Pulse") return new Component18();
-  if (name === "Spinner") return new Component19();
-  if (name === "UIButton") return new Component20();
-  if (name === "UIText") return new Component21();
-  if (name === "AudioSource") return new Component22();
+  if (name === "CameraOrbita") return new Component3();
+  if (name === "CameraPrimeiraPessoa") return new Component4();
+  if (name === "CameraRTS") return new Component5();
+  if (name === "CameraSeguir") return new Component6();
+  if (name === "VitrineContador") return new Component7();
+  if (name === "VitrineHud") return new Component8();
+  if (name === "Collider") return new Component9();
+  if (name === "PhysicsMaterial") return new Component10();
+  if (name === "Rigidbody") return new Component11();
+  if (name === "Camera") return new Component12();
+  if (name === "Light") return new Component13();
+  if (name === "Material") return new Component14();
+  if (name === "MeshRenderer") return new Component15();
+  if (name === "Skeleton") return new Component16();
+  if (name === "Bobber") return new Component17();
+  if (name === "MotionSettings") return new Component18();
+  if (name === "Mover") return new Component19();
+  if (name === "Orbit") return new Component20();
+  if (name === "Patrol") return new Component21();
+  if (name === "Pulse") return new Component22();
+  if (name === "Spinner") return new Component23();
+  if (name === "UIButton") return new Component24();
+  if (name === "UIText") return new Component25();
+  if (name === "AudioSource") return new Component26();
   throw new Error("Componente nao registrado: " + name);
 }
 export function restoreRegisteredComponent(data: any): any {
@@ -1441,21 +1738,60 @@ export function restoreRegisteredComponent(data: any): any {
       if (typeof data.fields["controller"] === "string" && true) component["controller"] = data.fields["controller"];
     return component;
   }
-  if (data.type === "script:assets/scripts/VitrineContador.ts#VitrineContador") {
+  if (data.type === "script:assets/pacotes/camera/camera_orbita.ts#CameraOrbita") {
     const component = new Component3();
+    if (data.fields === undefined || data.fields === null) return component;
+      if (typeof data.fields["alvo"] === "string" && true) component["alvo"] = data.fields["alvo"];
+      if (typeof data.fields["distancia"] === "number" && data.fields["distancia"] === data.fields["distancia"] && data.fields["distancia"] > -1e30 && data.fields["distancia"] < 1e30) component["distancia"] = Math.max(0.5, Math.min(1000, data.fields["distancia"]));
+      if (typeof data.fields["sensibilidade"] === "number" && data.fields["sensibilidade"] === data.fields["sensibilidade"] && data.fields["sensibilidade"] > -1e30 && data.fields["sensibilidade"] < 1e30) component["sensibilidade"] = data.fields["sensibilidade"];
+      if (typeof data.fields["passoZoom"] === "number" && data.fields["passoZoom"] === data.fields["passoZoom"] && data.fields["passoZoom"] > -1e30 && data.fields["passoZoom"] < 1e30) component["passoZoom"] = data.fields["passoZoom"];
+    return component;
+  }
+  if (data.type === "script:assets/pacotes/camera/camera_primeira_pessoa.ts#CameraPrimeiraPessoa") {
+    const component = new Component4();
+    if (data.fields === undefined || data.fields === null) return component;
+      if (typeof data.fields["velocidade"] === "number" && data.fields["velocidade"] === data.fields["velocidade"] && data.fields["velocidade"] > -1e30 && data.fields["velocidade"] < 1e30) component["velocidade"] = data.fields["velocidade"];
+      if (typeof data.fields["sensibilidade"] === "number" && data.fields["sensibilidade"] === data.fields["sensibilidade"] && data.fields["sensibilidade"] > -1e30 && data.fields["sensibilidade"] < 1e30) component["sensibilidade"] = data.fields["sensibilidade"];
+      if (typeof data.fields["exigirBotaoDireito"] === "boolean" && true) component["exigirBotaoDireito"] = data.fields["exigirBotaoDireito"];
+    return component;
+  }
+  if (data.type === "script:assets/pacotes/camera/camera_rts.ts#CameraRTS") {
+    const component = new Component5();
+    if (data.fields === undefined || data.fields === null) return component;
+      if (typeof data.fields["velocidade"] === "number" && data.fields["velocidade"] === data.fields["velocidade"] && data.fields["velocidade"] > -1e30 && data.fields["velocidade"] < 1e30) component["velocidade"] = data.fields["velocidade"];
+      if (typeof data.fields["zoomMin"] === "number" && data.fields["zoomMin"] === data.fields["zoomMin"] && data.fields["zoomMin"] > -1e30 && data.fields["zoomMin"] < 1e30) component["zoomMin"] = data.fields["zoomMin"];
+      if (typeof data.fields["zoomMax"] === "number" && data.fields["zoomMax"] === data.fields["zoomMax"] && data.fields["zoomMax"] > -1e30 && data.fields["zoomMax"] < 1e30) component["zoomMax"] = data.fields["zoomMax"];
+      if (typeof data.fields["zoom"] === "number" && data.fields["zoom"] === data.fields["zoom"] && data.fields["zoom"] > -1e30 && data.fields["zoom"] < 1e30) component["zoom"] = data.fields["zoom"];
+      if (typeof data.fields["passoZoom"] === "number" && data.fields["passoZoom"] === data.fields["passoZoom"] && data.fields["passoZoom"] > -1e30 && data.fields["passoZoom"] < 1e30) component["passoZoom"] = data.fields["passoZoom"];
+      if (typeof data.fields["inclinacao"] === "number" && data.fields["inclinacao"] === data.fields["inclinacao"] && data.fields["inclinacao"] > -1e30 && data.fields["inclinacao"] < 1e30) component["inclinacao"] = Math.max(10, Math.min(89, data.fields["inclinacao"]));
+    return component;
+  }
+  if (data.type === "script:assets/pacotes/camera/camera_seguir.ts#CameraSeguir") {
+    const component = new Component6();
+    if (data.fields === undefined || data.fields === null) return component;
+      if (typeof data.fields["alvo"] === "string" && true) component["alvo"] = data.fields["alvo"];
+      if (typeof data.fields["deslocX"] === "number" && data.fields["deslocX"] === data.fields["deslocX"] && data.fields["deslocX"] > -1e30 && data.fields["deslocX"] < 1e30) component["deslocX"] = data.fields["deslocX"];
+      if (typeof data.fields["deslocY"] === "number" && data.fields["deslocY"] === data.fields["deslocY"] && data.fields["deslocY"] > -1e30 && data.fields["deslocY"] < 1e30) component["deslocY"] = data.fields["deslocY"];
+      if (typeof data.fields["deslocZ"] === "number" && data.fields["deslocZ"] === data.fields["deslocZ"] && data.fields["deslocZ"] > -1e30 && data.fields["deslocZ"] < 1e30) component["deslocZ"] = data.fields["deslocZ"];
+      if (typeof data.fields["suavizacao"] === "number" && data.fields["suavizacao"] === data.fields["suavizacao"] && data.fields["suavizacao"] > -1e30 && data.fields["suavizacao"] < 1e30) component["suavizacao"] = Math.max(0.01, Math.min(10, data.fields["suavizacao"]));
+      if (typeof data.fields["olharAlvo"] === "boolean" && true) component["olharAlvo"] = data.fields["olharAlvo"];
+    return component;
+  }
+  if (data.type === "script:assets/scripts/VitrineContador.ts#VitrineContador") {
+    const component = new Component7();
     if (data.fields === undefined || data.fields === null) return component;
       if (typeof data.fields["contatos"] === "number" && data.fields["contatos"] === data.fields["contatos"] && data.fields["contatos"] > -1e30 && data.fields["contatos"] < 1e30) component["contatos"] = data.fields["contatos"];
     return component;
   }
   if (data.type === "script:assets/scripts/VitrineHud.ts#VitrineHud") {
-    const component = new Component4();
+    const component = new Component8();
     if (data.fields === undefined || data.fields === null) return component;
       if (typeof data.fields["titulo"] === "string" && true) component["titulo"] = data.fields["titulo"];
       if (typeof data.fields["alvo"] === "string" && true) component["alvo"] = data.fields["alvo"];
     return component;
   }
   if (data.type === "script:src/engine/core/light.ts#Light") {
-    const component = new Component9();
+    const component = new Component13();
     if (data.fields === undefined || data.fields === null) return component;
       if (typeof data.fields["tipo"] === "string" && true) component["tipo"] = data.fields["tipo"];
       if (typeof data.fields["cor"] === "number" && data.fields["cor"] === data.fields["cor"] && data.fields["cor"] > -1e30 && data.fields["cor"] < 1e30) component["cor"] = data.fields["cor"];
@@ -1466,7 +1802,7 @@ export function restoreRegisteredComponent(data: any): any {
     return component;
   }
   if (data.type === "script:assets/scripts/MotionSettings.ts#MotionSettings") {
-    const component = new Component14();
+    const component = new Component18();
     if (data.fields === undefined || data.fields === null) return component;
       if (typeof data.fields["speed"] === "number" && data.fields["speed"] === data.fields["speed"] && data.fields["speed"] > -1e30 && data.fields["speed"] < 1e30) component["speed"] = Math.max(0, Math.min(20, data.fields["speed"]));
       if (typeof data.fields["moving"] === "boolean" && true) component["moving"] = data.fields["moving"];

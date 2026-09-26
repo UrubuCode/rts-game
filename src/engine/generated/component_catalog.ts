@@ -22,6 +22,34 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/keyframeanimator.ts"
   },
   {
+    "name": "CameraOrbita",
+    "category": "Câmera",
+    "description": "Órbita em volta de um alvo (nome do objeto): botão direito gira, roda aproxima.",
+    "keywords": "camera câmera órbita orbita orbit alvo terceira pessoa zoom",
+    "source": "assets/pacotes/camera/camera_orbita.ts"
+  },
+  {
+    "name": "CameraPrimeiraPessoa",
+    "category": "Câmera",
+    "description": "Primeira pessoa: olhar com o mouse (botão direito) e andar com WASD; espaço sobe.",
+    "keywords": "camera câmera fps primeira pessoa wasd mouse controle voar",
+    "source": "assets/pacotes/camera/camera_primeira_pessoa.ts"
+  },
+  {
+    "name": "CameraRTS",
+    "category": "Câmera",
+    "description": "Câmera de estratégia: WASD move no plano, roda muda a altura, inclinação fixa.",
+    "keywords": "camera câmera rts estratégia estrategia pan zoom topo",
+    "source": "assets/pacotes/camera/camera_rts.ts"
+  },
+  {
+    "name": "CameraSeguir",
+    "category": "Câmera",
+    "description": "Segue um alvo (nome do objeto) a um deslocamento, com suavização, olhando para ele.",
+    "keywords": "camera câmera seguir follow alvo terceira pessoa suave",
+    "source": "assets/pacotes/camera/camera_seguir.ts"
+  },
+  {
     "name": "VitrineContador",
     "category": "Demo",
     "description": "Conta os contatos e gatilhos que este objeto recebe (cena vitrine).",
