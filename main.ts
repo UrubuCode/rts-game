@@ -24,6 +24,7 @@ import { Transform } from "@engine/core/transform";
 import { subStr, nfEditing, nfCancel } from "@editor/widgets";
 import { createComponent } from "@editor/components";
 import { Inspector } from "@editor/inspector";
+import { previewTick, previewStopAll, previewCount } from "@editor/skeleton_preview";
 import { EditorUI } from "@editor/ui_controls";
 import { dropScriptOnObject, scriptDropError } from "@editor/script_drop";
 import { ScriptEditor } from "@editor/script_editor";
@@ -572,6 +573,12 @@ function frame(): void {
     // incondicional lá embaixo: a mesma visita O(n) duas vezes por frame.
   }
   secEnd(P_FISICA);
+  // PRÉVIA de animação do Inspector: fora do Play só avançam os players cuja
+  // prévia está tocando (escrevem só a pose de trabalho; a cena salva não
+  // muda). No Play, o `scene.update` acima já roda o AnimationPlayer normal, e
+  // a prévia dos originais termina (pose de trabalho de volta à manual).
+  if (S.simulating === 0) previewTick(dts);
+  else if (previewCount() > 0) previewStopAll();
   scene.computeWorld();
   // A fração de passo que sobrou, lida UMA vez por frame e DEPOIS do
   // `stepsFor`: lida no topo do frame ela era a fração do frame ANTERIOR, e o

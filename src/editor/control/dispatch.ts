@@ -65,7 +65,9 @@ function execCommandInner(w: number, h: number, line: string): string {
   // cada leitura — undo/redo ficam inúteis para quem também está editando a
   // pose ao mesmo tempo.
   if (cmd === "clear" || cmd === "loadscene") playMode.stop();
-  if (isMutating(cmd) && !(cmd === "anim" && parts[2] === "state")) history.snapshot();
+  // `anim ... preview` também não: a prévia é estado do editor (só trocar o
+  // clipe entra no undo, e o próprio subcomando faz esse snapshot).
+  if (isMutating(cmd) && !(cmd === "anim" && (parts[2] === "state" || parts[2] === "preview"))) history.snapshot();
   switch (cmd) {
     case "undo": {
       if (history.undo() !== 0) return "[ok] undo (estado restaurado)";

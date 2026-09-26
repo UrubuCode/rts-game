@@ -2,7 +2,7 @@ import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { UIScene } from "@engine/ui/uiscene";
 import { GameObject } from "@engine/core/gameobject";
 import { numField, propertyField, assetField } from "./widgets";
-import { UI_C, UI_INSPECTOR as L, UI_NUMERIC as N, UI_CONSOLE as C } from "./ui_config";
+import { UI_C, UI_INSPECTOR as L, UI_NUMERIC as N, UI_CONSOLE as C, UI_SKELETON as K } from "./ui_config";
 import { drawEditorIcon } from "./icon_images";
 
 // Shared identities across all panels: native focus/click state is window-wide.
@@ -25,6 +25,7 @@ export class EditorControl extends Behavior {
   inputEnabled: boolean = true;
   clicked: boolean = false;
   hot: number = 0;
+  dragging: boolean = false;   // "timeline": arrasto iniciado dentro dela, segue até soltar
   mx: number = 0; my: number = 0; down: number = 0; pressed: number = 0;
   constructor(app: any) { super(); this.app = app; }
   kind(): number { return KIND_UI; }
@@ -51,6 +52,20 @@ export class EditorControl extends Behavior {
       app.text(textX, y + C.textY, caption, this.color, C.font);
       if (trailingW > 0) app.text(x + w - trailingW, y + C.textY, this.trailing, UI_C.consoleMuted, C.font);
       this.clicked = this.hot === 3; return;
+    }
+    if (this.mode === "timeline") {
+      // Barra de tempo: `value` em [0,1]. Pressionar dentro captura o arrasto,
+      // que continua fora da barra até soltar o botão; hot = 1 enquanto arrasta.
+      if (!this.inputEnabled || this.down === 0) this.dragging = false;
+      const over = this.mx >= x && this.mx < x + w && this.my >= y && this.my < y + h;
+      if (this.inputEnabled && this.pressed !== 0 && over) this.dragging = true;
+      if (this.dragging && w > 0) this.value = Math.max(0, Math.min(1, (this.mx - x) / w));
+      this.hot = this.dragging ? 1 : 0;
+      app.box(x, y, w, h, UI_C.timelineTrack, L.border, UI_C.border, L.radius);
+      if (this.value > 0) app.box(x, y, w * this.value, h, UI_C.timelineFill, 0, 0, L.radius);
+      app.box(x + w * this.value - K.handleW / 2, y, K.handleW, h, UI_C.timelineHandle, 0, 0, 0);
+      app.text(x + L.gap, y + K.textY, this.label, UI_C.timelineText, L.font);
+      return;
     }
     if (this.mode === "panel") { app.box(x, y, w, h, this.fill, L.border, UI_C.border, L.radius); return; }
     if (this.mode === "number" || this.mode === "axis") {

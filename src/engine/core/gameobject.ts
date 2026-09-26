@@ -109,6 +109,9 @@ export class GameObject {
   /// (que roda quando a composição muda) e zerado (-1) em `removeAt`. Quem lê
   /// confere `objects[i] === o` antes de confiar. Ver contact_events.ts.
   sceneIndex: number;
+  /// Raio envolvente do renderer que se desenha sozinho (Skeleton), em
+  /// unidades do objeto; 0 = usar o da malha. Cache O(1) pro culling do render.
+  boundRadius: f64;
 
   constructor(name: string) {
     this.id = nextGameObjectId;
@@ -140,6 +143,7 @@ export class GameObject {
     this.spatialSlot = 0 - 1;
     this.spatialDynSlot = 0 - 1;
     this.sceneIndex = 0 - 1;
+    this.boundRadius = 0.0;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`
@@ -160,6 +164,7 @@ export class GameObject {
   refreshComponentCache(): void {
     this.matIdx = this.componentIdx(KIND_MATERIAL);
     this.rendIdx = this.rendererIdx();
+    this.boundRadius = this.rendIdx >= 0 ? this.behaviors[this.rendIdx].rBoundRadius() : 0.0;
     this.colIdx = this.componentIdx(KIND_COLLIDER);
     const hadUI = this.uiIdx;
     this.uiIdx = this.componentIdx(KIND_UI);

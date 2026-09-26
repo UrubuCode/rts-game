@@ -7,6 +7,8 @@ import type { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
 import { AnimationPlayer } from "@engine/core/animation_player";
 import { quatMulInto } from "@engine/render/quat";
+import { previewIsPlaying, previewStart, previewPause, previewStop } from "../../skeleton_preview";
+import { history } from "../../undo";
 
 const DEG2RAD: f64 = Math.PI / 180.0;
 
@@ -180,7 +182,10 @@ export function cmdAnims(parts: string[]): string {
 }
 
 /// anim <obj> play <nome> [loop|once] | pause | resume | seek <s> |
-/// fade <nome> <s> | speed <x> | state
+/// fade <nome> <s> | speed <x> | state |
+/// preview play [nome] | preview pause | preview stop | preview seek <s>
+/// (`preview` = a prévia do Inspector fora do Play: sem undo, sem mudar a cena
+/// salva — só trocar o clipe entra no undo)
 export function cmdAnim(parts: string[]): string {
   const oi = parseFloat(parts[1]) | 0;
   const o = objOrError(oi);
@@ -219,7 +224,34 @@ export function cmdAnim(parts: string[]): string {
   if (sub === "state") {
     const estado = ap.playing ? "tocando" : "pausado";
     return "[anim] #" + oi + " clip=" + ap.clip + " time=" + ap.time.toFixed(2) +
-      " " + estado + " loop=" + ap.loop + " speed=" + ap.speed.toFixed(2);
+      " " + estado + " loop=" + ap.loop + " speed=" + ap.speed.toFixed(2) +
+      " previa=" + (previewIsPlaying(ap) ? "tocando" : "parada");
   }
+  if (sub === "preview") return cmdAnimPreview(oi, ap, parts);
   return "[erro] subcomando invalido: " + sub;
+}
+
+// anim <obj> preview ... — mesmo caminho dos botões do Inspector.
+function cmdAnimPreview(oi: number, ap: AnimationPlayer, parts: string[]): string {
+  const acao = parts[3];
+  if (acao === "play") {
+    const nome = parts[4];
+    if (nome !== undefined && nome !== "" && nome !== ap.clip) {
+      if (ap.clipNames().indexOf(nome) < 0) return "[erro] clipe inexistente: " + nome;
+      history.snapshot();   // o clipe é campo salvo
+      ap.clip = nome; ap.time = 0.0; ap.onValidate("clip");
+    }
+    if (ap.duration() <= 0.0) return "[erro] escolha um clipe (anim " + oi + " preview play <nome>)";
+    previewStart(ap);
+    return "[ok] anim preview play " + ap.clip + " #" + oi;
+  }
+  if (acao === "pause") { previewPause(ap); return "[ok] anim preview pause #" + oi; }
+  if (acao === "stop") { previewStop(ap); return "[ok] anim preview stop #" + oi; }
+  if (acao === "seek") {
+    const t = parseFloat(parts[4]);
+    if (t !== t) return "[erro] preview seek precisa de um tempo numerico";
+    ap.seek(t);
+    return "[ok] anim preview seek " + ap.time.toFixed(2) + " #" + oi;
+  }
+  return "[erro] preview: use play [nome] | pause | stop | seek <s>";
 }

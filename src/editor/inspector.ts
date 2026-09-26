@@ -2,6 +2,8 @@ import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { GameObject } from "@engine/core/gameobject";
 import { EditorUI } from "./ui_controls";
 import { MeshRenderer } from "@engine/core/meshrenderer";
+import { Skeleton } from "@engine/core/skeleton";
+import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, animationPlayerOf } from "./skeleton_preview";
 import { ComponentPicker } from "./component_picker";
 import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
@@ -9,9 +11,19 @@ import { scene, S } from "./control/session";
 import { nfCancel, AXIS_X, AXIS_Y, AXIS_Z } from "./widgets";
 import input from "rts:input";
 import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
-  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP } from "./ui_config";
+  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K } from "./ui_config";
 
 const DEGREES_PER_RADIAN = 180 / Math.PI;
+
+function findSkeleton(object: GameObject): Skeleton | null {
+  let index = 0;
+  while (index < object.behaviors.length) {
+    const behavior = object.behaviors[index];
+    if (behavior instanceof Skeleton) return behavior;
+    index = index + 1;
+  }
+  return null;
+}
 
 // Painel do editor: GameObject raiz + controles filhos em uma UIScene propria.
 // Nenhum desses objetos entra na cena editada ou no arquivo do jogo.
@@ -25,6 +37,7 @@ export class Inspector extends Behavior {
   opened: number = 0;
   transformOpen: boolean = true;
   appearanceOpen: boolean = true;
+  skeletonOpen: boolean = true;
   meshHot: number = 0;
   textureHot: number = 0;
   top: number = 0; bottom: number = 0;
@@ -76,6 +89,105 @@ export class Inspector extends Behavior {
     }
     return values;
   }
+  /// Seção "Esqueleto": árvore de ossos (clique = S.selectedBone), clipes,
+  /// tocar/pausar/parar, barra de tempo (arrastar = seek) e "Resetar pose".
+  /// Fora do Play, tocar/pausar/tempo são PRÉVIA (skeleton_preview.ts): sem
+  /// undo e sem mudar a cena salva. Escolher o clipe (campo salvo `clip`) e
+  /// resetar a pose (pose manual) passam pelo undo como as outras edições.
+  skeletonSection(app: any, skeleton: Skeleton, startY: number): number {
+    let rowY = startY;
+    this.skeletonOpen = this.header("Skeleton/Header", rowY, K.title, this.skeletonOpen);
+    rowY = rowY + L.headerH + L.gap;
+    if (!this.skeletonOpen) return rowY;
+    skeleton.ensureAsset(app._win);
+    const asset = skeleton.asset;
+    if (asset === null) { this.label("Skeleton/NoModel", rowY, K.noModel); return rowY + L.rowH + L.gap; }
+    const innerX = this.x + L.padding + L.gap;
+    const innerW = this.width - L.padding * 2 - L.gap;
+    const boneCount = asset.boneNames.length;
+    this.label("Skeleton/BonesTitle", rowY, K.bones + " (" + boneCount + ")");
+    rowY = rowY + L.rowH;
+    let bone = 0;
+    while (bone < boneCount) {
+      if (this.visible(rowY, K.boneRowH)) {
+        let depth = 0;
+        let parent = asset.boneParent[bone];
+        while (parent >= 0 && depth < K.maxIndentDepth) { depth = depth + 1; parent = asset.boneParent[parent]; }
+        const indent = depth * K.boneIndent;
+        const row = this.ui.control("Skeleton/Bone/" + bone, "row", innerX + indent, rowY, innerW - indent,
+          K.boneRowH, asset.boneNames[bone], this.enabledInput);
+        row.fill = bone === S.selectedBone ? UI_C.boneSelected : UI_C.boneRow;
+        this.ui.draw(row);
+        if (row.clicked) S.selectedBone = bone;
+      }
+      rowY = rowY + K.boneRowH;
+      bone = bone + 1;
+    }
+    rowY = rowY + L.gap;
+    const player = animationPlayerOf(skeleton);
+    if (player === null) {
+      this.label("Skeleton/NoPlayer", rowY, K.noPlayer);
+      this.label("Skeleton/NoPlayerHint", rowY + L.rowH, K.noPlayerHint);
+      return rowY + L.rowH * 2 + L.gap;
+    }
+    const simulating = S.simulating !== 0;
+    this.label("Skeleton/ClipsTitle", rowY, K.clips);
+    rowY = rowY + L.rowH;
+    if (asset.clips.length === 0) { this.label("Skeleton/NoClips", rowY, K.noClips); rowY = rowY + L.rowH; }
+    let clipIndex = 0;
+    while (clipIndex < asset.clips.length) {
+      const clip = asset.clips[clipIndex];
+      if (this.visible(rowY, K.clipRowH)) {
+        const button = this.ui.control("Skeleton/Clip/" + clipIndex, "button", innerX, rowY, innerW, K.clipRowH,
+          clip.name + "  (" + clip.duration.toFixed(K.timeDigits) + K.timeUnit + ")", this.enabledInput);
+        if (clip.name === player.clip) button.fill = UI_C.clipActive;
+        this.ui.draw(button);
+        if (button.clicked && clip.name !== player.clip) {
+          this.snapshot();
+          if (simulating) player.play(clip.name);
+          else { player.clip = clip.name; player.time = 0.0; player.onValidate("clip"); }
+        }
+      }
+      rowY = rowY + K.clipRowH;
+      clipIndex = clipIndex + 1;
+    }
+    rowY = rowY + L.gap;
+    const duration = player.duration();
+    const canPlay = this.enabledInput && duration > 0.0;
+    if (this.visible(rowY, L.rowH)) {
+      const playing = simulating ? player.playing : previewIsPlaying(player);
+      const halfW = (innerW - K.buttonGap) / 2;
+      const toggle = this.ui.control("Skeleton/Play", "button", innerX, rowY, halfW, L.rowH,
+        playing ? K.pause : K.play, canPlay);
+      this.ui.draw(toggle);
+      if (toggle.clicked) {
+        if (simulating) { if (playing) player.pause(); else player.resume(); }
+        else if (playing) previewPause(player);
+        else previewStart(player);
+      }
+      const stop = this.ui.control("Skeleton/Stop", "button", innerX + halfW + K.buttonGap, rowY, halfW, L.rowH, K.stop, canPlay);
+      this.ui.draw(stop);
+      if (stop.clicked) {
+        if (simulating) { player.pause(); player.seek(0.0); }
+        else previewStop(player);
+      }
+    }
+    rowY = rowY + L.rowH + L.gap;
+    if (this.visible(rowY, K.timelineH)) {
+      const timeline = this.ui.control("Skeleton/Time", "timeline", innerX, rowY, innerW, K.timelineH,
+        player.time.toFixed(K.timeDigits) + K.timeSeparator + duration.toFixed(K.timeDigits) + K.timeUnit, canPlay);
+      timeline.value = duration > 0.0 ? player.time / duration : 0;
+      this.ui.draw(timeline);
+      if (timeline.hot !== 0) player.seek(timeline.value * duration);
+    }
+    rowY = rowY + K.timelineH + L.gap;
+    if (this.visible(rowY, L.rowH)) {
+      const reset = this.ui.control("Skeleton/Reset", "button", innerX, rowY, innerW, L.rowH, K.resetPose, this.enabledInput);
+      this.ui.draw(reset);
+      if (reset.clicked) { this.snapshot(); skeleton.resetPose(); }
+    }
+    return rowY + L.rowH + L.gap;
+  }
   render(app: any, x: number, y: number, width: number, height: number,
          mx: number, my: number, down: number, pressed: number, blocked: boolean,
          modelDrag: number, textureDrag: number): void {
@@ -87,6 +199,10 @@ export class Inspector extends Behavior {
       this.scroll = 0; this.contentHeight = 0; this.opened = 0;
       this.selectedObject = selected; this.selection = S.selected;
       nfCancel(); app.setFocus(0 - 1);
+      // outro objeto: o osso escolhido não vale mais e a prévia de animação
+      // (estado do editor) termina, com a pose de trabalho de volta à manual.
+      S.selectedBone = 0 - 1;
+      previewStopAll();
     }
     if (blocked) { this.opened = 0; nfCancel(); }
     this.enabledInput = !blocked && this.opened === 0;
@@ -192,6 +308,8 @@ export class Inspector extends Behavior {
         rowY = rowY + L.rowH + L.gap;
       }
     }
+    const skeleton = findSkeleton(object);
+    if (skeleton !== null) rowY = this.skeletonSection(app, skeleton, rowY);
     let componentIndex = 0;
     let removeIndex = 0 - 1;
     while (componentIndex < object.behaviors.length) {
@@ -274,3 +392,4 @@ export class Inspector extends Behavior {
     this.ui.end();
   }
 }
+

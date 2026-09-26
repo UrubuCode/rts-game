@@ -270,4 +270,23 @@ export const UI_C = {
   helpBorder: 0x6680A0FF,
   helpTitle: 0xE7ECF4FF,
   helpText: 0xCFD6DFFF,
+  boneSelected: 0x344D68FF,
+  boneRow: 0x2F2F2FFF,
+  boneLeafText: 0xA8B0BAFF,
+  clipActive: 0x4A75B0FF,
+  timelineTrack: 0x252525FF,
+  timelineFill: 0x3A6C9FFF,
+  timelineHandle: 0xD8E4F2FF,
+  timelineText: 0xE6E6E6FF,
+};
+// Seção "Esqueleto" do Inspector (Skeleton + AnimationPlayer). As medidas de
+// linha/cabeçalho são as de UI_INSPECTOR; aqui ficam só as próprias da seção.
+export const UI_SKELETON = {
+  boneIndent: 12, maxIndentDepth: 8, boneRowH: 22, clipRowH: 22,
+  timelineH: 20, handleW: 4, buttonGap: 6, textY: 3,
+  title: "Esqueleto", bones: "Ossos", clips: "Clipes",
+  play: "Tocar", pause: "Pausar", stop: "Parar", resetPose: "Resetar pose",
+  noModel: "Modelo não carregado", noClips: "O modelo não tem clipes",
+  noPlayer: "Adicione um AnimationPlayer", noPlayerHint: "para tocar os clipes.",
+  timeUnit: " s", timeSeparator: " / ", timeDigits: 2,
 };

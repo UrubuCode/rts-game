@@ -17,7 +17,7 @@
 import { Behavior, KIND_RENDERER } from "./behavior";
 import { SkeletonAsset, loadSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
 import { logWarn } from "./logger";
-import { drawGPUMeshQ } from "../render/gpu3d";
+import { drawGPUMeshQ, meshRadius } from "../render/gpu3d";
 import { quatFromYawPitchInto } from "../render/quat";
 
 /// Valores por osso num registro salvo: [osso, tx,ty,tz, rx,ry,rz,rw, sx,sy,sz].
@@ -56,6 +56,8 @@ export class Skeleton extends Behavior {
   worldS: Float64Array;
   /** @nonSerialized */
   overrideMask: number[];
+  /** @nonSerialized */
+  boundRadius: f64;
 
   // Pose manual lida da cena antes de o modelo carregar (registros de
   // POSE_REC_LEN; a 1ª posição é o índice antigo) e o nome do osso de cada
@@ -80,6 +82,7 @@ export class Skeleton extends Behavior {
     this.manualT = new Float64Array(0); this.manualR = new Float64Array(0); this.manualS = new Float64Array(0);
     this.worldT = new Float64Array(0); this.worldR = new Float64Array(0); this.worldS = new Float64Array(0);
     this.overrideMask = [];
+    this.boundRadius = 0.0;
     this.pendingPose = [];
     this.pendingNames = [];
     this.failedPath = "";
@@ -90,6 +93,7 @@ export class Skeleton extends Behavior {
 
   kind(): number { return KIND_RENDERER; }
   drawsSelf(): number { return 1; }
+  rBoundRadius(): f64 { return this.boundRadius; }
   typeName(): string { return "Skeleton"; }
 
   /// Trocar o modelo no Inspector descarta o asset; o próximo desenho recarrega.
@@ -108,7 +112,7 @@ export class Skeleton extends Behavior {
     const cur = this.asset;
     if (cur !== null && cur.path === this.modelPath) {
       if (skeletonNeedsUpload(cur, win) && this.failedUploadWin !== win) {
-        try { loadSkeletonAsset(win, this.modelPath); }
+        try { loadSkeletonAsset(win, this.modelPath); this.updateBound(); }
         catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); }
       }
       return;
@@ -147,6 +151,47 @@ export class Skeleton extends Behavior {
     this.pendingPose = [];
     this.pendingNames = [];
     this.applyManualPose();
+    this.updateBound();
+  }
+
+  /// Raio da esfera (centro na ORIGEM do objeto, nos pés) que contém o modelo
+  /// em qualquer pose, em unidades do objeto: por osso, soma dos comprimentos
+  /// dos ossos até a raiz (limite que nenhuma rotação ultrapassa) + raio da
+  /// peça. O culling usava 0.87 (cubo unitário) e o personagem sumia na borda
+  /// da tela. Roda ao carregar/subir o modelo, nunca por frame; publica o raio
+  /// no `boundRadius` do objeto se este é o renderer dele.
+  private updateBound(): void {
+    const a = this.asset;
+    if (a === null) return;
+    const n = a.boneNames.length;
+    const reach = new Float64Array(n);
+    const scale = new Float64Array(n);
+    let b = 0;
+    while (b < n) {
+      const p = a.boneParent[b];
+      const parentReach: f64 = p >= 0 ? reach[p] : 0.0;
+      const parentScale: f64 = p >= 0 ? scale[p] : 1.0;
+      const tx = a.restT[b * 3]; const ty = a.restT[b * 3 + 1]; const tz = a.restT[b * 3 + 2];
+      reach[b] = parentReach + Math.sqrt(tx * tx + ty * ty + tz * tz) * parentScale;
+      let maxS: f64 = Math.abs(a.restS[b * 3]);
+      if (Math.abs(a.restS[b * 3 + 1]) > maxS) maxS = Math.abs(a.restS[b * 3 + 1]);
+      if (Math.abs(a.restS[b * 3 + 2]) > maxS) maxS = Math.abs(a.restS[b * 3 + 2]);
+      scale[b] = parentScale * maxS;
+      b = b + 1;
+    }
+    let r: f64 = 0.0;
+    let i = 0;
+    while (i < a.partBone.length) {
+      const pb = a.partBone[i];
+      if (pb >= 0 && pb < n) {
+        const pr = reach[pb] + meshRadius(a.partMesh[i]) * scale[pb];
+        if (pr > r) r = pr;
+      }
+      i = i + 1;
+    }
+    this.boundRadius = r;
+    const owner = this.owner;
+    if (owner !== null && owner.rendIdx >= 0 && owner.behaviors[owner.rendIdx] === this) owner.boundRadius = r;
   }
 
   boneCount(): number { return this.asset !== null ? this.asset.boneNames.length : 0; }
@@ -217,6 +262,13 @@ export class Skeleton extends Behavior {
   /// `worldT`/`worldR`) virou a mesma matemática, inline, escrevendo direto
   /// nos arrays de saída.
   compose(): void {
+    const t = this.host;
+    this.composeAt(t.wx, t.wy, t.wz);
+  }
+
+  /// `compose` com a raiz em (x, y, z) em vez da posição simulada do host — o
+  /// desenho passa a posição de RENDER (interpolada), como os demais objetos.
+  composeAt(hostX: f64, hostY: f64, hostZ: f64): void {
     const a = this.asset;
     if (a === null) return;
     const t = this.host;
@@ -224,7 +276,6 @@ export class Skeleton extends Behavior {
     // raiz: yaw do host (calculado 1x acima) + posição/escala do host — lidos
     // 1x aqui, não a cada osso sem pai.
     const rootRX = this.rootR[0]; const rootRY = this.rootR[1]; const rootRZ = this.rootR[2]; const rootRW = this.rootR[3];
-    const hostX = t.wx; const hostY = t.wy; const hostZ = t.wz;
     const hostSX = t.sx; const hostSY = t.sy; const hostSZ = t.sz;
     const n = a.boneNames.length;
     const boneParent = a.boneParent;
@@ -268,13 +319,14 @@ export class Skeleton extends Behavior {
     }
   }
 
-  /// Desenha cada peça no osso dela. 1 = desenhou (o laço de render pula o
+  /// Desenha cada peça no osso dela, com a raiz na posição de render (x,y,z)
+  /// e, se `tint` >= 0, todas as peças nessa cor (seleção). 1 = desenhou (o laço de render pula o
   /// desenho por meshKind); 0 = sem modelo, o laço segue o caminho normal.
-  drawSelf(win: number): number {
+  drawSelf(win: number, x: f64, y: f64, z: f64, tint: number): number {
     this.ensureAsset(win);
     const a = this.asset;
     if (a === null) return 0;
-    this.compose();
+    this.composeAt(x, y, z);
     const q = this.drawQ;
     let i = 0;
     while (i < a.partBone.length) {
@@ -283,7 +335,7 @@ export class Skeleton extends Behavior {
       if (mesh > 0 && b >= 0) {
         q[0] = this.worldR[b * 4]; q[1] = this.worldR[b * 4 + 1]; q[2] = this.worldR[b * 4 + 2]; q[3] = this.worldR[b * 4 + 3];
         drawGPUMeshQ(win, mesh, this.worldT[b * 3], this.worldT[b * 3 + 1], this.worldT[b * 3 + 2], q,
-          this.worldS[b * 3], this.worldS[b * 3 + 1], this.worldS[b * 3 + 2], a.partColor[i], 0, a.partTex[i]);
+          this.worldS[b * 3], this.worldS[b * 3 + 1], this.worldS[b * 3 + 2], tint >= 0 ? tint : a.partColor[i], 0, a.partTex[i]);
       }
       i = i + 1;
     }

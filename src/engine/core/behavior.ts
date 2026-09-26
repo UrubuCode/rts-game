@@ -173,10 +173,17 @@ export class Behavior {
   /// Um renderer que se desenha sozinho (ex.: Skeleton, várias peças por
   /// objeto) devolve 1 depois de desenhar; o laço de render então pula o
   /// desenho por meshKind/customMesh. 0 = seguir o caminho normal.
-  drawSelf(win: number): number { return 0; }
+  /// `x/y/z` = posição de RENDER do objeto (interpolada, a mesma que o laço
+  /// usa para os demais); `tint` = cor 0xRRGGBB que substitui a das peças
+  /// (destaque de seleção do editor) ou -1 para as cores do modelo.
+  drawSelf(win: number, x: f64, y: f64, z: f64, tint: number): number { return 0; }
   /// 1 = este renderer se desenha sozinho (`drawSelf`) e tem prioridade sobre
   /// os demais renderers do objeto. Lido só em `refreshComponentCache`.
   drawsSelf(): number { return 0; }
+  /// Raio envolvente do renderer em unidades do objeto, centrado na origem
+  /// dele (0 = sem raio próprio: o culling usa o da malha). Lido só em
+  /// `refreshComponentCache` e cacheado em `GameObject.boundRadius`.
+  rBoundRadius(): f64 { return 0.0; }
 
   // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
   // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão

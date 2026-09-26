@@ -43,6 +43,10 @@ export function setDrawBatch(on: number): void { emitirEmLote = on; }
 /// render. Lido uma vez por frame, FORA do laço — que é a diferença que importa.
 export const fParams: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+/// Cor 0xRRGGBB de um objeto selecionado no editor (dourado) — a mesma para
+/// malhas e para renderers que se desenham sozinhos (Skeleton).
+const SELECTED_COLOR: number = (255 << 16) | (230 << 8) | 120;
+
 /// O laço de render da cena, como FUNÇÃO LIVRE de parâmetros TIPADOS.
 ///
 /// MEDIDO (release, `tools/claude-bench-lacoprep.ts`), 500 objetos apontando
@@ -105,7 +109,10 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
     // deste laço existe para evitar (ver o comentário acima). Um custom mesh
     // pendurado num `MeshRenderer` continua com o raio da primitiva — está
     // errado por menos, e consertá-lo custa a medição que o cabeçalho descreve.
-    const r: f64 = rmax * (o.customMesh > 0 ? meshRadius(o.customMesh) : 0.87);
+    // Um renderer que se desenha sozinho (Skeleton) publica o próprio raio em
+    // `boundRadius` (campo simples, sem despacho) — centrado nos pés, cobre o
+    // personagem inteiro.
+    const r: f64 = rmax * (o.boundRadius > 0.0 ? o.boundRadius : (o.customMesh > 0 ? meshRadius(o.customMesh) : 0.87));
     const dx: f64 = tr.wx - cx; const dy: f64 = tr.wy - cy; const dz: f64 = tr.wz - cz;
     const x1: f64 = dx * cyw - dz * syw;
     const z1: f64 = dx * syw + dz * cyw;
@@ -122,7 +129,13 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
 
     // RENDERER QUE SE DESENHA (Skeleton: várias peças por objeto, rotação em
     // quaternion). Não entra no lote; conta como um objeto desenhado.
-    if (o.rendIdx >= 0 && o.behaviors[o.rendIdx].drawSelf(win) !== 0) { drawnN = drawnN + 1; oi = oi + 1; continue; }
+    // Mesma posição de RENDER e mesmo destaque de seleção dos demais objetos.
+    if (o.rendIdx >= 0 && o.behaviors[o.rendIdx].drawsSelf() !== 0) {
+      const tint = o.selFlag !== 0 || oi === selected ? SELECTED_COLOR : 0 - 1;
+      if (o.behaviors[o.rendIdx].drawSelf(win, renderX(sc, oi, alpha), renderY(sc, oi, alpha), renderZ(sc, oi, alpha), tint) !== 0) {
+        drawnN = drawnN + 1; oi = oi + 1; continue;
+      }
+    }
 
     // GEOMETRIA: do component MeshRenderer (rendIdx cacheado, O(1)) quando existe;
     // senão fallback pros campos legado do GameObject (cenas sem MeshRenderer).
@@ -134,11 +147,9 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
       customMesh = rd.rCustomMesh() | 0;
     }
     if (meshKind !== 0 || customMesh > 0) {
-      let rr = o.cr | 0; let gg = o.cg | 0; let bbv = o.cb | 0;
       // Selecionado (ou na multi-seleção) = dourado. O teste é O(1) via flag no
       // próprio objeto: antes varria S.selection INTEIRA por objeto visível.
-      if (o.selFlag !== 0 || oi === selected) { rr = 255; gg = 230; bbv = 120; }
-      const col = (rr << 16) | (gg << 8) | bbv;
+      const col = o.selFlag !== 0 || oi === selected ? SELECTED_COLOR : ((o.cr | 0) << 16) | ((o.cg | 0) << 8) | (o.cb | 0);
       // APARÊNCIA: se o objeto tem um component Material (matIdx cacheado, O(1)),
       // ele manda; senão fallback pros campos do GameObject.
       // tex: imagem real (id>=2) tem prioridade sobre o procedural (0/1).

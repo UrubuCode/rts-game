@@ -4,6 +4,8 @@ import { GameObject } from "@engine/core/gameobject";
 import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdAnims, cmdAnim } from "@editor/control/commands/skeleton";
 import { execCommand } from "@editor/control/dispatch";
 import { history } from "@editor/undo";
+import { previewIsPlaying, previewTick } from "@editor/skeleton_preview";
+import { AnimationPlayer } from "@engine/core/animation_player";
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 scene.clear(); scene.add(new GameObject("heroi"));
 check(cmdAddSkel(["addskel", "0", "assets/models/kenney/character-a.glb"]).indexOf("[ok]") === 0, "addskel");
@@ -45,4 +47,22 @@ execCommand(800, 600, "anim 0 play walk");
 check(history.undoDepth() === undoDepthAntes + 1 && history.redoDepth() === 0,
   "anim ... play empilha snapshot e zera o redo (undo=" + history.undoDepth() + " redo=" + history.redoDepth() + ")");
 
-io.print("[PASSOU] ws skeleton: addskel, bones, pose, resetpose, anims, anim, fade, speed, undo/redo de anim state vs play");
+// prévia do Inspector: `anim ... preview` não empilha undo (só trocar o clipe) e
+// não liga o campo salvo `playing`.
+const apPrev = scene.objects[0].behaviors[scene.objects[0].behaviors.length - 1] as AnimationPlayer;
+apPrev.pause(); apPrev.playing = false;
+history.u = []; history.r = [];
+const undoPrev = history.undoDepth();
+check(execCommand(800, 600, "anim 0 preview play").indexOf("[ok]") === 0, "preview play do clipe atual");
+check(history.undoDepth() === undoPrev, "preview play sem troca de clipe nao cria undo");
+check(execCommand(800, 600, "anim 0 state").indexOf("previa=tocando") > 0, "state mostra a previa tocando");
+previewTick(0.1);
+check(apPrev.playing === false, "a previa nao liga o campo salvo playing");
+const outroClipe = apPrev.clip === "walk" ? "idle" : "walk";
+check(execCommand(800, 600, "anim 0 preview play " + outroClipe).indexOf("[ok]") === 0 && apPrev.clip === outroClipe, "preview play troca o clipe");
+check(history.undoDepth() === undoPrev + 1, "trocar o clipe pela previa empilha 1 undo");
+check(execCommand(800, 600, "anim 0 preview seek 0.2").indexOf("[ok]") === 0, "preview seek");
+check(execCommand(800, 600, "anim 0 preview stop").indexOf("[ok]") === 0 && !previewIsPlaying(apPrev), "preview stop");
+check(history.undoDepth() === undoPrev + 1, "seek/stop da previa nao criam undo");
+check(execCommand(800, 600, "anim 0 preview play nada").indexOf("[erro]") === 0, "clipe inexistente = erro");
+io.print("[PASSOU] ws skeleton: addskel, bones, pose, resetpose, anims, anim, fade, speed, undo/redo de anim state vs play, preview");
