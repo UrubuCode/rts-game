@@ -172,6 +172,11 @@ engine's latest release** (no engine rebuild — that binary is AOT-capable), ru
 `rts compile`, and **publishes a GitHub Release** of the executable + assets on
 every push to `master`.
 
+Because CI always uses the engine's *latest release*, a branch that needs new
+engine natives must be merged in this order: **engine (`rts`) PR → `rts`
+release → this repo's branch**. Merging here first breaks the CI build (see
+the migration notes in [docs/components.md](docs/components.md)).
+
 ## Performance
 
 Measured on this machine, 300-frame runs, 10% of objects moving (a realistic RTS

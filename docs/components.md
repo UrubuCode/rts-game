@@ -329,6 +329,11 @@ do repositório, como o `rts-fps`, precisam destas trocas:
 | `app.button(x, y, w, h, …)` / `app.textField(x, y, w, h, …)` | `app.at(x, y, w, h)` e depois `app.button(…)` / `app.textField(id, texto, hab)` |
 | `app.clickable(id, x, y, w, h)` | `app.clickable(x, y, w, h)`, ou `app.at(…)` e `app.clickableAt(id)` |
 | `EditorUI.control(nome, modo, x, y, w, h, …)` | `ui.at(x, y, w, h)` e depois `ui.control(nome, modo, rótulo, hab)` |
+| `fpsApp.text(x, y, s, cor, tamanho)` e outras chamadas `<app>.text`/`box`/`line` num app próprio | `texto(x, y, s, estiloTexto(cor, tamanho))`, `pincel`+`caixa`, `traco`+`linha` de `@compat/draw2d.ts` (o app não desenha mais) |
+| `drawGPUMeshQ(win, mesh, px, py, pz, q, sx, sy, sz, cor, emissivo, tex)` (removida) | `drawGPUMeshQBuf(win, mesh, d)`, com `d` de `DRAW_FLOATS` números: posição em `D_X..D_Z`, escala em `D_SX..D_SZ`, `D_COR`, `D_EMISSIVO`, `D_TEX` e o quaternion em `D_QX..D_QW` |
+| `drawSceneObjects(objs, trs, n, sc, win, selected, alpha, cx, cy, cz, cyw, syw, cpt, spt, …)` | `prepararDesenho(cfg, fParams, selected, alpha)` e depois `drawSceneObjects(sc, n, win, cfg)`, com `cfg` de `DS_FLOATS` números (`@engine/render/scenedraw`) |
+| `scene.mainCameraIdx()` (removida) | `Camera.main()` (`@engine/core/camera`): devolve o componente; o objeto é `Camera.main().owner` |
+| `behavior.camIsMain()` (removida) | `Camera.main() === câmera`, ou o campo `isMain` do componente `Camera` |
 
 - `pincel`, `caixa`, `texto`, `estiloTexto`, `traco`, `linha`, `imagemEm`,
   `imagemId` e `registrarImagem` vêm de `@compat/draw2d.ts`. Chame
@@ -343,6 +348,12 @@ do repositório, como o `rts-fps`, precisam destas trocas:
   `drawGPUBuf`/`drawGPUMeshBuf` e `setCamBuf`/`frustumBeginBuf`.
 - `npm run check:params` acusa funções com 5+ parâmetros que estejam fora da
   lista de exceções justificadas.
+
+**Ordem de merge.** Este conjunto depende de nativos novos do motor (imagens
+retidas `imageRegister`/`drawImageId`, `setVsync` booleano, luzes e céu da
+cena 3D). O CI (`.github/workflows/build-executable.yml`) baixa o `rts.exe` do
+**último release** do motor, então a ordem é: PR do `rts` → release do `rts`
+→ merge deste branch. Mesclar antes do release quebra o build do CI.
 
 ## Compatibilidade e limites
 
