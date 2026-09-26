@@ -10,9 +10,16 @@ export const COMPONENT_CATALOG = [
   {
     "name": "Animator",
     "category": "Animação",
+    "description": "Máquina de estados de animação (estilo Mecanim): parâmetros, transições, mistura 1D e camadas com máscara.",
+    "keywords": "animator animacao estados transicao mistura blend camada mascara mecanim controlador",
+    "source": "src/engine/core/animator.ts"
+  },
+  {
+    "name": "KeyframeAnimator",
+    "category": "Animação",
     "description": "Anima propriedades com keyframes.",
     "keywords": "animacao keyframe",
-    "source": "src/scripts/animator.ts"
+    "source": "src/scripts/keyframeanimator.ts"
   },
   {
     "name": "VitrineContador",
