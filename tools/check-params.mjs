@@ -35,7 +35,7 @@ const EXCECOES = {
   'src/engine/audio/audio.ts': {
     voiceAt: 'um por som disparado (evento), não por quadro',
     playToneAt: 'API de script por evento', playSquareAt: 'API de script por evento', playNoiseAt: 'API de script por evento',
-    mixInto: 'só com voz ativa, 1 chamada por quadro; os arrays por parâmetro são a otimização medida (260→20 ns por acesso) — migrar com medição',
+    mixInto: 'PENDÊNCIA (follow-up Task 10.5): por quadro com voz ativa; os arrays por parâmetro são a otimização medida (260→20 ns por acesso) — migrar com medição, não é exceção permanente',
   },
   'src/engine/core/animator_controller.ts': { fillTransition: 'ao carregar o controlador (JSON)' },
   'src/engine/core/hull.ts': {
@@ -48,10 +48,10 @@ const EXCECOES = {
     'raycastStaticGridDDA', 'raycastDynamicsDDA', 'raycast', 'overlapSphereObject', 'testOverlapSphereObject',
     'overlapSphereInto', 'overlapSphereDynamicsInto', 'overlapSphere', 'overlapBoxObject', 'testOverlapBoxObject',
     'overlapBoxInto', 'overlapBoxDynamicsInto', 'overlapBox',
-  ].map(n => [n, 'API pública de consultas (Physics.Raycast/Overlap estilo Unity) e seus kernels; muda a assinatura dos scripts — só roda quando um script consulta; migrar com rts#2760'])),
+  ].map(n => [n, 'PENDÊNCIA (follow-up Task 10.5): API pública de consultas (Physics.Raycast/Overlap estilo Unity) e seus kernels, por quadro quando um script consulta; migrar muda a assinatura dos scripts — não é exceção permanente (rts#2760)'])),
   'src/engine/fluid/cpufluid.ts': {
     cfSetState: 'fluido (demo opcional) — setup', cfSpawnBlock: 'fluido — setup',
-    densityPass: 'fluido (demo opcional, por quadro quando existe) — não está no editor/jogo padrão', forcePass: 'idem',
+    densityPass: 'PENDÊNCIA (follow-up Task 10.5): por quadro quando há fluido (demo opcional, fora do editor/jogo padrão) — migrar, não é exceção permanente', forcePass: 'PENDÊNCIA: idem densityPass',
   },
   'src/engine/fluid/fluid.ts': { flSpawnBlock: 'fluido — setup' },
   'src/engine/fluid/gpufluid.ts': { gfSpawnBlock: 'fluido — setup', gfSetState: 'fluido — setup' },

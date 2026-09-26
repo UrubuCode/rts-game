@@ -111,6 +111,8 @@ export class Inspector extends Behavior {
   /// Rótulo "Pai: <nome>", refeito só quando o nome do pai muda.
   paiRotulo: string = ""; paiDe: string = "";
   addRotulo: string = "+ " + P.title;
+  /// Chaves "<prefixo><i>" de osso, clipe, parâmetro e camada, criadas uma vez.
+  chavesOsso: string[] = []; chavesClipe: string[] = []; chavesParam: string[] = []; chavesCamada: string[] = [];
 
   constructor(app: any) {
     super();
@@ -139,6 +141,11 @@ export class Inspector extends Behavior {
     const novo = (expanded ? L.expandedMark : L.collapsedMark) + text;
     mapa.set(text, novo);
     return novo;
+  }
+  /// `lista[i]`, criando `prefixo + i` na primeira vez (sem string nova por quadro).
+  chaveLista(lista: string[], prefixo: string, i: number): string {
+    while (lista.length <= i) lista.push(prefixo + lista.length);
+    return lista[i];
   }
   /// Chave `key/Field/<i>`, criada uma vez.
   chaveCampo(key: string, i: number): string {
@@ -241,7 +248,7 @@ export class Inspector extends Behavior {
         while (parent >= 0 && depth < K.maxIndentDepth) { depth = depth + 1; parent = asset.boneParent[parent]; }
         const indent = depth * K.boneIndent;
         this.ui.at(innerX + indent, rowY, innerW - indent, K.boneRowH);
-        const row = this.ui.control("Skeleton/Bone/" + bone, "row", asset.boneNames[bone], this.enabledInput);
+        const row = this.ui.control(this.chaveLista(this.chavesOsso, K.boneKey, bone), "row", asset.boneNames[bone], this.enabledInput);
         row.fill = bone === S.selectedBone ? UI_C.boneSelected : UI_C.boneRow;
         this.ui.draw(row);
         // clicar no osso já selecionado devolve o gizmo ao objeto
@@ -274,7 +281,7 @@ export class Inspector extends Behavior {
       const clip = asset.clips[clipIndex];
       if (this.visible(rowY, K.clipRowH)) {
         this.ui.at(innerX, rowY, innerW, K.clipRowH);
-        const button = this.ui.control("Skeleton/Clip/" + clipIndex, "button", this.clipLabels[clipIndex], this.enabledInput);
+        const button = this.ui.control(this.chaveLista(this.chavesClipe, K.clipKey, clipIndex), "button", this.clipLabels[clipIndex], this.enabledInput);
         if (clip.name === player.clip) button.fill = UI_C.clipActive;
         this.ui.draw(button);
         if (button.clicked && clip.name !== player.clip) {
@@ -372,7 +379,7 @@ export class Inspector extends Behavior {
       const value = animator.paramValue(param);
       const rowH = type === PARAM_FLOAT || type === PARAM_BOOL ? L.rowH : A.triggerRowH;
       if (this.visible(rowY, rowH)) {
-        const key = "Animator/Param/" + param;
+        const key = this.chaveLista(this.chavesParam, A.paramKey, param);
         const name = animator.paramName(param);
         if (type === PARAM_FLOAT) {
           this.ui.at(innerX, rowY, innerW, rowH);
@@ -402,7 +409,7 @@ export class Inspector extends Behavior {
     let layer = 0;
     while (layer < layerCount) {
       this.refreshAnimatorLayerLabel(animator, layer);
-      this.label("Animator/Layer/" + layer, rowY, this.animatorLayerLabels[layer]);
+      this.label(this.chaveLista(this.chavesCamada, A.layerKey, layer), rowY, this.animatorLayerLabels[layer]);
       rowY = rowY + L.rowH;
       layer = layer + 1;
     }

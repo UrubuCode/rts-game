@@ -24,6 +24,7 @@ import { benchInit, benchFrameBegin, benchCpuEnd, benchFrameEnd } from "@engine/
 // ainda contar com isso — `main.ts` ja importava do shim. No motor novo nada e
 // global sem alguem instalar.
 import { createAppAt } from "@compat/app.ts";
+import { tituloJanela, janelaX, janelaY } from "@engine/core/janela_env";
 
 import { scene, S } from "@editor/control/session";
 import { Transform } from "@engine/core/transform";
@@ -45,7 +46,7 @@ import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
 let H = 720;
-const app = createAppAt(process.env("RTS_TITULO") !== "" ? process.env("RTS_TITULO") : "RTS Game", W, H, process.env("RTS_JANELA_X") !== "" ? parseInt(process.env("RTS_JANELA_X")) : 100, process.env("RTS_JANELA_Y") !== "" ? parseInt(process.env("RTS_JANELA_Y")) : 60);
+const app = createAppAt(tituloJanela("RTS Game"), W, H, janelaX(100), janelaY(60));
 const WIN = app._win;
 
 const FOV: f64 = 1.05;

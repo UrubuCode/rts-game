@@ -24,6 +24,7 @@ import { drawSceneObjects, prepararDesenho, fParams, DS_FLOATS } from "@engine/r
 import { rigidStep } from "@engine/core/physics_backend";
 import { gizmosDoEditor, coletarGizmos, pintarGizmos } from "@editor/gizmo_pass";
 import { gizmosBegin } from "@engine/core/gizmos";
+import { editorIcon, iconAt, drawEditorIcon } from "@editor/icon_images";
 import { interpolateSync } from "@engine/core/interpolate";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
@@ -86,6 +87,11 @@ while (i < n) {
   imagemEm(1.0, 1.0, 16.0, 16.0); imagem(pixels, 16, 16);
   i = i + 1;
 }
+io.print("FASE icones " + n);
+editorIcon("info"); drawEditorIcon("info");
+i = 0;
+let nIc = 0;
+while (i < n) { if (editorIcon("warning") !== null) nIc = nIc + 1; iconAt(1.0, 1.0, 16.0); drawEditorIcon("info"); i = i + 1; }
 io.print("FASE draw3d " + n);
 i = 0;
 while (i < n) {

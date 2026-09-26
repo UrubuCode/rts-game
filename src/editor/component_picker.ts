@@ -47,6 +47,17 @@ export class ComponentPicker extends Behavior {
     return text.length <= chars ? text : text.substring(0, chars - 1) + "…";
   }
 
+  // "Resultados (n)" / "< Categoria", refeito só quando muda (Task 10.5).
+  crumbTexto: string = ""; crumbModo: number = 0 - 1; crumbN: number = 0 - 1; crumbCategoria: string = "";
+  rotuloCaminho(searching: boolean, root: boolean): string {
+    if (!searching && root) return P.root;
+    const modo = searching ? 1 : 2; const n = this.browser.rows.length; const cat = this.browser.category;
+    if (modo !== this.crumbModo || (modo === 1 && n !== this.crumbN) || (modo === 2 && cat !== this.crumbCategoria)) {
+      this.crumbModo = modo; this.crumbN = n; this.crumbCategoria = cat;
+      this.crumbTexto = modo === 1 ? P.resultsOpen + n + P.resultsClose : P.backMark + cat;
+    }
+    return this.crumbTexto;
+  }
   draw(app: any): string {
     const x = this.host.px; const top = this.host.py; const width = this.host.sx; const bottom = top + this.host.sy;
     const mx = this.inMx; const my = this.inMy; const pressed = this.inPressed; const wheel = this.inWheel;
@@ -80,7 +91,7 @@ export class ComponentPicker extends Behavior {
     const crumbY = searchY + P.searchH + P.gap;
     const root = this.browser.isRoot();
     const searching = this.browser.query.trim().length > 0;
-    const crumb = searching ? "Resultados (" + this.browser.rows.length + ")" : root ? P.root : "< " + this.browser.category;
+    const crumb = this.rotuloCaminho(searching, root);
     texto(x + P.padding, crumbY + P.textY, crumb, estiloTexto(UI_C.primaryText, P.smallFont));
     if ((!root && app.clickable(x, crumbY, width, P.breadcrumbH) === 3) ||
         (!root && !searching && app.keyPressed(K.left) !== 0)) {

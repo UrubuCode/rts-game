@@ -34,6 +34,7 @@ export const UI_COMPONENT_PICKER = {
   emptyHint: "Tente outro nome ou função.",
   help: "Enter seleciona • Esc fecha",
   categoryHint: "Escolha uma categoria ou busque.",
+  resultsOpen: "Resultados (", resultsClose: ")", backMark: "< ",
 };
 // Codigos do backend de input usados pelo navegador de componentes.
 export const UI_PICKER_KEYS = { enter: 1, escape: 2, up: 5, down: 6, left: 7, right: 8 };
@@ -331,6 +332,8 @@ export const UI_C = {
 // Seção "Esqueleto" do Inspector (Skeleton + AnimationPlayer). As medidas de
 // linha/cabeçalho são as de UI_INSPECTOR; aqui ficam só as próprias da seção.
 export const UI_SKELETON = {
+  /// Prefixos das chaves de controle por osso e por clipe.
+  boneKey: "Skeleton/Bone/", clipKey: "Skeleton/Clip/",
   boneIndent: 12, maxIndentDepth: 8, boneRowH: 22, clipRowH: 22,
   timelineH: 20, handleW: 4, buttonGap: 6, textY: 3,
   title: "Esqueleto", bones: "Ossos", clips: "Clipes",
@@ -349,6 +352,8 @@ export const UI_SKELETON = {
 // Seção "Animator" do Inspector (máquina de estados). Linhas/cabeçalho usam
 // UI_INSPECTOR; aqui ficam rótulos e medidas próprias da seção.
 export const UI_ANIMATOR = {
+  /// Prefixos das chaves de controle por parâmetro e por camada.
+  paramKey: "Animator/Param/", layerKey: "Animator/Layer/",
   title: "Animator", controller: "Controlador: ", none: "(nenhum)", error: "Erro: ",
   params: "Parâmetros", noParams: "O controlador não tem parâmetros", layers: "Camadas",
   layerSeparator: ": ", timeOpen: "  t=", fadeOpen: "  (fade de ", fadeStateGap: " ", fadeClose: "%)",

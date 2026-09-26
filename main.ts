@@ -16,6 +16,7 @@ import process from "@compat/process.ts";
 // está do outro lado costura a janela (`rts:egui`), o input (`rts:input`), o
 // relógio e os widgets posicionados, que lá eram uma coisa só.
 import { createAppAt } from "@compat/app.ts";
+import { tituloJanela, janelaX, janelaY } from "@engine/core/janela_env";
 
 import { GameObject } from "@engine/core/gameobject";
 import { Scene } from "@engine/core/scene";
@@ -139,7 +140,7 @@ let previaTitulo = ""; let previaTituloDe = "";
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
 let H = 720;
-const app = createAppAt(process.env("RTS_TITULO") !== "" ? process.env("RTS_TITULO") : "Engine RTS — editor", W, H, process.env("RTS_JANELA_X") !== "" ? parseInt(process.env("RTS_JANELA_X")) : 120, process.env("RTS_JANELA_Y") !== "" ? parseInt(process.env("RTS_JANELA_Y")) : 90);
+const app = createAppAt(tituloJanela("Engine RTS — editor"), W, H, janelaX(120), janelaY(90));
 const WIN = app._win;
 
 // layout do editor
@@ -491,6 +492,19 @@ if (benchInit() !== 0) {
   if (sel !== "") S.selected = parseInt(sel);
 }
 
+// `try/catch` fora de `frame()`: no RTS a função que contém `try` aloca a cada
+// chamada, mesmo sem entrar nele (Task 10.5). Os trechos protegidos moram aqui.
+/// Um passo de `scene.update`; 0 se um script lançou (a simulação pausa).
+function atualizarCenaProtegido(): number {
+  try { scene.update(FIXED_DT); return 1; }
+  catch (error) { logError("Erro durante simulacao: " + String(error)); playMode.pause(); workspaceViews.console = true; return 0; }
+}
+/// Menu Arquivo → Abrir: diálogo de arquivo e pedido de troca de cena.
+function abrirCenaPeloDialogo(): void {
+  try { const path = chooseSceneFile(false); if (path.length > 0) sceneDocument.request("open", path); }
+  catch (error) { logError(String(error)); workspaceViews.console = true; }
+}
+
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
 // (scene/S) despacham corretamente em função, não no top-level do while.
 function frame(): void {
@@ -636,8 +650,7 @@ function frame(): void {
       // velocidades diferentes conforme o frame — o tremor que a interpolação
       // existe para tirar. Custa um `computeWorld` a mais só nesses frames.
       if (p > 0 && p === passos - 1) { scene.computeWorld(); snapshotWorld(scene); }
-      try { scene.update(FIXED_DT); }
-      catch (error) { logError("Erro durante simulacao: " + String(error)); playMode.pause(); workspaceViews.console = true; break; }
+      if (atualizarCenaProtegido() === 0) break;
       // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
       // passo — e aí a varredura de pares da CPU não roda, porque seriam duas
       // físicas sobre o mesmo estado, a segunda vendo o que a primeira mexeu.
@@ -1620,7 +1633,7 @@ function frame(): void {
       menuOpen = 0;
       app.setFocus(0 - 1);
       if (activeMenu === 1) {
-        if (chosen === 0) { try { const path = chooseSceneFile(false); if (path.length > 0) sceneDocument.request("open", path); } catch (error) { logError(String(error)); workspaceViews.console = true; } }
+        if (chosen === 0) abrirCenaPeloDialogo();
         else if (chosen === 1) {
           sceneDocument.request("new");
         } else if (chosen === 2) saveDocument();

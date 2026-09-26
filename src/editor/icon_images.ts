@@ -18,9 +18,15 @@ export function decodeIconPNG(bytes: any): IconImage {
 }
 const iconCache = new Map<string, IconImage>();
 const iconFailures = new Map<string, boolean>();
+/// Ícone `name` do cache (carrega na primeira vez). Sem `try` aqui: roda por
+/// ícone por quadro, e no RTS a função que contém `try/catch` aloca a cada chamada.
 export function editorIcon(name: string): IconImage | null {
   const cached = iconCache.get(name); if (cached !== undefined) return cached;
   if (iconFailures.get(name) === true) return null;
+  return carregarIcone(name);
+}
+/// Lê e decodifica o PNG do ícone uma vez (caminho lento, com `try`).
+function carregarIcone(name: string): IconImage | null {
   try {
     if (UI_ICONS.names.indexOf(name) < 0) throw new Error("Icone desconhecido");
     const decoded = decodeIconPNG(fs.read_all(UI_ICONS.directory + name + ".png"));
