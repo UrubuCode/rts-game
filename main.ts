@@ -545,8 +545,8 @@ function frame(): void {
   const flyInput = textEditing || ctrlHeld || addMenuOpen !== 0 || helpOpen !== 0 || workspaceViews.game ? 0 : 1;
   // Entrada dos scripts de jogo (controles de câmera): só com a aba Jogo ativa e
   // sem digitação/menus — senão disputariam o teclado com a navegação do editor
-  // e com os campos do Inspector.
-  definirEntradaAtiva(workspaceViews.game && !textEditing && addMenuOpen === 0 && helpOpen === 0 && menuOpen === 0);
+  // e com os campos do Inspector (texto do egui E campo numérico em edição).
+  definirEntradaAtiva(workspaceViews.game && !textEditing && nfEditing() === 0 && addMenuOpen === 0 && helpOpen === 0 && menuOpen === 0);
   const kW = flyInput !== 0 ? app.keyDown(122) : 0;
   const kS = flyInput !== 0 ? app.keyDown(118) : 0;
   const kA = flyInput !== 0 ? app.keyDown(100) : 0;
