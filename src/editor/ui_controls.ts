@@ -7,6 +7,9 @@ import { drawEditorIcon } from "./icon_images";
 
 // Shared identities across all panels: native focus/click state is window-wide.
 const editorControlIds = { next: L.controlId };
+/// Os primeiros `n` caracteres de `texto`, sem string nova quando ele já cabe
+/// (o caso comum: desenhar não aloca por frame).
+function cortar(texto: string, n: number): string { return texto.length <= n ? texto : texto.slice(0, Math.max(0, n)); }
 
 // Um controle e um componente real: Transform guarda seu retangulo, active
 // controla visibilidade, enabled controla o componente, inputEnabled o input.
@@ -83,7 +86,7 @@ export class EditorControl extends Behavior {
     }
     if (this.mode === "propertyText") {
       const labelW = w * N.labelFraction;
-      app.text(x, y + L.textY, this.label.slice(0, Math.floor((labelW - N.labelGap) / N.charWidth)), this.color, L.font);
+      app.text(x, y + L.textY, cortar(this.label, Math.floor((labelW - N.labelGap) / N.charWidth)), this.color, L.font);
       this.textValue = app.textField(this.id, x + labelW, y, w - labelW, this.textValue, this.inputEnabled);
       return;
     }
@@ -102,12 +105,12 @@ export class EditorControl extends Behavior {
       const state = this.inputEnabled ? app.clickable(this.id, x, y, w, h) : 0;
       const fill = state === 1 || state === 2 ? UI_C.controlHover : this.fill;
       app.box(x, y, w, h, fill, L.border, UI_C.border, L.radius);
-      const caption = this.label.slice(0, Math.max(0, Math.floor((w - L.gap * 2) / L.charWidth)));
+      const caption = cortar(this.label, Math.floor((w - L.gap * 2) / L.charWidth));
       app.text(x + L.gap, y + L.textY, caption, this.inputEnabled || this.mode === "header" ? this.color : UI_C.disabledText, L.font);
       this.clicked = state === 3;
       return;
     }
-    app.text(x, y + L.textY, this.label.slice(0, Math.max(0, Math.floor(w / L.charWidth))), this.color, L.font);
+    app.text(x, y + L.textY, cortar(this.label, Math.floor(w / L.charWidth)), this.color, L.font);
   }
 }
 

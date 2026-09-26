@@ -28,6 +28,10 @@ export class Session {
   /// Animators em prévia fora do Play (parâmetro mexido pelo Inspector/WS):
   /// avançam a cada frame até a prévia ser encerrada. Ver skeleton_preview.ts.
   previewAnimators: Animator[];
+  /// Aba Jogo (estado do editor, sem Desfazer; ws `gameview`): 1 = aba Jogo
+  /// ativa; índice da proporção em UI_GAME_VIEW; objeto da câmera única
+  /// (-1 = todas); 1 = prévia da câmera selecionada na vista de Cena.
+  gameView: number; gameAspect: number; gameCamera: number; cameraPreview: number;
   constructor() {
     this.camX = 0.0; this.camY = 11.0; this.camZ = -15.0;
     this.camYaw = 0.0; this.camPitch = 0 - 0.5;
@@ -46,6 +50,7 @@ export class Session {
     this.previewPlayers = [];
     this.previewTouched = [];
     this.previewAnimators = [];
+    this.gameView = 0; this.gameAspect = 0; this.gameCamera = 0 - 1; this.cameraPreview = 0;
   }
 }
 export const S = new Session();

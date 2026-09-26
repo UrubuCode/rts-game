@@ -14,6 +14,7 @@ import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from 
 import { cmdDoc } from "./commands/doc";
 import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
+import { cmdGameView } from "./commands/gameview";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { scene, S } from "./session";
 import { history } from "../undo";
@@ -241,6 +242,8 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "gizmoat": return cmdGizmoAt(parts);
     // fora de isMutating: o executor tira o proprio snapshot, so para "Criar/"
     case "menu": return cmdMenu(parts);
+    // estado da aba Jogo (editor): fora de isMutating, sem Desfazer
+    case "gameview": return cmdGameView(parts);
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);

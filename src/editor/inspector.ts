@@ -82,6 +82,18 @@ export class Inspector extends Behavior {
   enabledInput: boolean = true;
   scrollbarDrag: boolean = false;
   changed: boolean = false;
+  /// Janela de pacote aberta por Editor.inspect (null = o objeto selecionado).
+  janela: GameObject | null = null;
+  janelaSel: number = 0 - 1;
+  janelaTitulo: string = "";
+  /// "Janela: <título>", refeito só quando o título muda.
+  janelaNome: string = "";
+  janelaNomeDe: string = "";
+  /// Chaves por componente (ver chavesDe): índices em compChave… para o objeto
+  /// selecionado e para a janela.
+  compSel: number[] = []; compJanela: number[] = [];
+  compChave: string[] = []; compHeader: string[] = []; compRemove: string[] = []; compEnabled: string[] = [];
+  compTitulo: string[] = []; compTituloDe: string[] = []; compTituloAberto: boolean[] = [];
 
   constructor(app: any) {
     super();
@@ -421,6 +433,111 @@ export class Inspector extends Behavior {
     this.boneShownQ[0] = skeleton.manualR[o]; this.boneShownQ[1] = skeleton.manualR[o + 1];
     this.boneShownQ[2] = skeleton.manualR[o + 2]; this.boneShownQ[3] = skeleton.manualR[o + 3];
   }
+  /// Índice das chaves de controle do componente `i` (objeto selecionado ou
+  /// janela), criadas uma vez: sem concatenar strings por frame.
+  chavesDe(editavel: boolean, i: number): number {
+    const lista = editavel ? this.compSel : this.compJanela;
+    while (lista.length <= i) {
+      const k = (editavel ? L.componentsKey : L.windowComponentsKey) + lista.length;
+      lista.push(this.compChave.length);
+      this.compChave.push(k); this.compHeader.push(k + L.headerKey); this.compRemove.push(k + L.removeKey);
+      this.compEnabled.push(k + L.enabledKey); this.compTitulo.push(""); this.compTituloDe.push(""); this.compTituloAberto.push(false);
+    }
+    return lista[i];
+  }
+  /// "v  Nome" / ">  Nome", refeito só quando o nome ou o estado mudam.
+  tituloComponente(c: number, component: Behavior, aberto: boolean): string {
+    const nome = component.typeName();
+    if (this.compTitulo[c].length === 0 || this.compTituloDe[c] !== nome || this.compTituloAberto[c] !== aberto) {
+      this.compTituloDe[c] = nome; this.compTituloAberto[c] = aberto;
+      this.compTitulo[c] = (aberto ? L.expandedMark : L.collapsedMark) + nome;
+    }
+    return this.compTitulo[c];
+  }
+  /// Cabeçalho, remover, "Ativo" e GUI/campos de cada componente de `object`,
+  /// a partir de `rowY`; devolve o y seguinte. Com `editavel = false` (janela de
+  /// pacote), sem o botão "x" nem o toggle "Ativo".
+  componentsSection(object: GameObject, rowY0: number, editavel: boolean): number {
+    let rowY = rowY0;
+    let componentIndex = 0;
+    let removeIndex = 0 - 1;
+    while (componentIndex < object.behaviors.length) {
+      const component = object.behaviors[componentIndex];
+      // a janela tem chaves próprias: não herda estado de controle do objeto selecionado
+      const c = this.chavesDe(editavel, componentIndex);
+      const key = this.compChave[c];
+      const expanded = component.collapsed === 0;
+      if (this.visible(rowY, L.headerH)) {
+        const heading = this.ui.control(this.compHeader[c], "header", this.x + L.padding, rowY,
+          this.width - L.padding * 2 - L.iconW - L.gap, L.headerH,
+          this.tituloComponente(c, component, expanded), this.enabledInput);
+        heading.fill = UI_C.componentHeader; this.ui.draw(heading);
+        if (heading.clicked) { component.collapsed = expanded ? 1 : 0; nfCancel(); }
+        if (editavel) {
+          const remove = this.ui.control(this.compRemove[c], "button", this.x + this.width - L.padding - L.iconW, rowY, L.iconW, L.headerH, "x", this.enabledInput);
+          remove.color = UI_C.destructiveText; this.ui.draw(remove);
+          if (remove.clicked) removeIndex = componentIndex;
+        }
+      }
+      rowY = rowY + L.headerH + L.gap;
+      if (component.collapsed === 0) {
+        if (editavel && this.visible(rowY, L.rowH)) {
+          const enabled = this.ui.control(this.compEnabled[c], "toggle", this.x + L.padding + L.gap, rowY,
+            this.width - L.padding * 2, L.rowH, L.active, this.enabledInput);
+          enabled.value = component.enabled; this.ui.draw(enabled);
+          if (enabled.value !== component.enabled) { this.snapshot(); component.enabled = enabled.value; scene.markCollidersDirty(); }
+        }
+        if (editavel) rowY = rowY + L.rowH;
+        // GUI própria do componente; sem nenhum controle pedido, a lista automática.
+        this.gui.begin(component, key, rowY);
+        component.onInspectorGUI(this.gui);
+        if (this.gui.usos > 0) rowY = this.gui.y;
+        else {
+          let fieldIndex = 0;
+          while (fieldIndex < component.fieldCount()) {
+            if (this.visible(rowY, L.rowH)) this.fieldRow(component, key, fieldIndex, rowY);
+            rowY = rowY + L.rowH;
+            fieldIndex = fieldIndex + 1;
+          }
+        }
+        rowY = rowY + L.gap;
+      }
+      componentIndex = componentIndex + 1;
+    }
+    if (object.behaviors.length === 0) { this.label("NoComponents", rowY, L.noComponents); rowY = rowY + L.rowH; }
+    if (removeIndex >= 0) { this.snapshot(); object.removeBehavior(removeIndex); scene.markCollidersDirty(); nfCancel(); }
+    return rowY;
+  }
+  /// Mostra `b` no Inspector como uma janela (Editor.inspect): o componente vive
+  /// num objeto oculto da UIScene do Inspector, nunca na cena editada. Trocar a
+  /// seleção fecha a janela.
+  abrirJanela(b: Behavior, titulo: string): void {
+    const nome = this.ui.root.name + L.windowKey + titulo;
+    let go: GameObject | null = null;
+    let i = 0;
+    const lista = this.ui.scene.panels;
+    while (i < lista.length && go === null) { if (lista[i].name === nome) go = lista[i]; i = i + 1; }
+    if (go === null) go = this.ui.scene.createGameObject(nome, 0);
+    if (b.owner !== go) go.addBehavior(b);
+    this.janela = go; this.janelaTitulo = titulo; this.janelaSel = S.selected; this.scroll = 0;
+    if (this.janelaNome.length === 0 || this.janelaNomeDe !== titulo) { this.janelaNomeDe = titulo; this.janelaNome = L.windowPrefix + titulo; }
+  }
+  /// Modo janela do `render`: o título no lugar do nome, os componentes da
+  /// janela (sem remover/Ativo) com a mesma rolagem, sem "Adicionar componente".
+  renderJanela(janela: GameObject, x: number, y: number, width: number, mx: number, my: number): void {
+    const titulo = this.ui.control("Window/Title", "label", x + L.padding, y + L.headerH + L.gap, width - L.padding * 2, L.rowH, this.janelaNome, false);
+    this.ui.draw(titulo);
+    const available = Math.max(0, this.bottom - this.top);
+    const maxBefore = Math.max(0, this.contentHeight - available);
+    if (this.enabledInput && mx >= x && mx < x + width && my >= this.top && my < this.bottom) {
+      const wheel = input.wheel(this.ui.app._win);
+      if (wheel !== 0) { this.scroll = Math.max(0, Math.min(maxBefore, this.scroll - Math.sign(wheel) * UI_INSPECTOR_SCROLL_STEP)); nfCancel(); }
+    }
+    const rowY = this.componentsSection(janela, this.top - this.scroll, false);
+    this.contentHeight = rowY + this.scroll - this.top;
+    this.scroll = Math.min(this.scroll, Math.max(0, this.contentHeight - available));
+    this.ui.end();
+  }
   render(app: any, x: number, y: number, width: number, height: number,
          mx: number, my: number, down: number, pressed: number, blocked: boolean,
          modelDrag: number, textureDrag: number): void {
@@ -438,6 +555,7 @@ export class Inspector extends Behavior {
       if (S.selectedBoneOwner !== selected) selectBone(null, 0 - 1);
       previewStopAll();
     }
+    if (this.janela !== null && S.selected !== this.janelaSel) this.janela = null;
     if (blocked) { this.opened = 0; nfCancel(); }
     this.enabledInput = !blocked && this.opened === 0;
     const background = this.ui.control("Background", "panel", x, y, width, height, "", false);
@@ -446,6 +564,7 @@ export class Inspector extends Behavior {
     title.fill = UI_C.panelHeader; this.ui.draw(title);
     this.top = y + L.headerH + L.objectH;
     this.bottom = y + height - L.footerH;
+    if (this.janela !== null) { this.renderJanela(this.janela, x, y, width, mx, my); return; }
     if (selected === null) { this.label("Empty", this.top, L.empty); this.label("EmptyHint", this.top + L.rowH, L.emptyHint); return; }
     const object: GameObject = selected;
     const name = this.ui.control("Name", "text", x + L.padding, y + L.headerH + L.gap,
@@ -546,49 +665,7 @@ export class Inspector extends Behavior {
     if (skeleton !== null) rowY = this.skeletonSection(app, skeleton, rowY);
     const animator = animatorOfObject(object);
     if (animator !== null) rowY = this.animatorSection(animator, rowY);
-    let componentIndex = 0;
-    let removeIndex = 0 - 1;
-    while (componentIndex < object.behaviors.length) {
-      const component = object.behaviors[componentIndex];
-      const key = "Components/" + componentIndex;
-      const expanded = component.collapsed === 0;
-      if (this.visible(rowY, L.headerH)) {
-        const heading = this.ui.control(key + "/Header", "header", x + L.padding, rowY,
-          width - L.padding * 2 - L.iconW - L.gap, L.headerH,
-          (expanded ? "v  " : ">  ") + component.typeName(), this.enabledInput);
-        heading.fill = UI_C.componentHeader; this.ui.draw(heading);
-        if (heading.clicked) { component.collapsed = expanded ? 1 : 0; nfCancel(); }
-        const remove = this.ui.control(key + "/Remove", "button", x + width - L.padding - L.iconW, rowY, L.iconW, L.headerH, "x", this.enabledInput);
-        remove.color = UI_C.destructiveText; this.ui.draw(remove);
-        if (remove.clicked) removeIndex = componentIndex;
-      }
-      rowY = rowY + L.headerH + L.gap;
-      if (component.collapsed === 0) {
-        if (this.visible(rowY, L.rowH)) {
-          const enabled = this.ui.control(key + "/Enabled", "toggle", x + L.padding + L.gap, rowY,
-            width - L.padding * 2, L.rowH, L.active, this.enabledInput);
-          enabled.value = component.enabled; this.ui.draw(enabled);
-          if (enabled.value !== component.enabled) { this.snapshot(); component.enabled = enabled.value; scene.markCollidersDirty(); }
-        }
-        rowY = rowY + L.rowH;
-        // GUI própria do componente; sem nenhum controle pedido, a lista automática.
-        this.gui.begin(component, key, rowY);
-        component.onInspectorGUI(this.gui);
-        if (this.gui.usos > 0) rowY = this.gui.y;
-        else {
-          let fieldIndex = 0;
-          while (fieldIndex < component.fieldCount()) {
-            if (this.visible(rowY, L.rowH)) this.fieldRow(component, key, fieldIndex, rowY);
-            rowY = rowY + L.rowH;
-            fieldIndex = fieldIndex + 1;
-          }
-        }
-        rowY = rowY + L.gap;
-      }
-      componentIndex = componentIndex + 1;
-    }
-    if (object.behaviors.length === 0) { this.label("NoComponents", rowY, L.noComponents); rowY = rowY + L.rowH; }
-    if (removeIndex >= 0) { this.snapshot(); object.removeBehavior(removeIndex); scene.markCollidersDirty(); nfCancel(); }
+    rowY = this.componentsSection(object, rowY, true);
     this.contentHeight = rowY + this.scroll - this.top;
     const maxScroll = Math.max(0, this.contentHeight - available);
     this.scroll = Math.min(this.scroll, maxScroll);

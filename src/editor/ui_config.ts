@@ -49,6 +49,11 @@ export const UI_INSPECTOR = {
   active: "Ativo", stationary: "Estático", mesh: "Malha", texture: "Textura",
   changeMesh: "Próxima primitiva", noComponents: "Sem componentes adicionais",
   parent: "Pai: ", unparent: "Desaninhar", charWidth: 7,
+  /// Título de uma janela de pacote (Editor.inspect) no lugar do nome do objeto.
+  windowPrefix: "Janela: ", windowKey: "/Janela/",
+  /// Prefixos das chaves dos controles de componente (objeto selecionado / janela).
+  componentsKey: "Components/", windowComponentsKey: "Window/Components/",
+  headerKey: "/Header", removeKey: "/Remove", enabledKey: "/Enabled", expandedMark: "v  ", collapsedMark: ">  ",
 };
 // onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
 // "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
@@ -108,8 +113,10 @@ export const UI_TOOL_BUTTON_STEP = UI_TOOL_BUTTON_W + 4;
 export const UI_CONTROL_Y = UI_MENU_H + 9;
 export const UI_CONTROL_H = 28;
 
-export const UI_MENU_NAMES: string[] = ["Arquivo", "Editar", "Criar", "Configurações", "Ajuda"];
-export const UI_MENU_BUTTON_W: number[] = [66, 56, 54, 120, 52];
+export const UI_MENU_NAMES: string[] = ["Arquivo", "Editar", "Criar", "Janela", "Configurações", "Ajuda"];
+export const UI_MENU_BUTTON_W: number[] = [66, 56, 54, 62, 120, 52];
+/// Menu Janela: a 1ª linha (fixa) troca de rótulo com o estado da prévia; depois vêm os itens @menuItem "Janela/…".
+export const UI_WINDOW = { previewOn: "Pré-visualização da câmera: ligada", previewOff: "Pré-visualização da câmera: desligada" };
 export const UI_TOOLS: string[] = ["Mover", "Girar", "Escala", "Grade"];
 export const UI_FILE_ACTIONS: string[] = ["Abrir cena...", "Nova cena", "Salvar cena    Ctrl+S", "Salvar como...", "Build do jogo"];
 export const UI_EDIT_ACTIONS: string[] = ["Desfazer    Ctrl+Z", "Refazer    Ctrl+Y", "Duplicar    Ctrl+D", "Excluir    Delete"];
@@ -162,8 +169,18 @@ export const UI_WORKSPACE = {
   tabs: ["Cena", "Jogo"], bottomTabs: ["Project", "Console"], tabW: 90, tabH: 24,
   gap: 4, padding: 6, noCamera: "Nenhuma Camera ativa. Adicione Camera a um GameObject.",
   gameHint: "Jogo: camera da cena, sem ferramentas de edicao",
+  /// Chaves dos controles das abas ("View/0", "Bottom/1"…).
+  tabKey: "View/", bottomTabKey: "Bottom/",
   buildRunning: "Compilando jogo... acompanhe no Console", buildResult: "Build: resultado e caminho no Console",
 };
+/// Aba Jogo: seletores de proporção (faixas quando não bate com a área) e de câmera, à direita das abas.
+export const UI_GAME_VIEW = {
+  aspectLabels: ["Livre", "16:9", "4:3"], aspectTokens: ["livre", "16:9", "4:3"], aspectRatios: [0.0, 16.0 / 9.0, 4.0 / 3.0],
+  aspectPrefix: "Proporção: ", cameraPrefix: "Câmera: ", cameraAll: "Todas", aspectW: 130, cameraW: 170,
+  aspectKey: "View/Aspect", cameraKey: "View/Camera",
+};
+/// Prévia da câmera selecionada no canto inferior direito da vista de Cena.
+export const UI_CAMERA_PREVIEW = { w: 256, h: 144, margin: 10, border: 1, titlePrefix: "Câmera: ", titleY: 4 };
 export const UI_DOCUMENT = {
   width: 540, height: 194, padding: 16, rowH: 28, gap: 8,
   title: "Alteracoes nao salvas", hint: "Deseja salvar antes de continuar?",
@@ -175,6 +192,7 @@ export const UI_DOCUMENT = {
 export const UI_EDITOR_API = { undoPrefix: "Desfazer: " };
 
 export const UI_C = {
+  previewBorder: 0x6A9DD2FF,
   consoleBackground: 0x26282CFF, consoleToolbar: 0x303237FF,
   consoleRowAlternate: 0x2B2D31FF, consoleHover: 0x383C43FF,
   consoleSelected: 0x344D68FF, consoleActive: 0x414A55FF,

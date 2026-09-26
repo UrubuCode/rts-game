@@ -22,7 +22,7 @@ import { Scene } from "@engine/core/scene";
 import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
 import { Transform } from "@engine/core/transform";
 import { subStr, nfEditing, nfCancel } from "@editor/widgets";
-import { definirJanelaEntrada } from "@engine/core/entrada";
+import { definirJanelaEntrada, definirEntradaAtiva } from "@engine/core/entrada";
 import { Inspector } from "@editor/inspector";
 import { previewFrame } from "@editor/skeleton_preview";
 import { EditorUI } from "@editor/ui_controls";
@@ -45,7 +45,12 @@ import { DocumentPanel, saveDocument } from "@editor/document_panel";
 import { chooseSceneFile } from "@editor/scene_dialog";
 import { EditorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
-import { initMeshes, setCam, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
+import { initMeshes, setCam, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture,
+         setViewportBuf, setFundoCeu } from "@engine/render/gpu3d";
+import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas, posicaoDaVista } from "@engine/render/camera_views";
+import { Camera } from "@engine/core/camera";
+import type { Behavior } from "@engine/core/behavior";
+import { areaComFaixas } from "@editor/game_view";
 import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { scene, S } from "@editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE,
@@ -87,7 +92,7 @@ import "@engine/generated/editor_extensions";
 import { initAudio, pumpAudio } from "@engine/audio/audio";
 import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
-import { menuDoCatalogo, executarItemDeMenu, MENU_CRIAR } from "@editor/menu_items";
+import { menuDoCatalogo, executarItemDeMenu, MENU_CRIAR, MENU_JANELA } from "@editor/menu_items";
 import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_PROJECT_DEFAULT,
          UI_HIER_MIN, UI_INSP_MIN, UI_PROJECT_MIN, UI_SCENE_MIN_W, UI_SCENE_MIN_H,
          UI_HIER_HEADER_H, UI_HIER_SEARCH_H, UI_HIER_ROW_H, UI_HIER_INDENT,
@@ -97,11 +102,21 @@ import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_
          UI_SCENE_HEADER_H, UI_TOOL_X, UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H,
          UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H, UI_TOOL_BUTTON_STEP, UI_CONTROL_Y, UI_CONTROL_H,
          UI_MENU_NAMES, UI_MENU_BUTTON_W, UI_TOOLS, UI_FILE_ACTIONS, UI_EDIT_ACTIONS,
-         UI_CONTEXT_ACTIONS, UI_HELP_ACTIONS, UI_SETTINGS, UI_C } from "@editor/ui_config";
+         UI_CONTEXT_ACTIONS, UI_HELP_ACTIONS, UI_SETTINGS, UI_C, UI_WINDOW, UI_GAME_VIEW, UI_CAMERA_PREVIEW } from "@editor/ui_config";
 // Menu Criar (global e de contexto): presets fixos + itens @menuItem "Criar/…",
 // montado uma vez. Configurações reaproveita o próprio array a cada frame.
 const menuCriar = menuDoCatalogo(MENU_CRIAR, OBJECT_PRESET_LABELS);
 const menuConfig: string[] = ["", "", UI_SETTINGS.resetLayout, UI_CODE_EDITOR.title];
+// Menu Janela: a prévia da câmera (rótulo com o estado) + itens @menuItem "Janela/…".
+const menuJanela = menuDoCatalogo(MENU_JANELA, [UI_WINDOW.previewOff]);
+// Aba Jogo e prévia da câmera: vistas reaproveitadas (sem alocação por frame).
+const vistasJogo = new VistasDeCamera(); const vistasPrevia = new VistasDeCamera();
+const areaCena = new Float64Array(4);
+/// Viewport da janela inteira (x, y, w, h, limpar) da vista de Cena.
+const VISTA_CHEIA = new Float64Array(5);
+VISTA_CHEIA[2] = 1.0; VISTA_CHEIA[3] = 1.0; VISTA_CHEIA[4] = 1.0;
+// "Câmera: <nome>" da prévia, refeito só quando o nome muda.
+let previaTitulo = ""; let previaTituloDe = "";
 
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
@@ -116,7 +131,7 @@ const BAR_H = UI_BAR_H;
 let ASSET_H = UI_PROJECT_DEFAULT;
 const HIER_LIST_TOP = BAR_H + UI_HIER_HEADER_H + UI_HIER_SEARCH_H;
 let layoutDrag = 0;       // 1 hierarquia, 2 inspector, 3 Project
-let menuOpen = 0;         // 1 Arquivo, 2 Editar, 3 Criar, 4 Configurações, 5 Ajuda
+let menuOpen = 0;         // 1 Arquivo, 2 Editar, 3 Criar, 4 Janela, 5 Configurações, 6 Ajuda
 let menuX = 0;
 let helpOpen = 0;
 let vsyncOn = 1;
@@ -225,14 +240,17 @@ function ctxCreate(name: string, kind: number, r: number, g: number, b: number,
 }
 
 // Uma unica implementação para as opções "Criar" do menu global e de contexto.
-/// Linhas do menu global `menu` (1 Arquivo … 5 Ajuda): as mesmas no desenho e
-/// na área clicável. Configurações troca só os rótulos de estado, sem array novo.
+/// Linhas do menu global `menu` (1 Arquivo … 6 Ajuda): as mesmas no desenho e
+/// na área clicável. Janela e Configurações trocam só os rótulos de estado, sem array novo.
 function menuEntries(menu: number): string[] {
   let entries: string[] = UI_HELP_ACTIONS;
   if (menu === 1) entries = UI_FILE_ACTIONS;
   else if (menu === 2) entries = UI_EDIT_ACTIONS;
   else if (menu === 3) entries = menuCriar.rotulos;
   else if (menu === 4) {
+    menuJanela.rotulos[0] = S.cameraPreview !== 0 ? UI_WINDOW.previewOn : UI_WINDOW.previewOff;
+    entries = menuJanela.rotulos;
+  } else if (menu === 5) {
     menuConfig[0] = S.snap !== 0 ? UI_SETTINGS.gridOn : UI_SETTINGS.gridOff;
     menuConfig[1] = vsyncOn !== 0 ? UI_SETTINGS.vsyncOn : UI_SETTINGS.vsyncOff;
     entries = menuConfig;
@@ -424,7 +442,9 @@ let previewPay = "";
 initMeshes(WIN);
 assetsInit();
 ctrlServe(7777);
-instalarEditorReal();
+const host = instalarEditorReal();
+// Editor.inspect(b, título) de um pacote abre `b` como janela no Inspector.
+host.janela = (b: Behavior, titulo: string) => { inspector.abrirJanela(b, titulo); };
 // Profiler LIGADO por padrão: o custo de medir é um `if` por seção, e a
 // alternativa — descobrir onde o frame foi gasto adivinhando — já custou duas
 // investigações erradas nesta engine. `prof off` desliga pela porta de controle.
@@ -446,6 +466,8 @@ io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos")
 function frame(): void {
   // ── layout RESPONSIVO: lê o tamanho lógico atual da janela (segue o resize) ──
   logTick();   // avança o contador de frames do log
+  // A aba vem da sessão: o clique na aba e o ws `gameview` escrevem S.gameView.
+  workspaceViews.game = S.gameView !== 0;
   const nw = winWidth(WIN);
   const nh = winHeight(WIN);
   if (nw > 400) W = nw;
@@ -476,6 +498,10 @@ function frame(): void {
   const textEditing = app.hasTextFocus();
   const ctrlHeld = input.modCtrl(WIN);
   const flyInput = textEditing || ctrlHeld || addMenuOpen !== 0 || helpOpen !== 0 || workspaceViews.game ? 0 : 1;
+  // Entrada dos scripts de jogo (controles de câmera): só com a aba Jogo ativa e
+  // sem digitação/menus — senão disputariam o teclado com a navegação do editor
+  // e com os campos do Inspector.
+  definirEntradaAtiva(workspaceViews.game && !textEditing && addMenuOpen === 0 && helpOpen === 0 && menuOpen === 0);
   const kW = flyInput !== 0 ? app.keyDown(122) : 0;
   const kS = flyInput !== 0 ? app.keyDown(118) : 0;
   const kA = flyInput !== 0 ? app.keyDown(100) : 0;
@@ -887,15 +913,42 @@ function frame(): void {
   // ALGO MOVEU depois (gizmo, arrasto, preview de drop). Antes era incondicional
   // — o segundo passe custava um laço sobre a cena inteira todo frame à toa.
   if (worldDirty !== 0) { scene.computeWorld(); worldDirty = 0; }
-  workspaceViews.camera(FOV);
-  setCam(WIN, workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
-  luzCam[0] = workspaceViews.x; luzCam[1] = workspaceViews.y; luzCam[2] = workspaceViews.z;
+  // Aba Jogo: as câmeras da cena como no jogo exportado (game.ts), na área da
+  // vista com faixas pela proporção; o retângulo de cada câmera (screenPointToRay)
+  // passa a ser o da aba. Sem câmera, ou na aba Cena, a câmera do editor.
+  const cenaX = HIER_W; const cenaY = BAR_H + UI_SCENE_HEADER_H;
+  const cenaW = W - HIER_W - INSP_W; const cenaH = H - UI_STATUS_H - ASSET_H - cenaY;
+  let nJogo = 0; let nPrevia = 0;
+  if (workspaceViews.game) {
+    areaCena[0] = cenaX; areaCena[1] = cenaY; areaCena[2] = cenaW; areaCena[3] = cenaH;
+    areaComFaixas(areaCena, UI_GAME_VIEW.aspectRatios[S.gameAspect], vistasJogo.area);
+    vistasJogo.tela[0] = W; vistasJogo.tela[1] = H;
+    nJogo = coletarCameras(vistasJogo, scene, workspaceViews.cameraEscolhida());
+    if (nJogo > 0) { aplicarVistas(WIN, vistasJogo); posicaoDaVista(vistasJogo, luzCam); frustumDasVistas(vistasJogo, fParams); }
+  }
+  workspaceViews.hasCamera = nJogo > 0;
+  const selPrevia = S.selected >= 0 && S.selected < scene.objects.length ? scene.objects[S.selected] : null;
+  if (nJogo === 0) {
+    workspaceViews.camera(FOV);
+    setViewportBuf(WIN, VISTA_CHEIA); setFundoCeu(WIN);
+    setCam(WIN, workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
+    luzCam[0] = workspaceViews.x; luzCam[1] = workspaceViews.y; luzCam[2] = workspaceViews.z;
+    // Prévia: a câmera selecionada num quadro no canto da vista de Cena.
+    if (!workspaceViews.game && S.cameraPreview !== 0 && selPrevia !== null && selPrevia.camIdx >= 0) {
+      vistasPrevia.area[0] = cenaX + cenaW - UI_CAMERA_PREVIEW.w - UI_CAMERA_PREVIEW.margin;
+      vistasPrevia.area[1] = cenaY + cenaH - UI_CAMERA_PREVIEW.h - UI_CAMERA_PREVIEW.margin;
+      vistasPrevia.area[2] = UI_CAMERA_PREVIEW.w; vistasPrevia.area[3] = UI_CAMERA_PREVIEW.h;
+      vistasPrevia.tela[0] = W; vistasPrevia.tela[1] = H;
+      nPrevia = coletarCameras(vistasPrevia, scene, selPrevia.behaviors[selPrevia.camIdx] as Camera);
+      if (nPrevia > 0) aplicarVistas(WIN, vistasPrevia);
+    }
+  }
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);
   aplicarAmbiente(WIN, scene);   // DEPOIS de aplicarLuzes: usa ultimaN/luzBuf de lá como fallback do sol
   // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
   secBegin(P_MUNDO3D);
-  frustumBegin(workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
+  if (nJogo === 0) frustumBegin(workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
   // Sincroniza a flag de seleção UMA vez por frame (custo O(n + |seleção|)),
   // em vez de o render varrer a lista inteira por objeto visível (O(n × |sel|)).
   // Feito aqui, num ponto só, porque a seleção é mexida em vários lugares.
@@ -910,7 +963,9 @@ function frame(): void {
   const trs: Transform[] = scene.trs;   // espelho paralelo (ver Scene.trs)
   // Os 9 números do frustum que `frustumBegin` acabou de preparar, lidos UMA vez
   // por frame para um array reaproveitado (ver `frustumParams` em gpu3d.ts).
-  frustumParams(fParams);
+  if (nJogo === 0) frustumParams(fParams);
+  // duas vistas (Cena + prévia) numa fila só: sem descarte por frustum
+  if (nPrevia > 0) { fParams[7] = 0.0 - 1.0; fParams[8] = 0.0 - 1.0; }
   const drawnN = drawSceneObjects(
     objs, trs, workspaceViews.game && !workspaceViews.hasCamera ? 0 : objs.length, scene, WIN, workspaceViews.game ? -1 : S.selected, alphaR,
     fParams[0], fParams[1], fParams[2],
@@ -924,6 +979,13 @@ function frame(): void {
     gizmosDoEditor.lado = UI_GIZMO.iconSize;
     coletarGizmos(gizmosDoEditor, scene, S.selected);
     pintarGizmos(app, WIN, gizmosDoEditor);
+  }
+  // Moldura (só contorno) e nome da câmera da prévia, por cima do 3D.
+  if (nPrevia > 0 && selPrevia !== null) {
+    const pa = vistasPrevia.area; const bd = UI_CAMERA_PREVIEW.border;
+    app.box(pa[0] - bd, pa[1] - bd, pa[2] + bd * 2, pa[3] + bd * 2, 0, bd, UI_C.previewBorder, 0);
+    if (previaTitulo.length === 0 || previaTituloDe !== selPrevia.name) { previaTituloDe = selPrevia.name; previaTitulo = UI_CAMERA_PREVIEW.titlePrefix + selPrevia.name; }
+    app.text(pa[0] + UI_WORKSPACE.padding, pa[1] + UI_CAMERA_PREVIEW.titleY, previaTitulo, UI_C.primaryText, 12);
   }
   secEnd(P_MUNDO3D);
   secBegin(P_UI);
@@ -1538,11 +1600,14 @@ function frame(): void {
         if (chosen < menuCriar.fixos) createMenuObject(chosen, 0 - 1);
         else executarItemDeMenu(menuCriar.itens[chosen - menuCriar.fixos], 0 - 1);
       } else if (activeMenu === 4) {
+        if (chosen === 0) S.cameraPreview = S.cameraPreview !== 0 ? 0 : 1;
+        else executarItemDeMenu(menuJanela.itens[chosen - menuJanela.fixos], 0 - 1);
+      } else if (activeMenu === 5) {
         if (chosen === 0) S.snap = S.snap !== 0 ? 0 : 1;
         else if (chosen === 1) { vsyncOn = vsyncOn !== 0 ? 0 : 1; setVsync(WIN, vsyncOn); }
         else if (chosen === 2) { HIER_W = UI_HIER_DEFAULT; INSP_W = UI_INSP_DEFAULT; ASSET_H = UI_PROJECT_DEFAULT; }
         else if (chosen === 3) { helpOpen = 2; preferencesPanel.open(); assetDragClear(); }
-      } else if (activeMenu === 5) helpOpen = 1;
+      } else if (activeMenu === 6) helpOpen = 1;
     }
     const overGlobalMenu = mx >= menuX && mx < menuX + menuW && my >= UI_MENU_H && my < UI_MENU_H + menuH;
     if (mPressed !== 0 && my >= UI_MENU_H && !overGlobalMenu) menuOpen = 0;

@@ -40,6 +40,7 @@ export function cmdHelp(): string {
     " | loadscene <path> | savescene <path> | instscene <path> [hostIdx]  (cena dentro de cena)" +
     " | parent <filho> <pai> | movetree <drag> <before> <newparent> | group | ungroup [i]" +
     " | menu [caminho]  (itens de script: Criar/…, Janela/…)" +
+    " | gameview [jogo|cena|proporcao livre|16:9|4:3|camera todas|<obj>|previa on|off]  (aba Jogo)" +
     " || COMPONENTES: complist | comps <obj> | addcomp <obj> <nome> |" +
     " rmcomp <obj> <compIdx> | setfield <obj> <compIdx> <campoIdx> <valor>" +
     " || OSSOS/ANIMACAO: addskel <obj> <caminho.glb>  (Skeleton+AnimationPlayer) |" +

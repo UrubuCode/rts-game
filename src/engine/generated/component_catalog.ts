@@ -92,6 +92,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/camera.ts"
   },
   {
+    "name": "CicloDoDia",
+    "category": "Renderização",
+    "description": "Gira o sol e interpola as cores do céu ao longo do dia.",
+    "keywords": "dia noite sol ciclo ambiente céu",
+    "source": "assets/pacotes/ambiente/ciclo_do_dia.ts"
+  },
+  {
     "name": "Light",
     "category": "Renderização",
     "description": "Luz direcional, pontual ou spot usada pelo renderer.",
