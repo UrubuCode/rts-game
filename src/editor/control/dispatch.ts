@@ -12,6 +12,7 @@ import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc } from "./commands/doc";
+import { cmdGizmoAt } from "./commands/gizmo";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { scene, S } from "./session";
 import { history } from "../undo";
@@ -235,6 +236,8 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "dropat": return cmdDropAt(parts);
     case "dropon": return cmdDropOn(parts);
     case "pickat": return cmdPickAt(parts, w, h);
+    // seleção não é mutação da cena: fora de isMutating (sem snapshot)
+    case "gizmoat": return cmdGizmoAt(parts);
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);

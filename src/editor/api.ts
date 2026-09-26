@@ -12,6 +12,11 @@ import { logWarn, logError } from "@engine/core/logger";
 import { BUILTIN_COMMANDS } from "./control/builtin_commands";
 import math from "@compat/math.ts";
 
+// Gizmos: um pacote desenha ajudas visuais do editor para um tipo de
+// componente que não pode sobrescrever onDrawGizmos (ex.: Light, Camera).
+export { Gizmos, registerGizmoDrawer as registerGizmo } from "@engine/core/gizmos";
+export type { GizmoFn } from "@engine/core/gizmos";
+
 export type ComandoFn = (partes: string[]) => string;
 export type GanchoFn = (arg: string) => void;
 export const EVENTOS_EDITOR: string[] = ["salvar", "abrirCena", "entrarPlay", "sairPlay"];

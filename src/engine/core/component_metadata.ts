@@ -13,6 +13,8 @@ export class ComponentReflection {
   serialize(component: any): any { return null; }
   legacyFields(component: any): any { return null; }
   restoreLegacyFields(component: any, fields: any): void {}
+  /// O component sobrescreve onDrawGizmos/onDrawGizmosSelected (editor).
+  drawsGizmos(component: any): boolean { return false; }
 }
 
 export class ComponentMetadata {

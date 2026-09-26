@@ -51,7 +51,7 @@ export function cmdHelp(): string {
     " animator <obj> trigger <param> | animator <obj> state | animator <obj> params" +
     " || TEXTURA/MESH: makeprefab <path> [i] | instprefab <path> | loadobj <path> [nome]  (.obj/.glb/.gltf) | loadtex <obj> <path>" +
     " || DRAG&DROP: drop <path> [sx sy] | dropat <path> <x> <y> <z> | dropon <path> <obj> |" +
-    " pickat <sx> <sy> | groundat <sx> <sy> | thumb <path> [cols]  (preview do asset)" +
+    " pickat <sx> <sy> | gizmoat <sx> <sy>  (clica num ícone de gizmo) | groundat <sx> <sy> | thumb <path> [cols]  (preview do asset)" +
     " || ARQUIVOS: ls [path] | mkdir <path> | rmpath <path> | readfile <path> |" +
     " writefile <path> <conteudo> | mv <de> <para>" + commandHelpLine();
 }

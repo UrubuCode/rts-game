@@ -27,6 +27,7 @@ export const BUILTIN_COMMANDS: string[] = [
   "fluid",
   "focus",
   "frameall",
+  "gizmoat",
   "grid",
   "groundat",
   "group",

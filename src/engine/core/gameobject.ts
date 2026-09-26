@@ -5,6 +5,9 @@
 import { Transform } from "./transform";
 import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI, KIND_LIGHT, KIND_CAMERA } from "./behavior";
 import { Material } from "./material";
+import { componentMetadata } from "./component_metadata";
+// gizmos.ts só importa TIPOS do núcleo: sem ciclo.
+import { gizmoDrawerIndex } from "./gizmos";
 
 /// Formas de colisor (ver `GameObject.colShape`).
 export const COL_SPHERE = 0;
@@ -120,6 +123,9 @@ export class GameObject {
   /// Raio envolvente do renderer que se desenha sozinho (Skeleton), em
   /// unidades do objeto; 0 = usar o da malha. Cache O(1) pro culling do render.
   boundRadius: f64;
+  /// 1 = algum component desenha gizmos (sobrescreve onDrawGizmos(Selected) ou
+  /// tem desenhador registrado por tipo). Cache O(1) para o passe de gizmos do editor.
+  gizmoFlag: number;
 
   constructor(name: string) {
     this.id = nextGameObjectId;
@@ -154,6 +160,7 @@ export class GameObject {
     this.spatialDynSlot = 0 - 1;
     this.sceneIndex = 0 - 1;
     this.boundRadius = 0.0;
+    this.gizmoFlag = 0;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`
@@ -185,6 +192,14 @@ export class GameObject {
     const hadCam = this.camIdx;
     this.camIdx = this.componentIdx(KIND_CAMERA);
     if (this.uiOwner !== null && (hadCam >= 0) !== (this.camIdx >= 0)) this.uiOwner.cameraChanged(this);
+    let gz = 0;
+    let bi = 0;
+    while (bi < this.behaviors.length) {
+      const b = this.behaviors[bi];
+      if (componentMetadata.provider.drawsGizmos(b) || gizmoDrawerIndex(b.typeName()) >= 0) gz = 1;
+      bi = bi + 1;
+    }
+    this.gizmoFlag = gz;
   }
 
   /// Renderer do objeto: um que se desenha sozinho (Skeleton) tem prioridade

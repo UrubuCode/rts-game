@@ -1196,6 +1196,78 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
   }
+  drawsGizmos(component: any): boolean {
+    if (component instanceof Component0) {
+      return false;
+    }
+    if (component instanceof Component1) {
+      return false;
+    }
+    if (component instanceof Component2) {
+      return false;
+    }
+    if (component instanceof Component3) {
+      return false;
+    }
+    if (component instanceof Component4) {
+      return false;
+    }
+    if (component instanceof Component5) {
+      return false;
+    }
+    if (component instanceof Component6) {
+      return false;
+    }
+    if (component instanceof Component7) {
+      return false;
+    }
+    if (component instanceof Component8) {
+      return false;
+    }
+    if (component instanceof Component9) {
+      return false;
+    }
+    if (component instanceof Component10) {
+      return false;
+    }
+    if (component instanceof Component11) {
+      return false;
+    }
+    if (component instanceof Component12) {
+      return false;
+    }
+    if (component instanceof Component13) {
+      return false;
+    }
+    if (component instanceof Component14) {
+      return false;
+    }
+    if (component instanceof Component15) {
+      return false;
+    }
+    if (component instanceof Component16) {
+      return false;
+    }
+    if (component instanceof Component17) {
+      return false;
+    }
+    if (component instanceof Component18) {
+      return false;
+    }
+    if (component instanceof Component19) {
+      return false;
+    }
+    if (component instanceof Component20) {
+      return false;
+    }
+    if (component instanceof Component21) {
+      return false;
+    }
+    if (component instanceof Component22) {
+      return false;
+    }
+    return false;
+  }
 }
 componentMetadata.provider = new GeneratedReflection();
 export function createRegisteredComponent(name: string): Behavior {

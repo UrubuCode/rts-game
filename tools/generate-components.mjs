@@ -96,6 +96,7 @@ export function discoverComponents(root = projectRoot, project = createProject(r
       }
       const customInspector = hasMethod(chain, 'fieldCount');
       const customSerialization = hasMethod(chain, 'toData');
+      const gizmos = hasMethod(chain, 'onDrawGizmos') || hasMethod(chain, 'onDrawGizmosSelected');
       const factory = metadata.get('componentFactory');
       if (factory && !node.members.some(member => ts.isMethodDeclaration(member) &&
           member.name.getText() === factory && hasModifier(member, ts.SyntaxKind.StaticKeyword) &&
@@ -133,7 +134,7 @@ export function discoverComponents(root = projectRoot, project = createProject(r
         category: metadata.get('componentCategory') || 'Scripts',
         description: metadata.get('componentDescription') || `Componente definido em ${relative}.`,
         keywords: metadata.get('componentKeywords') || '',
-        factory, customInspector, customSerialization, fields: [...fields.values()],
+        factory, customInspector, customSerialization, gizmos, fields: [...fields.values()],
         editorOnly: isEditorOnly(source),
       });
     }
@@ -193,6 +194,7 @@ function renderRegistry(entries, marker) {
     `      return { ${entry.fields.map(field => `${quote(field.name)}: ${access(field)}`).join(', ')} };` : '      return null;');
   provider += method('restoreLegacyFields', ', fields: any', 'void', '', entry => entry.customSerialization && !entry.customInspector ?
     `      if (fields === null || fields === undefined) return;\n${restoreFields(entry, 'fields')}\n      return;` : '      return;');
+  provider += method('drawsGizmos', '', 'boolean', 'false', entry => '      return ' + (entry.gizmos ? 'true' : 'false') + ';');
   provider += '}\ncomponentMetadata.provider = new GeneratedReflection();\n';
   const create = 'export function createRegisteredComponent(name: string): Behavior {\n' + entries.map(entry =>
     `  if (name === ${quote(entry.name)}) return ${entry.factory ? `${alias.get(entry)}.${entry.factory}()` : `new ${alias.get(entry)}()`};`).join('\n') + '\n  throw new Error("Componente nao registrado: " + name);\n}\n';

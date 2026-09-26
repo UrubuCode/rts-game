@@ -156,3 +156,11 @@ test('@editorOnly keeps files out of the game registry and loads them only in th
   assert.match(ext, /import "\.\.\/\.\.\/\.\.\/assets\/pacotes\/luz\/cmds";/);
   assert.doesNotMatch(ext, /luz\/Game/);
 });
+
+test('components with onDrawGizmos are flagged in the generated reflection', t => {
+  const { root, write } = fixture(t);
+  write('assets/scripts/G.ts', importBase + 'export class ComGizmo extends Behavior { onDrawGizmosSelected(g: any): void {} }\nexport class SemGizmo extends Behavior {}');
+  const entries = discoverComponents(root);
+  assert.deepEqual(entries.map(e => [e.name, e.gizmos]), [['ComGizmo', true], ['SemGizmo', false]]);
+  assert.match(renderComponents(entries)['src/engine/generated/components.ts'], /drawsGizmos\(component: any\): boolean/);
+});

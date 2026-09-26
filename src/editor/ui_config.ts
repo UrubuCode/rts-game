@@ -144,8 +144,10 @@ export const UI_CONSOLE = {
 };
 export const UI_ICONS = {
   directory: "assets/editor/icons/", maxPixels: 256,
-  names: ["info", "warning", "error", "clear", "collapse", "search", "follow"],
+  names: ["info", "warning", "error", "clear", "collapse", "search", "follow", "luz-direcional", "luz-pontual", "luz-spot", "camera"],
 };
+/// Gizmos da vista de Cena: lado do ícone clicável (desenho E clique) e espessura das linhas.
+export const UI_GIZMO = { iconSize: 24, lineWidth: 1 };
 export const UI_WORKSPACE = {
   tabs: ["Cena", "Jogo"], bottomTabs: ["Project", "Console"], tabW: 90, tabH: 24,
   gap: 4, padding: 6, noCamera: "Nenhuma Camera ativa. Adicione Camera a um GameObject.",

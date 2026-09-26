@@ -102,6 +102,7 @@ export function cmdDoc(parts: string[]): string {
     "dropat <path> <x> <y> <z> :: solta o asset direto numa posicao de MUNDO :: dropat assets/models/torus.obj 3 1 -2",
     "dropon <path> <objIdx> :: solta o asset SOBRE um objeto (imagem vira textura; .obj vira a mesh) :: dropon assets/textures/wood.png 3",
     "pickat <sx> <sy> :: qual objeto esta sob esse pixel (-1 = nenhum) :: pickat 700 400",
+    "gizmoat <sx> <sy> :: seleciona o dono do ícone de gizmo sob o pixel (a mesma área do clique) :: gizmoat 700 400",
     "groundat <sx> <sy> :: ponto do CHAO (Y=0) sob esse pixel — a conversao tela->mundo do drop :: groundat 700 400",
     "thumb <path> [cols] :: INSPECIONA o thumbnail que o Project mostra pro asset (imagem real, ou render 3D de modelo/prefab/cena): estatisticas de pixel + preview ASCII (| = quebra de linha) :: thumb assets/models/torus.obj 16",
   ];

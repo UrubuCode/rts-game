@@ -35,6 +35,9 @@ import { drawGameUI } from "@engine/ui/game_ui";
 import { playMode } from "@editor/play_mode";
 import { UI_PLAY } from "@editor/ui_config";
 import { UI_WORKSPACE, UI_DOCUMENT } from "@editor/ui_config";
+import { UI_GIZMO } from "@editor/ui_config";
+import { gizmosBegin } from "@engine/core/gizmos";
+import { gizmosDoEditor, coletarGizmos, pintarGizmos, gizmoIconAt } from "@editor/gizmo_pass";
 import { ConsolePanel } from "@editor/console_panel";
 import { WorkspaceViews } from "@editor/workspace_views";
 import { sceneDocument } from "@editor/scene_document";
@@ -130,6 +133,8 @@ const RH = 200;
 
 // ── câmera (fly) — estado top-level ─────────────────────────────────────────
 const FOV: f64 = 1.05;
+/// Pose da vista de Cena para os Gizmos (x, y, z, yaw, pitch, fov, largura, altura), reaproveitada.
+const gizmoPose = new Float64Array(8);
 const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);   // p/ framebuffer
 let focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);      // p/ picking; recalc por frame
 
@@ -731,11 +736,14 @@ function frame(): void {
       else if (mx > hxzX - 8.0 && mx < hxzX + 8.0 && my > hxzY - 8.0 && my < hxzY + 8.0) ax = 4;  // plano XZ
       else if (mx > hyzX - 8.0 && mx < hyzX + 8.0 && my > hyzY - 8.0 && my < hyzY + 8.0) ax = 5;  // plano YZ
     }
+    // 1c) ÍCONE de gizmo (retângulo do frame anterior, o que está na tela): seleciona o dono
+    const iconeDono = ax < 0 ? gizmoIconAt(gizmosDoEditor, mx, my) : 0 - 1;
+    if (iconeDono >= 0) { S.selected = iconeDono; S.selection = [iconeDono]; }
     if (ax >= 0) {
       gizmoAxis = ax;
       // osso: 1 snapshot por arrasto (não por frame) e a prévia do objeto para
       if (boneSk !== null) boneDrag.begin(boneSk, S.selectedBone);
-    } else {
+    } else if (iconeDono < 0) {
       // 2) senão, seleciona o objeto projetado mais perto do mouse
       let best = 0 - 1; let bestD: f64 = 1e30; let pi = 0;
       while (pi < scene.objects.length) {
@@ -893,6 +901,15 @@ function frame(): void {
     fParams[0], fParams[1], fParams[2],
     fParams[3], fParams[4], fParams[5], fParams[6],
     fParams[7], fParams[8]);
+  // GIZMOS dos componentes (onDrawGizmos + desenhadores por tipo), por cima do 3D
+  if (!workspaceViews.game) {
+    gizmoPose[0] = S.camX; gizmoPose[1] = S.camY; gizmoPose[2] = S.camZ; gizmoPose[3] = S.camYaw; gizmoPose[4] = S.camPitch;
+    gizmoPose[5] = FOV; gizmoPose[6] = W; gizmoPose[7] = H;
+    gizmosBegin(gizmosDoEditor, gizmoPose);
+    gizmosDoEditor.lado = UI_GIZMO.iconSize;
+    coletarGizmos(gizmosDoEditor, scene, S.selected);
+    pintarGizmos(app, WIN, gizmosDoEditor);
+  }
   secEnd(P_MUNDO3D);
   secBegin(P_UI);
   secBegin(P_UI_GIZ);

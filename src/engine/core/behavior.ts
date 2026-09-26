@@ -12,6 +12,7 @@ import { componentMetadata } from "./component_metadata";
 // só de TIPO: GameObject importa Behavior por valor, então isto teria que
 // ser ciclo se não fosse `import type` (apagado na compilação).
 import type { GameObject } from "./gameobject";
+import type { Gizmos } from "./gizmos";
 
 // TIPOS de component (tag numérica) — o primitivo do modelo uniforme "tudo é
 // GameObject + componentes". Systems e o render acham um component por kind()
@@ -76,6 +77,12 @@ export class Behavior {
   /// Recebido por TODOS os behaviors habilitados do objeto cujo botão foi
   /// clicado — o script do botão é um irmão, como o OnClick da Unity.
   onUIClick(name: string): void {}
+
+  // ── gizmos do editor (src/engine/core/gizmos.ts) ─────────────────────────
+  /// EDITOR: ajudas visuais deste componente (todo frame, objetos visíveis). Nunca roda no jogo.
+  onDrawGizmos(g: Gizmos): void {}
+  /// EDITOR: como onDrawGizmos, só quando o objeto está selecionado.
+  onDrawGizmosSelected(g: Gizmos): void {}
 
   /// Um backend EXTERNO (GPU ou o solver em Rust) assumiu (`1`) ou devolveu
   /// (`0`) a simulação do corpo dono. Quem INTEGRA movimento sobrescreve e para
