@@ -3,7 +3,7 @@
 //
 //   ./rts.exe run tests/test_gltf_anim.ts
 import io from "@compat/io.ts";
-import { loadSkeletonAsset } from "@engine/render/gltf_anim";
+import { loadSkeletonAsset, skeletonNeedsUpload, uploadSkeletonParts } from "@engine/render/gltf_anim";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 
@@ -35,6 +35,23 @@ io.print("[PASSOU] gltf_anim: hierarquia, repouso, 27 clipes, walk");
 const a2 = loadSkeletonAsset(0, "assets/models/kenney/character-a.glb");
 check(a2 === a, "cache por caminho: mesma instancia");
 io.print("[PASSOU] gltf_anim: cache por caminho");
+
+// carga sem janela NAO prende o asset sem malha: o cache lembra para qual
+// janela as pecas subiram (0 = nenhuma) e uma chamada com janela real sobe.
+check(a.uploadedWin === 0, "carga sem janela: uploadedWin = 0");
+check(!skeletonNeedsUpload(a, 0), "sem janela nao pede upload");
+check(skeletonNeedsUpload(a, 7), "janela real ainda nao atendida pede upload");
+a.uploadedWin = 7;
+check(!skeletonNeedsUpload(a, 7), "janela ja atendida nao sobe de novo");
+check(skeletonNeedsUpload(a, 8), "outra janela sobe de novo");
+a.uploadedWin = 0;
+check(a.partSrcMesh.length === a.partBone.length && a.partSrcPrim.length === a.partBone.length, "origem de cada peca registrada");
+// o caminho de reconstrucao (sem GPU com win=0) acha todas as pecas de novo,
+// sem reler clipes nem mexer nos ids
+const nClips = a.clips.length;
+check(uploadSkeletonParts(0, a) === a.partBone.length, "reconstrucao acha as 6 pecas");
+check(a.clips.length === nClips && a.uploadedWin === 0 && a.partMesh[0] === 0, "reconstrucao sem janela nao altera clipes nem ids");
+io.print("[PASSOU] gltf_anim: asset sem janela nao fica preso sem malha");
 
 // arquivo sem 'animations' e com 1 nó só (quad.glb, já usado por test_model):
 // clips vazio e um osso por nó com malha.

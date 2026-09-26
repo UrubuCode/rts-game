@@ -164,6 +164,9 @@ export class Behavior {
   /// objeto) devolve 1 depois de desenhar; o laço de render então pula o
   /// desenho por meshKind/customMesh. 0 = seguir o caminho normal.
   drawSelf(win: number): number { return 0; }
+  /// 1 = este renderer se desenha sozinho (`drawSelf`) e tem prioridade sobre
+  /// os demais renderers do objeto. Lido só em `refreshComponentCache`.
+  drawsSelf(): number { return 0; }
 
   // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
   // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão

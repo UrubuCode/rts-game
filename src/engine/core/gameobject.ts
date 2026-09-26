@@ -159,11 +159,27 @@ export class GameObject {
   /// MUTAÇÕES (add/remove), não por frame. Novos componentes render-hot entram aqui.
   refreshComponentCache(): void {
     this.matIdx = this.componentIdx(KIND_MATERIAL);
-    this.rendIdx = this.componentIdx(KIND_RENDERER);
+    this.rendIdx = this.rendererIdx();
     this.colIdx = this.componentIdx(KIND_COLLIDER);
     const hadUI = this.uiIdx;
     this.uiIdx = this.componentIdx(KIND_UI);
     if (this.uiOwner !== null && (hadUI >= 0) !== (this.uiIdx >= 0)) this.uiOwner.uiChanged(this);
+  }
+
+  /// Renderer do objeto: um que se desenha sozinho (Skeleton) tem prioridade
+  /// sobre os demais (um preset já traz MeshRenderer); senão o primeiro.
+  rendererIdx(): number {
+    let first = 0 - 1;
+    let i = 0;
+    while (i < this.behaviors.length) {
+      const b = this.behaviors[i];
+      if (b.kind() === KIND_RENDERER) {
+        if (b.drawsSelf() !== 0) return i;
+        if (first < 0) first = i;
+      }
+      i = i + 1;
+    }
+    return first;
   }
 
   /// Anexa um script e liga-o ao transform deste objeto.

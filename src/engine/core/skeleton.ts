@@ -15,11 +15,13 @@
 // (tamanho = número de ossos) e os temporários do `compose` no construtor.
 
 import { Behavior, KIND_RENDERER } from "./behavior";
-import { SkeletonAsset, loadSkeletonAsset } from "../render/gltf_anim";
+import { SkeletonAsset, loadSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
+import { logWarn } from "./logger";
 import { drawGPUMeshQ } from "../render/gpu3d";
 import { quatMulInto, quatRotateInto, quatFromYawPitchInto } from "../render/quat";
 
 /// Valores por osso num registro salvo: [osso, tx,ty,tz, rx,ry,rz,rw, sx,sy,sz].
+/// `osso` é o NOME (formato atual) ou o índice (registros antigos).
 const POSE_REC_LEN: number = 11;
 /// Registros antigos/manuais podem vir sem escala (só osso + T + R).
 const POSE_REC_MIN: number = 8;
@@ -56,10 +58,14 @@ export class Skeleton extends Behavior {
   overrideMask: number[];
 
   // Pose manual lida da cena antes de o modelo carregar (registros de
-  // POSE_REC_LEN); aplicada no próximo ensureAsset.
+  // POSE_REC_LEN; a 1ª posição é o índice antigo) e o nome do osso de cada
+  // registro ("" = usar o índice). Aplicada no próximo ensureAsset.
   private pendingPose: number[];
+  private pendingNames: string[];
   // Caminho que falhou ao carregar: não tenta de novo a cada frame.
   private failedPath: string;
+  // Janela cujo upload das peças falhou: não tenta de novo a cada frame.
+  private failedUploadWin: number;
   // temporários do compose (nunca alocados por frame)
   private rootR: Float64Array;
   private parR: Float64Array;
@@ -78,7 +84,9 @@ export class Skeleton extends Behavior {
     this.worldT = new Float64Array(0); this.worldR = new Float64Array(0); this.worldS = new Float64Array(0);
     this.overrideMask = [];
     this.pendingPose = [];
+    this.pendingNames = [];
     this.failedPath = "";
+    this.failedUploadWin = 0;
     this.rootR = new Float64Array(4); this.parR = new Float64Array(4);
     this.locR = new Float64Array(4); this.outR = new Float64Array(4);
     this.vIn = new Float64Array(3); this.vOut = new Float64Array(3);
@@ -86,26 +94,33 @@ export class Skeleton extends Behavior {
   }
 
   kind(): number { return KIND_RENDERER; }
+  drawsSelf(): number { return 1; }
   typeName(): string { return "Skeleton"; }
 
   /// Trocar o modelo no Inspector descarta o asset; o próximo desenho recarrega.
   onValidate(field: string): void {
-    if (field === "modelPath") { this.asset = null; this.failedPath = ""; this.pendingPose = []; }
+    if (field === "modelPath") {
+      this.asset = null; this.failedPath = ""; this.failedUploadWin = 0;
+      this.pendingPose = []; this.pendingNames = [];
+    }
   }
 
   /// Carrega o modelo (cache por caminho) e dimensiona os buffers por osso, uma
-  /// vez. `win` = 0 não sobe nada para a GPU (testes sem janela).
+  /// vez. `win` = 0 não sobe nada para a GPU (testes sem janela); se o asset
+  /// veio de uma carga sem janela, a primeira chamada com janela real sobe as
+  /// peças (ver `loadSkeletonAsset`).
   ensureAsset(win: number): void {
-    if (this.asset !== null && this.asset.path === this.modelPath) return;
-    if (this.modelPath === "" || this.modelPath === this.failedPath) return;
-    let a: SkeletonAsset | null = null;
-    try {
-      a = loadSkeletonAsset(win, this.modelPath);
-    } catch (e) {
-      this.failedPath = this.modelPath;
+    const cur = this.asset;
+    if (cur !== null && cur.path === this.modelPath) {
+      if (skeletonNeedsUpload(cur, win) && this.failedUploadWin !== win) {
+        try { loadSkeletonAsset(win, this.modelPath); }
+        catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); }
+      }
       return;
     }
-    if (a === null) return;
+    if (this.modelPath === "" || this.modelPath === this.failedPath) return;
+    const a = this.tryLoad(win);
+    if (a === null) return;   // falhou (já avisado; não tenta de novo)
     const n = a.boneNames.length;
     this.asset = a;
     this.poseT = new Float64Array(n * 3); this.poseR = new Float64Array(n * 4); this.poseS = new Float64Array(n * 3);
@@ -119,9 +134,12 @@ export class Skeleton extends Behavior {
     // pose manual vinda da cena
     const p = this.pendingPose;
     let k = 0;
-    while (k + POSE_REC_MIN <= p.length) {
-      const b = p[k] | 0;
-      if (b >= 0 && b < n) {
+    let r = 0;
+    while (k + POSE_REC_LEN <= p.length) {
+      const nome = this.pendingNames[r];
+      const b = nome !== "" ? a.boneNames.indexOf(nome) : (p[k] | 0);
+      if (b < 0 || b >= n) logWarn("Skeleton: osso '" + (nome !== "" ? nome : ("" + p[k])) + "' nao existe em " + this.modelPath + "; pose descartada");
+      else {
         this.manualT[b * 3] = p[k + 1]; this.manualT[b * 3 + 1] = p[k + 2]; this.manualT[b * 3 + 2] = p[k + 3];
         this.manualR[b * 4] = p[k + 4]; this.manualR[b * 4 + 1] = p[k + 5];
         this.manualR[b * 4 + 2] = p[k + 6]; this.manualR[b * 4 + 3] = p[k + 7];
@@ -129,8 +147,10 @@ export class Skeleton extends Behavior {
         this.overrideMask[b] = 1;
       }
       k = k + POSE_REC_LEN;
+      r = r + 1;
     }
     this.pendingPose = [];
+    this.pendingNames = [];
     this.applyManualPose();
   }
 
@@ -162,7 +182,7 @@ export class Skeleton extends Behavior {
   /// Volta tudo ao repouso e esquece a pose manual.
   resetPose(): void {
     const a = this.asset;
-    if (a === null) { this.pendingPose = []; return; }
+    if (a === null) { this.pendingPose = []; this.pendingNames = []; return; }
     this.copyRest(this.manualT, this.manualR, this.manualS);
     let b = 0;
     while (b < this.overrideMask.length) { this.overrideMask[b] = 0; b = b + 1; }
@@ -252,22 +272,26 @@ export class Skeleton extends Behavior {
   /// Cena: caminho do modelo + pose MANUAL só dos ossos com override (a pose de
   /// trabalho, que um clipe pode estar mexendo, não é salva).
   toData(): any {
-    const pose: number[][] = [];
-    if (this.asset === null) {
+    const pose: any[] = [];
+    const a = this.asset;
+    if (a === null) {
       // modelo ainda não carregado: devolve a pose lida da cena, intacta
       let k = 0;
+      let r = 0;
       while (k + POSE_REC_LEN <= this.pendingPose.length) {
-        const rec: number[] = [];
-        let j = 0;
+        const rec: any[] = [];
+        if (this.pendingNames[r] !== "") rec.push(this.pendingNames[r]); else rec.push(this.pendingPose[k]);
+        let j = 1;
         while (j < POSE_REC_LEN) { rec.push(this.pendingPose[k + j]); j = j + 1; }
         pose.push(rec);
         k = k + POSE_REC_LEN;
+        r = r + 1;
       }
     } else {
       let b = 0;
       while (b < this.overrideMask.length) {
         if (this.overrideMask[b] !== 0) {
-          pose.push([b,
+          pose.push([a.boneNames[b],
             this.manualT[b * 3], this.manualT[b * 3 + 1], this.manualT[b * 3 + 2],
             this.manualR[b * 4], this.manualR[b * 4 + 1], this.manualR[b * 4 + 2], this.manualR[b * 4 + 3],
             this.manualS[b * 3], this.manualS[b * 3 + 1], this.manualS[b * 3 + 2]]);
@@ -289,7 +313,10 @@ export class Skeleton extends Behavior {
       while (i < pose.length) {
         const r = pose[i];
         if (r !== undefined && r !== null && r.length >= POSE_REC_MIN) {
-          let j = 0;
+          // 1ª posição: nome do osso (atual) ou índice (registros antigos)
+          if (typeof r[0] === "string") { s.pendingNames.push(r[0]); s.pendingPose.push(0 - 1); }
+          else { s.pendingNames.push(""); s.pendingPose.push(r[0]); }
+          let j = 1;
           while (j < POSE_REC_MIN) { s.pendingPose.push(r[j]); j = j + 1; }
           // escala opcional (registros sem escala = 1)
           let sj = POSE_REC_MIN;
@@ -299,6 +326,17 @@ export class Skeleton extends Behavior {
       }
     }
     return s;
+  }
+
+  // Carrega o modelo; null = falhou (registra o caminho e avisa uma vez).
+  private tryLoad(win: number): SkeletonAsset | null {
+    try {
+      return loadSkeletonAsset(win, this.modelPath);
+    } catch (e) {
+      this.failedPath = this.modelPath;
+      logWarn("Skeleton: nao carregou " + this.modelPath);
+      return null;
+    }
   }
 
   private markOverride(bone: number): void {

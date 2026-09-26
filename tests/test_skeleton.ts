@@ -7,6 +7,7 @@ import io from "@compat/io.ts";
 import { GameObject } from "@engine/core/gameobject";
 import { Scene } from "@engine/core/scene";
 import { Skeleton } from "@engine/core/skeleton";
+import { MeshRenderer } from "@engine/core/meshrenderer";
 import { quatFromYawPitchInto } from "@engine/render/quat";
 import { componentToData } from "@engine/components";
 import { recreateBehavior } from "@editor/sceneio";
@@ -70,4 +71,31 @@ copia.ensureAsset(0);
 check(copia.poseR !== sk.poseR && copia.manualR !== sk.manualR, "copia nao compartilha os buffers");
 copia.setBoneRotation(arm, q);
 check(sk.overrideMask[arm] === 0 && perto(sk.manualR[arm * 4 + 3], 1.0), "mexer na copia nao altera o original");
-io.print("[PASSOU] skeleton: repouso, yaw do objeto, hierarquia, override, reset, instancias, copia, round-trip");
+// pose salva por NOME de osso (sobrevive a um modelo que reordene os nos)
+const dadosNome = componentToData(sk);
+check(typeof dadosNome.pose[0][0] === "string", "pose salva pelo nome do osso: " + dadosNome.pose[0][0]);
+// registro antigo por indice continua aceito; nome desconhecido e descartado
+const legado = recreateBehavior({ type: "skeleton", modelPath: "assets/models/kenney/character-a.glb",
+  pose: [[torso, 0.0, 0.7, 0.0, q[0], q[1], q[2], q[3]], ["osso-que-nao-existe", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]] }) as Skeleton;
+legado.ensureAsset(0);
+check(legado.overrideMask[torso] === 1 && perto(legado.manualR[torso * 4 + 3], q[3]), "registro por indice restaurado");
+let marcados = 0; let mi = 0;
+while (mi < legado.overrideMask.length) { marcados = marcados + legado.overrideMask[mi]; mi = mi + 1; }
+check(marcados === 1, "nome desconhecido descartado: " + marcados);
+check(componentToData(legado).pose.length === 1, "descartado nao volta ao salvar");
+
+// Skeleton num objeto que JA tem MeshRenderer assume o desenho (rendIdx)
+const obj = new GameObject("com-malha");
+obj.addBehavior(new MeshRenderer(1));
+check(obj.rendIdx === 0, "MeshRenderer e o renderer");
+const skObj = new Skeleton("assets/models/kenney/character-a.glb");
+obj.addBehavior(skObj);
+check(obj.rendIdx === 1, "Skeleton assume o desenho: rendIdx=" + obj.rendIdx);
+obj.removeBehavior(1);
+check(obj.rendIdx === 0, "sem Skeleton volta ao MeshRenderer: rendIdx=" + obj.rendIdx);
+const obj2 = new GameObject("skeleton-primeiro");
+obj2.addBehavior(new Skeleton("assets/models/kenney/character-a.glb"));
+obj2.addBehavior(new MeshRenderer(1));
+check(obj2.rendIdx === 0, "Skeleton antes do MeshRenderer continua o renderer");
+
+io.print("[PASSOU] skeleton: repouso, yaw do objeto, hierarquia, override, reset, instancias, copia, round-trip, nomes, renderer preferido");

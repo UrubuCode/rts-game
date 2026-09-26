@@ -52,6 +52,12 @@ export class SkeletonAsset {
   restT: Float64Array; restR: Float64Array; restS: Float64Array;   // 3/4/3 por osso
   partBone: number[]; partMesh: number[]; partTex: number[]; partColor: number[];
   clips: AnimClip[];
+  /// Janela para a qual `partMesh`/`partTex` foram subidos (0 = nenhuma: o
+  /// asset veio de uma carga sem janela e as peças não desenham ainda).
+  uploadedWin: number;
+  // Origem de cada peça no glTF (malha, primitive) — para subir as peças
+  // DEPOIS, sem reler nós nem animações.
+  partSrcMesh: number[]; partSrcPrim: number[];
   constructor(path: string) {
     this.path = path;
     this.boneNames = [];
@@ -64,6 +70,9 @@ export class SkeletonAsset {
     this.partTex = [];
     this.partColor = [];
     this.clips = [];
+    this.uploadedWin = 0;
+    this.partSrcMesh = [];
+    this.partSrcPrim = [];
   }
   /// índice do clipe pelo nome, -1 se não existir (evita indexOf duplicado nos chamadores).
   clipIndex(name: string): number {
@@ -79,13 +88,62 @@ const skeletonCache = new Map<string, SkeletonAsset>();
 /// Lê um `.glb`/`.gltf` → esqueleto (nós em pré-ordem) + peças + clipes.
 /// `win = 0` faz o parse SEM tocar na GPU (nenhum upload de malha, nenhum
 /// loadTexture) — uso em teste headless; `partMesh`/`partTex` ficam 0.
-/// Cacheado por `path`: a 2ª chamada devolve a MESMA instância.
+/// Cacheado por `path`: a 2ª chamada devolve a MESMA instância. Se ela veio de
+/// uma carga sem janela (ou de outra janela) e agora chega um `win` real, as
+/// peças sobem para ESSA janela aqui — o asset não fica "preso" sem malha.
 export function loadSkeletonAsset(win: number, path: string): SkeletonAsset {
   const hit = skeletonCache.get(path);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) {
+    if (skeletonNeedsUpload(hit, win)) uploadSkeletonParts(win, hit);
+    return hit;
+  }
   const asset = buildSkeletonAsset(win, path);
+  if (win !== 0) asset.uploadedWin = win;
   skeletonCache.set(path, asset);
   return asset;
+}
+
+/// 1 caso `asset` precise subir as peças para `win` (janela real ainda não
+/// atendida). Separado para ser testável sem janela.
+export function skeletonNeedsUpload(asset: SkeletonAsset, win: number): boolean {
+  return win !== 0 && asset.uploadedWin !== win;
+}
+
+/// Reconstrói a geometria de cada peça a partir do arquivo (só malhas e
+/// texturas; nós e clipes ficam como estão) e, com `win` real, sobe para a
+/// GPU e grava `uploadedWin`. Devolve quantas peças foram reconstruídas.
+/// `win = 0` percorre o mesmo caminho sem tocar na GPU (teste headless).
+export function uploadSkeletonParts(win: number, asset: SkeletonAsset): number {
+  const chunks = glbChunks(asset.path);
+  const g = chunks.json;
+  const bin = chunks.bin;
+  const baseDir = dirOf(asset.path);
+  let built = 0;
+  let k = 0;
+  while (k < asset.partSrcMesh.length) {
+    const mi = asset.partSrcMesh[k];
+    const pi = asset.partSrcPrim[k];
+    const mesh = g.meshes[mi];
+    const prims = mesh.primitives;
+    let mname = "mesh" + mi;
+    if (mesh.name !== undefined) mname = mesh.name;
+    const part = buildPrimitive(g, prims[pi], bin, mname, baseDir, prims.length > 1 ? pi : 0 - 1);
+    if (part !== null) {
+      if (win !== 0) {
+        asset.partMesh[k] = upload(win, part.verts, part.inds);
+        let texId = 0;
+        if (part.texPath.length > 0) {
+          try { texId = loadTexture(win, part.texPath); } catch (e) { texId = 0; }
+        }
+        asset.partTex[k] = texId;
+      }
+      built = built + 1;
+    }
+    k = k + 1;
+  }
+  buffer.free(bin);
+  if (win !== 0) asset.uploadedWin = win;
+  return built;
 }
 
 function buildSkeletonAsset(win: number, path: string): SkeletonAsset {
@@ -237,6 +295,8 @@ function buildParts(g: any, bin: Buf, meshIdx: number, boneIdx: number, baseDir:
         }
       }
       asset.partBone.push(boneIdx);
+      asset.partSrcMesh.push(meshIdx);
+      asset.partSrcPrim.push(pi);
       asset.partMesh.push(meshId);
       asset.partTex.push(texId);
       asset.partColor.push(packColor(part.cr, part.cg, part.cb));
