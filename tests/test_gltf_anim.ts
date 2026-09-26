@@ -45,6 +45,22 @@ check(q.boneParent[0] === -1, "no unico e raiz");
 check(q.partBone.length === 1, "quad.glb tem 1 peca (1 primitive)");
 io.print("[PASSOU] gltf_anim: sem animacoes, 1 no com malha");
 
+// partColor: 0xRRGGBB PURO (formato de drawGPUMesh/scenedraw.ts), sem byte de
+// alfa — quad.glb tem baseColorFactor 0.9/0.2/0.15 -> 229/51/38 -> 0xE53326.
+// Com o empacotamento ERRADO (0xAABBGGRR, formato do framebuffer em software
+// de mesh.ts/raster.ts) este valor sairia bem diferente (byte de alfa
+// deslocado pra posição errada e alfa 0xFF ligado no bit 31, virando um
+// numero negativo em i32), então a checagem abaixo falharia com o bug antigo.
+check(q.partColor[0] === 0xE53326, "quad.glb partColor = 0xRRGGBB (229,51,38): " + q.partColor[0].toString(16));
+// character-a.glb não define baseColorFactor no material (só baseColorTexture),
+// então cr/cg/cb ficam no default de Part (200,200,210) -> 0xC8C8D2.
+i = 0;
+while (i < a.partColor.length) {
+  check(a.partColor[i] === 0xC8C8D2, "character-a partColor[" + i + "] = 0xRRGGBB (200,200,210): " + a.partColor[i].toString(16));
+  i = i + 1;
+}
+io.print("[PASSOU] gltf_anim: partColor em 0xRRGGBB (sem alfa)");
+
 // arquivo inexistente/inválido -> lança com o path e o motivo.
 let threw = false;
 let msg = "";

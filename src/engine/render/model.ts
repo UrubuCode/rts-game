@@ -410,7 +410,11 @@ export function glbChunks(path: string): { json: any, bin: Buf } {
 
   const g = JSON.parse(js);
 
-  // .gltf externo: carrega o buffer referenciado (uri) sob demanda
+  // .gltf externo (ou .glb sem chunk BIN, com buffer.uri): carrega o buffer
+  // referenciado sob demanda. `fileBuf` (os bytes do .glb, só usados pra
+  // achar o chunk JSON) NÃO é o `binBuf` devolvido nesse caso — tem que ser
+  // liberado aqui, senão fica vazando (era o bug do refactor: o código
+  // pré-refactor liberava fileBuf/extBuf como duas variáveis separadas).
   if (binBuf === null) {
     const bufs = g.buffers;
     if (bufs !== undefined && bufs.length > 0 && bufs[0].uri !== undefined) {
@@ -420,8 +424,9 @@ export function glbChunks(path: string): { json: any, bin: Buf } {
         if (bsz > 0) { binBuf = fs.read_all(bp); binOff = 0; }
       }
     }
+    if (fileBuf !== null && fileBuf !== binBuf) buffer.free(fileBuf);
   }
-  if (binBuf === null) { if (fileBuf !== null) buffer.free(fileBuf); throw new Error("glbChunks: sem chunk/buffer BIN: " + path); }
+  if (binBuf === null) throw new Error("glbChunks: sem chunk/buffer BIN: " + path);
   return { json: g, bin: binBuf };
 }
 

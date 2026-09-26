@@ -76,9 +76,6 @@ export class SkeletonAsset {
 // ── cache por path ──────────────────────────────────────────────────────────
 const skeletonCache = new Map<string, SkeletonAsset>();
 
-/// Limpa o cache de esqueletos (não desaloca meshes/texturas já na VRAM).
-export function clearSkeletonCache(): void { skeletonCache.clear(); }
-
 /// Lê um `.glb`/`.gltf` → esqueleto (nós em pré-ordem) + peças + clipes.
 /// `win = 0` faz o parse SEM tocar na GPU (nenhum upload de malha, nenhum
 /// loadTexture) — uso em teste headless; `partMesh`/`partTex` ficam 0.
@@ -247,9 +244,12 @@ function buildParts(g: any, bin: Buf, meshIdx: number, boneIdx: number, baseDir:
     pi = pi + 1;
   }
 }
-// Empacota RGB (0..255 cada) no formato 0xAABBGGRR (mesmo layout de mesh.ts/raster.ts).
+// Empacota RGB (0..255 cada) em 0xRRGGBB, sem canal alfa — é a convenção de
+// `drawGPUMesh` (scenedraw.ts: `(rr << 16) | (gg << 8) | bbv`), quem consome
+// `partColor`. NÃO é o layout 0xAABBGGRR de mesh.ts/raster.ts (framebuffer em
+// software): são consumidores diferentes.
 function packColor(cr: number, cg: number, cb: number): number {
-  return (cr | 0) | ((cg | 0) << 8) | ((cb | 0) << 16) | (0xFF << 24);
+  return ((cr | 0) << 16) | ((cg | 0) << 8) | (cb | 0);
 }
 
 // Lê `animations[]` → um AnimClip por animação, um canal por (osso, path)
