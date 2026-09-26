@@ -6,6 +6,7 @@ import { Skeleton } from "@engine/core/skeleton";
 import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, previewSeek, previewChooseClip,
   timelineTarget, animationPlayerOf } from "./skeleton_preview";
 import { ComponentPicker } from "./component_picker";
+import { beginBoneEdit, boneDegreesInto, boneRotationFromDegreesInto } from "./bone_gizmo";
 import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
 import { scene, S } from "./control/session";
@@ -47,6 +48,13 @@ export class Inspector extends Behavior {
   timelineLabel: string = "";
   timelineTime: f64 = 0 - 1;
   timelineDuration: f64 = 0 - 1;
+  // Rótulo "Osso: <nome>" refeito só quando o osso/modelo muda; graus e
+  // quaternion do osso em buffers fixos (sem alocar por frame).
+  boneLabel: string = "";
+  boneLabelBone: number = 0 - 1;
+  boneLabelAsset: any = null;
+  boneDegrees: Float64Array = new Float64Array(3);
+  boneQuat: Float64Array = new Float64Array(4);
   meshHot: number = 0;
   textureHot: number = 0;
   top: number = 0; bottom: number = 0;
@@ -80,17 +88,18 @@ export class Inspector extends Behavior {
     this.ui.draw(header);
     return header.clicked ? !expanded : expanded;
   }
-  vector(key: string, y: number, label: string, values: number[]): number[] {
+  vector(key: string, y: number, label: string, values: number[], namesArg?: string[]): number[] {
+    const names = namesArg !== undefined ? namesArg : UI_AXIS_NAMES;
     if (!this.visible(y, L.rowH)) return values;
     this.label(key + "/Label", y, label);
     const colors = [AXIS_X, AXIS_Y, AXIS_Z];
     const valueX = this.x + L.padding + L.labelW;
     const fieldWidth = (this.width - L.padding * 2 - L.labelW - L.axisGap * 2) / 3;
     let axisIndex = 0;
-    while (axisIndex < UI_AXIS_NAMES.length) {
-      const axis = this.ui.control(key + "/" + UI_AXIS_NAMES[axisIndex], "axis",
+    while (axisIndex < names.length) {
+      const axis = this.ui.control(key + "/" + names[axisIndex], "axis",
         valueX + axisIndex * (fieldWidth + L.axisGap), y, fieldWidth, L.rowH,
-        UI_AXIS_NAMES[axisIndex], this.enabledInput);
+        names[axisIndex], this.enabledInput);
       axis.color = colors[axisIndex]; axis.value = values[axisIndex];
       this.ui.draw(axis);
       if (axis.value !== values[axisIndex]) { this.snapshot(); values[axisIndex] = axis.value; }
@@ -139,12 +148,14 @@ export class Inspector extends Behavior {
           K.boneRowH, asset.boneNames[bone], this.enabledInput);
         row.fill = bone === S.selectedBone ? UI_C.boneSelected : UI_C.boneRow;
         this.ui.draw(row);
-        if (row.clicked) S.selectedBone = bone;
+        // clicar no osso já selecionado devolve o gizmo ao objeto
+        if (row.clicked) S.selectedBone = S.selectedBone === bone ? 0 - 1 : bone;
       }
       rowY = rowY + K.boneRowH;
       bone = bone + 1;
     }
     rowY = rowY + L.gap;
+    if (S.selectedBone >= 0 && S.selectedBone < boneCount) rowY = this.boneFields(skeleton, S.selectedBone, rowY);
     const player = animationPlayerOf(skeleton);
     if (player === null) {
       this.label("Skeleton/NoPlayer", rowY, K.noPlayer);
@@ -211,7 +222,39 @@ export class Inspector extends Behavior {
     if (this.visible(rowY, L.rowH)) {
       const reset = this.ui.control("Skeleton/Reset", "button", innerX, rowY, innerW, L.rowH, K.resetPose, this.enabledInput);
       this.ui.draw(reset);
-      if (reset.clicked) { this.snapshot(); skeleton.resetPose(); }
+      // repouso + fim da prévia deste player (senão o clipe continuaria por cima)
+      if (reset.clicked) { this.snapshot(); skeleton.resetPose(); previewStop(player); }
+    }
+    return rowY + L.rowH + L.gap;
+  }
+  /// Campos do osso selecionado: rotação local em graus (yaw/pitch/roll, a
+  /// convenção do `pose rot` do WebSocket) e posição local. Editar encerra a
+  /// prévia do objeto e grava a pose MANUAL (salva na cena, com undo).
+  boneFields(skeleton: Skeleton, bone: number, startY: number): number {
+    const asset = skeleton.asset;
+    if (asset === null) return startY;
+    let rowY = startY;
+    if (this.boneLabelBone !== bone || this.boneLabelAsset !== asset) {
+      this.boneLabelBone = bone; this.boneLabelAsset = asset;
+      this.boneLabel = K.boneSelected + asset.boneNames[bone];
+    }
+    this.label("Skeleton/BoneName", rowY, this.boneLabel);
+    rowY = rowY + L.rowH;
+    const degrees = this.boneDegrees;
+    boneDegreesInto(degrees, skeleton.manualR, bone * 4);
+    const yaw = degrees[0]; const pitch = degrees[1]; const roll = degrees[2];
+    const rotation = this.vector("Skeleton/BoneRotation", rowY, K.boneRotation, [yaw, pitch, roll], K.rotationAxes);
+    if (rotation[0] !== yaw || rotation[1] !== pitch || rotation[2] !== roll) {
+      beginBoneEdit(skeleton);
+      boneRotationFromDegreesInto(this.boneQuat, rotation[0], rotation[1], rotation[2]);
+      skeleton.setBoneRotation(bone, this.boneQuat);
+    }
+    rowY = rowY + L.rowH;
+    const tx = skeleton.manualT[bone * 3]; const ty = skeleton.manualT[bone * 3 + 1]; const tz = skeleton.manualT[bone * 3 + 2];
+    const position = this.vector("Skeleton/BonePosition", rowY, K.bonePosition, [tx, ty, tz]);
+    if (position[0] !== tx || position[1] !== ty || position[2] !== tz) {
+      beginBoneEdit(skeleton);
+      skeleton.setBonePosition(bone, position[0], position[1], position[2]);
     }
     return rowY + L.rowH + L.gap;
   }

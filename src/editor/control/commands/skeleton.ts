@@ -6,16 +6,15 @@ import { scene, S } from "../session";
 import type { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
 import { AnimationPlayer } from "@engine/core/animation_player";
-import { quatMulInto } from "@engine/render/quat";
-import { previewIsPlaying, previewStart, previewPause, previewStop, previewSeek, previewChooseClip } from "../../skeleton_preview";
+import { previewIsPlaying, previewStart, previewPause, previewStop, previewSeek, previewChooseClip,
+  animationPlayerOf } from "../../skeleton_preview";
+import { beginBoneEdit, boneRotationFromDegreesInto, rotateBoneWorldAxis, moveBoneWorld } from "../../bone_gizmo";
 import { history } from "../../undo";
 
 const DEG2RAD: f64 = Math.PI / 180.0;
 
 // quaternion local pro comando `pose ... rot` (nunca alocado por frame: só é
 // chamado por um comando de WS, não pelo laço de render).
-const POSE_Q_YP: Float64Array = new Float64Array(4);
-const POSE_Q_ROLL: Float64Array = new Float64Array(4);
 const POSE_Q_OUT: Float64Array = new Float64Array(4);
 
 function objOrError(oi: number): GameObject | null {
@@ -116,7 +115,11 @@ export function cmdBones(parts: string[]): string {
 
 /// pose <obj> <osso|nome> rot <yawGraus> <pitchGraus> <rollGraus>
 /// pose <obj> <osso|nome> pos <x> <y> <z>
-/// Ordem de composição de `rot`: q = yaw(Y) * pitch(X local) * roll(Z local).
+/// pose <obj> <osso|nome> turn <x|y|z> <graus>   (gira no eixo de MUNDO, como o gizmo)
+/// pose <obj> <osso|nome> shift <dx> <dy> <dz>    (desloca em MUNDO, como o gizmo)
+/// Ordem de composição de `rot`: q = yaw(Y) * pitch(X local) * roll(Z local) —
+/// a mesma dos campos do Inspector (bone_gizmo.ts). Editar encerra a prévia do
+/// objeto, como no Inspector e no gizmo.
 export function cmdPose(parts: string[]): string {
   const oi = parseFloat(parts[1]) | 0;
   const o = objOrError(oi);
@@ -132,23 +135,34 @@ export function cmdPose(parts: string[]): string {
   if (mode === "rot") {
     const yaw = parseFloat(parts[4]); const pitch = parseFloat(parts[5]); const roll = parseFloat(parts[6]);
     if (yaw !== yaw || pitch !== pitch || roll !== roll) return "[erro] rot precisa de yaw, pitch e roll numericos";
-    const yawR = yaw * DEG2RAD; const pitchR = pitch * DEG2RAD; const rollR = roll * DEG2RAD;
-    const hy = yawR * 0.5; const hp = (0.0 - pitchR) * 0.5;
-    const cy = Math.cos(hy); const sy = Math.sin(hy); const cp = Math.cos(hp); const sp = Math.sin(hp);
-    POSE_Q_YP[0] = cy * sp; POSE_Q_YP[1] = sy * cp; POSE_Q_YP[2] = 0.0 - sy * sp; POSE_Q_YP[3] = cy * cp;
-    const hr = rollR * 0.5;
-    POSE_Q_ROLL[0] = 0.0; POSE_Q_ROLL[1] = 0.0; POSE_Q_ROLL[2] = Math.sin(hr); POSE_Q_ROLL[3] = Math.cos(hr);
-    quatMulInto(POSE_Q_OUT, POSE_Q_YP, POSE_Q_ROLL);
+    beginBoneEdit(sk);
+    boneRotationFromDegreesInto(POSE_Q_OUT, yaw, pitch, roll);
     sk.setBoneRotation(bone, POSE_Q_OUT);
     return "[ok] pose #" + oi + " osso " + bone + " rot " + yaw + " " + pitch + " " + roll;
   }
   if (mode === "pos") {
     const x = parseFloat(parts[4]); const y = parseFloat(parts[5]); const z = parseFloat(parts[6]);
     if (x !== x || y !== y || z !== z) return "[erro] pos precisa de x, y e z numericos";
+    beginBoneEdit(sk);
     sk.setBonePosition(bone, x, y, z);
     return "[ok] pose #" + oi + " osso " + bone + " pos " + x + " " + y + " " + z;
   }
-  return "[erro] modo invalido (use rot ou pos): " + mode;
+  if (mode === "turn") {
+    const eixo = parts[4]; const graus = parseFloat(parts[5]);
+    if (eixo !== "x" && eixo !== "y" && eixo !== "z") return "[erro] turn precisa do eixo de mundo (x, y ou z)";
+    if (graus !== graus) return "[erro] turn precisa do angulo em graus";
+    beginBoneEdit(sk);
+    rotateBoneWorldAxis(sk, bone, eixo === "x" ? 1.0 : 0.0, eixo === "y" ? 1.0 : 0.0, eixo === "z" ? 1.0 : 0.0, graus * DEG2RAD);
+    return "[ok] pose #" + oi + " osso " + bone + " turn " + eixo + " " + graus;
+  }
+  if (mode === "shift") {
+    const dx = parseFloat(parts[4]); const dy = parseFloat(parts[5]); const dz = parseFloat(parts[6]);
+    if (dx !== dx || dy !== dy || dz !== dz) return "[erro] shift precisa de dx, dy e dz numericos";
+    beginBoneEdit(sk);
+    moveBoneWorld(sk, bone, dx, dy, dz);
+    return "[ok] pose #" + oi + " osso " + bone + " shift " + dx + " " + dy + " " + dz;
+  }
+  return "[erro] modo invalido (use rot, pos, turn ou shift): " + mode;
 }
 
 /// resetpose <obj> — volta o Skeleton ao repouso e esquece a pose manual.
@@ -159,7 +173,29 @@ export function cmdResetPose(parts: string[]): string {
   const sk = findSkeleton(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.resetPose();
+  // como o botão do Inspector: o clipe da prévia não fica por cima do repouso
+  const player = animationPlayerOf(sk);
+  if (player !== null) previewStop(player);
   return "[ok] resetpose #" + oi;
+}
+
+/// selbone <obj> <osso|nome|-1> — escolhe o osso do gizmo/Inspector (estado do
+/// editor, sem undo). O objeto precisa já estar selecionado (`select <obj>`):
+/// trocar de objeto limpa o osso escolhido.
+export function cmdSelBone(parts: string[]): string {
+  const oi = parseFloat(parts[1]) | 0;
+  const o = objOrError(oi);
+  if (o === null) return "[erro] objeto invalido";
+  if (S.selected !== oi) return "[erro] selecione o objeto antes (select " + oi + ")";
+  if (parts[2] === "-1") { S.selectedBone = 0 - 1; return "[ok] selbone #" + oi + " nenhum (gizmo no objeto)"; }
+  const sk = findSkeleton(o);
+  if (sk === null) return "[erro] objeto sem Skeleton";
+  sk.ensureAsset(0);
+  if (sk.asset === null) return "[erro] modelo do Skeleton nao carregado";
+  const bone = resolveBoneArg(sk, parts[2] === undefined ? "" : parts[2]);
+  if (bone < 0 || bone >= sk.boneCount()) return "[erro] osso invalido: " + parts[2];
+  S.selectedBone = bone;
+  return "[ok] selbone #" + oi + " " + sk.asset.boneNames[bone];
 }
 
 /// anims <obj> — lista os clipes do modelo (nome + duração).

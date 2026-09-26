@@ -44,7 +44,9 @@ import { EditorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
 import { scene, S } from "@editor/control/session";
-import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE } from "@editor/gizmo";
+import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE,
+  GIZMO_ROTATE_PER_UNIT } from "@editor/gizmo";
+import { boneEditTarget, boneWorldOriginInto, beginBoneEdit, rotateBoneWorldAxis, moveBoneWorld } from "@editor/bone_gizmo";
 import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "@editor/dnd";
 import { history } from "@editor/undo";
@@ -156,6 +158,9 @@ let frames = 0;
 let spawnN = 0;
 let dragging = 0;
 let gizmoAxis = 0 - 1;   // eixo do gizmo que está sendo arrastado (-1 = nenhum)
+// Origem do gizmo quando o alvo é um osso (posição de mundo do osso); buffer
+// fixo, reaproveitado a cada frame.
+const boneGizmoOrigin = new Float64Array(3);
 let prevF = 0;           // estado anterior da tecla F (edge-detection do focus)
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
 const inspector = new Inspector(app);
@@ -671,9 +676,16 @@ function frame(): void {
   let gzZx: f64 = 0.0; let gzZy: f64 = 0.0;
   let gzLen: f64 = 1.0;
   let gzWx: f64 = 0.0; let gzWy: f64 = 0.0; let gzWz: f64 = 0.0;   // centro-mundo (p/ anéis)
+  // OSSO selecionado no Inspector (Move/Rotate): o gizmo nasce no osso e o
+  // arrasto mexe na pose manual dele. Scale continua escalando o objeto.
+  const boneSk = S.selected >= 0 && S.selected < scene.objects.length && (S.tool === TOOL_MOVE || S.tool === TOOL_ROTATE) ?
+    boneEditTarget(scene.objects[S.selected], S.selectedBone) : null;
   if (S.tool !== 0 && S.selected >= 0 && S.selected < scene.objects.length) {
     const go = scene.objects[S.selected];
-    const owx = go.transform.wx; const owy = go.transform.wy; const owz = go.transform.wz;
+    let owx: f64 = go.transform.wx; let owy: f64 = go.transform.wy; let owz: f64 = go.transform.wz;
+    if (boneSk !== null && boneWorldOriginInto(boneGizmoOrigin, boneSk, S.selectedBone) !== 0) {
+      owx = boneGizmoOrigin[0]; owy = boneGizmoOrigin[1]; owz = boneGizmoOrigin[2];
+    }
     gzWx = owx; gzWy = owy; gzWz = owz;
     const cz1 = (owx - S.camX) * syw + (owz - S.camZ) * cyw;
     const cz2 = (owy - S.camY) * spt2 + cz1 * cpt2;
@@ -714,6 +726,8 @@ function frame(): void {
     }
     if (ax >= 0) {
       gizmoAxis = ax;
+      // osso: 1 snapshot por arrasto (não por frame) e a prévia do objeto para
+      if (boneSk !== null) { history.snapshot(); beginBoneEdit(boneSk); }
     } else {
       // 2) senão, seleciona o objeto projetado mais perto do mouse
       let best = 0 - 1; let bestD: f64 = 1e30; let pi = 0;
@@ -741,7 +755,26 @@ function frame(): void {
   // seleção efetiva: a lista S.selection (multi) ou só [S.selected]. O delta do
   // gizmo é aplicado a TODOS (rotate/scale usam o centro de cada um — "pivot individual").
   const nsel = S.selection.length > 0 ? S.selection.length : 1;
-  if (gizmoAxis >= 3 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
+  if (boneSk !== null && gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0) {
+    // OSSO: só o osso do objeto selecionado (a multi-seleção não se aplica)
+    worldDirty = 1;
+    const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
+    if (gizmoAxis >= 3) {
+      const mX = gizmoAxis === 5 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzXx, gzXy, gzLen);
+      const mY = gizmoAxis === 4 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzYx, gzYy, gzLen);
+      const mZ = gizmoAxis === 3 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzZx, gzZy, gzLen);
+      moveBoneWorld(boneSk, S.selectedBone, mX, mY, mZ);
+    } else {
+      let ex: f64 = gzXx; let ey: f64 = gzXy;
+      if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
+      if (gizmoAxis === 2) { ex = gzZx; ey = gzZy; }
+      const mv = axisMove(dmx, dmy, gzOx, gzOy, ex, ey, gzLen);
+      const axX: f64 = gizmoAxis === 0 ? 1.0 : 0.0; const axY: f64 = gizmoAxis === 1 ? 1.0 : 0.0; const axZ: f64 = gizmoAxis === 2 ? 1.0 : 0.0;
+      if (S.tool === TOOL_MOVE) moveBoneWorld(boneSk, S.selectedBone, axX * mv, axY * mv, axZ * mv);
+      else rotateBoneWorldAxis(boneSk, S.selectedBone, axX, axY, axZ, mv * GIZMO_ROTATE_PER_UNIT);
+    }
+    lastMx = mx; lastMy = my;
+  } else if (gizmoAxis >= 3 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
     worldDirty = 1;   // o gizmo vai mover algo: refaz o computeWorld antes do render
     // PLANO (só Move): move nos DOIS eixos do plano (3=XY, 4=XZ, 5=YZ).
     const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
@@ -787,7 +820,7 @@ function frame(): void {
           if (so.transform.sy < 0.05) so.transform.sy = 0.05;
           if (so.transform.sz < 0.05) so.transform.sz = 0.05;
         } else if (S.tool === TOOL_ROTATE) {
-          const rt: f64 = mv * 0.5;
+          const rt: f64 = mv * GIZMO_ROTATE_PER_UNIT;
           if (gizmoAxis === 0) so.transform.rx = so.transform.rx + rt;
           if (gizmoAxis === 1) so.transform.ry = so.transform.ry + rt;
           if (gizmoAxis === 2) so.transform.rz = so.transform.rz + rt;

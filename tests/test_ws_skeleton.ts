@@ -1,7 +1,7 @@
 import io from "@compat/io.ts";
 import { scene, S } from "@editor/control/session";
 import { GameObject } from "@engine/core/gameobject";
-import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdAnims, cmdAnim } from "@editor/control/commands/skeleton";
+import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "@editor/control/commands/skeleton";
 import { execCommand } from "@editor/control/dispatch";
 import { history } from "@editor/undo";
 import { previewIsPlaying, previewTick } from "@editor/skeleton_preview";
@@ -13,6 +13,20 @@ const b = cmdBones(["bones", "0"]); check(b.indexOf("arm-right") > 0 && b.indexO
 check(cmdPose(["pose", "0", "torso", "rot", "90", "0", "0"]).indexOf("[ok]") === 0, "pose por nome");
 check(cmdPose(["pose", "0", "99", "rot", "0", "0", "0"]).indexOf("[erro]") === 0, "osso invalido = erro");
 check(cmdResetPose(["resetpose", "0"]).indexOf("[ok]") === 0, "resetpose");
+// turn/shift: o mesmo caminho do gizmo (eixo e deslocamento de MUNDO)
+check(cmdPose(["pose", "0", "arm-right", "turn", "y", "30"]).indexOf("[ok]") === 0, "pose turn");
+check(cmdPose(["pose", "0", "arm-right", "turn", "w", "30"]).indexOf("[erro]") === 0, "turn com eixo invalido = erro");
+check(cmdPose(["pose", "0", "arm-right", "shift", "0", "0.1", "0"]).indexOf("[ok]") === 0, "pose shift");
+check(cmdPose(["pose", "0", "arm-right", "shift", "0", "x", "0"]).indexOf("[erro]") === 0, "shift nao numerico = erro");
+check(cmdResetPose(["resetpose", "0"]).indexOf("[ok]") === 0, "resetpose depois de turn/shift");
+// selbone: exige o objeto selecionado; -1 devolve o gizmo ao objeto
+S.selected = 5;
+check(cmdSelBone(["selbone", "0", "arm-right"]).indexOf("[erro]") === 0, "selbone sem o objeto selecionado = erro");
+S.selected = 0;
+const selMsg = cmdSelBone(["selbone", "0", "arm-right"]);
+check(selMsg.indexOf("[ok]") === 0 && selMsg.indexOf("arm-right") > 0 && S.selectedBone > 0, "selbone por nome: " + selMsg);
+check(cmdSelBone(["selbone", "0", "nada"]).indexOf("[erro]") === 0, "selbone osso invalido = erro");
+check(cmdSelBone(["selbone", "0", "-1"]).indexOf("[ok]") === 0 && S.selectedBone === 0 - 1, "selbone -1 volta ao objeto");
 check(cmdAnims(["anims", "0"]).indexOf("walk") > 0, "anims lista walk");
 check(cmdAnim(["anim", "0", "play", "walk", "loop"]).indexOf("[ok]") === 0, "anim play");
 check(cmdAnim(["anim", "0", "play", "corrida"]).indexOf("[erro]") === 0, "clipe inexistente = erro legivel");

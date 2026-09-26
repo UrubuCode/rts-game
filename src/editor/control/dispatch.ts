@@ -6,7 +6,7 @@ import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
 import { logInfo, logError } from "@engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
-import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdAnims, cmdAnim } from "./commands/skeleton";
+import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "./commands/skeleton";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
@@ -192,6 +192,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "bones": return cmdBones(parts);
     case "pose": return cmdPose(parts);
     case "resetpose": return cmdResetPose(parts);
+    case "selbone": return cmdSelBone(parts);
     case "anims": return cmdAnims(parts);
     case "anim": return cmdAnim(parts);
     case "tree": return cmdTree();

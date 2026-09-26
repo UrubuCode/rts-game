@@ -289,4 +289,8 @@ export const UI_SKELETON = {
   noPlayer: "Adicione um AnimationPlayer", noPlayerHint: "para tocar os clipes.",
   timeUnit: " s", timeSeparator: " / ", timeDigits: 2,
   countOpen: " (", countClose: ")", clipDurationOpen: "  (", clipDurationClose: ")",
+  // campos do osso selecionado (rotação em graus: yaw/pitch/roll, a mesma
+  // convenção do `pose rot` do WebSocket; posição local ao pai)
+  boneSelected: "Osso: ", boneRotation: "Rot. (°)", bonePosition: "Posição",
+  rotationAxes: ["Y", "P", "R"],
 };
