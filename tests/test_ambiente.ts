@@ -13,12 +13,20 @@ function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 const sol = new Float64Array(3); sol[1] = -1.0;
 const pac = new Float64Array(SKY_FLOATS);
 
-// 1) padrão = céu estrelado de hoje, sem neblina, ambiente 0,25
+// 1) padrão = céu estrelado de hoje, sem neblina, ambiente ESCALAR LEGADO
+// (out[17] = 0: o shader usa cam.light.w, não env.amb/env.sky — Fix round 1)
 const a = new Ambiente();
-check(a.ceu.modo === "estrelas" && a.neblina.densidade === 0.0 && a.luzAmbiente.intensidade === 0.25, "padrão de hoje");
+check(a.ceu.modo === "estrelas" && a.neblina.densidade === 0.0 && a.luzAmbiente.modo === "legado" && a.luzAmbiente.intensidade === 0.25, "padrão de hoje");
 empacotarCeu(a, sol, 0, pac);
-check(pac[0] === 0.0 && pac[15] === 1.0 && pac[17] === 1.0 && pac[21] === 0.25, "modo 0, exposição 1, ambiente cor 0,25");
+check(pac[0] === 0.0 && pac[15] === 1.0 && pac[17] === 0.0, "modo 0, exposição 1, ambiente LEGADO (0)");
 check(pac[10] === 0.0 && pac[11] === -1.0, "direção do sol copiada");
+
+// 1b) modo explícito muda o código empacotado (legado 0, cor 1, ceu 2 — bate
+// com `ambiente()` em shader.rs: modo<0.5 legado, modo<1.5 cor, senão céu)
+const acor = new Ambiente(); acor.luzAmbiente.modo = "cor";
+empacotarCeu(acor, sol, 0, pac); check(pac[17] === 1.0, "luzAmbiente cor: mode 1");
+const aceu = new Ambiente(); aceu.luzAmbiente.modo = "ceu";
+empacotarCeu(aceu, sol, 0, pac); check(pac[17] === 2.0, "luzAmbiente ceu: mode 2");
 
 // 2) envio só quando muda
 check(ambienteSync(a, sol, 0) === 3, "primeira vez envia céu e neblina");
@@ -42,9 +50,22 @@ sceneFromJSON(json);
 check(scene.ambiente.ceu.modo === "procedural" && scene.ambiente.ceu.horizonte[2] === 0.33, "céu volta do JSON");
 check(scene.ambiente.neblina.densidade === 0.05 && scene.ambiente.luzAmbiente.modo === "ceu" && scene.ambiente.sol === "Sol", "neblina, ambiente e sol voltam");
 
-// 4) cena sem bloco = padrão de hoje
+// 4) cena sem bloco = padrão de hoje (inclusive o modo legado da luz ambiente)
 sceneFromJSON("{\"objects\":[]}");
-check(scene.ambiente.ceu.modo === "estrelas" && scene.ambiente.neblina.densidade === 0.0 && scene.ambiente.sol === "", "sem bloco: visual de hoje");
+check(scene.ambiente.ceu.modo === "estrelas" && scene.ambiente.neblina.densidade === 0.0 && scene.ambiente.luzAmbiente.modo === "legado" && scene.ambiente.sol === "", "sem bloco: visual de hoje");
+
+// 4b) só "light" (sem "ambiente"): empacota modo legado (0) — o cam.light.w
+// do bloco "light"/ws `light` continua sendo quem manda no ambiente
+sceneFromJSON("{\"objects\":[],\"light\":[7,13,5,0.6]}");
+check(scene.ambiente.luzAmbiente.modo === "legado", "só light, sem ambiente: luzAmbiente fica legado");
+empacotarCeu(scene.ambiente, sol, 0, pac);
+check(pac[17] === 0.0, "só light, sem ambiente: out[17] = 0 (legado) — ambiente vem de cam.light.w = 0,6");
+
+// 4c) bloco "ambiente" com luzAmbiente.modo "cor" explícito: empacota mode 1
+sceneFromJSON("{\"objects\":[],\"ambiente\":{\"luzAmbiente\":{\"modo\":\"cor\"}}}");
+check(scene.ambiente.luzAmbiente.modo === "cor", "luzAmbiente.modo explícito é respeitado");
+empacotarCeu(scene.ambiente, sol, 0, pac);
+check(pac[17] === 1.0, "luzAmbiente.modo cor explícito: out[17] = 1");
 
 // 5) bloco inválido: erro legível e a cena atual intocada
 scene.createGameObject("Fica");
@@ -54,6 +75,10 @@ const ruins: string[] = [
   "{\"objects\":[],\"ambiente\":{\"neblina\":{\"densidade\":-1}}}",
   "{\"objects\":[],\"ambiente\":{\"luzAmbiente\":{\"intensidade\":\"alta\"}}}",
   "{\"objects\":[],\"ambiente\":{\"sol\":3}}",
+  "{\"objects\":[],\"ambiente\":{\"ceu\":null}}",
+  "{\"objects\":[],\"ambiente\":{\"ceu\":5}}",
+  "{\"objects\":[],\"ambiente\":{\"neblina\":\"densa\"}}",
+  "{\"objects\":[],\"ambiente\":{\"luzAmbiente\":[1,2,3]}}",
 ];
 let r = 0;
 while (r < ruins.length) {

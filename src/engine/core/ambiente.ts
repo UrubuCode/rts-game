@@ -5,8 +5,14 @@
 // enviado, e só então o renderer recebe setSky/setFog.
 export const SKY_FLOATS: number = 22;
 export const MODOS_CEU: string[] = ["estrelas", "procedural", "cor", "panorama"];
-export const MODOS_LUZ_AMBIENTE: string[] = ["cor", "ceu"];
-/// Códigos do `setSky` para `luzAmbiente.modo` (0 = escalar legado do setLight).
+/// "legado" é o padrão: sem bloco "ambiente" (ou sem "luzAmbiente" dentro dele),
+/// a cena mantém o visual de hoje — o shader usa `cam.light.w` (setLight/S.lightAmb,
+/// bloco "light" da cena, comando ws `light`), não a cor/intensidade daqui. Só
+/// passa a "cor" ou "ceu" quando o JSON/usuário/script escolhe explicitamente.
+export const MODOS_LUZ_AMBIENTE: string[] = ["legado", "cor", "ceu"];
+/// Códigos do `setSky` pra `luzAmbiente.modo` (ambiente() em shader.rs: modo<0.5
+/// usa cam.light.w; modo<1.5 usa env.amb; senão usa o céu).
+const AMBIENTE_LEGADO: number = 0;
 const AMBIENTE_COR: number = 1;
 const AMBIENTE_CEU: number = 2;
 
@@ -26,8 +32,9 @@ export class NeblinaConfig {
   constructor() { this.cor = rgb(0.60, 0.65, 0.70); this.densidade = 0.0; }
 }
 export class LuzAmbienteConfig {
+  /// "legado" (padrão) = escalar antigo do setLight; scripts/JSON escolhem "cor"/"ceu".
   modo: string; cor: Float64Array; intensidade: number;
-  constructor() { this.modo = "cor"; this.cor = rgb(1.0, 1.0, 1.0); this.intensidade = 0.25; }
+  constructor() { this.modo = "legado"; this.cor = rgb(1.0, 1.0, 1.0); this.intensidade = 0.25; }
 }
 export class Ambiente {
   ceu: CeuConfig; neblina: NeblinaConfig; luzAmbiente: LuzAmbienteConfig;
@@ -93,13 +100,20 @@ function lerTexto(v: any, campo: string, padrao: string): string {
   if (typeof v !== "string") throw erro(campo, "deve ser texto");
   return v;
 }
+/// Sub-bloco opcional ("ceu"/"neblina"/"luzAmbiente"): ausente vira {}; presente
+/// tem que ser objeto de fato (não array, não escalar) — senão erro legível.
+function lerBloco(v: any, campo: string): any {
+  if (v === undefined) return {};
+  if (v === null || typeof v !== "object" || Array.isArray(v)) throw erro(campo, "deve ser um objeto");
+  return v;
+}
 /// Lê o bloco num Ambiente temporário e só copia para `dst` se tudo for válido.
 export function ambienteFromData(dst: Ambiente, d: any): void {
   if (d === null || typeof d !== "object") throw erro("", "deve ser um objeto");
   const t = new Ambiente();
-  const c = d.ceu !== undefined ? d.ceu : {};
-  const n = d.neblina !== undefined ? d.neblina : {};
-  const l = d.luzAmbiente !== undefined ? d.luzAmbiente : {};
+  const c = lerBloco(d.ceu, "ceu");
+  const n = lerBloco(d.neblina, "neblina");
+  const l = lerBloco(d.luzAmbiente, "luzAmbiente");
   t.ceu.modo = lerModo(c.modo, "ceu.modo", MODOS_CEU, t.ceu.modo);
   lerCor(c.topo, "ceu.topo", t.ceu.topo); lerCor(c.horizonte, "ceu.horizonte", t.ceu.horizonte); lerCor(c.chao, "ceu.chao", t.ceu.chao);
   t.ceu.estrelas = lerNumero(c.estrelas, "ceu.estrelas", t.ceu.estrelas);
@@ -124,7 +138,7 @@ export function empacotarCeu(a: Ambiente, sol: Float64Array, texturaId: number, 
   out[7] = a.ceu.chao[0]; out[8] = a.ceu.chao[1]; out[9] = a.ceu.chao[2];
   out[10] = sol[0]; out[11] = sol[1]; out[12] = sol[2];
   out[13] = a.ceu.tamanhoSol; out[14] = a.ceu.estrelas; out[15] = a.ceu.exposicao; out[16] = texturaId;
-  out[17] = a.luzAmbiente.modo === "ceu" ? AMBIENTE_CEU : AMBIENTE_COR;
+  out[17] = a.luzAmbiente.modo === "ceu" ? AMBIENTE_CEU : (a.luzAmbiente.modo === "cor" ? AMBIENTE_COR : AMBIENTE_LEGADO);
   out[18] = a.luzAmbiente.cor[0]; out[19] = a.luzAmbiente.cor[1]; out[20] = a.luzAmbiente.cor[2];
   out[21] = a.luzAmbiente.intensidade;
 }

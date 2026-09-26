@@ -865,7 +865,7 @@ function frame(): void {
   luzCam[0] = workspaceViews.x; luzCam[1] = workspaceViews.y; luzCam[2] = workspaceViews.z;
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);
-  aplicarAmbiente(WIN, scene);
+  aplicarAmbiente(WIN, scene);   // DEPOIS de aplicarLuzes: usa ultimaN/luzBuf de lá como fallback do sol
   // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
   secBegin(P_MUNDO3D);
   frustumBegin(workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);

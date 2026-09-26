@@ -153,6 +153,33 @@ export function coletarLuzes(sc: Scene, buf: Float64Array, cam: Float64Array, so
   return n;
 }
 
+/// Direção da direcional de nome `nome` (o `ambiente.sol` do Task 5) — SÓ pra
+/// onde o disco do céu aponta, sem afetar o slot 0/sombra de `coletarLuzes`
+/// (esses são independentes: o sol do céu pode ser uma direcional diferente da
+/// que lança sombra). Devolve 0 e não toca `out` se `nome` for vazio, não
+/// existir, não for direcional, estiver desligada/inativa — quem chama cai pro
+/// slot 0 ou pro SOL_PADRAO. Sem alocação.
+export function direcaoSol(sc: Scene, nome: string, out: Float64Array): number {
+  if (nome.length === 0) return 0;
+  const lista = sc.lightObjs;
+  const total = lista.length;
+  let i = 0;
+  while (i < total) {
+    const o = lista[i];
+    if (o.name === nome) {
+      const l = o.behaviors[o.lightIdx];
+      if (l.enabled === 0 || l.lightType() !== LUZ_DIRECIONAL || !activeInScene(sc.objects, o)) return 0;
+      const t = o.transform;
+      const cp = math.cos(t.wrx); const sp = math.sin(t.wrx);
+      const cy = math.cos(t.wry); const sy = math.sin(t.wry);
+      out[0] = sy * cp; out[1] = sp; out[2] = cy * cp;
+      return 1;
+    }
+    i = i + 1;
+  }
+  return 0;
+}
+
 /// A "Luz Direcional" com sombra que toda cena nova ganha.
 export function criarLuzDirecionalPadrao(sc: Scene): GameObject {
   const o = sc.createGameObject("Luz Direcional");

@@ -2,7 +2,7 @@
 // nenhum Light, a luz pontual legada (bloco "light" da cena / ws `light`) vale
 // como antes. Sem alocação: buffers do módulo.
 import type { Scene } from "../core/scene";
-import { MAX_LUZES, FLOATS_POR_LUZ, LUZ_DIRECIONAL } from "../core/light";
+import { MAX_LUZES, FLOATS_POR_LUZ, LUZ_DIRECIONAL, direcaoSol } from "../core/light";
 import { setLightsBuf, setLgtBuf, setShadowBuf, setSkyBuf, setFogBuf, loadTexture } from "./gpu3d";
 import { ambienteSync } from "../core/ambiente";
 import { logWarn } from "../core/logger";
@@ -44,11 +44,18 @@ let texturaCaminho = "";
 let texturaId = 0;
 
 /// Id da textura do panorama; carrega uma vez por caminho (0 = sem textura).
+/// `loadTexture` devolvendo <= 0 é tratado como falha (não deveria acontecer,
+/// mas um id inválido no setSky quebraria o shader): fixa em 0 e avisa uma vez
+/// só, pela mesma guarda de caminho (não repete por frame).
 function texturaDoCeu(win: number, caminho: string): number {
   if (caminho !== texturaCaminho) {
     texturaCaminho = caminho; texturaId = 0;
     if (caminho.length > 0) {
-      try { texturaId = loadTexture(win, caminho); }
+      try {
+        const id = loadTexture(win, caminho);
+        if (id > 0) texturaId = id;
+        else logWarn("Céu: textura '" + caminho + "' carregou com id invalido (" + id + "); usando sem textura.");
+      }
       catch (e) { logWarn("Céu: textura '" + caminho + "' não carregou: " + String(e)); }
     }
   }
@@ -57,9 +64,18 @@ function texturaDoCeu(win: number, caminho: string): number {
 /// Envia setSky/setFog só quando o Ambiente (ou a direção do sol, ou a textura)
 /// mudou. Trocar de cena copia os campos para o MESMO `scene.ambiente`, e a
 /// comparação detecta a mudança.
+///
+/// ACOPLAMENTO DE ORDEM: chame isto DEPOIS de `aplicarLuzes` no mesmo frame —
+/// o fallback do sol (quando `ambiente.sol` está vazio ou não acha a direcional
+/// nomeada) usa `ultimaN`/`luzBuf`, que só `aplicarLuzes` preenche.
 export function aplicarAmbiente(win: number, sc: Scene): number {
-  if (ultimaN > 0 && luzBuf[0] === LUZ_DIRECIONAL) { solDir[0] = luzBuf[4]; solDir[1] = luzBuf[5]; solDir[2] = luzBuf[6]; }
-  else { solDir[0] = SOL_PADRAO_X; solDir[1] = SOL_PADRAO_Y; solDir[2] = SOL_PADRAO_Z; }
+  // Prioridade da direção do sol do céu (independente do slot 0/sombra):
+  // 1) a direcional nomeada em `ambiente.sol`; 2) a principal da última
+  // `aplicarLuzes` (slot 0, escolhida por sombra); 3) SOL_PADRAO fixo.
+  if (direcaoSol(sc, sc.ambiente.sol, solDir) === 0) {
+    if (ultimaN > 0 && luzBuf[0] === LUZ_DIRECIONAL) { solDir[0] = luzBuf[4]; solDir[1] = luzBuf[5]; solDir[2] = luzBuf[6]; }
+    else { solDir[0] = SOL_PADRAO_X; solDir[1] = SOL_PADRAO_Y; solDir[2] = SOL_PADRAO_Z; }
+  }
   const a = sc.ambiente;
   const bits = ambienteSync(a, solDir, texturaDoCeu(win, a.ceu.textura));
   if ((bits & 1) !== 0) setSkyBuf(win, a.pacote);

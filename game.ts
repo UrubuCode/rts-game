@@ -170,7 +170,7 @@ function frame(): void {
   }
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);
-  aplicarAmbiente(WIN, scene);
+  aplicarAmbiente(WIN, scene);   // DEPOIS de aplicarLuzes: usa ultimaN/luzBuf de lá como fallback do sol
   let oi = 0;
   let drawnN = 0;
   const objs: GameObject[] = scene.objects;   // tipado: campos por offset constante

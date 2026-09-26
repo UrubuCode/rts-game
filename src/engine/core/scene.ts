@@ -290,7 +290,11 @@ export class Scene {
   /// Até MAX_LUZES luzes ativas em `buf` (16 números cada); devolve quantas.
   /// `cam` = [x, y, z] de quem vê. Sem alocação (ver `coletarLuzes`).
   collectLights(buf: Float64Array, cam: Float64Array): number {
-    return coletarLuzes(this, buf, cam, this.ambiente.sol);
+    // `ambiente.sol` NÃO entra aqui: o slot 0 (a direcional do shadow map) segue
+    // só a regra do Task 3 (primeira ativa com sombra, senão a primeira ativa).
+    // `ambiente.sol` escolhe apenas pra onde o disco do céu aponta — ver
+    // `direcaoSol` em light.ts e `aplicarAmbiente` em scene_lighting.ts.
+    return coletarLuzes(this, buf, cam, "");
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
