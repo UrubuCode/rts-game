@@ -23,6 +23,8 @@ export class CameraPrimeiraPessoa extends Behavior {
   private ang: Float64Array = new Float64Array(3);
 
   constructor() { super(); }
+  /// Move o transform da câmera: o voo embutido do jogo não soma a este controle.
+  controlaCamera(): number { return 1; }
   update(dt: f64): void {
     const t = this.host;
     this.ang[0] = t.ry; this.ang[1] = t.rx;

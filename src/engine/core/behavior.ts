@@ -205,6 +205,10 @@ export class Behavior {
   /// dele (0 = sem raio próprio: o culling usa o da malha). Lido só em
   /// `refreshComponentCache` e cacheado em `GameObject.boundRadius`.
   rBoundRadius(): f64 { return 0.0; }
+  /// 1 = este componente move o transform da câmera do seu objeto (controles de
+  /// câmera por script). O jogo exportado não aplica o voo embutido numa câmera
+  /// assim — senão os dois somam o movimento (game.ts, core/voo_livre.ts).
+  controlaCamera(): number { return 0; }
 
   // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
   // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão

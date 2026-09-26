@@ -8,6 +8,9 @@ import { olharFps, orbitaPose, amortecerCritico, limitarZoom, PITCH_LIMITE_FPS }
 import { CameraOrbita } from "../assets/pacotes/camera/camera_orbita";
 import { CameraSeguir } from "../assets/pacotes/camera/camera_seguir";
 import { CameraRTS } from "../assets/pacotes/camera/camera_rts";
+import { CameraPrimeiraPessoa } from "../assets/pacotes/camera/camera_primeira_pessoa";
+import { vooDoJogo, VOO_VELOCIDADE, VOO_POSE_FLOATS } from "@engine/core/voo_livre";
+import { simularTecla, TECLA_W } from "@engine/core/entrada";
 import { Camera } from "@engine/core/camera";
 import { instalarEditorReal } from "@editor/editor_host";
 import { execCommand } from "@editor/control/dispatch";
@@ -106,4 +109,36 @@ gizmosBegin(gizmosDoEditor, gp); coletarGizmos(gizmosDoEditor, scene, 0 - 1);
 check(gizmosDoEditor.nIc >= 1 && gizmosDoEditor.nSeg === 0, "não selecionada: só o ícone");
 gizmosBegin(gizmosDoEditor, gp); coletarGizmos(gizmosDoEditor, scene, ci);
 check(gizmosDoEditor.nSeg === 8, "selecionada: frustum com 8 linhas: " + gizmosDoEditor.nSeg);
-io.print("[PASSOU] pacote camera: FPS, órbita, amortecimento, zoom, componentes, Criar/Câmera, comandos, gizmo");
+
+// voo embutido do jogo (game.ts) × controle por script: W por N quadros anda
+// velocidade·dt·N UMA vez (não o dobro); sem controle, o voo embutido anda.
+scene.clear();
+const DT_VOO = 1.0 / 60.0; const N_VOO = 30;
+const poseSessao = new Float64Array(VOO_POSE_FLOATS);
+function andarComW(): void {
+  simularTecla(TECLA_W, true);
+  let q = 0;
+  while (q < N_VOO) {
+    const main = Camera.main();
+    vooDoJogo(main !== null ? main.owner : null, poseSessao, DT_VOO);
+    scene.update(DT_VOO);
+    q = q + 1;
+  }
+  simularTecla(TECLA_W, false);
+}
+const fpsObj = scene.createGameObject("FPS");
+const fpsCam = new Camera(); fpsObj.addBehavior(fpsCam);
+const fps = new CameraPrimeiraPessoa(); fpsObj.addBehavior(fps);
+scene.computeWorld();
+check(Camera.main() === fpsCam, "a câmera FPS é a Main");
+andarComW();
+const esperadoFps = fps.velocidade * DT_VOO * N_VOO;
+check(Math.abs(fpsObj.transform.pz - esperadoFps) < 1e-9, "com CameraPrimeiraPessoa anda uma vez só: " + fpsObj.transform.pz + " ≠ " + esperadoFps);
+fps.enabled = 0; fpsObj.transform.pz = 0.0;
+andarComW();
+check(Math.abs(fpsObj.transform.pz - VOO_VELOCIDADE * DT_VOO * N_VOO) < 1e-9, "controle desligado: o voo embutido anda: " + fpsObj.transform.pz);
+scene.clear();
+check(Camera.main() === null, "cena sem câmera");
+andarComW();
+check(Math.abs(poseSessao[2] - VOO_VELOCIDADE * DT_VOO * N_VOO) < 1e-9, "sem câmera: o voo move a pose da sessão: " + poseSessao[2]);
+io.print("[PASSOU] pacote camera: FPS, órbita, amortecimento, zoom, componentes, Criar/Câmera, comandos, gizmo, voo do jogo");

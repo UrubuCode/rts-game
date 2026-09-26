@@ -30,6 +30,8 @@ export class CameraOrbita extends Behavior {
   private pose: Float64Array = new Float64Array(5);
 
   constructor() { super(); }
+  /// Move o transform da câmera: o voo embutido do jogo não soma a este controle.
+  controlaCamera(): number { return 1; }
   update(dt: f64): void {
     this.cache = acharAlvo(this.alvo, this.cache);
     const alvo = this.cache;

@@ -13,9 +13,7 @@
 //   rts.exe compile game.ts    → gera o .exe distribuível
 // ═══════════════════════════════════════════════════════════════════════════
 import io from "@compat/io.ts";
-import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
-import input from "rts:input";
 import { logTick } from "@engine/core/logger";
 import process from "@compat/process.ts";
 import { setVsync } from "rts:egui";
@@ -40,6 +38,7 @@ import { initMeshes, setCamBuf, drawGPUMeshBuf, meshIdFor, setFundoCeu, setViewp
 import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { Camera } from "@engine/core/camera";
 import { definirJanelaEntrada } from "@engine/core/entrada";
+import { vooDoJogo, VOO_POSE_FLOATS } from "@engine/core/voo_livre";
 import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
          posicaoDaVista } from "@engine/render/camera_views";
 
@@ -86,6 +85,7 @@ const camLivre = new Float64Array(CAM_FLOATS);
 camLivre[7] = FRUSTUM_NEAR_PADRAO; camLivre[8] = FRUSTUM_FAR_PADRAO; camLivre[10] = CAM_ORTO_PADRAO;
 const drawBuf = new Float64Array(DRAW_FLOATS);
 const posSelf = new Float64Array(3);
+const poseSessao = new Float64Array(VOO_POSE_FLOATS);
 
 function frame(): void {
   logTick();
@@ -106,53 +106,16 @@ function frame(): void {
   const camMain = Camera.main();
   const camGo = camMain !== null ? camMain.owner : null;
 
-  // ── CONTROLE: os mesmos controles de voo do editor (WASD + setas + botão dir) ─
-  const kW = app.keyDown(122); const kS = app.keyDown(118);
-  const kA = app.keyDown(100); const kD = app.keyDown(103);
-  const kUp = app.keyDown(5); const kDn = app.keyDown(6);
-  const kLf = app.keyDown(7); const kRt = app.keyDown(8);
-  const kSp = app.keyDown(3);
-
-  // O controle escreve NO TRANSFORM do objeto-câmera (quando há um): assim a
-  // câmera é um GameObject de verdade — scripts e parent também podem movê-la.
-  let cx: f64 = S.camX; let cy: f64 = S.camY; let cz: f64 = S.camZ;
-  let yaw: f64 = S.camYaw; let pitch: f64 = S.camPitch;
-  if (camGo !== null) {
-    const ct = camGo.transform;
-    cx = ct.px; cy = ct.py; cz = ct.pz;
-    yaw = ct.ry; pitch = ct.rx;
-  }
-
-  const lookSpeed: f64 = 1.6 * dts;
-  if (kLf !== 0) yaw = yaw - lookSpeed;
-  if (kRt !== 0) yaw = yaw + lookSpeed;
-  if (kUp !== 0) pitch = pitch - lookSpeed;
-  if (kDn !== 0) pitch = pitch + lookSpeed;
-  if (input.mouseDown(WIN, 1)) {
-    yaw = yaw + input.mouseDeltaX(WIN) * 0.005;
-    pitch = pitch - input.mouseDeltaY(WIN) * 0.005;
-  }
-  if (pitch > 1.4) pitch = 1.4;
-  if (pitch < 0.0 - 1.4) pitch = 0.0 - 1.4;
-
-  const cyw = math.cos(yaw); const syw = math.sin(yaw);
-  const cpM = math.cos(pitch); const spM = math.sin(pitch);
-  const moveSpeed: f64 = 6.0 * dts;
-  const fx = syw * cpM; const fy = spM; const fz = cyw * cpM;
-  const rxv = cyw; const rzv = 0.0 - syw;
-  if (kW !== 0) { cx = cx + fx * moveSpeed; cy = cy + fy * moveSpeed; cz = cz + fz * moveSpeed; }
-  if (kS !== 0) { cx = cx - fx * moveSpeed; cy = cy - fy * moveSpeed; cz = cz - fz * moveSpeed; }
-  if (kD !== 0) { cx = cx + rxv * moveSpeed; cz = cz + rzv * moveSpeed; }
-  if (kA !== 0) { cx = cx - rxv * moveSpeed; cz = cz - rzv * moveSpeed; }
-  if (kSp !== 0) cy = cy + moveSpeed;
-
-  // devolve a pose ao transform do objeto-câmera (ou à sessão, sem câmera)
-  if (camGo !== null) {
-    const ct2 = camGo.transform;
-    ct2.px = cx; ct2.py = cy; ct2.pz = cz;
-    ct2.ry = yaw; ct2.rx = pitch;
-  } else {
-    S.camX = cx; S.camY = cy; S.camZ = cz; S.camYaw = yaw; S.camPitch = pitch;
+  // ── CONTROLE: os mesmos controles de voo do editor (WASD + setas + botão dir),
+  // NO TRANSFORM do objeto-câmera (quando há um) — a menos que um script do
+  // objeto já controle a câmera (pacote camera/): aí só ele move (voo_livre.ts).
+  // Sem câmera, a pose livre da sessão.
+  poseSessao[0] = S.camX; poseSessao[1] = S.camY; poseSessao[2] = S.camZ;
+  poseSessao[3] = S.camYaw; poseSessao[4] = S.camPitch;
+  vooDoJogo(camGo, poseSessao, dts);
+  if (camGo === null) {
+    S.camX = poseSessao[0]; S.camY = poseSessao[1]; S.camZ = poseSessao[2];
+    S.camYaw = poseSessao[3]; S.camPitch = poseSessao[4];
   }
 
   // ── GAMEPLAY: no jogo os scripts rodam SEMPRE (não há botão Play/Pause) ────
@@ -180,12 +143,12 @@ function frame(): void {
     vistas.vpBuf[0] = 0.0; vistas.vpBuf[1] = 0.0; vistas.vpBuf[2] = 1.0; vistas.vpBuf[3] = 1.0; vistas.vpBuf[4] = 1.0;
     setViewportBuf(WIN, vistas.vpBuf);
     setFundoCeu(WIN);
-    camLivre[0] = cx; camLivre[1] = cy; camLivre[2] = cz; camLivre[3] = yaw; camLivre[4] = pitch;
+    camLivre[0] = S.camX; camLivre[1] = S.camY; camLivre[2] = S.camZ; camLivre[3] = S.camYaw; camLivre[4] = S.camPitch;
     camLivre[5] = FOV; camLivre[6] = W / H;
     setCamBuf(WIN, camLivre);
     frustumBeginBuf(camLivre);
     frustumParams(fParams);
-    luzCam[0] = cx; luzCam[1] = cy; luzCam[2] = cz;
+    luzCam[0] = S.camX; luzCam[1] = S.camY; luzCam[2] = S.camZ;
   }
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
   aplicarLuzes(WIN, scene, luzCam, luzLegada);

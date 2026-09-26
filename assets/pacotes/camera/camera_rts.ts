@@ -33,6 +33,8 @@ export class CameraRTS extends Behavior {
     if (this.zoomMin > this.zoomMax) { const m = this.zoomMin; this.zoomMin = this.zoomMax; this.zoomMax = m; }
     this.zoom = limitarZoom(this.zoom, 0.0, this.zoomMin, this.zoomMax);
   }
+  /// Move o transform da câmera: o voo embutido do jogo não soma a este controle.
+  controlaCamera(): number { return 1; }
   update(dt: f64): void {
     const t = this.host;
     const frente = eixoTeclas(TECLA_W, TECLA_S);

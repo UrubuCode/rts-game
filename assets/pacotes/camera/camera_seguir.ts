@@ -32,6 +32,8 @@ export class CameraSeguir extends Behavior {
   private cache: GameObject | null = null;
 
   constructor() { super(); }
+  /// Move o transform da câmera: o voo embutido do jogo não soma a este controle.
+  controlaCamera(): number { return 1; }
   update(dt: f64): void {
     this.cache = acharAlvo(this.alvo, this.cache);
     const alvo = this.cache;
