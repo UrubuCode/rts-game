@@ -1,6 +1,7 @@
 // gameview — a aba Jogo pela porta de controle (estado do editor, sem Desfazer).
 import { scene, S } from "../session";
 import { UI_GAME_VIEW as G } from "../../ui_config";
+import { resolverObjeto } from "@editor/control/object_ref";
 export function cmdGameView(parts: string[]): string {
   const acao = parts.length > 1 ? parts[1] : "";
   let out = "";
@@ -14,10 +15,10 @@ export function cmdGameView(parts: string[]): string {
     else { S.gameAspect = k; out = "[ok] proporcao " + G.aspectTokens[k]; }
   } else if (acao === "camera") {
     const alvo = parts.length > 2 ? parts[2] : "";
-    const i = parseFloat(alvo);
+    const i = alvo === "todas" ? 0 - 1 : resolverObjeto(scene, alvo);
     if (alvo === "todas") { S.gameCamera = null; out = "[ok] camera todas"; }
-    else if (i === i && i === Math.floor(i) && i >= 0 && i < scene.objects.length && scene.objects[i].camIdx >= 0) { S.gameCamera = scene.objects[i]; out = "[ok] camera #" + i; }
-    else out = "[erro] camera: use todas ou o índice de um objeto com Camera";
+    else if (i >= 0 && scene.objects[i].camIdx >= 0) { S.gameCamera = scene.objects[i]; out = "[ok] camera #" + i; }
+    else out = "[erro] camera: use todas ou um objeto com Camera (indice, nome ou caminho): " + alvo;
   } else if (acao === "previa") {
     const v = parts.length > 2 ? parts[2] : "";
     if (v === "on" || v === "off") { S.cameraPreview = v === "on" ? 1 : 0; out = "[ok] previa " + v; }

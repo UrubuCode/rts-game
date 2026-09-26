@@ -92,6 +92,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("dropon", "arrastar", MUTA_SIM, ["dropon <path> <obj> :: solta o asset SOBRE um objeto (imagem vira textura; .obj vira a mesh) :: dropon assets/textures/wood.png 3"]),
   c("dup", "objetos", MUTA_SIM, ["dup [obj] :: duplica o objeto (padrao: selecionado), deslocado em +1 X; clona transform, aparencia e componentes :: dup 3"]),
   c("dupn", "objetos", MUTA_SIM, ["dupn <n> <espaco> [obj] :: duplica em ARRAY: n copias em linha no X, espacadas :: dupn 5 2 1"]),
+  c("find", "consulta", MUTA_NAO, ["find <nome|trecho> :: objetos cujo nome contem o trecho (sem diferenciar maiusculas): indice e caminho :: find cubo"]),
   c("fisica", "sistema", MUTA_NAO, ["fisica [cpu|gpu|rust|auto|report] :: consulta ou troca o backend de fisica em execucao :: fisica cpu"]),
   c("fluid", "sistema", MUTA_NAO, ["fluid [n] :: estado do simulador de liquido registrado (e as n primeiras particulas) :: fluid 5"]),
   c("focus", "vista", MUTA_NAO, ["focus <obj> :: enquadra a camera do editor no objeto :: focus 0"]),

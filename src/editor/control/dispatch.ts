@@ -8,7 +8,7 @@ import { logInfo, logError } from "@engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
 import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "./commands/skeleton";
 import { cmdAnimator } from "./commands/animator";
-import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
+import { cmdTree, cmdParent, cmdMoveTree, cmdFind } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc } from "./commands/doc";
@@ -18,6 +18,7 @@ import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { comandoEmbutido, MUTA_SIM } from "@editor/control/builtin_commands";
+import { resolverArgsObjeto } from "@editor/control/object_ref";
 import { sceneToJSON, sceneFromJSON } from "@editor/sceneio";
 import { scene, S } from "./session";
 import { history } from "../undo";
@@ -37,7 +38,7 @@ function isMutating(c: string): boolean {
 
 /// Consultas: não vão para o log (encheriam o histórico com as próprias
 /// perguntas — inclusive a consulta ao log).
-const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc", "describe", "scene"];
+const NAO_REGISTRAR: string[] = ["log", "state", "help", "doc", "describe", "scene", "find"];
 const ERRO_PREFIXO: string = "[erro]";
 
 /// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`,
@@ -93,6 +94,14 @@ function runRegistered(i: number, parts: string[]): string {
 function execCommandInner(w: number, h: number, line: string): string {
   const parts = line.split(" ");
   const cmd = parts[0];
+  // ENDEREÇAMENTO: os argumentos <obj> do manifesto (índice, #índice, nome ou
+  // caminho Pai/Filho, com aspas para espaços) viram índice aqui, uma vez, antes
+  // do comando e do snapshot. Os comandos seguem lendo índices.
+  const info = comandoEmbutido(cmd);
+  if (info !== null && info.objs.length > 0) {
+    const erroRef = resolverArgsObjeto(scene, parts, info.objs);
+    if (erroRef.length > 0) return erroRef;
+  }
   const np = parts.length;
   // UNDO: snapshot da cena ANTES de qualquer operação mutante.
   //
@@ -244,6 +253,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "anim": return cmdAnim(parts);
     case "animator": return cmdAnimator(parts);
     case "tree": return cmdTree();
+    case "find": return cmdFind(parts);
     case "parent": return cmdParent(parts);
     case "movetree": return cmdMoveTree(parts);
     case "ls": return cmdLs(parts);

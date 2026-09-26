@@ -10,6 +10,7 @@ import type { GameObject } from "@engine/core/gameobject";
 import type { Behavior } from "@engine/core/behavior";
 import { logWarn, logError } from "@engine/core/logger";
 import { BUILTIN_COMMANDS } from "./control/builtin_commands";
+import { resolverObjeto } from "@editor/control/object_ref";
 import math from "@compat/math.ts";
 
 // Gizmos: um pacote desenha ajudas visuais do editor para um tipo de
@@ -123,4 +124,13 @@ export class Editor {
     out[0] = out[0] + sy * cp * SPAWN_DISTANCE; out[1] = out[1] + sp * SPAWN_DISTANCE; out[2] = out[2] + cy * cp * SPAWN_DISTANCE;
   }
   static inspect(b: Behavior, titulo: string): void { estado.host.inspect(b, titulo); }
+  /// Objeto da cena editada por índice ("3"/"#3"), nome exato ou caminho
+  /// "Pai/Filho" — o mesmo resolvedor dos comandos embutidos. null se não
+  /// achar, se o nome for ambíguo ou fora do editor.
+  static object(ref: string): GameObject | null {
+    const sc = estado.host.scene();
+    if (sc === null) return null;
+    const i = resolverObjeto(sc, ref);
+    return i >= 0 ? sc.objects[i] : null;
+  }
 }

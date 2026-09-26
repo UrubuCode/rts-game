@@ -4,6 +4,7 @@
 import { scene } from "../session";
 import { argInt, argObj, erroObj } from "@editor/control/args";
 import { erroUso } from "@editor/control/builtin_commands";
+import { buscarObjetos, caminhoObjeto } from "@editor/control/object_ref";
 
 /// tree — lista a hierarquia (índice, nome, índice do pai; -1 = raiz).
 export function cmdTree(): string {
@@ -47,4 +48,20 @@ export function cmdMoveTree(parts: string[]): string {
   if (!(par >= 0 - 1 && par < n)) return "[erro] pai invalido: '" + parts[3] + "' (-1 = raiz)";
   scene.moveSubtree(drag, before, par);
   return "[ok] movetree";
+}
+
+/// find <nome|trecho> — objetos cujo nome contém o trecho (sem diferenciar
+/// maiúsculas), com índice e caminho. O trecho é o resto da linha.
+export function cmdFind(parts: string[]): string {
+  if (parts.length < 2 || parts[1].length === 0) return erroUso("find");
+  const termo = parts.slice(1).join(" ");
+  const achados = buscarObjetos(scene, termo);
+  let m = "[find] " + achados.length + " com '" + termo + "'";
+  let k = 0;
+  while (k < achados.length) {
+    const i = achados[k];
+    m = m + " | #" + i + " " + scene.objects[i].name + " (" + caminhoObjeto(scene, i) + ")";
+    k = k + 1;
+  }
+  return m;
 }

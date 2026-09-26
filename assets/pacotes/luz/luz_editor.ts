@@ -70,9 +70,9 @@ export class LuzMenu {
 }
 
 function luzDe(indice: string): Light | null {
-  const sc = Editor.scene(); const i = parseFloat(indice);
+  const o = Editor.object(indice);
   let l: Light | null = null;
-  if (sc !== null && i === Math.floor(i) && i >= 0 && i < sc.objects.length && sc.objects[i].lightIdx >= 0) l = sc.objects[i].behaviors[sc.objects[i].lightIdx] as Light;
+  if (o !== null && o.lightIdx >= 0) l = o.behaviors[o.lightIdx] as Light;
   return l;
 }
 function cmdLuz(p: string[]): string {
