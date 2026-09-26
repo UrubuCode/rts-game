@@ -110,7 +110,7 @@ export function ctrlServe(port: number): void {
       return;
     }
     S.wsClient = S.wsClient + 1;
-    ws.send("[engine] editor conectado. envie 'help' (lista) ou 'doc' (detalhes+exemplos p/ IA).");
+    ws.send("[engine] editor conectado. envie 'help' (lista), 'doc' (detalhes+exemplos) ou 'doc json' (manifesto p/ IA).");
 
     ws.on("message", (dados: any) => {
       // `data` pode ser string ou Buffer conforme o frame; `toString()` é o que

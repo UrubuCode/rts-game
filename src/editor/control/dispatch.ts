@@ -1,6 +1,6 @@
 // Despacho de comandos de controle — um SWITCH que roteia para o handler de cada
 // comando (definidos em commands/*.ts). Devolve a resposta em texto.
-import { cmdState, cmdRes, cmdHelp, cmdVsync } from "./commands/query";
+import { cmdState, cmdRes, cmdVsync } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdRot, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
@@ -11,7 +11,7 @@ import { cmdAnimator } from "./commands/animator";
 import { cmdTree, cmdParent, cmdMoveTree, cmdFind } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
-import { cmdDoc } from "./commands/doc";
+import { cmdDoc, cmdHelp } from "./commands/doc";
 import { cmdDescribe, cmdScene } from "@editor/control/commands/describe";
 import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";

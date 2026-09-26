@@ -77,22 +77,14 @@ function ajudaComNome(i: number): string {
   if (a.indexOf(n + " ") === 0) return a;
   return n + " " + a;
 }
-export function commandHelpLine(): string {
-  let s = "";
-  let i = 0;
-  while (i < estado.nomes.length) {
-    s = s + (i === 0 ? " || SCRIPTS: " : " | ") + ajudaComNome(i).split(SEPARADOR_AJUDA)[0];
-    i = i + 1;
-  }
-  return s;
-}
-/// Linhas no formato do `doc`: "assinatura :: descrição :: exemplo".
-export function commandDocLines(out: string[]): void {
-  let i = 0;
-  while (i < estado.nomes.length) {
-    out.push(ajudaComNome(i) + SEPARADOR_AJUDA + estado.nomes[i]);
-    i = i + 1;
-  }
+/// Quantos comandos de pacote estão registrados.
+export function commandCount(): number { return estado.nomes.length; }
+export function commandName(i: number): string { return estado.nomes[i]; }
+/// Uso no formato do `doc`: "assinatura :: descrição :: exemplo" (sem exemplo
+/// na ajuda, o exemplo é o próprio nome).
+export function commandUsage(i: number): string {
+  const a = ajudaComNome(i);
+  return a.split(SEPARADOR_AJUDA).length > 2 ? a : a + SEPARADOR_AJUDA + estado.nomes[i];
 }
 export function emitEditorEvent(evento: string, arg: string): void {
   if (!estado.host.ativo) return;
