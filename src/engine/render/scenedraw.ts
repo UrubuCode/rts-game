@@ -42,6 +42,14 @@ export function setDrawBatch(on: number): void { emitirEmLote = on; }
 /// por frame para transportar nove doubles poria pressão de GC no caminho do
 /// render. Lido uma vez por frame, FORA do laço — que é a diferença que importa.
 export const fParams: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+/// SEGUNDA vista na mesma fila (a prévia da câmera do editor): o objeto fora do
+/// frustum principal ainda é desenhado se estiver dentro deste. Mesmo formato
+/// de `fParams` + [9] near, [10] far; [7] < 0 = sem descarte (ortográfica).
+/// Lido UMA vez por chamada, fora do laço (ver o cabeçalho de drawSceneObjects).
+export const fParams2: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+let segundaVista = 0;
+/// 1 = `fParams2` vale neste frame (o editor liga só com a prévia desenhada).
+export function definirSegundaVista(on: number): void { segundaVista = on; }
 
 /// Cor 0xRRGGBB de um objeto selecionado no editor (dourado) — a mesma para
 /// malhas e para renderers que se desenham sozinhos (Skeleton).
@@ -84,6 +92,11 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
   // Near/far do frustum preparado em gpu3d (frustumBegin/frustumBeginBuf):
   // uma leitura por chamada, fora do laço.
   const fNear: f64 = frustumNear(); const fFar: f64 = frustumFar();
+  // Segunda vista (prévia): em locais, uma leitura por chamada.
+  const seg: boolean = segundaVista !== 0;
+  const s2x: f64 = fParams2[0]; const s2y: f64 = fParams2[1]; const s2z: f64 = fParams2[2];
+  const s2cyw: f64 = fParams2[3]; const s2syw: f64 = fParams2[4]; const s2cpt: f64 = fParams2[5]; const s2spt: f64 = fParams2[6];
+  const s2tanH: f64 = fParams2[7]; const s2tanV: f64 = fParams2[8]; const s2near: f64 = fParams2[9]; const s2far: f64 = fParams2[10];
   // Entradas no lote: difere de drawnN quando um objeto com tiling vai pelo
   // desenho individual (o lote não carrega `tile`).
   let loteN = 0;
@@ -123,14 +136,25 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
     const z2: f64 = dy * spt + z1 * cpt;
     // tanH < 0 = várias vistas (ver camera_views.frustumDasVistas): sem descarte.
     if (tanH >= 0.0) {
-      if (z2 + r < fNear) { oi = oi + 1; continue; }        // atrás do near
-      if (z2 - r > fFar) { oi = oi + 1; continue; }         // além do far
       const limH: f64 = z2 * tanH;
-      if (x1 - r > limH) { oi = oi + 1; continue; }
-      if (0.0 - x1 - r > limH) { oi = oi + 1; continue; }
       const limV: f64 = z2 * tanV;
-      if (y2 - r > limV) { oi = oi + 1; continue; }
-      if (0.0 - y2 - r > limV) { oi = oi + 1; continue; }
+      // atrás do near, além do far, fora dos lados
+      let fora: boolean = z2 + r < fNear || z2 - r > fFar || x1 - r > limH || 0.0 - x1 - r > limH ||
+        y2 - r > limV || 0.0 - y2 - r > limV;
+      // fora da vista principal: ainda pode aparecer na segunda (mesma conta, aberta)
+      if (fora && seg) {
+        if (s2tanH < 0.0) fora = false;
+        else {
+          const ex: f64 = tr.wx - s2x; const ey: f64 = tr.wy - s2y; const ez: f64 = tr.wz - s2z;
+          const ex1: f64 = ex * s2cyw - ez * s2syw;
+          const ez1: f64 = ex * s2syw + ez * s2cyw;
+          const ey2: f64 = ey * s2cpt - ez1 * s2spt;
+          const ez2: f64 = ey * s2spt + ez1 * s2cpt;
+          const lh: f64 = ez2 * s2tanH; const lv: f64 = ez2 * s2tanV;
+          fora = ez2 + r < s2near || ez2 - r > s2far || ex1 - r > lh || 0.0 - ex1 - r > lh || ey2 - r > lv || 0.0 - ey2 - r > lv;
+        }
+      }
+      if (fora) { oi = oi + 1; continue; }
     }
 
     // RENDERER QUE SE DESENHA (Skeleton: várias peças por objeto, rotação em

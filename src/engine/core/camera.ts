@@ -137,7 +137,6 @@ export class Camera extends Behavior {
     if (ui.button(ROTULO_ALINHAR)) ui.alinharComVista(this.owner);
   }
   camFov(): f64 { return this.fov; }
-  camIsMain(): number { return this.isMain; }
   onValidate(field: string): void {
     // `!(v >= min)` também pega NaN (toda comparação com NaN é falsa).
     if (!(this.fov >= CAMERA_FOV_MIN)) this.fov = CAMERA_FOV_MIN;

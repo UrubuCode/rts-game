@@ -524,8 +524,12 @@ export class Inspector extends Behavior {
   }
   /// Modo janela do `render`: o título no lugar do nome, os componentes da
   /// janela (sem remover/Ativo) com a mesma rolagem, sem "Adicionar componente".
-  renderJanela(janela: GameObject, x: number, y: number, width: number, mx: number, my: number): void {
-    const titulo = this.ui.control("Window/Title", "label", x + L.padding, y + L.headerH + L.gap, width - L.padding * 2, L.rowH, this.janelaNome, false);
+  /// Usa this.janela/x/width/top (≤ 4 parâmetros no caminho por frame).
+  renderJanela(mx: number, my: number): void {
+    const janela = this.janela as GameObject;
+    const x = this.x; const width = this.width;
+    // a linha do nome do objeto: logo abaixo do título do painel (this.top - objectH = y + headerH)
+    const titulo = this.ui.control(L.windowTitleKey, "label", x + L.padding, this.top - L.objectH + L.gap, width - L.padding * 2, L.rowH, this.janelaNome, false);
     this.ui.draw(titulo);
     const available = Math.max(0, this.bottom - this.top);
     const maxBefore = Math.max(0, this.contentHeight - available);
@@ -564,7 +568,7 @@ export class Inspector extends Behavior {
     title.fill = UI_C.panelHeader; this.ui.draw(title);
     this.top = y + L.headerH + L.objectH;
     this.bottom = y + height - L.footerH;
-    if (this.janela !== null) { this.renderJanela(this.janela, x, y, width, mx, my); return; }
+    if (this.janela !== null) { this.renderJanela(mx, my); return; }
     if (selected === null) { this.label("Empty", this.top, L.empty); this.label("EmptyHint", this.top + L.rowH, L.emptyHint); return; }
     const object: GameObject = selected;
     const name = this.ui.control("Name", "text", x + L.padding, y + L.headerH + L.gap,

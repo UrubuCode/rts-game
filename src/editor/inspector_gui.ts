@@ -36,11 +36,14 @@ export class InspectorGUIEditor extends InspectorUI {
   /// recebido mais o que foi digitado —, então o rascunho fica aqui enquanto o
   /// campo tem o foco, como o filtro da Hierarquia guarda o próprio texto.
   slotRascunho: string[]; slotEditando: boolean[]; slotDono: (Behavior | null)[];
+  /// Slider em arrasto que já tirou o snapshot de Desfazer: um passo por arrasto,
+  /// não um por frame (cada snapshot serializa a cena inteira).
+  slotArrasto: boolean[];
   constructor(insp: Inspector) {
     super(); this.insp = insp; this.comp = null; this.chave = ""; this.y = 0; this.seq = 0; this.pose = new Float64Array(5);
     this.prefixos = []; this.slots = []; this.lista = 0; this.slot = 0;
     this.slotChave = []; this.slotTexto = []; this.slotRotulo = []; this.slotSufixo = []; this.slotNum = [];
-    this.slotRascunho = []; this.slotEditando = []; this.slotDono = [];
+    this.slotRascunho = []; this.slotEditando = []; this.slotDono = []; this.slotArrasto = [];
   }
   begin(comp: Behavior, chave: string, y: number): void {
     this.comp = comp; this.chave = chave; this.y = y; this.seq = 0; this.usos = 0;
@@ -53,7 +56,7 @@ export class InspectorGUIEditor extends InspectorUI {
     if (this.seq >= lista.length) {
       this.slotChave.push(this.chave + G.guiKey + this.seq);
       this.slotTexto.push(""); this.slotRotulo.push(""); this.slotSufixo.push(""); this.slotNum.push(0 - 1);
-      this.slotRascunho.push(""); this.slotEditando.push(false); this.slotDono.push(null);
+      this.slotRascunho.push(""); this.slotEditando.push(false); this.slotDono.push(null); this.slotArrasto.push(false);
       lista.push(this.slotChave.length - 1);
     }
     this.slot = lista[this.seq];
@@ -69,12 +72,12 @@ export class InspectorGUIEditor extends InspectorUI {
     }
     return this.slotTexto[k];
   }
-  /// "Rótulo: 12.3", refeito só quando o rótulo ou o valor mudam.
-  textoValor(rotulo: string, valor: number): string {
+  /// "Rótulo: 12.3", refeito só quando o rótulo ou o valor mudam; `casas` decimais.
+  textoValor(rotulo: string, valor: number, casas: number): string {
     const k = this.slot;
     if (this.slotRotulo[k] !== rotulo || this.slotNum[k] !== valor) {
       this.slotRotulo[k] = rotulo; this.slotNum[k] = valor;
-      this.slotTexto[k] = rotulo + G.valueSeparator + valor.toFixed(G.digits);
+      this.slotTexto[k] = rotulo + G.valueSeparator + valor.toFixed(casas);
     }
     return this.slotTexto[k];
   }
@@ -118,13 +121,18 @@ export class InspectorGUIEditor extends InspectorUI {
     const k = this.proxima(); let novo = valor;
     if (this.insp.visible(this.y, L.rowH) && max > min) {
       const s = this.insp.ui.control(k, "timeline", this.colunaX(), this.y, this.colunaW(), L.rowH,
-        this.textoValor(rotulo, valor), this.insp.enabledInput);
+        this.textoValor(rotulo, valor, max - min < G.fineRange ? G.fineDigits : G.digits), this.insp.enabledInput);
       s.value = (valor - min) / (max - min);
       this.insp.ui.draw(s);
+      const slot = this.slot;
       if (s.hot !== 0) {
         const v = min + s.value * (max - min);
-        if (v !== valor) { this.insp.snapshot(); novo = v; }
-      }
+        // um passo de Desfazer por arrasto: o snapshot sai na 1ª mudança
+        if (v !== valor) {
+          if (!this.slotArrasto[slot]) { this.insp.snapshot(); this.slotArrasto[slot] = true; }
+          novo = v;
+        }
+      } else this.slotArrasto[slot] = false;
     }
     this.y = this.y + L.rowH;
     return novo;

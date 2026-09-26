@@ -70,6 +70,10 @@ let ceu: EditorControl | null = null;
 let i = 0;
 while (i < inspector.ui.controls.length) { if (inspector.ui.controls[i].label.indexOf("Céu: ") === 0) ceu = inspector.ui.controls[i]; i = i + 1; }
 check(ceu !== null && (ceu as EditorControl).label === "Céu: panorama", "dropdown do céu");
+let dens = "";
+i = 0;
+while (i < inspector.ui.controls.length) { if (inspector.ui.controls[i].label.indexOf("Densidade: ") === 0) dens = inspector.ui.controls[i].label; i = i + 1; }
+check(dens === "Densidade: 0.040", "faixa pequena mostra 3 casas: " + dens);
 app.clickId = (ceu as EditorControl).id; render(); app.clickId = -1; render();
 check(scene.ambiente.ceu.modo === "estrelas" && history.undoDepth() === d + 1, "o dropdown alterna o modo, com Desfazer");
 S.selected = 1; S.selection = [1]; render();

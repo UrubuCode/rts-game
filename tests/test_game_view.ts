@@ -2,7 +2,8 @@
 // gameview e a escolha de câmera.
 //   rts.exe run tests/test_game_view.ts
 import io from "@compat/io.ts";
-import { areaComFaixas } from "@editor/game_view";
+import { areaComFaixas, prepararPrevia, restaurarPrevia } from "@editor/game_view";
+import { VistasDeCamera, coletarCameras, frustumDaVista } from "@engine/render/camera_views";
 import { cmdGameView } from "@editor/control/commands/gameview";
 import { WorkspaceViews } from "@editor/workspace_views";
 import { scene, S } from "@editor/control/session";
@@ -39,6 +40,21 @@ views.proximaCamera();
 check(S.gameCamera === 0, "Todas → a primeira por profundidade");
 cmdGameView(["gameview", "camera", "todas"]); cmdGameView(["gameview", "cena"]); cmdGameView(["gameview", "previa", "off"]);
 check(S.gameCamera === 0 - 1 && S.gameView === 0 && S.cameraPreview === 0, "volta ao padrão");
+// prévia: desenha a câmera no canto SEM trocar o retângulo de runtime dela (o da aba Jogo)
+scene.computeWorld();
+const jogo = new VistasDeCamera(); jogo.area[0] = 250.0; jogo.area[1] = 97.0; jogo.area[2] = 660.0; jogo.area[3] = 400.0;
+jogo.tela[0] = 1200.0; jogo.tela[1] = 720.0;
+coletarCameras(jogo, scene, a.behaviors[a.camIdx] as Camera);
+const previa = new VistasDeCamera(); previa.area[0] = 644.0; previa.area[1] = 343.0; previa.area[2] = 256.0; previa.area[3] = 144.0;
+const guarda = new Float64Array(4);
+const camA = a.behaviors[a.camIdx] as Camera;
+check(prepararPrevia(previa, scene, camA, guarda) === 1 && camA.retanguloPx()[2] === 256.0, "prévia coleta a câmera no quadro do canto");
+const f2: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+camA.parametrosDeRender(previa.camBuf); frustumDaVista(previa.camBuf, f2);
+check(perto(f2[7], f2[8] * 256.0 / 144.0) && f2[9] === camA.near && f2[3] === 1.0, "frustum da prévia com o aspecto do quadro");
+restaurarPrevia(previa, guarda);
+const rr = camA.retanguloPx();
+check(rr[0] === 250.0 && rr[1] === 97.0 && rr[2] === 660.0 && rr[3] === 400.0, "depois da prévia o retângulo de runtime volta ao da aba Jogo");
 // entrada dos scripts: o editor a desliga fora da aba Jogo; desligada, tudo 0
 check(entradaAtiva(), "entrada ligada por padrão (jogo exportado)");
 definirEntradaAtiva(false);

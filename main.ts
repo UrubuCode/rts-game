@@ -19,7 +19,7 @@ import { createAppAt } from "@compat/app.ts";
 
 import { GameObject } from "@engine/core/gameobject";
 import { Scene } from "@engine/core/scene";
-import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
+import { drawSceneObjects, fParams, fParams2, definirSegundaVista } from "@engine/render/scenedraw";
 import { Transform } from "@engine/core/transform";
 import { subStr, nfEditing, nfCancel } from "@editor/widgets";
 import { definirJanelaEntrada, definirEntradaAtiva } from "@engine/core/entrada";
@@ -47,10 +47,10 @@ import { EditorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCam, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture,
          setViewportBuf, setFundoCeu } from "@engine/render/gpu3d";
-import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas, posicaoDaVista } from "@engine/render/camera_views";
+import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas, posicaoDaVista, frustumDaVista } from "@engine/render/camera_views";
 import { Camera } from "@engine/core/camera";
 import type { Behavior } from "@engine/core/behavior";
-import { areaComFaixas } from "@editor/game_view";
+import { areaComFaixas, prepararPrevia, restaurarPrevia } from "@editor/game_view";
 import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { scene, S } from "@editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE,
@@ -112,6 +112,8 @@ const menuJanela = menuDoCatalogo(MENU_JANELA, [UI_WINDOW.previewOff]);
 // Aba Jogo e prévia da câmera: vistas reaproveitadas (sem alocação por frame).
 const vistasJogo = new VistasDeCamera(); const vistasPrevia = new VistasDeCamera();
 const areaCena = new Float64Array(4);
+/// Retângulo de runtime da câmera da prévia, guardado enquanto ela desenha no canto.
+const retanguloPrevia = new Float64Array(4);
 /// Viewport da janela inteira (x, y, w, h, limpar) da vista de Cena.
 const VISTA_CHEIA = new Float64Array(5);
 VISTA_CHEIA[2] = 1.0; VISTA_CHEIA[3] = 1.0; VISTA_CHEIA[4] = 1.0;
@@ -453,6 +455,8 @@ profEnable(1);
 // renderizar centenas de frames idênticos por segundo. Benchmarks podem desligar
 // o vsync explicitamente quando precisam medir o custo real do frame.
 setVsync(WIN, 1);
+// RTS_VSYNC=0 no ambiente: sem vsync desde o início, para medir o custo real do frame.
+if (process.env("RTS_VSYNC") === "0") { vsyncOn = 0; setVsync(WIN, 0); }
 S.win = WIN;
 definirJanelaEntrada(WIN);
 // áudio: se a máquina não tiver saída, `initAudio` devolve 0 e o editor segue mudo
@@ -934,13 +938,17 @@ function frame(): void {
     setCam(WIN, workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
     luzCam[0] = workspaceViews.x; luzCam[1] = workspaceViews.y; luzCam[2] = workspaceViews.z;
     // Prévia: a câmera selecionada num quadro no canto da vista de Cena.
-    if (!workspaceViews.game && S.cameraPreview !== 0 && selPrevia !== null && selPrevia.camIdx >= 0) {
+    // (só se o quadro cabe na vista de Cena com as margens)
+    if (!workspaceViews.game && S.cameraPreview !== 0 && selPrevia !== null && selPrevia.camIdx >= 0 &&
+        cenaW >= UI_CAMERA_PREVIEW.w + UI_CAMERA_PREVIEW.margin * 2 && cenaH >= UI_CAMERA_PREVIEW.h + UI_CAMERA_PREVIEW.margin * 2) {
       vistasPrevia.area[0] = cenaX + cenaW - UI_CAMERA_PREVIEW.w - UI_CAMERA_PREVIEW.margin;
       vistasPrevia.area[1] = cenaY + cenaH - UI_CAMERA_PREVIEW.h - UI_CAMERA_PREVIEW.margin;
       vistasPrevia.area[2] = UI_CAMERA_PREVIEW.w; vistasPrevia.area[3] = UI_CAMERA_PREVIEW.h;
       vistasPrevia.tela[0] = W; vistasPrevia.tela[1] = H;
-      nPrevia = coletarCameras(vistasPrevia, scene, selPrevia.behaviors[selPrevia.camIdx] as Camera);
-      if (nPrevia > 0) aplicarVistas(WIN, vistasPrevia);
+      // o retângulo de runtime da câmera (screenPointToRay no Play) não vira o do canto
+      nPrevia = prepararPrevia(vistasPrevia, scene, selPrevia.behaviors[selPrevia.camIdx] as Camera, retanguloPrevia);
+      if (nPrevia > 0) { aplicarVistas(WIN, vistasPrevia); frustumDaVista(vistasPrevia.camBuf, fParams2); }
+      restaurarPrevia(vistasPrevia, retanguloPrevia);
     }
   }
   luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
@@ -964,8 +972,8 @@ function frame(): void {
   // Os 9 números do frustum que `frustumBegin` acabou de preparar, lidos UMA vez
   // por frame para um array reaproveitado (ver `frustumParams` em gpu3d.ts).
   if (nJogo === 0) frustumParams(fParams);
-  // duas vistas (Cena + prévia) numa fila só: sem descarte por frustum
-  if (nPrevia > 0) { fParams[7] = 0.0 - 1.0; fParams[8] = 0.0 - 1.0; }
+  // duas vistas (Cena + prévia) numa fila só: desenha o que está em QUALQUER dos dois frustums
+  definirSegundaVista(nPrevia > 0 ? 1 : 0);
   const drawnN = drawSceneObjects(
     objs, trs, workspaceViews.game && !workspaceViews.hasCamera ? 0 : objs.length, scene, WIN, workspaceViews.game ? -1 : S.selected, alphaR,
     fParams[0], fParams[1], fParams[2],
@@ -985,7 +993,7 @@ function frame(): void {
     const pa = vistasPrevia.area; const bd = UI_CAMERA_PREVIEW.border;
     app.box(pa[0] - bd, pa[1] - bd, pa[2] + bd * 2, pa[3] + bd * 2, 0, bd, UI_C.previewBorder, 0);
     if (previaTitulo.length === 0 || previaTituloDe !== selPrevia.name) { previaTituloDe = selPrevia.name; previaTitulo = UI_CAMERA_PREVIEW.titlePrefix + selPrevia.name; }
-    app.text(pa[0] + UI_WORKSPACE.padding, pa[1] + UI_CAMERA_PREVIEW.titleY, previaTitulo, UI_C.primaryText, 12);
+    app.text(pa[0] + UI_WORKSPACE.padding, pa[1] + UI_CAMERA_PREVIEW.titleY, previaTitulo, UI_C.primaryText, UI_CAMERA_PREVIEW.font);
   }
   secEnd(P_MUNDO3D);
   secBegin(P_UI);

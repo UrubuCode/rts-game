@@ -101,3 +101,15 @@ export function frustumDasVistas(v: VistasDeCamera, out: f64[]): void {
 export function posicaoDaVista(v: VistasDeCamera, out: Float64Array): void {
   if (v.n > 0) { const t = v.cams[v.n - 1].host; out[0] = t.wx; out[1] = t.wy; out[2] = t.wz; }
 }
+
+/// Frustum de uma vista a partir do seu `camBuf` (parametrosDeRender): o formato
+/// de `fParams2` em scenedraw — [cx, cy, cz, cos yaw, sin yaw, cos p, sin p,
+/// tanH, tanV, near, far]. Ortográfica: tanH = -1 (sem descarte). Não mexe no
+/// frustum do módulo gpu3d (o da vista principal).
+export function frustumDaVista(b: Float64Array, out: f64[]): void {
+  out[0] = b[0]; out[1] = b[1]; out[2] = b[2];
+  out[3] = math.cos(b[3]); out[4] = math.sin(b[3]); out[5] = math.cos(b[4]); out[6] = math.sin(b[4]);
+  if (b[9] !== 0.0) { out[7] = 0.0 - 1.0; out[8] = 0.0 - 1.0; }
+  else { out[8] = math.tan(b[5] * 0.5); out[7] = out[8] * b[6]; }
+  out[9] = b[7]; out[10] = b[8];
+}

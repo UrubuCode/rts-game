@@ -98,6 +98,16 @@ inspector.render(app, 0, 0, 290, PANEL_H, r.px + 1, r.py + 1, 1, 1, false, 0, 0)
 inspector.render(app, 0, 0, 290, PANEL_H, r.px + r.sx + 50, r.py + 1, 1, 0, false, 0, 0);
 inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0);
 check(Math.abs(cam.fov * 180.0 / Math.PI - 150.0) < 1e-6, "arrastar o slider até o fim = 150°: " + cam.fov * 180.0 / Math.PI);
+// 30 frames de arrasto = UM passo de Desfazer (o snapshot serializa a cena inteira)
+const antesArrasto = history.undoDepth();
+inspector.render(app, 0, 0, 290, PANEL_H, r.px + 1, r.py + 1, 1, 1, false, 0, 0);
+let passo = 0;
+while (passo < 30) { inspector.render(app, 0, 0, 290, PANEL_H, r.px + 2 + passo * 3, r.py + 1, 1, 0, false, 0, 0); passo = passo + 1; }
+inspector.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0);
+check(cam.fov * 180.0 / Math.PI < 100.0 && history.undoDepth() === antesArrasto + 1, "arrasto de 30 frames = 1 Desfazer: " + (history.undoDepth() - antesArrasto));
+// o passo guardado é o de ANTES do arrasto (150°); lido do snapshot sem desfazer
+// (Desfazer recriaria os objetos e soltaria as referências usadas abaixo)
+check(history.u[history.u.length - 1].indexOf("2.617993877991") >= 0, "o snapshot é o valor de antes do arrasto (150° em rad)");
 const antesMain = history.undoDepth();
 app.checkRotulo = "Principal"; render(); app.checkRotulo = ""; render();
 check(cam.isMain === 0 && history.undoDepth() === antesMain + 1, "toggle Principal desliga com 1 Desfazer");

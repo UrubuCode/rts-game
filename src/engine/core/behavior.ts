@@ -171,8 +171,6 @@ export class Behavior {
   // ── SURFACE DE CÂMERA (só o component Camera sobrescreve) ───────────────────
   /// Campo de visão vertical em radianos.
   camFov(): f64 { return 1.05; }
-  /// 1 = é a câmera principal da cena (a que o jogo usa pra renderizar).
-  camIsMain(): number { return 0; }
   /// Aplica uma textura de imagem (id + path) — só o Material implementa; nos
   /// demais é no-op. Chamado pelo asset browser / ws ao aplicar uma textura.
   setMatTexture(id: number, path: string): void {}

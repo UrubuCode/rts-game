@@ -50,7 +50,7 @@ export const UI_INSPECTOR = {
   changeMesh: "Próxima primitiva", noComponents: "Sem componentes adicionais",
   parent: "Pai: ", unparent: "Desaninhar", charWidth: 7,
   /// Título de uma janela de pacote (Editor.inspect) no lugar do nome do objeto.
-  windowPrefix: "Janela: ", windowKey: "/Janela/",
+  windowPrefix: "Janela: ", windowKey: "/Janela/", windowTitleKey: "Window/Title",
   /// Prefixos das chaves dos controles de componente (objeto selecionado / janela).
   componentsKey: "Components/", windowComponentsKey: "Window/Components/",
   headerKey: "/Header", removeKey: "/Remove", enabledKey: "/Enabled", expandedMark: "v  ", collapsedMark: ">  ",
@@ -59,6 +59,8 @@ export const UI_INSPECTOR = {
 // "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
 export const UI_INSPECTOR_GUI = {
   guiKey: "/GUI/", valueSeparator: ": ", digits: 1, unknownField: "Campo desconhecido: ",
+  /// Sliders com faixa menor que `fineRange` mostram `fineDigits` casas (ex.: densidade 0..0.2).
+  fineRange: 1, fineDigits: 3,
 };
 export const UI_PLAY = {
   buttonW: 66, gap: 4, textY: 7, radius: 3, id: 5000,
@@ -180,7 +182,7 @@ export const UI_GAME_VIEW = {
   aspectKey: "View/Aspect", cameraKey: "View/Camera",
 };
 /// Prévia da câmera selecionada no canto inferior direito da vista de Cena.
-export const UI_CAMERA_PREVIEW = { w: 256, h: 144, margin: 10, border: 1, titlePrefix: "Câmera: ", titleY: 4 };
+export const UI_CAMERA_PREVIEW = { w: 256, h: 144, margin: 10, border: 1, titlePrefix: "Câmera: ", titleY: 4, font: 12 };
 export const UI_DOCUMENT = {
   width: 540, height: 194, padding: 16, rowH: 28, gap: 8,
   title: "Alteracoes nao salvas", hint: "Deseja salvar antes de continuar?",
