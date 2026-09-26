@@ -17,6 +17,9 @@ export class Session {
   snap: number;       // 1 = snap to grid no gizmo (move 0.5, rotate 15°)
   lightX: f64; lightY: f64; lightZ: f64; lightAmb: f64;   // luz PONTUAL (posição) + ambiente
   selectedBone: number;   // osso selecionado no Inspector do Skeleton (-1 = nenhum)
+  /// Objeto dono de `selectedBone` (GameObject): se o selecionado deixa de ser
+  /// ele, o osso não vale mais (ver bone_gizmo.selectedBoneTarget).
+  selectedBoneOwner: any;
   /// PRÉVIA de animação do Inspector fora do Play (estado do editor: não vai
   /// para a cena salva nem para o undo). Ver skeleton_preview.ts.
   previewPlayers: AnimationPlayer[];   // tocando agora
@@ -35,6 +38,7 @@ export class Session {
     this.snap = 0;
     this.lightX = 7.0; this.lightY = 13.0; this.lightZ = 5.0; this.lightAmb = 0.28;
     this.selectedBone = 0 - 1;
+    this.selectedBoneOwner = null;
     this.previewPlayers = [];
     this.previewTouched = [];
   }

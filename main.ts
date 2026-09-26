@@ -45,8 +45,8 @@ import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPay
 import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
 import { scene, S } from "@editor/control/session";
 import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE,
-  GIZMO_ROTATE_PER_UNIT } from "@editor/gizmo";
-import { boneEditTarget, boneWorldOriginInto, beginBoneEdit, rotateBoneWorldAxis, moveBoneWorld } from "@editor/bone_gizmo";
+  GIZMO_ROTATE_PER_UNIT, SNAP_MOVE_STEP, SNAP_ROTATE_STEP } from "@editor/gizmo";
+import { selectedBoneTarget, boneWorldOriginInto, boneDrag } from "@editor/bone_gizmo";
 import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "@editor/dnd";
 import { history } from "@editor/undo";
@@ -678,8 +678,9 @@ function frame(): void {
   let gzWx: f64 = 0.0; let gzWy: f64 = 0.0; let gzWz: f64 = 0.0;   // centro-mundo (p/ anéis)
   // OSSO selecionado no Inspector (Move/Rotate): o gizmo nasce no osso e o
   // arrasto mexe na pose manual dele. Scale continua escalando o objeto.
-  const boneSk = S.selected >= 0 && S.selected < scene.objects.length && (S.tool === TOOL_MOVE || S.tool === TOOL_ROTATE) ?
-    boneEditTarget(scene.objects[S.selected], S.selectedBone) : null;
+  // (selectedBoneTarget zera o osso se o selecionado não é mais o dono dele)
+  const boneTarget = selectedBoneTarget();
+  const boneSk = S.tool === TOOL_MOVE || S.tool === TOOL_ROTATE ? boneTarget : null;
   if (S.tool !== 0 && S.selected >= 0 && S.selected < scene.objects.length) {
     const go = scene.objects[S.selected];
     let owx: f64 = go.transform.wx; let owy: f64 = go.transform.wy; let owz: f64 = go.transform.wz;
@@ -727,7 +728,7 @@ function frame(): void {
     if (ax >= 0) {
       gizmoAxis = ax;
       // osso: 1 snapshot por arrasto (não por frame) e a prévia do objeto para
-      if (boneSk !== null) { history.snapshot(); beginBoneEdit(boneSk); }
+      if (boneSk !== null) boneDrag.begin(boneSk, S.selectedBone);
     } else {
       // 2) senão, seleciona o objeto projetado mais perto do mouse
       let best = 0 - 1; let bestD: f64 = 1e30; let pi = 0;
@@ -749,13 +750,13 @@ function frame(): void {
     }
     lastMx = mx; lastMy = my;
   }
-  if (mDownNow === 0) { dragging = 0; gizmoAxis = 0 - 1; }
+  if (mDownNow === 0) { dragging = 0; gizmoAxis = 0 - 1; boneDrag.end(); }
 
   // ── ARRASTO RESTRITO AO EIXO/PLANO (Move/Rotate/Scale conforme S.tool) ──
   // seleção efetiva: a lista S.selection (multi) ou só [S.selected]. O delta do
   // gizmo é aplicado a TODOS (rotate/scale usam o centro de cada um — "pivot individual").
   const nsel = S.selection.length > 0 ? S.selection.length : 1;
-  if (boneSk !== null && gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0) {
+  if (boneDrag.active() && gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0) {
     // OSSO: só o osso do objeto selecionado (a multi-seleção não se aplica)
     worldDirty = 1;
     const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
@@ -763,15 +764,14 @@ function frame(): void {
       const mX = gizmoAxis === 5 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzXx, gzXy, gzLen);
       const mY = gizmoAxis === 4 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzYx, gzYy, gzLen);
       const mZ = gizmoAxis === 3 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzZx, gzZy, gzLen);
-      moveBoneWorld(boneSk, S.selectedBone, mX, mY, mZ);
+      boneDrag.move(mX, mY, mZ);
     } else {
       let ex: f64 = gzXx; let ey: f64 = gzXy;
       if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
       if (gizmoAxis === 2) { ex = gzZx; ey = gzZy; }
       const mv = axisMove(dmx, dmy, gzOx, gzOy, ex, ey, gzLen);
-      const axX: f64 = gizmoAxis === 0 ? 1.0 : 0.0; const axY: f64 = gizmoAxis === 1 ? 1.0 : 0.0; const axZ: f64 = gizmoAxis === 2 ? 1.0 : 0.0;
-      if (S.tool === TOOL_MOVE) moveBoneWorld(boneSk, S.selectedBone, axX * mv, axY * mv, axZ * mv);
-      else rotateBoneWorldAxis(boneSk, S.selectedBone, axX, axY, axZ, mv * GIZMO_ROTATE_PER_UNIT);
+      if (S.tool === TOOL_MOVE) boneDrag.move(gizmoAxis === 0 ? mv : 0.0, gizmoAxis === 1 ? mv : 0.0, gizmoAxis === 2 ? mv : 0.0);
+      else boneDrag.rotate(gizmoAxis, mv * GIZMO_ROTATE_PER_UNIT);
     }
     lastMx = mx; lastMy = my;
   } else if (gizmoAxis >= 3 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
@@ -789,7 +789,7 @@ function frame(): void {
         if (gizmoAxis === 3) { so.transform.px = so.transform.px + mX; so.transform.py = so.transform.py + mY; }
         if (gizmoAxis === 4) { so.transform.px = so.transform.px + mX; so.transform.pz = so.transform.pz + mZ; }
         if (gizmoAxis === 5) { so.transform.py = so.transform.py + mY; so.transform.pz = so.transform.pz + mZ; }
-        if (S.snap !== 0) { so.transform.px = snapv(so.transform.px, 0.5); so.transform.py = snapv(so.transform.py, 0.5); so.transform.pz = snapv(so.transform.pz, 0.5); }
+        if (S.snap !== 0) { so.transform.px = snapv(so.transform.px, SNAP_MOVE_STEP); so.transform.py = snapv(so.transform.py, SNAP_MOVE_STEP); so.transform.pz = snapv(so.transform.pz, SNAP_MOVE_STEP); }
       }
       si = si + 1;
     }
@@ -828,9 +828,9 @@ function frame(): void {
         }
         // SNAP to grid (move 0.5 / rotate 15°=~0.2618 rad)
         if (S.snap !== 0 && S.tool === TOOL_MOVE) {
-          so.transform.px = snapv(so.transform.px, 0.5); so.transform.py = snapv(so.transform.py, 0.5); so.transform.pz = snapv(so.transform.pz, 0.5);
+          so.transform.px = snapv(so.transform.px, SNAP_MOVE_STEP); so.transform.py = snapv(so.transform.py, SNAP_MOVE_STEP); so.transform.pz = snapv(so.transform.pz, SNAP_MOVE_STEP);
         } else if (S.snap !== 0 && S.tool === TOOL_ROTATE) {
-          so.transform.rx = snapv(so.transform.rx, 0.2618); so.transform.ry = snapv(so.transform.ry, 0.2618); so.transform.rz = snapv(so.transform.rz, 0.2618);
+          so.transform.rx = snapv(so.transform.rx, SNAP_ROTATE_STEP); so.transform.ry = snapv(so.transform.ry, SNAP_ROTATE_STEP); so.transform.rz = snapv(so.transform.rz, SNAP_ROTATE_STEP);
         }
       }
       si = si + 1;

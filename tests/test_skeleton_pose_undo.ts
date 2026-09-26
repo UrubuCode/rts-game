@@ -12,7 +12,8 @@ import { playMode } from "@editor/play_mode";
 import { saveScene, loadSceneFrom } from "@editor/sceneio";
 import { previewStart, previewTick, previewIsTouched, previewIsPlaying } from "@editor/skeleton_preview";
 import { rotateBoneWorldAxis, moveBoneWorld, boneWorldOriginInto, boneRotationFromDegreesInto,
-  boneDegreesInto, boneEditTarget, beginBoneEdit } from "@editor/bone_gizmo";
+  boneDegreesInto, boneEditTarget, beginBoneEdit, boneDrag, selectBone, selectedBoneTarget } from "@editor/bone_gizmo";
+import { SNAP_ROTATE_STEP, SNAP_MOVE_STEP } from "@editor/gizmo";
 import { quatMulInto } from "@engine/render/quat";
 import { Skeleton } from "@engine/core/skeleton";
 import { AnimationPlayer } from "@engine/core/animation_player";
@@ -90,7 +91,7 @@ l0[0] = sk.manualR[arm * 4]; l0[1] = sk.manualR[arm * 4 + 1]; l0[2] = sk.manualR
 const worldBefore = new Float64Array(4);
 worldBefore[0] = sk.worldR[arm * 4]; worldBefore[1] = sk.worldR[arm * 4 + 1]; worldBefore[2] = sk.worldR[arm * 4 + 2]; worldBefore[3] = sk.worldR[arm * 4 + 3];
 const angle: f64 = 0.5;
-rotateBoneWorldAxis(sk, arm, 0.0, 1.0, 0.0, angle);
+rotateBoneWorldAxis(sk, arm, 1, angle);
 // Y de mundo no espaço do pai Rx(90°) = conj(Rx90)·Y = -Z → local = Rz(-0.5)·l0
 const expectedDelta = new Float64Array(4);
 expectedDelta[0] = 0.0; expectedDelta[1] = 0.0; expectedDelta[2] = 0.0 - Math.sin(angle / 2.0); expectedDelta[3] = Math.cos(angle / 2.0);
@@ -116,7 +117,9 @@ check(near(ox, sk.worldT[arm * 3], 1e-12) && near(oy, sk.worldT[arm * 3 + 1], 1e
 object.transform.sx = 2.0; object.transform.sy = 2.0; object.transform.sz = 2.0;   // escala do host divide o delta
 boneWorldOriginInto(origin, sk, arm);
 const sx0 = origin[0]; const sy0 = origin[1]; const sz0 = origin[2];
-moveBoneWorld(sk, arm, 0.1, 0.2, 0.0 - 0.3);
+const shift = new Float64Array(3);
+shift[0] = 0.1; shift[1] = 0.2; shift[2] = 0.0 - 0.3;
+moveBoneWorld(sk, arm, shift);
 boneWorldOriginInto(origin, sk, arm);
 check(near(origin[0] - sx0, 0.1, 1e-9) && near(origin[1] - sy0, 0.2, 1e-9) && near(origin[2] - sz0, 0.0 - 0.3, 1e-9),
   "mover no mundo desloca o osso exatamente o delta (veio " + (origin[0] - sx0) + " " + (origin[1] - sy0) + " " + (origin[2] - sz0) + ")");
@@ -149,7 +152,7 @@ function control(name: string): EditorControl {
 }
 render(-1, -1, 0, 0);
 app.clickId = control("Skeleton/Bone/" + arm).id; render(-1, -1, 0, 0); app.clickId = -1;
-check(S.selectedBone === arm, "clique no osso seleciona arm-right");
+check(S.selectedBone === arm && S.selectedBoneOwner === object, "clique no osso seleciona arm-right (dono = o objeto)");
 render(-1, -1, 0, 0);
 const pitchField = control("Skeleton/BoneRotation/P");
 const px = pitchField.host.px + 2; const py = pitchField.host.py + 2;
@@ -194,30 +197,78 @@ history.u = []; history.r = [];
 const skG = skU!;
 const gBefore = new Float64Array(4);
 gBefore[0] = skG.manualR[arm * 4]; gBefore[1] = skG.manualR[arm * 4 + 1]; gBefore[2] = skG.manualR[arm * 4 + 2]; gBefore[3] = skG.manualR[arm * 4 + 3];
-history.snapshot();   // o main tira 1 snapshot no começo do arrasto, não por frame
-beginBoneEdit(skG);
+boneDrag.begin(skG, arm);   // o que o main chama ao pegar o eixo (1 snapshot)
 let frame = 0;
-while (frame < 10) { rotateBoneWorldAxis(skG, arm, 1.0, 0.0, 0.0, 0.05); frame = frame + 1; }
+while (frame < 10) { boneDrag.rotate(0, 0.05); frame = frame + 1; }   // frames do arrasto
+boneDrag.end();
 check(!sameRot(skG.manualR, arm * 4, gBefore, 0), "o arrasto girou o osso");
-check(history.undoDepth() === 1, "10 frames de arrasto = 1 snapshot");
+check(history.undoDepth() === 1, "10 frames de arrasto = 1 snapshot (veio " + history.undoDepth() + ")");
+selectBone(scene.objects[0], arm);
 history.undo();
+check(S.selectedBone === arm && S.selectedBoneOwner === scene.objects[0], "desfazer mantém o osso escolhido (mesmo modelo, osso existe)");
+check(selectedBoneTarget() !== null, "o gizmo continua no osso depois de desfazer");
 const skG2 = boneEditTarget(scene.objects[0], arm)!;
 skG2.ensureAsset(0);
 check(sameRot(skG2.manualR, arm * 4, gBefore, 0), "desfazer o arrasto volta a pose de antes");
 
 // ── 7) salvar → carregar preserva a pose manual ──
-rotateBoneWorldAxis(skG2, arm, 0.0, 0.0, 1.0, 0.7);
-skG2.setBonePosition(arm, 0.25, 0.5, 0.75);
+// snap: o arrasto só gira/desloca em passos inteiros
+S.snap = 1;
+const snapBefore = new Float64Array(4);
+snapBefore[0] = skG2.manualR[arm * 4]; snapBefore[1] = skG2.manualR[arm * 4 + 1]; snapBefore[2] = skG2.manualR[arm * 4 + 2]; snapBefore[3] = skG2.manualR[arm * 4 + 3];
+history.u = []; history.r = [];
+boneDrag.begin(skG2, arm);
+boneDrag.rotate(1, SNAP_ROTATE_STEP * 0.4);
+check(sameRot(skG2.manualR, arm * 4, snapBefore, 0), "snap: menos de meio passo não gira");
+boneDrag.rotate(1, SNAP_ROTATE_STEP * 0.4);   // total 0,8 passo -> arredonda para 1 passo
+const dragged = new Float64Array(4);
+dragged[0] = skG2.manualR[arm * 4]; dragged[1] = skG2.manualR[arm * 4 + 1]; dragged[2] = skG2.manualR[arm * 4 + 2]; dragged[3] = skG2.manualR[arm * 4 + 3];
+boneDrag.end();
+check(history.undoDepth() === 1, "arrasto com snap = 1 snapshot");
+history.undo();   // volta ao antes do arrasto com snap
+const skS = boneEditTarget(scene.objects[0], arm)!;
+skS.ensureAsset(0);
+check(sameRot(skS.manualR, arm * 4, snapBefore, 0), "desfazer o arrasto com snap volta");
+rotateBoneWorldAxis(skS, arm, 1, SNAP_ROTATE_STEP);   // referência: exatamente 1 passo
+check(sameRot(dragged, 0, skS.manualR, arm * 4), "snap: 0,8 passo de arrasto gira exatamente 1 passo");
+skS.setBoneRotation(arm, snapBefore);
+const skM = skS;
+// snap no mover: 0,3 + 0,3 em X de mundo = 0,6 -> 1 passo (0,5)
+boneDrag.begin(skM, arm);
+const snapOrigin = new Float64Array(3);
+boneWorldOriginInto(snapOrigin, skM, arm);
+const sx1 = snapOrigin[0];
+boneDrag.move(SNAP_MOVE_STEP * 0.6, 0.0, 0.0);
+boneDrag.move(SNAP_MOVE_STEP * 0.6, 0.0, 0.0);
+boneWorldOriginInto(snapOrigin, skM, arm);
+check(near(snapOrigin[0] - sx1, SNAP_MOVE_STEP, 1e-9), "snap: mover anda em passos do grid (veio " + (snapOrigin[0] - sx1) + ")");
+boneDrag.end();
+history.undo();
+S.snap = 0;
+const skG3 = boneEditTarget(scene.objects[0], arm)!;
+skG3.ensureAsset(0);
+check(snapOrigin !== null && sameRot(skG3.manualR, arm * 4, snapBefore, 0), "estado limpo depois dos testes de snap");
+
+// trocar o objeto selecionado invalida o osso já no próximo uso do gizmo
+scene.createGameObject("Outro");
+selectBone(scene.objects[0], arm);
+S.selected = 1;
+check(selectedBoneTarget() === null && S.selectedBone === 0 - 1, "selecionar outro objeto zera o osso do gizmo");
+S.selected = 0;
+scene.removeAt(1);
+
+rotateBoneWorldAxis(skG3, arm, 2, 0.7);
+skG3.setBonePosition(arm, 0.25, 0.5, 0.75);
 const savedR = new Float64Array(4);
-savedR[0] = skG2.manualR[arm * 4]; savedR[1] = skG2.manualR[arm * 4 + 1]; savedR[2] = skG2.manualR[arm * 4 + 2]; savedR[3] = skG2.manualR[arm * 4 + 3];
+savedR[0] = skG3.manualR[arm * 4]; savedR[1] = skG3.manualR[arm * 4 + 1]; savedR[2] = skG3.manualR[arm * 4 + 2]; savedR[3] = skG3.manualR[arm * 4 + 3];
 check(saveScene(SAVE_PATH) > 0, "salvou a cena temporária");
 scene.clear();
 loadSceneFrom(SAVE_PATH);
-const skL = boneEditTarget(scene.objects[0], arm);
-check(skL !== null || scene.objects.length > 0, "carregou");
+check(scene.objects.length === 1, "carregou o objeto salvo (veio " + scene.objects.length + ")");
 const loadedSk = scene.objects[0].behaviors[0] instanceof Skeleton ? scene.objects[0].behaviors[0] as Skeleton : null;
 check(loadedSk !== null, "o objeto carregado tem Skeleton");
 loadedSk!.ensureAsset(0);
+check(boneEditTarget(scene.objects[0], arm) === loadedSk, "o Skeleton carregado tem o modelo e o osso arm-right");
 check(sameRot(loadedSk!.manualR, arm * 4, savedR, 0), "carregar preserva a rotação manual");
 check(near(loadedSk!.manualT[arm * 3], 0.25, 1e-12) && near(loadedSk!.manualT[arm * 3 + 2], 0.75, 1e-12), "carregar preserva a posição manual");
 check(loadedSk!.overrideMask[arm] !== 0, "carregar preserva o override");
@@ -234,7 +285,7 @@ runtimeSk.ensureAsset(0);
 check(runtimeSk.manualR !== loadedSk!.manualR && runtimeSk.poseR !== loadedSk!.poseR &&
   runtimeSk.manualT !== loadedSk!.manualT && runtimeSk.overrideMask !== loadedSk!.overrideMask, "arrays da pose não são compartilhados");
 check(sameRot(runtimeSk.manualR, arm * 4, savedR, 0), "a cópia tem a pose posada");
-rotateBoneWorldAxis(runtimeSk, arm, 0.0, 1.0, 0.0, 1.0);
+rotateBoneWorldAxis(runtimeSk, arm, 1, 1.0);
 check(sameRot(loadedSk!.manualR, arm * 4, savedR, 0), "mexer na cópia não mexe no original");
 playMode.stop();
 check(scene.objects[0].behaviors[0] === loadedSk, "Parar devolve o original");
@@ -257,5 +308,29 @@ app.clickId = -1;
 check(loadedSk!.overrideMask[arm] === 0, "Resetar pose esquece a pose manual");
 check(!previewIsTouched(player2) && !previewIsPlaying(player2), "Resetar pose tira o player da prévia");
 check(sameRot(loadedSk!.poseR, arm * 4, loadedSk!.asset!.restR, arm * 4), "Resetar pose deixa a pose de trabalho em repouso");
+
+// ── 10) pitch perto de 90°: os campos mantêm os graus digitados (sem pular) ──
+selectBone(scene.objects[0], arm);
+check(cmdPose(["pose", "0", "arm-right", "rot", "30", "0", "10"]).indexOf("[ok]") === 0, "setup: pose rot 30 0 10");
+function render2(mx: number, my: number, down: number, pressed: number): void {
+  inspector2.render(app, 0, 0, 290, PANEL_H, mx, my, down, pressed, false, 0, 0);
+}
+function control2(name: string): EditorControl {
+  const index = inspector2.ui.names.indexOf(name);
+  check(index >= 0, "controle ausente: " + name);
+  return inspector2.ui.controls[index];
+}
+render2(-1, -1, 0, 0);
+check(near(control2("Skeleton/BoneRotation/Y").value, 30.0, 1e-9) && near(control2("Skeleton/BoneRotation/R").value, 10.0, 1e-9),
+  "os campos mostram a pose do WS (30, 0, 10)");
+const p2 = control2("Skeleton/BoneRotation/P");
+render2(p2.host.px + 2, p2.host.py + 2, 1, 1);
+render2(p2.host.px + 4502, p2.host.py + 2, 1, 0);   // +90° de pitch
+render2(p2.host.px + 4502, p2.host.py + 2, 1, 0);
+render2(p2.host.px + 4502, p2.host.py + 2, 0, 0);
+render2(-1, -1, 0, 0);
+check(near(control2("Skeleton/BoneRotation/P").value, 90.0, 1e-6), "pitch foi a 90 (veio " + control2("Skeleton/BoneRotation/P").value + ")");
+check(near(control2("Skeleton/BoneRotation/Y").value, 30.0, 1e-9) && near(control2("Skeleton/BoneRotation/R").value, 10.0, 1e-9),
+  "em pitch 90° yaw e roll continuam os digitados (veio " + control2("Skeleton/BoneRotation/Y").value + ", " + control2("Skeleton/BoneRotation/R").value + ")");
 
 io.print("[PASSOU] pose de ossos: graus<->quaternion, gizmo no espaço do pai, prévia encerrada, Inspector, desfazer/refazer, salvar/carregar, Rodar");

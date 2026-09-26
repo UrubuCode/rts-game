@@ -7,29 +7,19 @@ import type { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
 import { AnimationPlayer } from "@engine/core/animation_player";
 import { previewIsPlaying, previewStart, previewPause, previewStop, previewSeek, previewChooseClip,
-  animationPlayerOf } from "../../skeleton_preview";
-import { beginBoneEdit, boneRotationFromDegreesInto, rotateBoneWorldAxis, moveBoneWorld } from "../../bone_gizmo";
+  animationPlayerOf, skeletonOfObject } from "../../skeleton_preview";
+import { beginBoneEdit, boneRotationFromDegreesInto, rotateBoneWorldAxis, moveBoneWorld, selectBone,
+  DEG2RAD } from "../../bone_gizmo";
 import { history } from "../../undo";
-
-const DEG2RAD: f64 = Math.PI / 180.0;
 
 // quaternion local pro comando `pose ... rot` (nunca alocado por frame: só é
 // chamado por um comando de WS, não pelo laço de render).
 const POSE_Q_OUT: Float64Array = new Float64Array(4);
+const POSE_SHIFT: Float64Array = new Float64Array(3);
 
 function objOrError(oi: number): GameObject | null {
   if (oi < 0 || oi >= scene.objects.length) return null;
   return scene.objects[oi];
-}
-
-function findSkeleton(o: GameObject): Skeleton | null {
-  let i = 0;
-  while (i < o.behaviors.length) {
-    const b = o.behaviors[i];
-    if (b instanceof Skeleton) return b;
-    i = i + 1;
-  }
-  return null;
 }
 
 function findAnimPlayer(o: GameObject): AnimationPlayer | null {
@@ -63,7 +53,7 @@ export function cmdAddSkel(parts: string[]): string {
   if (o === null) return "[erro] objeto invalido";
   const path = parts[2];
   if (path === undefined || path === "") return "[erro] caminho do modelo obrigatorio";
-  const existing = findSkeleton(o);
+  const existing = skeletonOfObject(o);
   const ap = findAnimPlayer(o);
   const isNewSkel = existing === null;
   let sk: Skeleton;
@@ -98,7 +88,7 @@ export function cmdBones(parts: string[]): string {
   const oi = parseFloat(parts[1]) | 0;
   const o = objOrError(oi);
   if (o === null) return "[erro] objeto invalido";
-  const sk = findSkeleton(o);
+  const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
   if (sk.asset === null) return "[erro] modelo do Skeleton nao carregado";
@@ -124,7 +114,7 @@ export function cmdPose(parts: string[]): string {
   const oi = parseFloat(parts[1]) | 0;
   const o = objOrError(oi);
   if (o === null) return "[erro] objeto invalido";
-  const sk = findSkeleton(o);
+  const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
   if (sk.asset === null) return "[erro] modelo do Skeleton nao carregado";
@@ -152,14 +142,15 @@ export function cmdPose(parts: string[]): string {
     if (eixo !== "x" && eixo !== "y" && eixo !== "z") return "[erro] turn precisa do eixo de mundo (x, y ou z)";
     if (graus !== graus) return "[erro] turn precisa do angulo em graus";
     beginBoneEdit(sk);
-    rotateBoneWorldAxis(sk, bone, eixo === "x" ? 1.0 : 0.0, eixo === "y" ? 1.0 : 0.0, eixo === "z" ? 1.0 : 0.0, graus * DEG2RAD);
+    rotateBoneWorldAxis(sk, bone, eixo === "x" ? 0 : (eixo === "y" ? 1 : 2), graus * DEG2RAD);
     return "[ok] pose #" + oi + " osso " + bone + " turn " + eixo + " " + graus;
   }
   if (mode === "shift") {
     const dx = parseFloat(parts[4]); const dy = parseFloat(parts[5]); const dz = parseFloat(parts[6]);
     if (dx !== dx || dy !== dy || dz !== dz) return "[erro] shift precisa de dx, dy e dz numericos";
     beginBoneEdit(sk);
-    moveBoneWorld(sk, bone, dx, dy, dz);
+    POSE_SHIFT[0] = dx; POSE_SHIFT[1] = dy; POSE_SHIFT[2] = dz;
+    moveBoneWorld(sk, bone, POSE_SHIFT);
     return "[ok] pose #" + oi + " osso " + bone + " shift " + dx + " " + dy + " " + dz;
   }
   return "[erro] modo invalido (use rot, pos, turn ou shift): " + mode;
@@ -170,7 +161,7 @@ export function cmdResetPose(parts: string[]): string {
   const oi = parseFloat(parts[1]) | 0;
   const o = objOrError(oi);
   if (o === null) return "[erro] objeto invalido";
-  const sk = findSkeleton(o);
+  const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.resetPose();
   // como o botão do Inspector: o clipe da prévia não fica por cima do repouso
@@ -187,14 +178,14 @@ export function cmdSelBone(parts: string[]): string {
   const o = objOrError(oi);
   if (o === null) return "[erro] objeto invalido";
   if (S.selected !== oi) return "[erro] selecione o objeto antes (select " + oi + ")";
-  if (parts[2] === "-1") { S.selectedBone = 0 - 1; return "[ok] selbone #" + oi + " nenhum (gizmo no objeto)"; }
-  const sk = findSkeleton(o);
+  if (parts[2] === "-1") { selectBone(null, 0 - 1); return "[ok] selbone #" + oi + " nenhum (gizmo no objeto)"; }
+  const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
   if (sk.asset === null) return "[erro] modelo do Skeleton nao carregado";
   const bone = resolveBoneArg(sk, parts[2] === undefined ? "" : parts[2]);
   if (bone < 0 || bone >= sk.boneCount()) return "[erro] osso invalido: " + parts[2];
-  S.selectedBone = bone;
+  selectBone(o, bone);
   return "[ok] selbone #" + oi + " " + sk.asset.boneNames[bone];
 }
 
@@ -203,7 +194,7 @@ export function cmdAnims(parts: string[]): string {
   const oi = parseFloat(parts[1]) | 0;
   const o = objOrError(oi);
   if (o === null) return "[erro] objeto invalido";
-  const sk = findSkeleton(o);
+  const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
   if (sk.asset === null) return "[erro] modelo do Skeleton nao carregado";

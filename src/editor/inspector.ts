@@ -4,9 +4,9 @@ import { EditorUI } from "./ui_controls";
 import { MeshRenderer } from "@engine/core/meshrenderer";
 import { Skeleton } from "@engine/core/skeleton";
 import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, previewSeek, previewChooseClip,
-  timelineTarget, animationPlayerOf } from "./skeleton_preview";
+  timelineTarget, animationPlayerOf, skeletonOfObject } from "./skeleton_preview";
 import { ComponentPicker } from "./component_picker";
-import { beginBoneEdit, boneDegreesInto, boneRotationFromDegreesInto } from "./bone_gizmo";
+import { beginBoneEdit, boneDegreesInto, boneRotationFromDegreesInto, selectBone } from "./bone_gizmo";
 import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
 import { scene, S } from "./control/session";
@@ -16,16 +16,6 @@ import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
   UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K } from "./ui_config";
 
 const DEGREES_PER_RADIAN = 180 / Math.PI;
-
-function findSkeleton(object: GameObject): Skeleton | null {
-  let index = 0;
-  while (index < object.behaviors.length) {
-    const behavior = object.behaviors[index];
-    if (behavior instanceof Skeleton) return behavior;
-    index = index + 1;
-  }
-  return null;
-}
 
 // Painel do editor: GameObject raiz + controles filhos em uma UIScene propria.
 // Nenhum desses objetos entra na cena editada ou no arquivo do jogo.
@@ -53,8 +43,18 @@ export class Inspector extends Behavior {
   boneLabel: string = "";
   boneLabelBone: number = 0 - 1;
   boneLabelAsset: any = null;
-  boneDegrees: Float64Array = new Float64Array(3);
   boneQuat: Float64Array = new Float64Array(4);
+  // Graus mostrados nos campos de rotação do osso. Enquanto o quaternion do
+  // osso é o que estes graus produziram (`boneShownQ`, mesmo osso/Skeleton),
+  // os campos mostram os graus DIGITADOS em vez de decompor de novo — perto de
+  // pitch ±90° a decomposição salta de ramo e o valor pularia sob o cursor.
+  boneDegrees: Float64Array = new Float64Array(3);
+  boneShownQ: Float64Array = new Float64Array(4);
+  boneShownSkeleton: any = null;
+  boneShownBone: number = 0 - 1;
+  // Valores passados aos campos (reaproveitados: sem array novo por frame).
+  boneRotationValues: number[] = [0, 0, 0];
+  bonePositionValues: number[] = [0, 0, 0];
   meshHot: number = 0;
   textureHot: number = 0;
   top: number = 0; bottom: number = 0;
@@ -149,7 +149,7 @@ export class Inspector extends Behavior {
         row.fill = bone === S.selectedBone ? UI_C.boneSelected : UI_C.boneRow;
         this.ui.draw(row);
         // clicar no osso já selecionado devolve o gizmo ao objeto
-        if (row.clicked) S.selectedBone = S.selectedBone === bone ? 0 - 1 : bone;
+        if (row.clicked) selectBone(skeleton.owner, S.selectedBone === bone ? 0 - 1 : bone);
       }
       rowY = rowY + K.boneRowH;
       bone = bone + 1;
@@ -241,22 +241,44 @@ export class Inspector extends Behavior {
     this.label("Skeleton/BoneName", rowY, this.boneLabel);
     rowY = rowY + L.rowH;
     const degrees = this.boneDegrees;
-    boneDegreesInto(degrees, skeleton.manualR, bone * 4);
+    const shown = this.boneShownQ;
+    const o = bone * 4;
+    const same = this.boneShownSkeleton === skeleton && this.boneShownBone === bone &&
+      skeleton.manualR[o] === shown[0] && skeleton.manualR[o + 1] === shown[1] &&
+      skeleton.manualR[o + 2] === shown[2] && skeleton.manualR[o + 3] === shown[3];
+    if (!same) {
+      // o osso mudou por outro caminho (gizmo, WS, undo, outro osso): decompõe
+      boneDegreesInto(degrees, skeleton.manualR, o);
+      this.rememberBoneRotation(skeleton, bone);
+    }
     const yaw = degrees[0]; const pitch = degrees[1]; const roll = degrees[2];
-    const rotation = this.vector("Skeleton/BoneRotation", rowY, K.boneRotation, [yaw, pitch, roll], K.rotationAxes);
+    const rotationValues = this.boneRotationValues;
+    rotationValues[0] = yaw; rotationValues[1] = pitch; rotationValues[2] = roll;
+    const rotation = this.vector("Skeleton/BoneRotation", rowY, K.boneRotation, rotationValues, K.rotationAxes);
     if (rotation[0] !== yaw || rotation[1] !== pitch || rotation[2] !== roll) {
       beginBoneEdit(skeleton);
       boneRotationFromDegreesInto(this.boneQuat, rotation[0], rotation[1], rotation[2]);
       skeleton.setBoneRotation(bone, this.boneQuat);
+      degrees[0] = rotation[0]; degrees[1] = rotation[1]; degrees[2] = rotation[2];
+      this.rememberBoneRotation(skeleton, bone);
     }
     rowY = rowY + L.rowH;
     const tx = skeleton.manualT[bone * 3]; const ty = skeleton.manualT[bone * 3 + 1]; const tz = skeleton.manualT[bone * 3 + 2];
-    const position = this.vector("Skeleton/BonePosition", rowY, K.bonePosition, [tx, ty, tz]);
+    const positionValues = this.bonePositionValues;
+    positionValues[0] = tx; positionValues[1] = ty; positionValues[2] = tz;
+    const position = this.vector("Skeleton/BonePosition", rowY, K.bonePosition, positionValues);
     if (position[0] !== tx || position[1] !== ty || position[2] !== tz) {
       beginBoneEdit(skeleton);
       skeleton.setBonePosition(bone, position[0], position[1], position[2]);
     }
     return rowY + L.rowH + L.gap;
+  }
+  // Guarda o quaternion atual do osso como "o que os graus mostrados produzem".
+  rememberBoneRotation(skeleton: Skeleton, bone: number): void {
+    const o = bone * 4;
+    this.boneShownSkeleton = skeleton; this.boneShownBone = bone;
+    this.boneShownQ[0] = skeleton.manualR[o]; this.boneShownQ[1] = skeleton.manualR[o + 1];
+    this.boneShownQ[2] = skeleton.manualR[o + 2]; this.boneShownQ[3] = skeleton.manualR[o + 3];
   }
   render(app: any, x: number, y: number, width: number, height: number,
          mx: number, my: number, down: number, pressed: number, blocked: boolean,
@@ -269,9 +291,10 @@ export class Inspector extends Behavior {
       this.scroll = 0; this.contentHeight = 0; this.opened = 0;
       this.selectedObject = selected; this.selection = S.selected;
       nfCancel(); app.setFocus(0 - 1);
-      // outro objeto: o osso escolhido não vale mais e a prévia de animação
-      // (estado do editor) termina, com a pose de trabalho de volta à manual.
-      S.selectedBone = 0 - 1;
+      // outro objeto: o osso escolhido não vale mais (salvo Desfazer/Refazer,
+      // que re-liga o osso ao objeto restaurado — ver undo.ts) e a prévia de
+      // animação (estado do editor) termina, com a pose de trabalho de volta à manual.
+      if (S.selectedBoneOwner !== selected) selectBone(null, 0 - 1);
       previewStopAll();
     }
     if (blocked) { this.opened = 0; nfCancel(); }
@@ -378,7 +401,7 @@ export class Inspector extends Behavior {
         rowY = rowY + L.rowH + L.gap;
       }
     }
-    const skeleton = findSkeleton(object);
+    const skeleton = skeletonOfObject(object);
     if (skeleton !== null) rowY = this.skeletonSection(app, skeleton, rowY);
     let componentIndex = 0;
     let removeIndex = 0 - 1;

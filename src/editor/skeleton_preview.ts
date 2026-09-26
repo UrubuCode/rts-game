@@ -23,18 +23,24 @@
 import { S } from "./control/session";
 import { AnimationPlayer } from "@engine/core/animation_player";
 import { Skeleton } from "@engine/core/skeleton";
+import type { GameObject } from "@engine/core/gameobject";
+
+/// Skeleton de um objeto (null se não houver) — o único lugar que procura.
+export function skeletonOfObject(owner: GameObject): Skeleton | null {
+  let found: Skeleton | null = null;
+  let index = 0;
+  while (index < owner.behaviors.length && found === null) {
+    const behavior = owner.behaviors[index];
+    if (behavior instanceof Skeleton) found = behavior;
+    index = index + 1;
+  }
+  return found;
+}
 
 /// Skeleton do mesmo objeto do player (null se não houver).
 export function skeletonOf(player: AnimationPlayer): Skeleton | null {
   const owner = player.owner;
-  if (owner === null) return null;
-  let index = 0;
-  while (index < owner.behaviors.length) {
-    const behavior = owner.behaviors[index];
-    if (behavior instanceof Skeleton) return behavior;
-    index = index + 1;
-  }
-  return null;
+  return owner === null ? null : skeletonOfObject(owner);
 }
 
 /// AnimationPlayer do objeto do Skeleton (null se não houver).
