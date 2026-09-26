@@ -65,6 +65,7 @@ import { snapshotWorld, renderX, renderY, renderZ, interpolateReset, interpolate
 import { clockTick, clockNow, DOUBLE_CLICK_MS } from "@engine/core/clock";
 import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "@engine/core/profiler";
 import { dcReport } from "@compat/drawcount.ts";
+import { benchInit, benchFrameBegin, benchCpuEnd, benchFrameEnd } from "@engine/core/frame_bench";
 
 // Seções do profiler — registradas uma vez, referidas por id no laço quente.
 const P_FISICA = profSection("fisica");
@@ -464,6 +465,12 @@ initAudio();
 
 
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
+// Bench de quadro (RTS_BENCH=N, ver engine/core/frame_bench.ts); RTS_BENCH_SELECT
+// escolhe o objeto selecionado, para medir o Inspector aberto.
+if (benchInit() !== 0) {
+  const sel = process.env("RTS_BENCH_SELECT");
+  if (sel !== "") S.selected = parseInt(sel);
+}
 
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
 // (scene/S) despacham corretamente em função, não no top-level do while.
@@ -481,6 +488,7 @@ function frame(): void {
   // leitura do relógio do SO por frame, e todo mundo lê o mesmo instante — ver
   // engine/core/clock.ts para por que isso é correção e não só economia.
   clockTick();
+  benchFrameBegin();
   profFrameBegin();
   secBegin(P_CTRL);
   ctrlPoll(W, H);   // ← controle da LLM por WebSocket (não-bloqueante)
@@ -1645,6 +1653,7 @@ function frame(): void {
   pumpAudio();
 
   secEnd(P_UI);
+  benchCpuEnd();
   secBegin(P_PRESENT);
   // O `endFrame` inclui o PRESENT, e é ali que o vsync espera. Fica fora das
   // seções de propósito: contá-lo como "UI" faria a tabela dizer que a UI custa
@@ -1665,6 +1674,7 @@ function frame(): void {
 while (app.running()) {
   if (!app.beginFrame()) break;
   frame();
+  if (benchFrameEnd() !== 0) break;
 }
 
 

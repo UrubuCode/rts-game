@@ -32,3 +32,4 @@ prof.txt
 # Esta linha engloba as regras `rts.exe` e `rts-new.exe` acima, mantidas pelo
 # que explicam.
 *.exe
+bench/out/

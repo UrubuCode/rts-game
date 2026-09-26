@@ -17,6 +17,9 @@ import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
 import input from "rts:input";
 import { logTick } from "@engine/core/logger";
+import process from "@compat/process.ts";
+import { setVsync } from "rts:egui";
+import { benchInit, benchFrameBegin, benchCpuEnd, benchFrameEnd } from "@engine/core/frame_bench";
 // `createAppAt` era um GLOBAL do motor antigo, e este arquivo era o ultimo a
 // ainda contar com isso — `main.ts` ja importava do shim. No motor novo nada e
 // global sem alguem instalar.
@@ -56,6 +59,9 @@ if (!fs.exists(sceneFile)) sceneFile = "scenes/solar.json";
 
 S.win = WIN;
 definirJanelaEntrada(WIN);
+// RTS_VSYNC=0 no ambiente: sem vsync, para medir o custo real do quadro (como no editor).
+if (process.env("RTS_VSYNC") === "0") setVsync(WIN, 0);
+benchInit();
 initMeshes(WIN);
 if (fs.exists(sceneFile)) {
   loadSceneFrom(sceneFile);
@@ -75,6 +81,7 @@ const fParams: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 function frame(): void {
   logTick();
+  benchFrameBegin();
   const nw = winWidth(WIN);
   const nh = winHeight(WIN);
   if (nw > 400) W = nw;
@@ -224,12 +231,14 @@ function frame(): void {
   S.drawnLast = drawnN;
   // ── UI do jogo (UIText/UIButton da cena) por cima do 3D ─────────────────
   drawGameUI(scene, WIN, W, H);
+  benchCpuEnd();
   app.endFrame();
 }
 
 while (app.running()) {
   if (!app.beginFrame()) break;
   frame();
+  if (benchFrameEnd() !== 0) break;
 }
 io.print("[jogo] encerrado apos " + frames + " frames");
 app.close();
