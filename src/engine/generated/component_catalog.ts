@@ -64,6 +64,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/meshrenderer.ts"
   },
   {
+    "name": "Skeleton",
+    "category": "Renderização",
+    "description": "Desenha um modelo glTF de ossos rígidos e guarda a pose posicionada à mão.",
+    "keywords": "ossos esqueleto personagem glb gltf pose animação",
+    "source": "src/engine/core/skeleton.ts"
+  },
+  {
     "name": "Bobber",
     "category": "Scripts",
     "description": "Move o objeto para cima e baixo.",

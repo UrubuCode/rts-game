@@ -160,6 +160,10 @@ export class Behavior {
   rMeshKind(): number { return 0; }
   /// Id de mesh carregada (.obj) — tem prioridade sobre rMeshKind (0 = nenhuma).
   rCustomMesh(): number { return 0; }
+  /// Um renderer que se desenha sozinho (ex.: Skeleton, várias peças por
+  /// objeto) devolve 1 depois de desenhar; o laço de render então pula o
+  /// desenho por meshKind/customMesh. 0 = seguir o caminho normal.
+  drawSelf(win: number): number { return 0; }
 
   // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
   // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão

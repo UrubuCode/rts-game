@@ -120,6 +120,10 @@ export function drawSceneObjects(objs: GameObject[], trs: Transform[], n: number
     if (y2 - r > limV) { oi = oi + 1; continue; }
     if (0.0 - y2 - r > limV) { oi = oi + 1; continue; }
 
+    // RENDERER QUE SE DESENHA (Skeleton: várias peças por objeto, rotação em
+    // quaternion). Não entra no lote; conta como um objeto desenhado.
+    if (o.rendIdx >= 0 && o.behaviors[o.rendIdx].drawSelf(win) !== 0) { drawnN = drawnN + 1; oi = oi + 1; continue; }
+
     // GEOMETRIA: do component MeshRenderer (rendIdx cacheado, O(1)) quando existe;
     // senão fallback pros campos legado do GameObject (cenas sem MeshRenderer).
     let meshKind = o.meshKind;

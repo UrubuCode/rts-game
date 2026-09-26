@@ -11,6 +11,7 @@ import { GameObject, getNextGameObjectId, setNextGameObjectId } from "../engine/
 import { Behavior } from "../engine/core/behavior";
 import { Material } from "../engine/core/material";
 import { MeshRenderer } from "../engine/core/meshrenderer";
+import { Skeleton } from "../engine/core/skeleton";
 import { Camera } from "../engine/core/camera";
 import { SceneRef } from "../engine/core/sceneref";
 import { Spinner } from "../scripts/spinner";
@@ -131,6 +132,9 @@ function recreateBehaviorInner(sd: any): Behavior {
     r.customMesh = sd.customMesh;
     return r;
   }
+  // Caminho do modelo + pose manual (só ossos com override); o modelo carrega
+  // no primeiro desenho.
+  if (t === "skeleton") return Skeleton.fromData(sd);
   return new MissingScript(sd);
 }
 
