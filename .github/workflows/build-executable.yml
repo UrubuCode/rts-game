@@ -46,6 +46,8 @@ jobs:
           npm run test:components
           npm run components
           npm run components:check
+          # 5+ parametros com valor padrao custam ~0,5 us + alocacao por chamada no RTS
+          npm run check:params
 
       # rust-lld (o linker que o AOT usa) vem com a toolchain. Setup rápido (~1min),
       # sem buildar nada.

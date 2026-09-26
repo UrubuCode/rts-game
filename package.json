@@ -6,6 +6,7 @@
     "icons:check": "node tools/generate-editor-icons.mjs --check",
     "components": "node tools/generate-components.mjs",
     "components:check": "node tools/generate-components.mjs --check",
+    "check:params": "node tools/check-params.mjs",
     "test:components": "node --test tests/component-generation.test.mjs",
     "build:editor": "node tools/rts-build.mjs main.ts build/RTSEditor.exe",
     "build:game": "node tools/rts-build.mjs game.ts build/RTSGame.exe"
