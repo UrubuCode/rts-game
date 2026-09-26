@@ -51,8 +51,8 @@ function createProject(root) {
   return { files, program, checker, fail };
 }
 
-export function discoverComponents(root = projectRoot) {
-  const { files, program, checker, fail } = createProject(root);
+export function discoverComponents(root = projectRoot, project = createProject(root)) {
+  const { files, program, checker, fail } = project;
   const baseFile = slash(path.resolve(root, 'src/engine/core/behavior.ts'));
   function parent(node) {
     const heritage = node.heritageClauses?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)?.types[0];
@@ -217,8 +217,8 @@ const fromGenerated = source => {
   return r.startsWith('.') ? r : './' + r;
 };
 /// Arquivos `@editorOnly` (componentes ou não): só o editor os importa.
-export function discoverEditorExtensions(root = projectRoot) {
-  const { files, program } = createProject(root);
+export function discoverEditorExtensions(root = projectRoot, project = createProject(root)) {
+  const { files, program } = project;
   const editorFiles = files.filter(f => isEditorOnly(program.getSourceFile(f))).map(f => slash(path.relative(root, f))).sort(compare);
   return { editorFiles, menuItems: [] };
 }
@@ -228,8 +228,9 @@ export function renderEditorExtensions(ext) {
 }
 
 export function generateComponents(root = projectRoot, check = false) {
-  const entries = discoverComponents(root);
-  const outputs = { ...renderComponents(entries), ...renderEditorExtensions(discoverEditorExtensions(root)) };
+  const project = createProject(root);   // um programa TS só para as duas descobertas
+  const entries = discoverComponents(root, project);
+  const outputs = { ...renderComponents(entries), ...renderEditorExtensions(discoverEditorExtensions(root, project)) };
   for (const [relative, contents] of Object.entries(outputs)) {
     const output = path.join(root, relative);
     const previous = fs.existsSync(output) ? fs.readFileSync(output, 'utf8').replaceAll('\r\n', '\n') : '';

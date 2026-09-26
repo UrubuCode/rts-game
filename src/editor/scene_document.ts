@@ -34,6 +34,10 @@ export class SceneDocument {
     if (this.dirty) return false;
     return this.complete();
   }
+  /// Ponto ÚNICO de "cena aberta" (UI, WS `loadscene`, cena nova): marca o
+  /// documento como limpo e dispara o gancho `abrirCena` de @editor/api.
+  /// Todo caminho que troca a cena editada passa por aqui.
+  opened(path: string): void { this.initialize(path); emitEditorEvent("abrirCena", path); }
   cancel(): void { this.pending = ""; this.pendingPath = ""; this.error = ""; }
   complete(): boolean {
     if (this.pending.length === 0 || S.simulating !== 0) return false;
@@ -42,12 +46,11 @@ export class SceneDocument {
       if (this.pending === "open") {
         const json = fs.read_text(this.pendingPath);
         sceneFromJSON(json);
-        this.initialize(this.pendingPath);
       } else if (this.pending === "new") {
-        scene.clear(); scene.name = UI_DOCUMENT.untitled; criarLuzDirecionalPadrao(scene); scene.computeWorld(); this.initialize("");
+        scene.clear(); scene.name = UI_DOCUMENT.untitled; criarLuzDirecionalPadrao(scene); scene.computeWorld();
       } else return false;
       history.u = []; history.r = []; S.selected = scene.objects.length > 0 ? 0 : -1; S.selection = [];
-      this.cancel(); emitEditorEvent("abrirCena", caminho); return true;
+      this.cancel(); this.opened(caminho); return true;
     } catch (error) { this.error = "Falha ao abrir cena: " + String(error); logError(this.error); this.pending = ""; this.pendingPath = ""; return false; }
   }
 }

@@ -1,6 +1,6 @@
 // Roda com o tsconfig do build do jogo (o mais próximo da ENTRADA): o alias
 // "@engine/generated/components" tem de cair no registro sem @editorOnly.
-//   rts.exe run tools/game-build/claude-test-registro.ts
+//   npm run check:game-build   (ou: rts.exe run tools/game-build/check-registro.ts)
 import io from "@compat/io.ts";
 import { REGISTRO } from "@engine/generated/components";
 import { createComponent } from "@editor/components";

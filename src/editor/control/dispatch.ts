@@ -53,6 +53,19 @@ export function execCommand(w: number, h: number, line: string): string {
   return out;
 }
 
+/// Comando registrado por script (@editor/api). Só `muta = true` tira snapshot
+/// de Desfazer; se a resposta for `[erro]`, o snapshot é descartado e a pilha de
+/// Refazer volta como estava (um erro não deixa entrada vazia no Desfazer).
+function runRegistered(i: number, parts: string[]): string {
+  if (!commandMutates(i)) return runCommand(i, parts);
+  const undoAntes = history.u.slice();
+  const redoAntes = history.r;
+  history.snapshot();
+  const out = runCommand(i, parts);
+  if (out.indexOf("[erro]") === 0) { history.u = undoAntes; history.r = redoAntes; }
+  return out;
+}
+
 function execCommandInner(w: number, h: number, line: string): string {
   const parts = line.split(" ");
   const cmd = parts[0];
@@ -70,9 +83,7 @@ function execCommandInner(w: number, h: number, line: string): string {
   // `anim ... preview` também não: a prévia é estado do editor (só trocar o
   // clipe entra no undo, e o próprio subcomando faz esse snapshot).
   if (isMutating(cmd) && !(cmd === "anim" && (parts[2] === "state" || parts[2] === "preview"))) history.snapshot();
-  // Comandos registrados por scripts (@editor/api): snapshot só se declararam `muta`.
   const registrado = commandIndex(cmd);
-  if (registrado >= 0 && commandMutates(registrado)) history.snapshot();
   // `animator` fica FORA do snapshot genérico: `set`/`trigger` mexem em
   // parâmetros (estado de execução), `state`/`params` são consultas (polling
   // não pode zerar o redo, como no `anim ... state`), e `load` tira o próprio
@@ -227,6 +238,6 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);
-    default: return registrado >= 0 ? runCommand(registrado, parts) : "[erro] desconhecido: " + cmd;
+    default: return registrado >= 0 ? runRegistered(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

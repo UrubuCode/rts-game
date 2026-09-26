@@ -15,3 +15,10 @@ test('the game build swaps the component registry by exact alias', () => {
   assert.doesNotMatch(read('src/editor/sceneio.ts'), /\.\.\/engine\/generated\/components/);
   assert.doesNotMatch(read('game.ts'), /editor_extensions/);
 });
+test('CI builds the game through the swapped registry and checks it', () => {
+  const ci = read('.github/workflows/build-executable.yml');
+  assert.match(ci, /compile --no-compiler tools\/game-build\/entry\.ts/);
+  assert.doesNotMatch(ci, /compile --no-compiler game\.ts/);
+  assert.match(ci, /npm run check:game-build/);
+  assert.match(read('package.json'), /"check:game-build": "node tools\/rts-run\.mjs tools\/game-build\/check-registro\.ts"/);
+});

@@ -58,15 +58,24 @@ export function commandMutates(i: number): boolean { return estado.mutam[i]; }
 export function runCommand(i: number, partes: string[]): string {
   let out = "";
   try { out = estado.fns[i](partes); }
-  catch (error) { out = "[erro] " + estado.nomes[i] + ": " + String(error); }
+  catch (error) { out = "[erro] " + estado.nomes[i] + ": " + (error instanceof Error ? error.message : String(error)); }
   if (out.length === 0 || out.charCodeAt(0) !== COLCHETE) out = "[ok] " + out;
   return out;
+}
+/// A ajuda sempre começa pelo nome do comando (o `doc <prefixo>` filtra por
+/// ele): "texto" vira "nome :: texto"; "<args> :: desc" vira "nome <args> :: desc".
+function ajudaComNome(i: number): string {
+  const n = estado.nomes[i];
+  const a = estado.ajudas[i];
+  if (a.indexOf(SEPARADOR_AJUDA) < 0) return n + SEPARADOR_AJUDA + a;
+  if (a.indexOf(n + " ") === 0) return a;
+  return n + " " + a;
 }
 export function commandHelpLine(): string {
   let s = "";
   let i = 0;
   while (i < estado.nomes.length) {
-    s = s + (i === 0 ? " || SCRIPTS: " : " | ") + estado.ajudas[i].split(SEPARADOR_AJUDA)[0];
+    s = s + (i === 0 ? " || SCRIPTS: " : " | ") + ajudaComNome(i).split(SEPARADOR_AJUDA)[0];
     i = i + 1;
   }
   return s;
@@ -75,8 +84,7 @@ export function commandHelpLine(): string {
 export function commandDocLines(out: string[]): void {
   let i = 0;
   while (i < estado.nomes.length) {
-    const a = estado.ajudas[i];
-    out.push(a.indexOf(SEPARADOR_AJUDA) >= 0 ? a + SEPARADOR_AJUDA + estado.nomes[i] : estado.nomes[i] + SEPARADOR_AJUDA + a + SEPARADOR_AJUDA + estado.nomes[i]);
+    out.push(ajudaComNome(i) + SEPARADOR_AJUDA + estado.nomes[i]);
     i = i + 1;
   }
 }

@@ -6,7 +6,7 @@
 import io from "@compat/io.ts";
 import fs from "@compat/fs.ts";
 import { unlinkSync } from "node:fs";
-import { registerCommand, Editor } from "@editor/api";
+import { registerCommand, Editor, emitEditorEvent } from "@editor/api";
 import { instalarEditorReal } from "@editor/editor_host";
 import { execCommand } from "@editor/control/dispatch";
 import { history } from "@editor/undo";
@@ -21,6 +21,11 @@ check(REGISTRO === "editor", "o editor usa o registro completo");
 // fora do editor: no-ops, sem erro
 check(Editor.scene() === null && Editor.selection() === null, "sem host: nada");
 Editor.log("x"); Editor.snapshot("x"); Editor.select(null);
+// gancho registrado sem host (jogo exportado): emitir não o executa
+const semHost: string[] = [];
+check(Editor.on("salvar", (a: string) => { semHost.push(a); }), "gancho aceito mesmo sem host");
+emitEditorEvent("salvar", "x");
+check(semHost.length === 0, "sem host, ganchos não rodam");
 instalarEditorReal();
 check(Editor.scene() === scene, "com host: a cena do editor");
 
@@ -29,17 +34,28 @@ check(registerCommand("teste_eco", "teste_eco <texto> :: ecoa o texto", false, (
 check(!registerCommand("move", "x", false, (p: string[]) => ""), "nome embutido recusado");
 check(!registerCommand("teste_eco", "x", false, (p: string[]) => ""), "duplicado recusado");
 check(!registerCommand("com espaco", "x", false, (p: string[]) => ""), "nome com espaço recusado");
+check(!registerCommand("", "x", false, (p: string[]) => ""), "nome vazio recusado");
+check(registerCommand("teste_recusa", "teste_recusa :: muta mas recusa", true, (p: string[]) => "[erro] recusado"), "registra o que muta e recusa");
+check(registerCommand("teste_lanca_muta", "teste_lanca_muta :: muta e lança", true, (p: string[]) => { throw new Error("pifou"); }), "registra o que muta e lança");
+check(registerCommand("teste_sem_nome", "<a> :: ajuda sem o nome", false, (p: string[]) => "x"), "registra ajuda sem o nome");
 check(registerCommand("teste_cria", "teste_cria :: cria um objeto", true, (p: string[]) => { scene.createGameObject("Criado"); return "[ok] criado"; }), "registra o que muta");
 check(registerCommand("teste_falha", "teste_falha :: lança", false, (p: string[]) => { throw new Error("quebrou"); }), "registra o que lança");
 
 scene.clear(); history.u = []; history.r = [];
 check(execCommand(800, 600, "teste_eco oi") === "[ok] eco oi" && chamadas.length === 1, "resposta ganha [ok]");
 check(history.undoDepth() === 0, "muta = false não empilha Desfazer");
-check(execCommand(800, 600, "teste_cria").indexOf("[ok]") === 0 && history.undoDepth() === 1 && scene.objects.length === 1, "muta = true: 1 snapshot");
+check(execCommand(800, 600, "teste_cria") === "[ok] criado" && history.undoDepth() === 1 && scene.objects.length === 1, "muta = true: 1 snapshot, sem [ok] duplicado");
 check(execCommand(800, 600, "undo").indexOf("[ok]") === 0 && scene.objects.length === 0, "Desfazer tira o criado");
-check(execCommand(800, 600, "teste_falha").indexOf("[erro] teste_falha: ") === 0, "exceção vira [erro] com o nome do comando");
+check(history.undoDepth() === 0 && history.redoDepth() === 1, "o criado foi para o Refazer");
+check(execCommand(800, 600, "teste_recusa") === "[erro] recusado", "[erro] passa sem prefixo");
+check(history.undoDepth() === 0 && history.redoDepth() === 1, "muta + [erro]: snapshot descartado e Refazer intacto");
+check(execCommand(800, 600, "teste_lanca_muta") === "[erro] teste_lanca_muta: pifou", "muta + exceção: [erro] <nome>: <mensagem>");
+check(history.undoDepth() === 0 && history.redoDepth() === 1, "muta + exceção: snapshot descartado");
+check(execCommand(800, 600, "teste_falha") === "[erro] teste_falha: quebrou", "exceção vira [erro] <nome>: <mensagem>");
 check(execCommand(800, 600, "help").indexOf("teste_eco <texto>") > 0, "aparece no help");
 check(execCommand(800, 600, "doc teste_cria").indexOf("cria um objeto") > 0, "aparece no doc");
+check(execCommand(800, 600, "help").indexOf("teste_sem_nome <a>") > 0, "help ganha o nome quando a ajuda não o traz");
+check(execCommand(800, 600, "doc teste_sem_nome").indexOf("teste_sem_nome <a> :: ajuda sem o nome :: teste_sem_nome") > 0, "doc <prefixo> acha a ajuda sem o nome");
 check(execCommand(800, 600, "nao_existe").indexOf("[erro] desconhecido") === 0, "desconhecido continua desconhecido");
 
 // ganchos
@@ -57,6 +73,9 @@ check(sceneDocument.save(arquivo), "salvar funciona mesmo com um gancho que lan�
 check(eventos.indexOf("salvar:" + arquivo) >= 0, "salvar disparou");
 sceneDocument.request("open", arquivo); sceneDocument.complete();
 check(eventos.indexOf("abrir:" + arquivo) >= 0, "abrirCena disparou");
+const abertosAntes = eventos.length;
+check(execCommand(800, 600, "loadscene " + arquivo).indexOf("[ok]") === 0, "loadscene pelo WS");
+check(eventos.length === abertosAntes + 1 && eventos[abertosAntes] === "abrir:" + arquivo, "abrirCena disparou pelo WS loadscene");
 check(playMode.play() && eventos.indexOf("play") >= 0, "entrarPlay disparou");
 playMode.stop();
 check(eventos.indexOf("stop") >= 0, "sairPlay disparou");

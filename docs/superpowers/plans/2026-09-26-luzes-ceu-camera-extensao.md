@@ -2463,7 +2463,7 @@ Expected: `[PASSOU] ambiente: ...` e as suítes antigas verdes.
 
 **Files:**
 - Create: `src/editor/api.ts`, `src/editor/editor_host.ts`, `src/editor/control/builtin_commands.ts`
-- Create: `tools/game-build/tsconfig.json`, `tools/game-build/entry.ts`, `tools/game-build/claude-test-registro.ts`
+- Create: `tools/game-build/tsconfig.json`, `tools/game-build/entry.ts`, `tools/game-build/check-registro.ts`
 - Create: `tests/editor-static.test.mjs`, `assets/pacotes/README.txt` (uma linha: pacotes de script; `@editorOnly` fica fora do jogo)
 - Modify: `tools/generate-components.mjs` (`ROOTS` + `assets/pacotes`; `isEditorOnly`; `createProject`; `discoverEditorExtensions`; `renderComponents` com dois registros; `renderEditorExtensions`; `generateComponents`)
 - Modify: `src/editor/sceneio.ts` (linha 33: import pelo alias `@engine/generated/components`)
@@ -2567,12 +2567,12 @@ Editor.spawnPoint(pose); check(Math.abs(pose[2] - 11.0) < 1e-9 && pose[0] === 1.
 io.print("[PASSOU] editor api: no-ops, registerCommand, help/doc, snapshot só se muta, ganchos, select");
 ```
 
-`tools/game-build/claude-test-registro.ts`:
+`tools/game-build/check-registro.ts`:
 
 ```ts
 // Roda com o tsconfig do build do jogo (o mais próximo da ENTRADA): o alias
 // "@engine/generated/components" tem de cair no registro sem @editorOnly.
-//   rts.exe run tools/game-build/claude-test-registro.ts
+//   rts.exe run tools/game-build/check-registro.ts
 import io from "@compat/io.ts";
 import { REGISTRO } from "@engine/generated/components";
 import { createComponent } from "@editor/components";
@@ -2871,7 +2871,7 @@ Run:
 npm run components && npm run test:components && npm run components:check && npm run check:params
 node --test tests/editor-static.test.mjs
 $RTS run tests/test_editor_api.ts
-$RTS run tools/game-build/claude-test-registro.ts
+$RTS run tools/game-build/check-registro.ts
 $RTS run tests/test_ws_skeleton.ts
 $RTS run tests/test_play_mode.ts
 node tools/rts-build.mjs tools/game-build/entry.ts build/claude-teste-jogo.exe
@@ -4404,7 +4404,7 @@ Run:
 npm run components && npm run test:components && npm run components:check && npm run check:params
 $RTS run tests/test_pacote_luz.ts
 $RTS run tests/test_pacote_camera.ts
-$RTS run tools/game-build/claude-test-registro.ts
+$RTS run tools/game-build/check-registro.ts
 $RTS run tests/test_editor_api.ts
 $RTS run tests/test_scene_create.ts
 ```
@@ -4997,7 +4997,7 @@ Run (a suíte inteira que este plano toca):
 npm run components:check && npm run test:components && npm run check:params && npm run icons:check
 node --test tests/editor-static.test.mjs
 for t in test_light test_camera_api test_ambiente test_editor_api test_gizmos test_menu_items test_inspector_gui test_pacote_luz test_pacote_camera test_game_view test_pacote_ambiente test_scene test_play_mode test_ws_skeleton test_inspector_skeleton test_editor_ui claude-test-sceneio-roundtrip; do $RTS run tests/$t.ts || echo "FALHOU $t"; done
-$RTS run tools/game-build/claude-test-registro.ts
+$RTS run tools/game-build/check-registro.ts
 cd /c/Users/nexga/Documents/GitHub/rts-uv-mundo && cargo test --release -p rts-egui --lib scene3d
 ```
 Expected: nenhuma linha `FALHOU`; todos os `[PASSOU]`; os 22 testes Rust verdes; GC igual em 1k/10k; custo dentro de ±5%.
