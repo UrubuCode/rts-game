@@ -46,9 +46,12 @@ const walk = d => fs.readdirSync(new URL('../' + d, import.meta.url), { withFile
   .flatMap(e => e.isDirectory() ? walk(d + '/' + e.name) : [d + '/' + e.name]);
 test('only dom_host.ts names the DOM facade entry points (every file that names them gets its own copy)', () => {
   const gatilho = /parseDocument|document\.|new Document|new Element|runScripts|loadDocument/;
-  // main.ts (new DocumentPanel) e undo.ts (comentário com scene_document.ts) já disparavam antes do DomCanvas.
-  const permitidos = new Set(['src/engine/ui/dom_host.ts', 'main.ts', 'src/editor/undo.ts']);
-  const arquivos = ['game.ts', 'main.ts', ...walk('src'), ...walk('assets/pacotes'), ...walk('assets/scripts')].filter(f => f.endsWith('.ts'));
-  assert.deepEqual(arquivos.filter(f => !permitidos.has(f) && gatilho.test(read(f))), []);
+  // Casos conhecidos que já disparavam antes do DomCanvas: só essas ocorrências saem, não o arquivo inteiro.
+  const conhecidos = { 'main.ts': /new DocumentPanel/g, 'src/editor/undo.ts': /scene_document\.ts/g };
+  const limpo = f => conhecidos[f] ? read(f).replace(conhecidos[f], '') : read(f);
+  const arquivos = ['game.ts', 'main.ts', 'tools/game-build/entry.ts', ...walk('harness'), ...walk('src'), ...walk('assets/pacotes'), ...walk('assets/scripts')]
+    .filter(f => f.endsWith('.ts'));
+  assert.deepEqual(arquivos.filter(f => f !== 'src/engine/ui/dom_host.ts' && gatilho.test(limpo(f))), []);
+  for (const f of Object.keys(conhecidos)) assert.match(read(f), conhecidos[f], f + ': caso conhecido sumiu, tire-o da lista');
   assert.match(read('src/engine/ui/dom_host.ts'), /parseDocument\(/);
 });

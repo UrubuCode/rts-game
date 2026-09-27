@@ -15,6 +15,10 @@ igual(prefixarSeletor(":root", E), E, ":root vira a raiz");
 igual(prefixarSeletor("body.escuro p", E), E + ".escuro p", "composto colado à raiz fica colado");
 igual(prefixarSeletor("html > body .x", E), E + " .x", "html > body some");
 igual(prefixarSeletor("bodyguard", E), E + " bodyguard", "nome que só começa com body não é raiz");
+igual(prefixarSeletor("body > .x", E), E + " > .x", "body > .x mantém o combinador filho");
+igual(prefixarSeletor(":root > .x", E), E + " > .x", ":root > .x mantém o combinador filho");
+igual(prefixarSeletor("html > body > .x", E), E + " > .x", "html > body > .x: só o último > fica");
+igual(prefixarSeletor("html > body", E), E, "html > body sozinho é a raiz");
 igual(prefixarCss("p{color:red}", E), E + " p{color:red}", "regra");
 igual(prefixarCss("h1, .a > b{x:1}", E), E + " h1, " + E + " .a > b{x:1}", "lista");
 igual(prefixarCss("html,body{margin:0}", E), E + ", " + E + "{margin:0}", "html,body");
@@ -27,6 +31,9 @@ igual(prefixarCss("@font-face{font-family:x}", E), "@font-face{font-family:x}", 
 igual(prefixarCss("@import url(x.css);", E), "@import url(x.css);", "@import intacto");
 igual(prefixarCss("a{b:1}\n\n c{d:2}", E), E + " a{b:1}\n" + E + " c{d:2}", "regras em linhas");
 igual(prefixarCss("", E), "", "vazio");
+igual(prefixarCss("@layer base{p{a:1}}", E), "@layer base{" + E + " p{a:1}}", "@layer prefixado por dentro");
+igual(prefixarCss("@layer{p{a:1}}", E), "@layer{" + E + " p{a:1}}", "@layer anônimo prefixado");
+igual(prefixarCss("@layer a, b;\np{c:1}", E), "@layer a, b;\n" + E + " p{c:1}", "@layer sem bloco intacto");
 
 const doc = "<!doctype html><html><head><title>x</title><style>p{color:red}</style></head>" +
   "<body><p>oi</p><script>alert(1)</script></body></html>";

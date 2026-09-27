@@ -31,6 +31,10 @@ export const DL_ESCALA: number = 4;
 export const DL_BLOQUEIA: number = 5;
 /// font-size da raiz com escala 1 (fase 1: `escala` vira tamanho de fonte).
 export const DOM_FONTE_BASE_PX: number = 16;
+/// Handle = geração * DOM_SLOTS_MAX + slot (evita ABA: handle velho num slot reciclado).
+const DOM_SLOTS_MAX: number = 65536;
+/// font-size arredondado a centésimos de px (1.1 * 16 não vira "17.600000000000001px").
+const FONTE_CENTESIMOS: number = 100;
 /// Fundo transparente é obrigatório: sem ele o canvas do documento é branco e cobre o 3D.
 const HTML_BASE: string = "<style>html,body{background:transparent;margin:0}</style>" +
   "<div id=\"dom-regiao\" style=\"position:absolute;left:0px;top:0px;width:100%;height:100%;overflow:hidden\"></div>";
@@ -57,12 +61,12 @@ const SEM_DONO: Behavior = new Behavior();
 class EstadoDomHost {
   doc: Document | null; h: number; regiao: number; serial: number; ativos: number; renders: number;
   raizes: number[]; donos: Behavior[]; escopos: string[]; visivel: number[]; sujo: number[];
-  ultPx: number[]; ultPy: number[]; layout: Float64Array[]; livres: number[];
+  ultPx: number[]; ultPy: number[]; layout: Float64Array[]; livres: number[]; geracoes: number[];
   area: Float64Array; previa: number; destaque: GameObject | null; contorno: string; seletorSobre: string;
   constructor() {
     this.doc = null; this.h = 0; this.regiao = DOM_NENHUM; this.serial = 0; this.ativos = 0; this.renders = 0;
     this.raizes = []; this.donos = []; this.escopos = []; this.visivel = []; this.sujo = [];
-    this.ultPx = []; this.ultPy = []; this.layout = []; this.livres = [];
+    this.ultPx = []; this.ultPy = []; this.layout = []; this.livres = []; this.geracoes = [];
     this.area = new Float64Array(4); this.previa = NAO_APLICADO; this.destaque = null; this.contorno = "";
     this.seletorSobre = SELETOR_SOBRE_PADRAO;
   }
@@ -82,6 +86,7 @@ function liberarDocumento(): void {
   est.doc = null; est.h = 0; est.regiao = DOM_NENHUM;
   est.raizes.length = 0; est.donos.length = 0; est.escopos.length = 0; est.visivel.length = 0; est.sujo.length = 0;
   est.ultPx.length = 0; est.ultPy.length = 0; est.layout.length = 0; est.livres.length = 0;
+  // `geracoes` sobrevive ao documento: os slots recomeçam do 0 e os handles velhos continuam mortos
 }
 function novoSlot(): number {
   if (est.livres.length > 0) {
@@ -91,9 +96,21 @@ function novoSlot(): number {
   }
   est.raizes.push(DOM_NENHUM); est.donos.push(SEM_DONO); est.escopos.push(""); est.visivel.push(NAO_APLICADO);
   est.sujo.push(1); est.ultPx.push(0.0); est.ultPy.push(0.0); est.layout.push(new Float64Array(DOM_LAYOUT_FLOATS));
-  return est.raizes.length - 1;
+  const s = est.raizes.length - 1;
+  if (s >= est.geracoes.length) est.geracoes.push(0);
+  return s;
 }
-/// Cria a raiz de um canvas (e o documento, no primeiro). Devolve o slot.
+/// Slot interno de um handle vivo, ou DOM_NENHUM (handle removido, de outra geração ou inválido).
+function slotDe(handle: number): number {
+  if (handle < 0) return DOM_NENHUM;
+  const slot = handle % DOM_SLOTS_MAX;
+  if (slot >= est.raizes.length || est.raizes[slot] === DOM_NENHUM) return DOM_NENHUM;
+  if (est.geracoes[slot] !== Math.floor(handle / DOM_SLOTS_MAX)) return DOM_NENHUM;
+  return slot;
+}
+/// Cria a raiz de um canvas (e o documento, no primeiro). Devolve o handle
+/// (slot + geração): depois de `domHostRemover`, o handle antigo vira no-op mesmo
+/// que o slot seja reciclado por outro canvas.
 export function domHostRegistrar(b: Behavior): number {
   garantirDocumento();
   const slot = novoSlot();
@@ -109,34 +126,54 @@ export function domHostRegistrar(b: Behavior): number {
   est.visivel[slot] = NAO_APLICADO; est.sujo[slot] = 1;
   const cfg = est.layout[slot];
   cfg[DL_ANCORAGEM] = 0.0; cfg[DL_LARGURA] = 0.0; cfg[DL_ALTURA] = 0.0; cfg[DL_ORDEM] = 0.0; cfg[DL_ESCALA] = 1.0; cfg[DL_BLOQUEIA] = 1.0;
-  est.destaque = null;   // o próximo domHostDestacar reaplica o contorno, inclusive nesta raiz
+  // o destaque continua: canvas novo do objeto selecionado já nasce contornado
+  const o = b.owner;
+  if (o !== null && o === est.destaque) dom.setStyleProperty(h, raiz, P_CONTORNO, est.contorno);
   est.ativos = est.ativos + 1;
-  return slot;
+  return est.geracoes[slot] * DOM_SLOTS_MAX + slot;
 }
-export function domHostConteudo(slot: number, html: string): void {
-  if (slot < 0 || slot >= est.raizes.length || est.raizes[slot] === DOM_NENHUM) return;
+/// Solta e recicla os filhos da raiz: `setInnerHtml` sozinho deixa os nós velhos
+/// como lixo na arena (não voltam à lista livre).
+function liberarFilhos(raiz: number): void {
+  const h = est.h;
+  let c = dom.firstChild(h, raiz);
+  while (c !== DOM_NENHUM) {
+    dom.removeNode(h, c);
+    dom.releaseSubtree(h, c);
+    c = dom.firstChild(h, raiz);
+  }
+}
+export function domHostConteudo(handle: number, html: string): void {
+  const slot = slotDe(handle);
+  if (slot === DOM_NENHUM) return;
+  liberarFilhos(est.raizes[slot]);
   dom.setInnerHtml(est.h, est.raizes[slot], html);
 }
-export function domHostLayout(slot: number, cfg: Float64Array): void {
-  if (slot < 0 || slot >= est.raizes.length) return;
+export function domHostLayout(handle: number, cfg: Float64Array): void {
+  const slot = slotDe(handle);
+  if (slot === DOM_NENHUM) return;
   const d = est.layout[slot];
   let i = 0;
   while (i < DOM_LAYOUT_FLOATS) { d[i] = cfg[i]; i = i + 1; }
   est.sujo[slot] = 1;
 }
 /// Tira a raiz do documento e recicla a subárvore; o último canvas libera o documento.
-export function domHostRemover(slot: number): void {
-  if (slot < 0 || slot >= est.raizes.length || est.raizes[slot] === DOM_NENHUM) return;
+/// Repetir com o mesmo handle é no-op (a geração do slot avançou); ainda assim, o
+/// chamador deve voltar o seu campo a DOM_NENHUM depois de remover.
+export function domHostRemover(handle: number): void {
+  const slot = slotDe(handle);
+  if (slot === DOM_NENHUM) return;
   const raiz = est.raizes[slot];
   dom.removeNode(est.h, raiz);
   dom.releaseSubtree(est.h, raiz);
-  est.raizes[slot] = DOM_NENHUM; est.donos[slot] = SEM_DONO;
+  est.raizes[slot] = DOM_NENHUM; est.donos[slot] = SEM_DONO; est.escopos[slot] = "";
+  est.geracoes[slot] = est.geracoes[slot] + 1;
   est.livres.push(slot);
   est.ativos = est.ativos - 1;
   if (est.ativos === 0) liberarDocumento();
 }
-export function domHostRaiz(slot: number): number { return slot >= 0 && slot < est.raizes.length ? est.raizes[slot] : DOM_NENHUM; }
-export function domHostEscopo(slot: number): string { return slot >= 0 && slot < est.escopos.length ? est.escopos[slot] : ""; }
+export function domHostRaiz(handle: number): number { const s = slotDe(handle); return s === DOM_NENHUM ? DOM_NENHUM : est.raizes[s]; }
+export function domHostEscopo(handle: number): string { const s = slotDe(handle); return s === DOM_NENHUM ? "" : est.escopos[s]; }
 export function domHostDoc(): number { return est.h; }
 export function domHostAtivos(): number { return est.ativos; }
 export function domHostRenders(): number { return est.renders; }
@@ -164,7 +201,7 @@ function aplicarLayout(i: number, b: Behavior): void {
   dom.setStyleProperty(h, raiz, baixo ? P_TOP : P_BOTTOM, al > 0.0 ? AUTO : ZERO_PX);
   dom.setStyleProperty(h, raiz, P_HEIGHT, al > 0.0 ? al + PX : AUTO);
   dom.setStyleProperty(h, raiz, P_Z, "" + (cfg[DL_ORDEM] | 0));
-  dom.setStyleProperty(h, raiz, P_FONTE, (DOM_FONTE_BASE_PX * cfg[DL_ESCALA]) + PX);
+  dom.setStyleProperty(h, raiz, P_FONTE, (Math.round(DOM_FONTE_BASE_PX * cfg[DL_ESCALA] * FONTE_CENTESIMOS) / FONTE_CENTESIMOS) + PX);
 }
 function atualizarRaiz(i: number): void {
   const b = est.donos[i];
@@ -220,6 +257,8 @@ function cliqueNaRaiz(slot: number, alvo: number): void {
 }
 /// O ponteiro está sobre um elemento de algum canvas visível com bloqueiaCliques?
 /// Olha os DESCENDENTES da raiz (a raiz cobre a área inteira). :hover é do quadro anterior.
+/// Atenção (Task 3): um descendente de bloco sem largura (um <div> ou <p> solto)
+/// ocupa a largura inteira da raiz, então bloqueia o clique no mundo na faixa toda.
 export function domHostSobreUI(): boolean {
   if (est.ativos === 0) return false;
   const n = est.raizes.length;

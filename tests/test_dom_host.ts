@@ -104,6 +104,40 @@ check(dom.cssText(h, ra).indexOf("dashed") >= 0 && dom.cssText(h, rb).indexOf("d
 domHostDestacar(null, "none");
 check(dom.cssText(h, ra).indexOf("dashed") < 0, "sem seleção, sem contorno");
 
+// conteúdo trocado muitas vezes não vaza nós (os filhos antigos voltam à lista livre)
+domHostConteudo(sb, "<p>1</p><p>2</p>texto");
+const antesConteudo = dom.nodeCount(h);
+let kc = 0;
+while (kc < 50) { domHostConteudo(sb, "<p>1</p><p>2</p>texto"); kc = kc + 1; }
+check(dom.nodeCount(h) <= antesConteudo + 8, "trocar o conteúdo 50 vezes não cresce a arena");
+domHostConteudo(sb, "");
+
+// destaque sobrevive a um registro novo e sai do objeto antigo
+domHostDestacar(oa, "2px dashed #6A9DD2");
+const dC = dono("D"); const sd = domHostRegistrar(dC);
+const a2 = new Dono(); oa.addBehavior(a2); const sa2 = domHostRegistrar(a2);
+check(dom.cssText(h, domHostRaiz(sa2)).indexOf("dashed") >= 0, "canvas novo do objeto selecionado ganha o contorno");
+domHostDestacar(ob, "2px dashed #6A9DD2");
+check(dom.cssText(h, ra).indexOf("dashed") < 0 && dom.cssText(h, domHostRaiz(sa2)).indexOf("dashed") < 0, "destacar(B) depois de registrar tira o contorno de A");
+check(dom.cssText(h, rb).indexOf("dashed") >= 0, "B contornado");
+domHostDestacar(null, "none");
+domHostRemover(sd); domHostRemover(sa2);
+
+// escala com casas longas vira font-size arredondado
+cfg[DL_ESCALA] = 1.0 / 3.0; domHostLayout(sa, cfg); domHostRender(0, area);
+check(inline(h, ra, "font-size") === "5.33px", "font-size arredondado: " + inline(h, ra, "font-size"));
+cfg[DL_ESCALA] = 1.5; domHostLayout(sa, cfg); domHostRender(0, area);
+
+// handle velho (ABA): depois de remover, o slot reciclado não responde ao handle antigo
+const dV = dono("V"); const sv = domHostRegistrar(dV); domHostRemover(sv);
+const dN = dono("N"); const sn = domHostRegistrar(dN);
+check(sn !== sv, "handle novo difere do removido");
+check(domHostRaiz(sv) === DOM_NENHUM && domHostEscopo(sv) === "", "handle removido não aponta para a raiz nova");
+const ativosAntes = domHostAtivos();
+domHostConteudo(sv, "<p id=\"intruso\">x</p>"); domHostRemover(sv);
+check(domHostAtivos() === ativosAntes && dom.queryWithin(h, domHostRaiz(sn), "#intruso") === DOM_NENHUM, "handle removido é no-op");
+domHostRemover(sn);
+
 // liberação
 const antes = dom.nodeCount(h);
 let k = 0;

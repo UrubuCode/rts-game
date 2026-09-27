@@ -7,7 +7,10 @@ export const DOM_ATRIBUTO_ESCOPO: string = "data-go";
 /// Seletores que designam o documento inteiro: viram a raiz do canvas.
 const RAIZES_CSS: string[] = [":root", "html", "body"];
 /// At-rules com regras dentro que precisam do prefixo; as demais passam intactas.
-const AT_PREFIXADAS: string[] = ["media", "supports"];
+/// `@layer a, b;` (sem bloco) passa intacto pelo ramo do `;`.
+/// Os nomes de `@keyframes` (e de `@font-face`) não ganham escopo: são globais no
+/// documento único, então dois canvases com o mesmo nome de animação colidem.
+const AT_PREFIXADAS: string[] = ["media", "supports", "layer"];
 const C_ESPACO: number = 32; const C_TAB: number = 9; const C_NL: number = 10; const C_CR: number = 13;
 const C_MAIOR: number = 62; const C_ARROBA: number = 64; const C_VIRGULA: number = 44;
 const C_ABRE_CHAVE: number = 123; const C_FECHA_CHAVE: number = 125;
@@ -58,15 +61,19 @@ export function prefixarSeletor(sel: string, escopo: string): string {
   let s = sel.trim();
   let n = tamanhoRaiz(s);
   if (n === 0) return escopo + " " + s;
+  // `>` depois da última raiz: `body > .x` = filho direto da raiz do canvas
+  let filho = false;
   while (n > 0) {
     s = s.substring(n);
     // composto colado à raiz (body.escuro, html:hover) continua colado ao escopo
     if (s.length > 0 && !ehEspaco(s.charCodeAt(0)) && s.charCodeAt(0) !== C_MAIOR) return escopo + s;
     s = s.trim();
-    if (s.length > 0 && s.charCodeAt(0) === C_MAIOR) s = s.substring(1).trim();
+    filho = s.length > 0 && s.charCodeAt(0) === C_MAIOR;
+    if (filho) s = s.substring(1).trim();
     n = tamanhoRaiz(s);
   }
-  return s.length === 0 ? escopo : escopo + " " + s;
+  if (s.length === 0) return escopo;
+  return filho ? escopo + " > " + s : escopo + " " + s;
 }
 function prefixarLista(lista: string, escopo: string): string {
   let out = "";
