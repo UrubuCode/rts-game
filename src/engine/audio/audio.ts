@@ -58,6 +58,10 @@ const auNivel = new Float64Array(NIVEL_FLOATS);
 const auEsp = new Float64Array(ESP_FLOATS);
 /// Pedido reaproveitado pelos tons de antes.
 const auPedido = new Float64Array(PEDIDO_FLOATS);
+/// Conta chamadas REAIS de `mix_add`/`mixAddTs` (não o caminho barato de
+/// `avancarVirtual`) — só para teste/instrumentação (prova que o caminho
+/// virtual é o que corre enquanto a causa do silêncio persiste).
+let auContadorMix: number = 0;
 
 /// Abre o dispositivo (`AUDIO_REAL` por padrão, `AUDIO_NULO` para testes).
 /// 1 = há saída; 0 = mudo, sem erro (máquina sem placa de som).
@@ -94,6 +98,11 @@ export function definirKernelMix(k: number): void { auKernel = k === KERNEL_TS ?
 export function vozesTabela(): Float64Array { return auVozes; }
 export function audioUltimoBloco(): Float32Array { return auMix; }
 export function audioNivel(out: Float64Array): void { let i = 0; while (i < NIVEL_FLOATS) { out[i] = auNivel[i]; i = i + 1; } }
+/// Quantas vezes `mix_add`/`mixAddTs` rodou de fato desde o último
+/// `audioZerarContadorMix` — prova (em teste) que uma voz virtual/congelada
+/// usa o caminho barato e não mixa mais enquanto a causa do silêncio persiste.
+export function audioContadorMix(): number { return auContadorMix; }
+export function audioZerarContadorMix(): void { auContadorMix = 0; }
 
 // ── ids de voz ───────────────────────────────────────────────────────────────
 // id = geração × MAX_VOZES + slot + 1. Um objeto que guardou o id de uma voz
@@ -154,6 +163,11 @@ export function tocarClipe(clip: AudioClip, pedido: Float64Array): number {
   atualizarAlvoVoz(vz, b);
   // Ganho certo JÁ no primeiro bloco: rampar de 0 seria um fade-in que ninguém pediu.
   vz[b + V_GL] = vz[b + V_ALVO_L]; vz[b + V_GR] = vz[b + V_ALVO_R];
+  // Nasce silenciosa (fora de alcance, volume 0, grupo mudo/pausado): o ganho
+  // corrente já bate com o alvo (os dois são zero) — sem rampa a fazer, então
+  // marca VIRTUAL/CONGELADA na hora (mesma regra que `mixInto` usa depois de
+  // cada rampa, via `auCausaSilencio`).
+  auMarcarSilencio(vz, b);
   return geracao * MAX_VOZES + v + 1;
 }
 
@@ -244,10 +258,13 @@ export function previaTocando(): number { return auPreviaId !== 0 ? vozTocando(a
 
 // ── ganhos-alvo por bloco ────────────────────────────────────────────────────
 /// Ganho-alvo L/R de uma voz para o próximo bloco. 3D: `panGains` (atenuação e
-/// panorâmica); 2D: 1/1; multiplicado pelo ganho do GRUPO. Alvo zero por
-/// volume da voz/fora de alcance → voz VIRTUAL na hora (sem rampa: não havia
-/// áudio audível antes). Alvo zero por MUDO/PAUSA do grupo não marca nada
-/// aqui — `mixInto` decide VIRTUAL/CONGELADA só depois do bloco de rampa.
+/// panorâmica); 2D: 1/1; multiplicado pelo ganho do GRUPO; pausa do grupo força
+/// zero. NÃO decide VIRTUAL/CONGELADA aqui — é sempre `mixInto` (ou, ao nascer,
+/// `auMarcarSilencio`) quem marca essas bandeiras, e só depois que o ganho
+/// corrente já bate com o alvo (zero), qualquer que seja a causa (volume da
+/// voz, 3D fora de alcance, mudo ou pausa do grupo). Ruling A8: nenhuma causa
+/// de silêncio pode cortar o ganho na hora — todas passam pela mesma rampa por
+/// amostra (já existente em `mix_add`) antes de marcar a bandeira.
 function atualizarAlvoVoz(vz: Float64Array, b: number): void {
   // Parando/pausando (fase A6): alvo zero, sem recalcular 3D/volume — é só a
   // rampa de saída; o estado transiciona em `mixInto` quando ela chegar a zero.
@@ -260,21 +277,10 @@ function atualizarAlvoVoz(vz: Float64Array, b: number): void {
     vz[b + V_LP_COEF] = auEsp[ESP_LP]; vz[b + V_DIST] = auEsp[ESP_DIST]; vz[b + V_CORTE] = auEsp[ESP_CORTE];
   }
   const grupo = vz[b + V_GRUPO] | 0;
-  const gGrupo = ganhoGrupo(grupo);
-  const pausado = grupoPausado(grupo) !== 0;
-  const vol = vz[b + V_VOLUME] * gGrupo;
+  const vol = vz[b + V_VOLUME] * ganhoGrupo(grupo);
   gl = gl * vol; gr = gr * vol;
-  if (pausado) { gl = 0.0; gr = 0.0; }
+  if (grupoPausado(grupo) !== 0) { gl = 0.0; gr = 0.0; }
   vz[b + V_ALVO_L] = gl; vz[b + V_ALVO_R] = gr;
-  // Alvo zero por causa do GRUPO (mudo ou pausa) espera o bloco de rampa em
-  // `mixInto` antes de virar VIRTUAL/CONGELADA — sem isso, mudar o volume de
-  // um grupo no meio de uma nota estala (ruling A8). Alvo zero por outro
-  // motivo (volume da própria voz, fora de alcance) continua virtual na
-  // hora: não havia áudio audível antes, então não há rampa a fazer.
-  const porGrupo = pausado || gGrupo === 0.0;
-  let f = flags & (0 - 1 - FLAG_VIRTUAL);
-  if (!porGrupo && gl <= 0.0 && gr <= 0.0 && (flags & FLAG_PREVIA) === 0) f = f | FLAG_VIRTUAL;
-  vz[b + V_FLAGS] = f;
 }
 
 function atualizarAlvos(vz: Float64Array): void {
@@ -298,6 +304,26 @@ function avancarVirtual(vz: Float64Array, b: number, quadros: number, total: num
   vz[b + V_POS] = pos; vz[b + V_GL] = 0.0; vz[b + V_GR] = 0.0;
 }
 
+/// 0 = audível (nada a marcar); 1 = deveria estar/ficar VIRTUAL; 2 = deveria
+/// estar/ficar CONGELADA — só quando o ganho CORRENTE já é o alvo (zero); com
+/// a rampa ainda em andamento devolve 0 (não há nada pra marcar ainda, senão
+/// o próximo bloco corta o resto da rampa). Pausa do grupo tem prioridade
+/// sobre virtual: o tempo para de vez, não só o som.
+function auCausaSilencio(vz: Float64Array, b: number, grupo: number): number {
+  const flags = vz[b + V_FLAGS] | 0;
+  const silencioso = vz[b + V_ALVO_L] <= 0.0 && vz[b + V_ALVO_R] <= 0.0 && (flags & FLAG_PREVIA) === 0;
+  if (!silencioso || vz[b + V_GL] !== 0.0 || vz[b + V_GR] !== 0.0) return 0;
+  return grupoPausado(grupo) !== 0 ? 2 : 1;
+}
+/// Usado ao NASCER (fora do bloco de `mixInto`): o ganho corrente acabou de
+/// ser zerado junto com o resto da voz, então se o alvo já é silêncio não há
+/// rampa nenhuma a fazer — marca na hora.
+function auMarcarSilencio(vz: Float64Array, b: number): void {
+  const causa = auCausaSilencio(vz, b, vz[b + V_GRUPO] | 0);
+  if (causa === 1) vz[b + V_FLAGS] = (vz[b + V_FLAGS] | 0) | FLAG_VIRTUAL;
+  else if (causa === 2) vz[b + V_FLAGS] = (vz[b + V_FLAGS] | 0) | FLAG_CONGELADA;
+}
+
 /// Mixa `quadros` de todas as vozes em `buf`. 4 parâmetros: a tabela de vozes e
 /// as amostras chegam POR PARÂMETRO (o acesso barato). Devolve as vozes ativas.
 function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostras: Float32Array[]): number {
@@ -317,35 +343,50 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
       let flags = vozes[b + V_FLAGS] | 0;
       if ((flags & FLAG_CONGELADA) !== 0) {
         if (grupoPausado(grupo) !== 0) { v = v + 1; continue; } // ainda em pausa: nem mixa nem anda
-        // despausou: cai no caminho normal abaixo e rampeia de volta a
-        // partir de zero (V_GL já está em zero, congelado desde a pausa).
         flags = flags & (0 - 1 - FLAG_CONGELADA);
-        vozes[b + V_FLAGS] = flags;
+        vozes[b + V_FLAGS] = flags; // despausou o GRUPO
+        if (estado !== ESTADO_TOCANDO) {
+          // A pausa/parada é da VOZ (pausarVoz/pararVoz), não do grupo: sem
+          // alvo audível pra rampear de volta — só assenta no estado final da
+          // voz, sem mixar nem andar (mesma regra de "voz virtual" de sempre).
+          if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
+          else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
+          v = v + 1; continue;
+        }
+        // TOCANDO: cai no caminho normal abaixo e rampeia de volta a partir
+        // de zero (V_GL já está em zero, congelado desde a pausa do grupo).
       }
+      const silenciosoAgora = vozes[b + V_ALVO_L] <= 0.0 && vozes[b + V_ALVO_R] <= 0.0 && (flags & FLAG_PREVIA) === 0;
       if ((flags & FLAG_VIRTUAL) !== 0) {
-        // Já silenciosa (fora de alcance/volume da voz): parar/pausar não
-        // precisa de rampa.
-        avancarVirtual(vozes, b, quadros, src.length / canais);
-        if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
-        else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
-        v = v + 1; continue;
+        if (silenciosoAgora) {
+          // A causa continua (mudo, volume da voz, fora de alcance...): fica
+          // virtual — a posição anda sem mixar (retomada no ponto certo).
+          avancarVirtual(vozes, b, quadros, src.length / canais);
+          if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
+          else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
+          v = v + 1; continue;
+        }
+        // A causa acabou: cai no caminho normal abaixo e rampeia de volta a
+        // partir de zero (V_GL já está em zero, congelado desde que ficou virtual).
+        flags = flags & (0 - 1 - FLAG_VIRTUAL);
+        vozes[b + V_FLAGS] = flags;
       }
       d[D_POS] = vozes[b + V_POS]; d[D_PASSO] = vozes[b + V_PASSO]; d[D_CANAIS_SRC] = canais; d[D_QUADROS] = quadros;
       d[D_GL0] = vozes[b + V_GL]; d[D_GR0] = vozes[b + V_GR]; d[D_GL1] = vozes[b + V_ALVO_L]; d[D_GR1] = vozes[b + V_ALVO_R];
       d[D_LP_COEF] = vozes[b + V_LP_COEF]; d[D_LP_L] = vozes[b + V_LP_L]; d[D_LP_R] = vozes[b + V_LP_R];
       d[D_LACO_INI] = 0.0;
       d[D_LACO_FIM] = vozes[b + V_LACO] !== 0.0 && (flags & FLAG_PREVIA) === 0 ? src.length / canais : 0.0 - 1.0;
+      auContadorMix = auContadorMix + 1;
       if (nativo) audio.mix_add(buf, src, d); else mixAddTs(buf, src, d);
       vozes[b + V_POS] = d[D_POS]; vozes[b + V_LP_L] = d[D_LP_L]; vozes[b + V_LP_R] = d[D_LP_R];
       vozes[b + V_GL] = vozes[b + V_ALVO_L]; vozes[b + V_GR] = vozes[b + V_ALVO_R];
-      // O ganho chegou no alvo deste bloco (rampa completa, sem clique). Se o
-      // motivo do zero é o GRUPO (mudo ou pausa), agora sim marca
-      // VIRTUAL/CONGELADA — mudo continua no caminho virtual (barato, a
-      // posição anda sem mixar); pausa congela (nem mixa, nem anda).
-      const pausadoAgora = grupoPausado(grupo) !== 0;
-      if ((pausadoAgora || ganhoGrupo(grupo) === 0.0) && vozes[b + V_GL] === 0.0 && vozes[b + V_GR] === 0.0) {
-        vozes[b + V_FLAGS] = (vozes[b + V_FLAGS] | 0) | (pausadoAgora ? FLAG_CONGELADA : FLAG_VIRTUAL);
-      }
+      // O ganho chegou no alvo deste bloco (rampa completa, sem clique,
+      // qualquer que seja a causa). Marca VIRTUAL (barato: mudo, volume da
+      // voz, fora de alcance) ou CONGELADA (pausa do grupo: nem mixa, nem
+      // anda) — persiste enquanto a causa continuar (ver os `if` acima).
+      const causa = auCausaSilencio(vozes, b, grupo);
+      if (causa === 1) vozes[b + V_FLAGS] = (vozes[b + V_FLAGS] | 0) | FLAG_VIRTUAL;
+      else if (causa === 2) vozes[b + V_FLAGS] = (vozes[b + V_FLAGS] | 0) | FLAG_CONGELADA;
       if (d[D_FIM] !== 0.0) vozes[b + V_ESTADO] = ESTADO_LIVRE;
       else if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
       else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;

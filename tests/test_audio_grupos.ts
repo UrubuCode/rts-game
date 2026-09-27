@@ -5,7 +5,8 @@
 //   $RTS run tests/test_audio_grupos.ts
 import io from "@compat/io.ts";
 import fs from "@compat/fs.ts";
-import { initAudio, AUDIO_NULO, mixarBloco, tocarClipe, pararTodas, audioNivel, audioUltimoBloco, vozesTabela, vozIndice, audioPicoGrupo } from "@engine/audio/audio";
+import { initAudio, AUDIO_NULO, mixarBloco, tocarClipe, pararTodas, audioNivel, audioUltimoBloco, vozesTabela, vozIndice,
+         audioPicoGrupo, audioContadorMix, audioZerarContadorMix, definirVolumeVoz, definirGrupoVoz, pausarVoz, vozTocando } from "@engine/audio/audio";
 import { AudioClip } from "@engine/audio/clip";
 import { novoPedido, PEDIDO_GRUPO, VOZ_FLOATS, V_POS, V_FLAGS, FLAG_VIRTUAL } from "@engine/audio/vozes";
 import { N_RMS_L, NIVEL_FLOATS } from "@engine/audio/mix_desc";
@@ -91,6 +92,103 @@ check(vz[b + V_POS] === 4800.0, "despausado: anda de novo (4000→4800)");
 check(nivel[N_RMS_L] > 0.0 && nivel[N_RMS_L] < 0.125 && sobeSemDegrau(800), "despausado: RMS sobe sem degrau (" + nivel[N_RMS_L] + ")");
 pararTodas();
 
+// ── caminho barato: mudo/volume 0 persistente usa avancarVirtual, não mixa
+// mais de verdade (round 1: `atualizarAlvoVoz` não podia mais limpar
+// FLAG_VIRTUAL a cada bloco, senão a voz nunca ficava barata) ────────────────
+{
+  const p2 = novoPedido(); p2[PEDIDO_GRUPO] = MUSICA;
+  const idM = tocarClipe(dc, p2);
+  const bM = vozIndice(idM) * VOZ_FLOATS;
+  mixarBloco(800);
+  mixerSetMudo(MUSICA, 1);
+  audioZerarContadorMix();
+  mixarBloco(800); // bloco de rampa: 1 chamada real de mix
+  check(audioContadorMix() === 1, "mudo: o bloco de rampa mixa de verdade (1 chamada)");
+  audioZerarContadorMix();
+  mixarBloco(800); mixarBloco(800); mixarBloco(800);
+  check(audioContadorMix() === 0, "mudo persistente: 3 blocos depois, ZERO chamadas reais de mix (caminho barato)");
+  check(((vz[bM + V_FLAGS] | 0) & FLAG_VIRTUAL) !== 0, "mudo persistente: continua virtual (a bandeira não é limpa à toa)");
+  mixerSetMudo(MUSICA, 0);
+  pararTodas();
+}
+{
+  const p3 = novoPedido();
+  const idV = tocarClipe(dc, p3);
+  const bV = vozIndice(idV) * VOZ_FLOATS;
+  mixarBloco(800);
+  definirVolumeVoz(idV, 0.0);
+  audioZerarContadorMix();
+  mixarBloco(800); // bloco de rampa
+  check(audioContadorMix() === 1, "volume 0: o bloco de rampa mixa de verdade (1 chamada)");
+  audioZerarContadorMix();
+  mixarBloco(800); mixarBloco(800);
+  check(audioContadorMix() === 0, "volume 0 persistente: caminho barato (0 chamadas reais)");
+  check(((vz[bV + V_FLAGS] | 0) & FLAG_VIRTUAL) !== 0, "volume 0 persistente: continua virtual");
+  pararTodas();
+}
+
+// ── definirGrupoVoz: mover uma voz tocando pra um grupo mudo rampa a
+// silêncio (mesma regra de sempre, sem clique) ──────────────────────────────
+{
+  mixerSetMudo(EFEITOS, 1);
+  const p4 = novoPedido(); // grupo 0 (Master), audível
+  const idG = tocarClipe(dc, p4);
+  const bG = vozIndice(idG) * VOZ_FLOATS;
+  mixarBloco(800);
+  audioNivel(nivel);
+  const rmsAntesMover = nivel[N_RMS_L];
+  check(rmsAntesMover > 0.0, "antes de mover: audível no Master (" + rmsAntesMover + ")");
+  definirGrupoVoz(idG, EFEITOS);
+  mixarBloco(800); // bloco de rampa: o novo grupo (mudo) já vale nesse bloco
+  audioNivel(nivel);
+  check(nivel[N_RMS_L] > 0.0 && nivel[N_RMS_L] < rmsAntesMover && decaiSemDegrau(800), "definirGrupoVoz pra grupo mudo: rampa sem degrau (" + nivel[N_RMS_L] + ")");
+  mixarBloco(800);
+  audioNivel(nivel);
+  check(nivel[N_RMS_L] === 0.0 && ((vz[bG + V_FLAGS] | 0) & FLAG_VIRTUAL) !== 0, "definirGrupoVoz pra grupo mudo: silêncio total depois da rampa");
+  mixerSetMudo(EFEITOS, 0);
+  pararTodas();
+}
+
+// ── pausarVoz (por voz) e pausa de GRUPO não se confundem: quem pausou por
+// último só é despausado pela SUA própria chamada ───────────────────────────
+{
+  // ordem 1: grupo pausa primeiro, DEPOIS a voz pausa individualmente.
+  const p5 = novoPedido(); p5[PEDIDO_GRUPO] = MUSICA;
+  const idO1 = tocarClipe(dc, p5);
+  const bO1 = vozIndice(idO1) * VOZ_FLOATS;
+  mixarBloco(800);
+  mixerSetPausa(MUSICA, 1);
+  mixarBloco(800); mixarBloco(800); // rampa + congela (grupo)
+  pausarVoz(idO1, 1); // pausa individual, com o grupo já pausado
+  mixarBloco(800);
+  const posAntes1 = vz[bO1 + V_POS];
+  mixerSetPausa(MUSICA, 0); // despausa o GRUPO — a voz deve continuar parada
+  mixarBloco(800); mixarBloco(800);
+  check(vz[bO1 + V_POS] === posAntes1 && vozTocando(idO1) === 0, "grupo despausado, voz ainda pausada por si mesma: não anda, não toca");
+  pausarVoz(idO1, 0); // só a despausa individual retoma
+  mixarBloco(800);
+  check(vz[bO1 + V_POS] > posAntes1 && vozTocando(idO1) === 1, "despausada individualmente: agora sim anda");
+  pararTodas();
+
+  // ordem 2 (invertida): a voz pausa primeiro, DEPOIS o grupo pausa/despausa.
+  const idO2 = tocarClipe(dc, p5);
+  const bO2 = vozIndice(idO2) * VOZ_FLOATS;
+  mixarBloco(800);
+  pausarVoz(idO2, 1);
+  mixarBloco(800); mixarBloco(800); // rampa da pausa individual
+  const posAntes2 = vz[bO2 + V_POS];
+  check(vozTocando(idO2) === 0, "pausada individualmente");
+  mixerSetPausa(MUSICA, 1); // pausa o grupo por cima
+  mixarBloco(800); mixarBloco(800);
+  mixerSetPausa(MUSICA, 0); // despausa o grupo — não deve reviver a voz
+  mixarBloco(800); mixarBloco(800);
+  check(vz[bO2 + V_POS] === posAntes2 && vozTocando(idO2) === 0, "pausa/despausa do grupo não afeta a pausa individual: continua parada");
+  pausarVoz(idO2, 0);
+  mixarBloco(800);
+  check(vz[bO2 + V_POS] > posAntes2 && vozTocando(idO2) === 1, "só a despausa individual retoma");
+  pararTodas();
+}
+
 // ── JSON ────────────────────────────────────────────────────────────────────
 mixerSetVolume(EFEITOS, 0.7);
 const texto = mixerParaJson();
@@ -131,4 +229,16 @@ check(Mixer.setVolume("Efeitos", 0.4) && perto(grupoVolume(EFEITOS), 0.4), "Mixe
 check(Mixer.mute("Efeitos", true) && ganhoGrupo(EFEITOS) === 0.0 && Mixer.mute("Efeitos", false), "Mixer.mute");
 check(Mixer.pause("Efeitos", true) && grupoPausado(EFEITOS) === 1 && Mixer.pause("Efeitos", false), "Mixer.pause");
 check(!Mixer.setVolume("Nada", 1.0) && Mixer.grupoIndex("Voz") === 3, "grupo desconhecido devolve false");
-io.print("[PASSOU] grupos: produto da cadeia, mudo/pausa rampam sem clique antes de virtual/congelada, JSON e recusas, arquivo, API Mixer");
+
+// ── mixerSetVolume ignora NaN/±Infinity (mantém o valor anterior) ───────────
+{
+  mixerSetVolume(EFEITOS, 0.4);
+  const vAntes = grupoVolume(EFEITOS);
+  mixerSetVolume(EFEITOS, NaN);
+  check(grupoVolume(EFEITOS) === vAntes, "volume NaN: ignorado, mantém 0,4");
+  mixerSetVolume(EFEITOS, Infinity);
+  check(grupoVolume(EFEITOS) === vAntes, "volume +Infinity: ignorado");
+  mixerSetVolume(EFEITOS, -Infinity);
+  check(grupoVolume(EFEITOS) === vAntes, "volume -Infinity: ignorado");
+}
+io.print("[PASSOU] grupos: produto da cadeia, mudo/pausa rampam sem clique, caminho barato persiste, definirGrupoVoz, pausa por voz x pausa de grupo, volume NaN/Infinity ignorado, JSON e recusas, arquivo, API Mixer");

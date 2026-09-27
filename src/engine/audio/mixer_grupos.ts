@@ -47,7 +47,9 @@ export function mixerAlterado(): number { return grpVersao !== grpSalva ? 1 : 0;
 
 function grpValido(i: number): boolean { return i >= 0 && i < grpNomes.length; }
 export function mixerSetVolume(i: number, v: f64): void {
-  if (!grpValido(i)) return;
+  // NaN/±Infinity: mantém o valor anterior — `v < 0`/`v > 1` são ambos falsos
+  // com NaN, então sem esta checagem NaN passava direto pro ganho da voz.
+  if (!grpValido(i) || !Number.isFinite(v)) return;
   grpVolume[i] = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
   grpVersao = grpVersao + 1;
 }
