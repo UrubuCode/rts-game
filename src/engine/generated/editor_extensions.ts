@@ -1,5 +1,6 @@
 // GERADO por tools/generate-components.mjs. Só o editor (main.ts) importa este arquivo.
 import "../../../assets/pacotes/ambiente/ambiente_editor";
+import "../../../assets/pacotes/audio/audio_comandos";
 import "../../../assets/pacotes/camera/camera_editor";
 import "../../../assets/pacotes/luz/luz_editor";
 import { CameraMenu as Menu0 } from "../../../assets/pacotes/camera/camera_editor";

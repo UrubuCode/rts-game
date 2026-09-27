@@ -49,4 +49,45 @@ export function decodeOgg(bytes: Uint8Array): OggDecodificado | null {
 
 export function oggUltimoErro(): string { return oggErro; }
 
+// ── escuta por loopback (rts:audio.escutar/escuta_iniciar/escuta_ler) ───────
+//
+// Três nativas do binário `rts.exe` de `feat/audio-escuta` (crate
+// `rts-audio`), ausentes num binário mais antigo — daí o mesmo padrão de
+// detecção de `rigid.ts`/`gpu.ts` (`typeof fn === "function"`), nunca uma
+// chamada direta que quebraria a carga do módulo inteiro num binário sem elas.
+//
+// `escutar` BLOQUEIA a thread chamadora por `ms` (até 10 s) — não é chamada
+// pelo editor/WS (ver `assets/pacotes/audio/audio_comandos.ts`), só existe
+// aqui para quem precisar de uma amostra pontual fora do caminho por quadro.
+/// `escutar(ms, out)`: rms, pico, silencio(0|1), quadros, taxa, canais.
+export const ESCUTA_FLOATS: number = 6;
+/// `escuta_ler(out)`: os seis de cima + energiaFreq + underruns.
+export const ESCUTA_CONTINUA_FLOATS: number = 8;
+
+/// 1 se o binário atual tem `escuta_iniciar`/`escuta_ler` (a escuta contínua,
+/// não bloqueante, é a única usada pelo comando `audio`).
+export function escutaDisponivel(): boolean {
+  return typeof (nativo as any).escuta_iniciar === "function" && typeof (nativo as any).escuta_ler === "function";
+}
+/// BLOQUEANTE — nunca chamar por quadro nem do editor/WS. `out` precisa de
+/// `ESCUTA_FLOATS`. 1 = sucesso; 0 = indisponível (binário antigo) ou falhou.
+export function escutarBloqueante(ms: number, out: Float64Array): number {
+  const fn = (nativo as any).escutar;
+  if (typeof fn !== "function") { out[0] = 0 - 1; return 0; }
+  return fn(ms, out);
+}
+/// Inicia a escuta contínua (assíncrona): 1 iniciou, 0 se já havia uma em
+/// andamento, se o binário não tem a nativa, ou se o dispositivo recusou.
+export function escutaIniciar(ms: number, freqHz: f64): number {
+  const fn = (nativo as any).escuta_iniciar;
+  return typeof fn === "function" ? fn(ms, freqHz) : 0;
+}
+/// NUNCA bloqueia — seguro por quadro. `out` precisa de
+/// `ESCUTA_CONTINUA_FLOATS`. 0 enquanto roda (ou sem nativa/sem escuta
+/// iniciada), 1 quando termina (uma vez).
+export function escutaLer(out: Float64Array): number {
+  const fn = (nativo as any).escuta_ler;
+  return typeof fn === "function" ? fn(out) : 0;
+}
+
 export default nativo;
