@@ -41,3 +41,14 @@ test('CI builds the game through the swapped registry and checks it', () => {
   assert.match(ci, /npm run check:game-build/);
   assert.match(read('package.json'), /"check:game-build": "node tools\/rts-run\.mjs tools\/game-build\/check-registro\.ts"/);
 });
+
+const walk = d => fs.readdirSync(new URL('../' + d, import.meta.url), { withFileTypes: true })
+  .flatMap(e => e.isDirectory() ? walk(d + '/' + e.name) : [d + '/' + e.name]);
+test('only dom_host.ts names the DOM facade entry points (every file that names them gets its own copy)', () => {
+  const gatilho = /parseDocument|document\.|new Document|new Element|runScripts|loadDocument/;
+  // main.ts (new DocumentPanel) e undo.ts (comentário com scene_document.ts) já disparavam antes do DomCanvas.
+  const permitidos = new Set(['src/engine/ui/dom_host.ts', 'main.ts', 'src/editor/undo.ts']);
+  const arquivos = ['game.ts', 'main.ts', ...walk('src'), ...walk('assets/pacotes'), ...walk('assets/scripts')].filter(f => f.endsWith('.ts'));
+  assert.deepEqual(arquivos.filter(f => !permitidos.has(f) && gatilho.test(read(f))), []);
+  assert.match(read('src/engine/ui/dom_host.ts'), /parseDocument\(/);
+});

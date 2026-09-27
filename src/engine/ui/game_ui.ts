@@ -15,6 +15,7 @@
 import { Scene } from "@engine/core/scene";
 import { GameObject } from "@engine/core/gameobject";
 import { Behavior, KIND_UI } from "@engine/core/behavior";
+import { dispatchUIClick } from "@engine/ui/ui_click";
 
 /// Quantos objetos com UI a cena tem (a lista é mantida pela própria Scene).
 export function collectGameUI(sc: Scene): number {
@@ -48,15 +49,4 @@ function drawObjectUI(o: GameObject, win: i64, w: f64, h: f64): void {
   }
 }
 
-/// Entrega `onUIClick(nome)` a todos os behaviors habilitados do objeto (o
-/// próprio botão inclusive, que o ignora por padrão).
-export function dispatchUIClick(o: GameObject, name: string): void {
-  const bs: Behavior[] = o.behaviors;
-  const nb = bs.length;
-  let j = 0;
-  while (j < nb) {
-    const b: Behavior = bs[j];
-    if (b.enabled !== 0) b.onUIClick(name);
-    j = j + 1;
-  }
-}
+export { dispatchUIClick } from "@engine/ui/ui_click";
