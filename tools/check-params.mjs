@@ -33,9 +33,7 @@ const EXCECOES = {
     rasterPart: 'gera a miniatura uma vez por asset (cache por caminho)', proj_y: 'idem', proj_z: 'idem', thumbTri: 'idem',
   },
   'src/engine/audio/audio.ts': {
-    voiceAt: 'um por som disparado (evento), não por quadro',
-    playToneAt: 'API de script por evento', playSquareAt: 'API de script por evento', playNoiseAt: 'API de script por evento',
-    mixInto: 'PENDÊNCIA (follow-up Task 10.5): por quadro com voz ativa; os arrays por parâmetro são a otimização medida (260→20 ns por acesso) — migrar com medição, não é exceção permanente',
+    playToneAt: 'API de script por evento (tom posicional de antes)', playSquareAt: 'API de script por evento', playNoiseAt: 'API de script por evento',
   },
   'src/engine/core/animator_controller.ts': { fillTransition: 'ao carregar o controlador (JSON)' },
   'src/engine/core/hull.ts': {
