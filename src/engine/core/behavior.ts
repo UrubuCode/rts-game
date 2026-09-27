@@ -14,6 +14,9 @@ import { componentMetadata } from "./component_metadata";
 export const FIELD_HINT_COLOR: string = "color";
 /// `fieldHint`: o campo string só aceita uma de `fieldOptions`.
 export const FIELD_HINT_ENUM: string = "enum";
+/// `fieldHint`: prefixo de `@asset <kind>` gerado (ex. "asset:audio") — o
+/// campo string é um caminho de asset; o Inspector desenha um ObjectField.
+export const FIELD_HINT_ASSET_PREFIX: string = "asset:";
 // só de TIPO: GameObject importa Behavior por valor, então isto teria que
 // ser ciclo se não fosse `import type` (apagado na compilação).
 import type { GameObject } from "./gameobject";
@@ -172,6 +175,9 @@ export class Behavior {
   /// para aceitar #RRGGBB e validar a opção; o componente sobrescreve.
   /// A base delega à reflexão (hoje sempre ""); Light e Camera sobrescrevem.
   fieldHint(i: number): string { return componentMetadata.provider.fieldHint(this, i); }
+  /// Kind cru do `@asset` ("audio"/"imagem"/...), sem o prefixo "asset:" de
+  /// `fieldHint` — o Inspector usa este no caminho por quadro (ver `fieldHint`).
+  fieldAssetKind(i: number): string { return componentMetadata.provider.fieldAssetKind(this, i); }
   /// Opções de um campo FIELD_HINT_ENUM (as mesmas da lista do Inspector).
   fieldOptions(i: number): string[] { return componentMetadata.provider.fieldOptions(this, i); }
 

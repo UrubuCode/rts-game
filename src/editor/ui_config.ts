@@ -78,6 +78,32 @@ export const UI_INSPECTOR = {
   objectPickKey: "/Pick", objectPickGlyph: "…", objectFieldNone: "Nenhum",
   objectFieldOpen: " (", objectFieldClose: ")", objectIconInset: 3,
 };
+/// Marcador `@asset <kind>` (tools/generate-components.mjs) -> estilo do
+/// ObjectField automático: rótulo do tipo mostrado ("<nome> (<tipo>)"),
+/// extensões aceitas (seletor + soltura) e o ícone (`assets/editor/icons/
+/// source.json`). Uma entrada por `kind`; o Inspector, o drop da viewport/
+/// hierarquia e a soltura do Explorer leem daqui — nunca duplicar em cada
+/// componente ou callsite.
+export interface AssetKindInfo { label: string; exts: string[]; icon: string; }
+const UI_ASSET_KIND_NAMES: string[] = ["audio", "imagem", "modelo", "prefab", "cena", "script"];
+const UI_ASSET_KIND_INFO: AssetKindInfo[] = [
+  { label: "AudioClip", exts: [".wav", ".ogg"], icon: "audio-fonte" },
+  { label: "Textura", exts: [".png", ".jpg", ".jpeg", ".bmp"], icon: "asset-imagem" },
+  { label: "Modelo", exts: [".obj", ".gltf", ".glb"], icon: "asset-modelo" },
+  { label: "Prefab", exts: [".prefab.json"], icon: "asset-prefab" },
+  { label: "Cena", exts: [".json"], icon: "asset-cena" },
+  { label: "Script", exts: [".ts", ".js"], icon: "asset-script" },
+];
+function montarAssetKinds(): Map<string, AssetKindInfo> {
+  const m = new Map<string, AssetKindInfo>();
+  let i = 0;
+  while (i < UI_ASSET_KIND_NAMES.length) { m.set(UI_ASSET_KIND_NAMES[i], UI_ASSET_KIND_INFO[i]); i = i + 1; }
+  return m;
+}
+export const UI_ASSET_KINDS: Map<string, AssetKindInfo> = montarAssetKinds();
+/// Soltura do Explorer (item 3 do brief de arquivos universais): rótulo do
+/// realce genérico enquanto arquivos do SO pairam sobre a janela.
+export const UI_EXPLORER_DROP = { hovering: "arquivo(s) do sistema" };
 // onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
 // "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
 export const UI_INSPECTOR_GUI = {

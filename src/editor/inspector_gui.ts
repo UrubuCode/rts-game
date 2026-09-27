@@ -98,21 +98,6 @@ export class InspectorGUIEditor extends InspectorUI {
     this.y = this.y + L.rowH;
   }
   label(texto: string): void { const k = this.proxima(); this.insp.label(k, this.y, texto); this.y = this.y + L.rowH; }
-  /// ObjectField estilo Unity (item 2 do brief de áudio-arquivos) para o campo
-  /// string `nome` do componente atual. A caixa, o botão ⊙, o realce de
-  /// arraste, o ping e o Delete/Backspace ficam no Inspector (`objectFieldRow`),
-  /// que já tem o Desfazer e o alvo do drop.
-  objectField(nome: string, tipo: string, exts: string[], icon: string): void {
-    const k = this.proxima();
-    const c = this.comp as Behavior;
-    const i = indiceDoCampo(c, nome);
-    if (i < 0) { this.insp.label(k, this.y, this.texto(G.unknownField, "", nome)); this.y = this.y + L.rowH; return; }
-    if (this.insp.visible(this.y, L.rowH)) {
-      this.insp.objectFieldStyle(tipo, exts, icon);
-      this.insp.objectFieldRow(c, k, i, this.y);
-    }
-    this.y = this.y + L.rowH;
-  }
   button(rotulo: string): boolean {
     const k = this.proxima(); let clicado = false;
     if (this.insp.visible(this.y, L.rowH)) {

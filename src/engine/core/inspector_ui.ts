@@ -7,14 +7,11 @@ export class InspectorUI {
   /// Controles pedidos nesta chamada; 0 = o componente não tem GUI própria.
   usos: number;
   constructor() { this.usos = 0; }
+  /// Campo automático do componente (número, caixa, texto). Um campo `string`
+  /// marcado `@asset <kind>` na classe (tools/generate-components.mjs) sai
+  /// como ObjectField sozinho (caixa+ícone, seletor, ping, soltar, Delete) —
+  /// nenhum componente precisa pedir isso à parte.
   field(nome: string): void { this.usos = this.usos + 1; }
-  /// Campo de asset estilo Unity (ObjectField): caixa com ícone + "<nome>
-  /// (<tipo>)", botão ⊙ que abre "Selecionar <tipo>" (lista `exts` sob
-  /// assets/), ping no Project ao clicar e soltar um tile compatível do
-  /// Project no campo. `nome` é o campo string do componente (ex.: "clip");
-  /// `icon` é o nome do ícone do editor (ex.: "audio-fonte"). Reusável: hoje só
-  /// o AudioSource usa, com tipo "AudioClip" e exts [".wav",".ogg"].
-  objectField(nome: string, tipo: string, exts: string[], icon: string): void { this.usos = this.usos + 1; }
   label(texto: string): void { this.usos = this.usos + 1; }
   button(rotulo: string): boolean { this.usos = this.usos + 1; return false; }
   toggle(rotulo: string, valor: boolean): boolean { this.usos = this.usos + 1; return valor; }

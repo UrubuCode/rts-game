@@ -23,6 +23,10 @@ const hasMethod = (nodes, name) => nodes.some(node => node.members.some(member =
 const humanize = name => name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/^./, c => c.toUpperCase());
 
 export const ROOTS = ['src/engine/core', 'src/scripts', 'assets/scripts', 'assets/pacotes'];
+/// `@asset <kind>` num campo string: o Inspector automático desenha um
+/// ObjectField (caixa+seletor+arraste) em vez de uma caixa de texto, filtrado
+/// pelas extensões do tipo (ver ASSET_KINDS em src/editor/ui_config.ts).
+export const ASSET_KINDS = ['audio', 'imagem', 'modelo', 'prefab', 'cena', 'script'];
 export const MENU_ROOTS = ['Criar', 'Janela'];
 /// `/** @editorOnly */` no comentário de abertura do arquivo: o arquivo fica fora do jogo exportado.
 export function isEditorOnly(source) {
@@ -121,7 +125,13 @@ export function discoverComponents(root = projectRoot, project = createProject(r
               range = fieldTags.get('range').split(/\s+/).map(Number);
               if (kind !== 'number' || range.length !== 2 || !range.every(Number.isFinite) || range[0] > range[1]) fail(member, '@range requer minimo e maximo numericos validos.');
             }
-            fields.set(member.name.text, { name: member.name.text, kind, range,
+            let asset = null;
+            if (fieldTags.has('asset')) {
+              asset = fieldTags.get('asset').trim();
+              if (kind !== 'string') fail(member, '@asset so vale em campo string.');
+              if (!ASSET_KINDS.includes(asset)) fail(member, `@asset "${asset}" invalido. Use um de: ${ASSET_KINDS.join(', ')}.`);
+            }
+            fields.set(member.name.text, { name: member.name.text, kind, range, asset,
               label: fieldTags.get('label') || humanize(member.name.text),
               visible: !fieldTags.has('hideInInspector'),
             });
@@ -182,6 +192,12 @@ function renderRegistry(entries, marker) {
   provider += method('fieldLabel', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.label), '""'));
   provider += method('fieldName', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.name), '""'));
   provider += method('fieldType', ', index: number', 'string', '"number"', entry => lookup(visible(entry), field => quote(field.kind), '"number"'));
+  provider += method('fieldHint', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.asset ? 'asset:' + field.asset : ''), '""'));
+  // Kind CRU do `@asset` (sem o prefixo "asset:"), separado de `fieldHint` pra
+  // o Inspector (caminho por quadro) nunca precisar de `.slice()` em cima do
+  // hint pra achar o tipo — string nova por quadro, proibido pelo CLAUDE.md.
+  // Ambos os métodos devolvem o MESMO literal gerado (sem alocação nos dois).
+  provider += method('fieldAssetKind', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.asset || ''), '""'));
   provider += method('fieldGet', ', index: number', 'f64', '0', entry => lookup(visible(entry), field => field.kind === 'string' ? '0' : field.kind === 'boolean' ? `(${access(field)} ? 1 : 0)` : access(field), '0'));
   provider += method('fieldStringGet', ', index: number', 'string', '""', entry => lookup(visible(entry), field => field.kind === 'string' ? access(field) : '""', '""'));
   for (const stringMode of [false, true]) {

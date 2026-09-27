@@ -789,6 +789,386 @@ class GeneratedReflection extends ComponentReflection {
     }
     return "number";
   }
+  fieldHint(component: any, index: number): string {
+    if (component instanceof Component0) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      return "";
+    }
+    if (component instanceof Component1) {
+      if (index === 0) return "";
+      return "";
+    }
+    if (component instanceof Component2) {
+
+      return "";
+    }
+    if (component instanceof Component3) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      return "";
+    }
+    if (component instanceof Component4) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component5) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component6) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component7) {
+      if (index === 0) return "";
+      return "";
+    }
+    if (component instanceof Component8) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component9) {
+
+      return "";
+    }
+    if (component instanceof Component10) {
+
+      return "";
+    }
+    if (component instanceof Component11) {
+
+      return "";
+    }
+    if (component instanceof Component12) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      if (index === 6) return "";
+      if (index === 7) return "";
+      if (index === 8) return "";
+      if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
+      return "";
+    }
+    if (component instanceof Component13) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component14) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component15) {
+
+      return "";
+    }
+    if (component instanceof Component16) {
+
+      return "";
+    }
+    if (component instanceof Component17) {
+      if (index === 0) return "";
+      return "";
+    }
+    if (component instanceof Component18) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component19) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component20) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component21) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      return "";
+    }
+    if (component instanceof Component22) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component23) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component24) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component25) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component26) {
+
+      return "";
+    }
+    if (component instanceof Component27) {
+
+      return "";
+    }
+    if (component instanceof Component28) {
+
+      return "";
+    }
+    if (component instanceof Component29) {
+      if (index === 0) return "";
+      if (index === 1) return "asset:audio";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      if (index === 6) return "";
+      if (index === 7) return "";
+      if (index === 8) return "";
+      if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
+      if (index === 13) return "";
+      if (index === 14) return "";
+      if (index === 15) return "";
+      return "";
+    }
+    return "";
+  }
+  fieldAssetKind(component: any, index: number): string {
+    if (component instanceof Component0) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      return "";
+    }
+    if (component instanceof Component1) {
+      if (index === 0) return "";
+      return "";
+    }
+    if (component instanceof Component2) {
+
+      return "";
+    }
+    if (component instanceof Component3) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      return "";
+    }
+    if (component instanceof Component4) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component5) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component6) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component7) {
+      if (index === 0) return "";
+      return "";
+    }
+    if (component instanceof Component8) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component9) {
+
+      return "";
+    }
+    if (component instanceof Component10) {
+
+      return "";
+    }
+    if (component instanceof Component11) {
+
+      return "";
+    }
+    if (component instanceof Component12) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      if (index === 6) return "";
+      if (index === 7) return "";
+      if (index === 8) return "";
+      if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
+      return "";
+    }
+    if (component instanceof Component13) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component14) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      return "";
+    }
+    if (component instanceof Component15) {
+
+      return "";
+    }
+    if (component instanceof Component16) {
+
+      return "";
+    }
+    if (component instanceof Component17) {
+      if (index === 0) return "";
+      return "";
+    }
+    if (component instanceof Component18) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component19) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component20) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component21) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      return "";
+    }
+    if (component instanceof Component22) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component23) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      if (index === 2) return "";
+      return "";
+    }
+    if (component instanceof Component24) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component25) {
+      if (index === 0) return "";
+      if (index === 1) return "";
+      return "";
+    }
+    if (component instanceof Component26) {
+
+      return "";
+    }
+    if (component instanceof Component27) {
+
+      return "";
+    }
+    if (component instanceof Component28) {
+
+      return "";
+    }
+    if (component instanceof Component29) {
+      if (index === 0) return "";
+      if (index === 1) return "audio";
+      if (index === 2) return "";
+      if (index === 3) return "";
+      if (index === 4) return "";
+      if (index === 5) return "";
+      if (index === 6) return "";
+      if (index === 7) return "";
+      if (index === 8) return "";
+      if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
+      if (index === 13) return "";
+      if (index === 14) return "";
+      if (index === 15) return "";
+      return "";
+    }
+    return "";
+  }
   fieldGet(component: any, index: number): f64 {
     if (component instanceof Component0) {
       if (index === 0) return 0;
