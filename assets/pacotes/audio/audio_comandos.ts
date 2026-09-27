@@ -14,8 +14,10 @@ import type { GameObject } from "@engine/core/gameobject";
 import { AudioSource } from "@scripts/audiosource";
 import { AudioClip, clipPorId, clipInfo } from "@engine/audio/clip";
 import { audioReady, audioRate, audioCanais, audioNulo, audioNivel, vozesTabela, vozIndice, pararTodasSuave,
-         activeVoices, audioPicoGrupo, playTone, audioStats } from "@engine/audio/audio";
+         activeVoices, audioPicoGrupo, playTone, audioStats, tempoDsp, amostrasDsp, latenciaDispositivoMs,
+         latenciaCalibradaMs, definirLatenciaCalibradaMs, framesMixadosTotais } from "@engine/audio/audio";
 import { STATS_FLOATS } from "@compat/audio.ts";
+import { editorPreferences } from "@editor/preferences";
 import time from "@compat/time.ts";
 import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PITCH, V_DIST, V_ALVO_L, V_ALVO_R, V_CORTE, V_GRUPO,
          V_FONTE, V_FLAGS, ESTADO_LIVRE, FLAG_VIRTUAL, FLAG_CONGELADA } from "@engine/audio/vozes";
@@ -25,8 +27,8 @@ import { origemOuvinte, donoOuvinte, poseOuvinte, OUVINTE_ORIGENS } from "@engin
 import { N_PICO_L, N_PICO_R, N_RMS_L, N_RMS_R, N_CORTADAS, NIVEL_FLOATS } from "@engine/audio/mix_desc";
 import { escutaDisponivel, escutaIniciar, escutaLer, ESCUTA_CONTINUA_FLOATS } from "@compat/audio.ts";
 
-const AJUDA_AUDIO: string = "audio play <obj> [clip] | stop [<obj>|tudo] | list | mixer [<grupo> <volume>|<grupo> mudo|pausa|salvar|reverter] | listener | clip <caminho> | nivel | escuta [ms] [sonda] | escuta resultado :: toca e inspeciona o som por número (ganhos, corte, estado, nível, mixer e um microfone por loopback), sem depender do humano ouvir :: audio list";
-const USO_AUDIO: string = "[erro] audio: uso audio play <obj> [clip] | stop [<obj>|tudo] | list | mixer [...] | listener | clip <caminho> | nivel | escuta [ms] [sonda] | escuta resultado";
+const AJUDA_AUDIO: string = "audio play <obj> [clip] | stop [<obj>|tudo] | list | mixer [<grupo> <volume>|<grupo> mudo|pausa|salvar|reverter] | listener | clip <caminho> | nivel | escuta [ms] [sonda] | escuta resultado | relogio | calibrar <ms> :: toca e inspeciona o som por número (ganhos, corte, estado, nível, mixer, relógio DSP e um microfone por loopback), sem depender do humano ouvir :: audio relogio";
+const USO_AUDIO: string = "[erro] audio: uso audio play <obj> [clip] | stop [<obj>|tudo] | list | mixer [...] | listener | clip <caminho> | nivel | escuta [ms] [sonda] | escuta resultado | relogio | calibrar <ms>";
 const ESTADOS_VOZ: string[] = ["livre", "tocando", "pausada"];
 const TIPOS_DISPOSITIVO: string[] = ["real", "nulo"];
 const nivelCmd = new Float64Array(NIVEL_FLOATS);
@@ -238,6 +240,33 @@ function cmdEscuta(p: string[]): string {
   return cmdEscutaIniciar(p);
 }
 
+// ── relógio DSP (ritmo) ─────────────────────────────────────────────────────
+/// "[audio] relogio dsp=<s> amostras=<n> mixado=<s> fila=<ms> latencia=<ms>
+/// calibracao=<ms>": dsp/amostras são a posição AUDÍVEL (`Audio.tempoDsp`/
+/// `amostrasDsp`); mixado é a posição MIXADA (à frente, `framesMixadosTotais`
+/// em segundos — a mesma folga que `AudioSource.time`/`vozSegundos` já
+/// tinham); fila é a diferença entre as duas (o quanto o mixer está à
+/// frente do alto-falante agora, ADAPTATIVO — ver a nota em `audio.ts`);
+/// latencia é a estimativa do DISPOSITIVO; calibracao é o offset do usuário.
+function cmdRelogio(): string {
+  const dsp = tempoDsp();
+  const mixadoSeg = framesMixadosTotais() / audioRate();
+  const filaMs = (mixadoSeg - dsp) * 1000.0;
+  return "[audio] relogio dsp=" + n3(dsp) + " amostras=" + Math.round(amostrasDsp()) + " mixado=" + n3(mixadoSeg) +
+         " fila=" + n2(filaMs) + " latencia=" + n2(latenciaDispositivoMs()) + " calibracao=" + n2(latenciaCalibradaMs());
+}
+/// `audio calibrar <ms>`: aplica E salva o offset (preferência local — ver
+/// `preferences.ts`), o mesmo caminho do painel Janela/Calibrar latência de
+/// áudio, pra IA calibrar sem abrir a janela.
+function cmdCalibrar(p: string[]): string {
+  if (p.length < 3) return "[audio] calibracao atual: " + n2(latenciaCalibradaMs()) + " ms";
+  const ms = parseFloat(p[2]);
+  if (ms !== ms) return "[erro] audio: ms inválido";
+  definirLatenciaCalibradaMs(ms);
+  if (!editorPreferences.saveAudioLatenciaMs(ms)) return "[erro] audio: " + editorPreferences.error;
+  return "[ok] calibracao=" + n2(ms) + " ms";
+}
+
 export function cmdAudio(p: string[]): string {
   const sub = p.length > 1 ? p[1] : "";
   if (sub === "play") return cmdPlay(p);
@@ -248,6 +277,8 @@ export function cmdAudio(p: string[]): string {
   if (sub === "clip") return cmdClip(p);
   if (sub === "nivel") return cmdNivel();
   if (sub === "escuta") return cmdEscuta(p);
+  if (sub === "relogio") return cmdRelogio();
+  if (sub === "calibrar") return cmdCalibrar(p);
   return USO_AUDIO;
 }
 

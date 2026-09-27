@@ -172,7 +172,10 @@ export const UI_CONTROL_H = 28;
 export const UI_MENU_NAMES: string[] = ["Arquivo", "Editar", "Criar", "Janela", "Configurações", "Ajuda"];
 export const UI_MENU_BUTTON_W: number[] = [66, 56, 54, 62, 120, 52];
 /// Menu Janela: a 1ª linha (fixa) troca de rótulo com o estado da prévia; depois vêm os itens @menuItem "Janela/…".
-export const UI_WINDOW = { previewOn: "Pré-visualização da câmera: ligada", previewOff: "Pré-visualização da câmera: desligada" };
+export const UI_WINDOW = {
+  previewOn: "Pré-visualização da câmera: ligada", previewOff: "Pré-visualização da câmera: desligada",
+  calibrarLatencia: "Calibrar latência de áudio",
+};
 export const UI_TOOLS: string[] = ["Mover", "Girar", "Escala", "Grade"];
 export const UI_FILE_ACTIONS: string[] = ["Abrir cena...", "Nova cena", "Salvar cena    Ctrl+S", "Salvar como...", "Build do jogo"];
 export const UI_EDIT_ACTIONS: string[] = ["Desfazer    Ctrl+Z", "Refazer    Ctrl+Y", "Duplicar    Ctrl+D", "Excluir    Delete"];
@@ -201,6 +204,25 @@ export const UI_CODE_EDITOR = {
   save: "Salvar", cancel: "Cancelar", width: 620, height: 250,
   padding: 18, rowH: 26, listY: 80, listGap: 4, labelY: 52,
   buttonW: 90, gap: 10, fieldId: 78000,
+};
+
+// Janela/Calibrar latência de áudio: mede o offset entre o clique agendado
+// (`Audio.agendarEm`, sample-accurate) e a tecla que a pessoa aperta NA
+// batida — a diferença é o atraso total (dispositivo + percepção) que
+// `Audio.latenciaCalibrada` some do relógio audível dali em diante.
+export const UI_CALIBRAR_AUDIO = {
+  title: "Calibrar latência de áudio",
+  instrucoes: "Aperte Enter no tempo do clique. ", taps: " batidas.",
+  start: "Iniciar", stop: "Parar", save: "Salvar", cancel: "Fechar",
+  aguardando: "Aperte Iniciar para ouvir o clique a cada 500 ms.",
+  medindo: "Ouvindo... aperte Enter na batida (", de: " de ", fechaParen: ")",
+  resultado: "Offset medido: ", ms: " ms", atual: "Calibração atual: ",
+  width: 460, height: 230, padding: 18, rowH: 26, gap: 10,
+  labelY: 52, statusY: 84, resultY: 114, buttonW: 96, fieldId: 79000,
+  /// Intervalo do clique (ms) e quantas batidas o painel pede antes de
+  /// calcular a mediana — ver `medianaMs`/`offsetMaisProximo` (testáveis sem
+  /// janela em `tests/test_audio_relogio.ts`).
+  intervaloMs: 500.0, batidasAlvo: 16,
 };
 
 export const UI_CONSOLE = {

@@ -17,7 +17,8 @@ import { Behavior, KIND_AUDIO, AUDIO_PAPEL_FONTE, FIELD_HINT_ENUM } from "@engin
 import type { InspectorUI } from "@engine/core/inspector_ui";
 import { AudioClip, toneClip, clipInfo, FORMAS_TOM } from "@engine/audio/clip";
 import { tocarClipe, pararVoz, pausarVoz, vozTocando, vozSegundos, moverVoz, definirVolumeVoz, definirPitchVoz,
-         definirGrupoVoz, definirMisturaVoz, audioEmJogo, tocarPrevia, pararPrevia, tocarNoPonto } from "@engine/audio/audio";
+         definirGrupoVoz, definirMisturaVoz, audioEmJogo, tocarPrevia, pararPrevia, tocarNoPonto,
+         vozTempoAudivel, vozAmostrasAudiveis } from "@engine/audio/audio";
 import { pedidoPadrao, PEDIDO_VOLUME, PEDIDO_PITCH, PEDIDO_LACO, PEDIDO_GRUPO, PEDIDO_FONTE, PEDIDO_FLAGS,
          PEDIDO_X, PEDIDO_Y, PEDIDO_Z, PEDIDO_BLEND, PEDIDO_MIN, PEDIDO_MAX, PEDIDO_ROLLOFF, PEDIDO_FLOATS,
          FLAG_3D, FLAG_ONESHOT, ROLLOFF_LOG, ROLLOFF_LINEAR } from "@engine/audio/vozes";
@@ -195,6 +196,12 @@ export class AudioSource extends Behavior {
   unPause(): void { if (this.vozId !== 0) { pausarVoz(this.vozId, 0); this.pausada = false; } }
   isPlaying(): boolean { return this.vozId !== 0 && vozTocando(this.vozId) === 1; }
   get time(): f64 { return this.vozId !== 0 ? vozSegundos(this.vozId) : 0.0; }
+  /// Posição AUDÍVEL (o que está saindo no alto-falante agora), ao contrário
+  /// de `time` (posição MIXADA, à frente — ver a nota "relógio DSP (ritmo)"
+  /// em `engine/audio/audio.ts`). Sincronize ritmo/música nisto.
+  get tempoAudivel(): f64 { return this.vozId !== 0 ? vozTempoAudivel(this.vozId) : 0.0; }
+  /// O mesmo, em quadros na taxa do CLIPE (Unity `AudioSource.timeSamples`).
+  get timeSamples(): f64 { return this.vozId !== 0 ? vozAmostrasAudiveis(this.vozId) : 0.0; }
   vozPrincipal(): number { return this.vozId; }
 
   /// Uma voz nova com a pose atual da fonte, sem laço, que não interrompe a principal.

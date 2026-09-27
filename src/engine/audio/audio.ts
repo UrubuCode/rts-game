@@ -14,6 +14,7 @@
 // Os tons de antes (`playTone`...) viram clipes gerados uma vez (`toneClip`) e
 // passam pelo mesmo caminho: há UM mixer.
 import audio, { AUDIO_REAL, AUDIO_NULO, STATS_FLOATS } from "@compat/audio.ts";
+import time from "@compat/time.ts";
 import { AudioClip, toneClip, definirTaxaDosClipes, clipPorId, FORMA_SENO, FORMA_QUADRADA, FORMA_RUIDO } from "./clip";
 import { rolloffRef, rolloffMax, espGanhosVoz, ESP_GL, ESP_GR, ESP_LP, ESP_DIST, ESP_CORTE, ESP_FLOATS } from "./spatial";
 import { ganhoGrupo, grupoPausado } from "./mixer_grupos";
@@ -22,7 +23,8 @@ import { D_POS, D_PASSO, D_CANAIS_SRC, D_CANAIS_DST, D_QUADROS, D_GL0, D_GR0, D_
 import { mixAddTs } from "./mix_ts";
 import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PASSO, V_LACO, V_GL, V_GR, V_ALVO_L, V_ALVO_R,
          V_LP_COEF, V_LP_L, V_LP_R, V_GRUPO, V_FONTE, V_FLAGS, V_VOLUME, V_X, V_Y, V_Z, V_BLEND, V_MIN, V_MAX,
-         V_ROLLOFF, V_PITCH, V_CANAIS, V_CORTE, V_GERACAO, V_DIST, ESTADO_LIVRE, ESTADO_TOCANDO, ESTADO_PAUSADA,
+         V_ROLLOFF, V_PITCH, V_CANAIS, V_CORTE, V_GERACAO, V_DIST, V_ATRASO, V_INICIO_MIX, V_BASE_TEMPO,
+         ESTADO_LIVRE, ESTADO_TOCANDO, ESTADO_PAUSADA,
          ESTADO_PARANDO, ESTADO_PAUSANDO,
          FLAG_VIRTUAL, FLAG_PREVIA, FLAG_3D, FLAG_ONESHOT, FLAG_CONGELADA, CORTE_ABERTO, PEDIDO_VOLUME, PEDIDO_PITCH,
          PEDIDO_LACO, PEDIDO_GRUPO, PEDIDO_FONTE, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_Y, PEDIDO_Z, PEDIDO_BLEND,
@@ -103,6 +105,88 @@ const auPedido = new Float64Array(PEDIDO_FLOATS);
 /// virtual é o que corre enquanto a causa do silêncio persiste).
 let auContadorMix: number = 0;
 
+// ── relógio DSP (ritmo) ──────────────────────────────────────────────────────
+// Problema: `AudioSource.time`/`vozSegundos` leem `V_POS`, a posição MIXADA —
+// o mixer roda `auAlvoQuadros` (100..250 ms, ADAPTATIVO) à FRENTE do que o
+// alto-falante está tocando agora, e essa folga muda com o tempo (fase A8).
+// Pra ritmo (spec deste brief) o jogo precisa da posição AUDÍVEL: quantos
+// quadros o CALLBACK do dispositivo já puxou de verdade (`audio.stats`
+// consumidos), menos a latência do dispositivo até o alto-falante, menos a
+// calibração do usuário.
+//
+// `consumidos` é um contador nativo CUMULATIVO que só anda em degraus do
+// tamanho do callback do dispositivo (tipicamente ~10 ms) — direto ele seria
+// audível como "soquinhos" pra quem lê a cada quadro (60+ Hz). Suaviza-se
+// assim (`auAtualizarRelogio`, chamado 1x por `pumpAudio`, com o `audio.stats`
+// que `auAtualizarAlvo` já leu — sem 2ª chamada nativa por quadro):
+//   1. Quando o valor bruto MUDA, guarda-o e o instante real (`time.now_ms`)
+//      dessa mudança.
+//   2. Entre mudanças, EXTRAPOLA pelo relógio de quadro: bruto + (tempo real
+//      decorrido desde a mudança) × taxa — preenche o degrau com uma reta.
+//   3. O suavizado nunca REGRIDE (mesmo se o bruto oscilar por reabertura de
+///     dispositivo ou o relógio de quadro ficar momentaneamente atrás do
+//      último bruto lido): guarda o `max` do que já mostrou.
+// Um travamento de quadro (GC, janela minimizada) não anda o bruto nem o
+// relógio de quadro enquanto dura — ao voltar, o suavizado só RETOMA a
+// extrapolar a partir de onde parou (sem salto pra trás, sem inventar tempo
+// que não passou de verdade no relógio de quadro).
+/// `consumidos` (nativo) NÃO garante começar em 0 num `initAudio` fresco —
+/// medido: reabrir o dispositivo (mesmo NULO) pode herdar contagem de uma
+/// `Saida` anterior ainda sendo derrubada (o `Drop`/join da thread é
+/// assíncrono; o handle novo pode ler a `Compartilhado` antiga por uma
+/// leitura ou duas). `rlBaseConsumidos` normaliza: a 1ª leitura depois de
+/// abrir vira a ORIGEM (relativo = bruto − base) — sem isso `amostrasDsp()`
+/// nasceria com um salto (o quanto sobrou da contagem antiga).
+let rlBaseConsumidos: f64 = 0.0;
+let rlBaseDefinida: number = 0; // 0 até a 1ª leitura depois do `initAudio` corrente
+let rlConsumidosUltimo: f64 = 0.0;       // último RELATIVO (bruto − base) visto
+let rlConsumidosUltimoEm: f64 = 0.0;     // `time.now_ms()` de quando o relativo mudou
+let rlSuaveAmostras: f64 = 0.0;          // amostras audíveis suavizadas, monotônicas
+/// Estimativa de latência do DISPOSITIVO (buffer do SO/hardware depois do
+/// callback, antes do alto-falante), em quadros. `rts:audio`/cpal não expõem
+/// essa métrica hoje (nem tamanho de buffer) — fica em 0 e a calibração do
+/// usuário (`rlCalibracaoMs`) absorve o valor real medido a ouvido.
+let rlLatenciaDispositivoQuadros: f64 = 0.0;
+/// Offset de calibração do usuário (Janela/Calibrar latência de áudio, ou
+/// `audio calibrar <ms>`), em ms. Positivo = o som chega DEPOIS do que o
+/// relógio acha (o áudio "atrasa"); ver `latenciaCalibradaMs`.
+let rlCalibracaoMs: f64 = 0.0;
+/// Total de quadros já MIXADOS (não confundir com `consumidos`, do
+/// dispositivo): a régua usada por `agendarEm` e por `V_INICIO_MIX` — a mesma
+/// escala de `amostrasDsp()` (frames de saída desde a abertura do
+/// dispositivo), mas sem a latência/calibração (é onde os quadros SAEM do
+/// mixer, não onde ficam audíveis).
+let auTotalMixado: f64 = 0.0;
+/// Atraso (quadros) que a PRÓXIMA `tocarClipe` deve gravar em `V_ATRASO`
+/// (setter de módulo — `agendarEm`/`mixarBloco` combinam, sem 5º parâmetro em
+/// `tocarClipe`; ver "Custo por quadro" no CLAUDE.md).
+let auAtrasoProximaVoz: number = 0;
+
+/// Agendamentos pendentes de `agendarEm` (PlayScheduled): `Float64Array`
+/// paralelo, sem alocar por chamada. `AGENDA_MAX` cabe folgado pro uso de
+/// ritmo (uma trilha inteira agendada com antecedência) sem crescer.
+const AGENDA_MAX: number = 64;
+const agClipe: (AudioClip | null)[] = []; { let i = 0; while (i < AGENDA_MAX) { agClipe.push(null); i = i + 1; } }
+const agAlvoQuadro = new Float64Array(AGENDA_MAX); // alvo em amostras DSP (mesma régua de `amostrasDsp()`)
+const agPedido = new Float64Array(AGENDA_MAX * PEDIDO_FLOATS);
+/// Id ESTÁVEL de cada agendamento pendente (ver `agendarEm`/`cancelarAgendado`
+/// — não é id de voz: nasce ANTES de existir voz nenhuma).
+const agId = new Float64Array(AGENDA_MAX);
+let agN: number = 0; // agendamentos ocupados (0..agN-1, sem buracos: remoção troca com o último)
+/// Agendamentos que JÁ viraram voz (o clique disparou): o mesmo id de
+/// `agendarEm` continua válido pra `cancelarAgendado` — mapeia pro id de voz
+/// REAL. `Float64Array` paralelo (não `Map`: nada aqui itera por chave, só
+/// busca linear/poda — mesmo estilo do resto do arquivo), também
+/// `AGENDA_MAX` (o teto de agendamentos "vivos" de uma vez, agendados ou já
+/// tocando, é o mesmo).
+const agResId = new Float64Array(AGENDA_MAX);
+const agResVoz = new Float64Array(AGENDA_MAX);
+let agResN: number = 0;
+/// Próximo id de agendamento (nunca 0 — 0 é "sem agendamento"/falha, como o
+/// resto da API de áudio). Cresce sempre; não recicla (o teto prático é o
+/// mesmo de qualquer id de 53 bits num f64 — não estoura numa sessão real).
+let agProximoId: f64 = 1.0;
+
 /// Abre o dispositivo (`AUDIO_REAL` por padrão, `AUDIO_NULO` para testes).
 /// 1 = há saída; 0 = mudo, sem erro (máquina sem placa de som).
 export function initAudio(modoArg?: number): number {
@@ -120,6 +204,9 @@ export function initAudio(modoArg?: number): number {
   auDesc[D_CANAIS_DST] = auCanais;
   definirTaxaDosClipes(auTaxa);
   auAlvoQuadros = AU_ALVO_QUADROS_MIN; auQuadrosSemFalta = 0; auFaltasAntes = 0.0; auRampaRestante = 0;
+  rlBaseDefinida = 0; rlBaseConsumidos = 0.0; rlConsumidosUltimo = 0.0; rlConsumidosUltimoEm = 0.0;
+  rlSuaveAmostras = 0.0; auTotalMixado = 0.0;
+  agN = 0; agResN = 0; agProximoId = 1.0; auAtrasoProximaVoz = 0;
   return 1;
 }
 
@@ -213,6 +300,16 @@ export function tocarClipe(clip: AudioClip, pedido: Float64Array): number {
   vz[b + V_BLEND] = pedido[PEDIDO_BLEND]; vz[b + V_MIN] = pedido[PEDIDO_MIN]; vz[b + V_MAX] = pedido[PEDIDO_MAX];
   vz[b + V_ROLLOFF] = pedido[PEDIDO_ROLLOFF];
   vz[b + V_LP_COEF] = 1.0; vz[b + V_CORTE] = CORTE_ABERTO;
+  // Relógio DSP (agendarEm/tempoAudivel): a voz nasce com atraso 0, salvo um
+  // `agendarEm` pendente que caiu neste bloco (setter de módulo — ver a nota
+  // "custo por quadro" onde `auAtrasoProximaVoz` é declarado). A âncora
+  // (V_INICIO_MIX) é o quadro MIXADO em que a amostra 0 do clipe sai do
+  // mixer — `auTotalMixado` ainda não inclui o bloco corrente, então somar o
+  // atraso dá o quadro exato dentro dele.
+  vz[b + V_ATRASO] = auAtrasoProximaVoz;
+  vz[b + V_INICIO_MIX] = auTotalMixado + auAtrasoProximaVoz;
+  vz[b + V_BASE_TEMPO] = 0.0;
+  auAtrasoProximaVoz = 0;
   auAmostras[v] = clip.amostras;
   atualizarAlvoVoz(vz, b);
   // Ganho certo JÁ no primeiro bloco: rampar de 0 seria um fade-in que ninguém pediu.
@@ -223,6 +320,158 @@ export function tocarClipe(clip: AudioClip, pedido: Float64Array): number {
   // cada rampa, via `auCausaSilencio`).
   auMarcarSilencio(vz, b);
   return geracao * MAX_VOZES + v + 1;
+}
+
+// ── relógio DSP: leitura e reancoragem por voz ──────────────────────────────
+/// Posição audível ATUAL, em amostras (mesma régua que `V_INICIO_MIX`/
+/// `auTotalMixado`): o suavizado (`rlSuaveAmostras`, ver `auAtualizarRelogio`)
+/// menos a latência do dispositivo e a calibração do usuário. Nunca negativo
+/// (satura em 0 — antes do dispositivo abrir/consumir a 1ª amostra).
+export function amostrasDsp(): f64 {
+  const a = rlSuaveAmostras - rlLatenciaDispositivoQuadros - rlCalibracaoMs * auTaxa / 1000.0;
+  return a > 0.0 ? a : 0.0;
+}
+/// `Audio.tempoDsp()`: segundos desde a abertura do dispositivo, AUDÍVEL,
+/// monotônico. Ver a nota "relógio DSP (ritmo)" onde `rlSuaveAmostras` é
+/// declarado — é o Unity `AudioSettings.dspTime` (posição real no
+/// alto-falante), não `vozSegundos`/`AudioSource.time` (posição no mixer).
+export function tempoDsp(): f64 { return amostrasDsp() / auTaxa; }
+/// Offset de calibração do usuário, em ms (`Audio.latenciaCalibrada`, painel
+/// Janela/Calibrar latência de áudio, comando `audio calibrar`). Positivo =
+/// o som mostrado pelo relógio chega DEPOIS na prática — soma-se à latência
+/// pra atrasar `amostrasDsp()` até bater com o que a pessoa ouve de verdade.
+export function latenciaCalibradaMs(): f64 { return rlCalibracaoMs; }
+export function definirLatenciaCalibradaMs(ms: f64): void { rlCalibracaoMs = ms; }
+/// Estimativa de latência do DISPOSITIVO (não a calibração do usuário), em
+/// ms — 0 hoje (ver a nota onde `rlLatenciaDispositivoQuadros` é declarado).
+export function latenciaDispositivoMs(): f64 { return rlLatenciaDispositivoQuadros * 1000.0 / auTaxa; }
+/// Só teste/instrumentação: total de quadros já MIXADOS (régua de
+/// `agendarEm`/`V_INICIO_MIX`) — não confundir com `amostrasDsp()` (audível).
+export function framesMixadosTotais(): f64 { return auTotalMixado; }
+
+/// `Audio.agendarEm` (Unity PlayScheduled): agenda `clip` pra tocar com a 1ª
+/// amostra audível exatamente em `tempoDspAlvo` (segundos, régua de
+/// `Audio.tempoDsp()`) — sample-accurate dentro do bloco (ver `V_ATRASO` em
+/// `mixInto`), essencial pra ritmo/música sincronizada. `pedido` opcional
+/// (`pedidoPadrao` senão). Alvo já passado: toca no próximo bloco, já sem
+/// atraso (melhor esforço — não existe voltar no tempo).
+///
+/// Devolve um id (≥ 1) que serve pra `cancelarAgendado` tanto ANTES do
+/// disparo (some da fila) quanto DEPOIS (a voz real para com a rampa normal
+/// — o mesmo id continua válido, só muda o que ele aponta por baixo). 0 =
+/// não agendou: sem dispositivo, clipe vazio, ou fila cheia (`AGENDA_MAX`).
+///
+/// Quando o alvo dispara (`auProcessarAgenda`) mas as 32 vozes já estão
+/// ocupadas por som AUDÍVEL (não virtual), a política é a MESMA de
+/// `tocarClipe`/`auAlocar`: rouba uma voz VIRTUAL se houver; sem nenhuma,
+/// DESCARTA o clique (nunca rouba uma voz audível — estalaria). Um clique
+/// descartado assim não deixa rastro pra cancelar (o id some da fila e não
+/// tem voz nenhuma pra mapear).
+export function agendarEm(clip: AudioClip, tempoDspAlvo: f64, pedido?: Float64Array): number {
+  if (auDev === 0 || clip.quadros === 0 || agN >= AGENDA_MAX) return 0;
+  // Converte o alvo AUDÍVEL (pós latência/calibração) pra régua MIXADA (a de
+  // `auTotalMixado`/`rlSuaveAmostras`, ANTES de subtrair latência/calibração)
+  // — o inverso de `amostrasDsp()`.
+  const alvoQuadroMixado = tempoDspAlvo * auTaxa + rlLatenciaDispositivoQuadros + rlCalibracaoMs * auTaxa / 1000.0;
+  const i = agN;
+  const id = agProximoId;
+  agProximoId = agProximoId + 1.0;
+  agId[i] = id;
+  agClipe[i] = clip;
+  agAlvoQuadro[i] = alvoQuadroMixado;
+  const pb = i * PEDIDO_FLOATS;
+  if (pedido !== undefined) { let k = 0; while (k < PEDIDO_FLOATS) { agPedido[pb + k] = pedido[k]; k = k + 1; } }
+  else pedidoPadrao(agPedido.subarray(pb, pb + PEDIDO_FLOATS));
+  agN = agN + 1;
+  return id;
+}
+/// Remove o agendamento `i` da fila PENDENTE (troca com o último — sem
+/// buraco, sem alocar). Usado por `cancelarAgendado` e por
+/// `auProcessarAgenda` quando o alvo dispara.
+function agRemoverPendente(i: number): void {
+  agN = agN - 1;
+  agClipe[i] = agClipe[agN]; agClipe[agN] = null;
+  agAlvoQuadro[i] = agAlvoQuadro[agN];
+  agId[i] = agId[agN];
+  const pb = i * PEDIDO_FLOATS; const ub = agN * PEDIDO_FLOATS;
+  let k = 0; while (k < PEDIDO_FLOATS) { agPedido[pb + k] = agPedido[ub + k]; k = k + 1; }
+}
+/// Poda `agRes*` (agendamentos já disparados) das entradas cuja voz já
+/// acabou de vez (`vozIndice` não resolve mais essa geração) — sem isso a
+/// tabela cresce sem limite numa sessão longa. Barato (laço ≤ `AGENDA_MAX`,
+/// sem alocar); chamado no topo de `auProcessarAgenda`, mesmo com `agN = 0`.
+function agPodarResolvidos(): void {
+  let i = 0;
+  while (i < agResN) {
+    if (vozIndice(agResVoz[i]) < 0) {
+      agResN = agResN - 1;
+      agResId[i] = agResId[agResN]; agResVoz[i] = agResVoz[agResN];
+      continue; // o que veio da troca ainda não foi conferido
+    }
+    i = i + 1;
+  }
+}
+/// `Audio.cancelarAgendado`: antes do disparo, some da fila (a voz nunca
+/// chega a existir); depois, para a voz REAL com a rampa normal
+/// (`pararVoz` — sem clique, ver a fase A6). Devolve 1 se cancelou alguma
+/// coisa, 0 se o id é desconhecido (nunca existiu, já tocou e acabou
+/// sozinho, ou foi DESCARTADO ao disparar — ver a nota em `agendarEm` sobre
+/// as 32 vozes ocupadas).
+export function cancelarAgendado(id: number): number {
+  let i = 0;
+  while (i < agN) {
+    if (agId[i] === id) { agRemoverPendente(i); return 1; }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < agResN) {
+    if (agResId[i] === id) {
+      pararVoz(agResVoz[i]);
+      agResN = agResN - 1;
+      agResId[i] = agResId[agResN]; agResVoz[i] = agResVoz[agResN];
+      return 1;
+    }
+    i = i + 1;
+  }
+  return 0;
+}
+
+/// Quadros de SAÍDA decorridos desde a âncora da voz (nunca negativo — uma
+/// voz agendada pro futuro, ou cuja âncora ainda não ficou audível, dá 0).
+function auElapsedQuadros(b: number): f64 {
+  const e = amostrasDsp() - auVozes[b + V_INICIO_MIX];
+  return e > 0.0 ? e : 0.0;
+}
+/// Crava o tempo de clipe decorrido ATÉ AGORA em `V_BASE_TEMPO` (na taxa/pitch
+/// CORRENTE, antes de mudar) e reancora em cima do relógio audível atual — uso:
+/// antes de pausar e antes de mudar o pitch, senão o trecho já tocado seria
+/// recalculado com a taxa NOVA.
+function auReancorar(b: number): void {
+  auVozes[b + V_BASE_TEMPO] = auVozes[b + V_BASE_TEMPO] + auElapsedQuadros(b) / auTaxa * auVozes[b + V_PITCH];
+  auVozes[b + V_INICIO_MIX] = amostrasDsp();
+}
+/// Só reancora o RELÓGIO (sem somar elapsed): uso ao despausar — o tempo
+/// congelado em `V_BASE_TEMPO` (fase A6: o pause já congelou via
+/// `auReancorar`) não deve ganhar o intervalo em que a voz ficou parada.
+function auReancoraSemElapsed(b: number): void { auVozes[b + V_INICIO_MIX] = amostrasDsp(); }
+/// Segundos de clipe audíveis AGORA (`AudioSource.tempoAudivel`): congelado em
+/// `V_BASE_TEMPO` enquanto `ESTADO_PAUSADA` (a rampa de `ESTADO_PAUSANDO`
+/// ainda soa — tolerância de um bloco, como o resto do relógio); tocando,
+/// soma o elapsed desde a âncora, na taxa/pitch corrente.
+function auTempoAudivelBase(b: number): f64 {
+  if (auVozes[b + V_ESTADO] === ESTADO_PAUSADA) return auVozes[b + V_BASE_TEMPO];
+  return auVozes[b + V_BASE_TEMPO] + auElapsedQuadros(b) / auTaxa * auVozes[b + V_PITCH];
+}
+/// `AudioSource.tempoAudivel`: segundos de clipe realmente audíveis agora
+/// (ao contrário de `vozSegundos`, que é a posição MIXADA — à frente).
+export function vozTempoAudivel(id: number): f64 { const b = auBase(id); return b >= 0 ? auTempoAudivelBase(b) : 0.0; }
+/// `AudioSource.timeSamples`: o mesmo, em quadros NA TAXA DO CLIPE (Unity).
+export function vozAmostrasAudiveis(id: number): f64 {
+  const b = auBase(id);
+  if (b < 0) return 0.0;
+  const c = clipPorId(auVozes[b + V_CLIPE] | 0);
+  const taxaClipe: f64 = c !== null ? c.taxa : auTaxa;
+  return auTempoAudivelBase(b) * taxaClipe;
 }
 
 /// Pede o fim da voz sem clique: o ganho-alvo vira zero e a rampa por amostra
@@ -243,8 +492,9 @@ export function pausarVoz(id: number, pausa: number): void {
   if (b < 0) return;
   const estado = auVozes[b + V_ESTADO];
   if (pausa !== 0) {
-    if (estado === ESTADO_TOCANDO) auVozes[b + V_ESTADO] = ESTADO_PAUSANDO;
+    if (estado === ESTADO_TOCANDO) { auReancorar(b); auVozes[b + V_ESTADO] = ESTADO_PAUSANDO; }
   } else if (estado === ESTADO_PAUSADA || estado === ESTADO_PAUSANDO) {
+    auReancoraSemElapsed(b);
     auVozes[b + V_ESTADO] = ESTADO_TOCANDO;
   }
 }
@@ -294,6 +544,10 @@ export function audioPicoGrupo(i: number): f64 {
 export function definirPitchVoz(id: number, p: f64): void {
   const b = auBase(id);
   if (b < 0) return;
+  // Reancora ANTES de trocar o pitch (só enquanto toca de verdade: elapsed
+  // parado — pausada/parando — não deve mexer na base). Sem isso o trecho já
+  // tocado na taxa ANTIGA seria recontado com o pitch NOVO em `tempoAudivel`.
+  if (auVozes[b + V_ESTADO] === ESTADO_TOCANDO) auReancorar(b);
   auVozes[b + V_PITCH] = p;
   auVozes[b + V_PASSO] = auPasso(p, auTaxa);
 }
@@ -463,13 +717,26 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
         flags = flags & (0 - 1 - FLAG_VIRTUAL);
         vozes[b + V_FLAGS] = flags;
       }
-      d[D_POS] = vozes[b + V_POS]; d[D_PASSO] = vozes[b + V_PASSO]; d[D_CANAIS_SRC] = canais; d[D_QUADROS] = quadros;
+      // `agendarEm` (PlayScheduled): a voz nasceu com `V_ATRASO` quadros de
+      // silêncio no COMEÇO deste bloco — a amostra 0 do clipe só entra no
+      // buffer a partir do quadro `atraso` (offset em `buf`, visão via
+      // `subarray` — soma no MESMO array, sem copiar). Sample-accurate: o
+      // resto do quadro (antes do offset) já saiu zerado do `buf.fill` do
+      // topo da função, ninguém escreve lá por esta voz. Só o 1º bloco tem
+      // atraso > 0 (consumido aqui, uma vez).
+      let atraso = vozes[b + V_ATRASO] | 0;
+      if (atraso > quadros) atraso = quadros; // defensivo: agendamento sempre cai DENTRO do bloco corrente
+      const quadrosVoz = quadros - atraso;
+      if (atraso > 0) vozes[b + V_ATRASO] = 0.0;
+      if (quadrosVoz <= 0) { v = v + 1; continue; } // atraso cobre o bloco inteiro: nada a mixar ainda
+      const bufVoz = atraso > 0 ? buf.subarray(atraso * (d[D_CANAIS_DST] | 0)) : buf;
+      d[D_POS] = vozes[b + V_POS]; d[D_PASSO] = vozes[b + V_PASSO]; d[D_CANAIS_SRC] = canais; d[D_QUADROS] = quadrosVoz;
       d[D_GL0] = vozes[b + V_GL]; d[D_GR0] = vozes[b + V_GR]; d[D_GL1] = vozes[b + V_ALVO_L]; d[D_GR1] = vozes[b + V_ALVO_R];
       d[D_LP_COEF] = vozes[b + V_LP_COEF]; d[D_LP_L] = vozes[b + V_LP_L]; d[D_LP_R] = vozes[b + V_LP_R];
       d[D_LACO_INI] = 0.0;
       d[D_LACO_FIM] = vozes[b + V_LACO] !== 0.0 && (flags & FLAG_PREVIA) === 0 ? src.length / canais : 0.0 - 1.0;
       auContadorMix = auContadorMix + 1;
-      if (nativo) audio.mix_add(buf, src, d); else mixAddTs(buf, src, d);
+      if (nativo) audio.mix_add(bufVoz, src, d); else mixAddTs(bufVoz, src, d);
       vozes[b + V_POS] = d[D_POS]; vozes[b + V_LP_L] = d[D_LP_L]; vozes[b + V_LP_R] = d[D_LP_R];
       vozes[b + V_GL] = vozes[b + V_ALVO_L]; vozes[b + V_GR] = vozes[b + V_ALVO_R];
       // O ganho chegou no alvo deste bloco (rampa completa, sem clique,
@@ -488,17 +755,69 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
   return ativas;
 }
 
+/// `agendarEm`/`Audio.agendarEm` (Unity PlayScheduled): dispara os
+/// agendamentos cujo alvo cai DENTRO do bloco que está prestes a ser mixado
+/// (`[auTotalMixado, auTotalMixado + n)`), com o atraso exato dentro do bloco
+/// (ver o `V_ATRASO` em `mixInto`). Chamado no TOPO de `mixarBloco`, antes de
+/// `auTotalMixado` avançar — é o único lugar que sabe "o que vai ser mixado
+/// agora" sem duplicar o laço de `pumpAudio`.
+function auProcessarAgenda(n: number): void {
+  // Poda SEMPRE (mesmo `agN = 0`): um agendamento que já virou voz e essa voz
+  // já acabou sozinha (não cancelada) precisa sair de `agRes*` também sem
+  // agendamento novo nenhum pendente.
+  agPodarResolvidos();
+  if (agN === 0) return;
+  const inicioBloco = auTotalMixado;
+  const fimBloco = inicioBloco + n;
+  let i = 0;
+  while (i < agN) {
+    if (agAlvoQuadro[i] >= fimBloco) { i = i + 1; continue; }
+    let atraso = agAlvoQuadro[i] - inicioBloco;
+    if (atraso < 0.0) atraso = 0.0; // alvo já passou: toca já (melhor esforço)
+    auAtrasoProximaVoz = atraso | 0;
+    const clip = agClipe[i];
+    const idAgendado = agId[i];
+    const pb = i * PEDIDO_FLOATS;
+    const vozId = clip !== null ? tocarClipe(clip, agPedido.subarray(pb, pb + PEDIDO_FLOATS)) : 0;
+    // Remove o slot i da fila PENDENTE (troca com o último — sem buraco, sem
+    // alocar); não avança `i`, o que veio da troca ainda não foi conferido.
+    agRemoverPendente(i);
+    // A voz nasceu de verdade (não descartada por falta de slot — ver a nota
+    // em `agendarEm`): o MESMO id continua válido pra `cancelarAgendado`,
+    // agora apontando pra voz real.
+    if (vozId !== 0 && agResN < AGENDA_MAX) { agResId[agResN] = idAgendado; agResVoz[agResN] = vozId; agResN = agResN + 1; }
+  }
+}
+
 /// Um bloco: alvos, mixagem e medição (corta em ±1). Sem escrever no
 /// dispositivo — é o que `pumpAudio` chama e o que os testes chamam direto.
 export function mixarBloco(quadros: number): number {
   let n = quadros;
   if (n > AU_MAX_BOMBA) n = AU_MAX_BOMBA;
   if (n <= 0) return 0;
+  auProcessarAgenda(n);
   atualizarAlvos(auVozes);
   const ativas = mixInto(auMix, n, auVozes, auAmostras);
   auNivel[N_CANAIS] = auCanais; auNivel[N_QUADROS] = n;
   audio.mix_level(auMix, auNivel);
+  auTotalMixado = auTotalMixado + n; // depois de mixar: a régua de agendarEm/V_INICIO_MIX conta o que JÁ mixou
   return ativas;
+}
+
+/// Suaviza `consumidos` (bruto, cumulativo, anda em degraus do tamanho do
+/// callback do dispositivo — ver a nota "relógio DSP (ritmo)" onde
+/// `rlSuaveAmostras` é declarado): quando o bruto MUDA, guarda-o e o instante
+/// real; entre mudanças, extrapola pelo relógio de QUADRO (tempo real
+/// decorrido × taxa) — e nunca deixa o suavizado regredir.
+function auAtualizarRelogio(consumidosBrutos: f64, taxa: f64): void {
+  const agoraMs: f64 = time.now_ms();
+  if (rlBaseDefinida === 0) { rlBaseConsumidos = consumidosBrutos; rlBaseDefinida = 1; rlConsumidosUltimoEm = agoraMs; }
+  const relativo = consumidosBrutos - rlBaseConsumidos; // ver a nota em `rlBaseConsumidos`: a origem é a 1ª leitura, não 0 absoluto
+  if (relativo !== rlConsumidosUltimo) { rlConsumidosUltimo = relativo; rlConsumidosUltimoEm = agoraMs; }
+  const dtMs = agoraMs - rlConsumidosUltimoEm;
+  const extrapolado = rlConsumidosUltimo + (dtMs > 0.0 ? dtMs * taxa / 1000.0 : 0.0);
+  if (extrapolado > rlSuaveAmostras) rlSuaveAmostras = extrapolado;
+  else if (rlConsumidosUltimo > rlSuaveAmostras) rlSuaveAmostras = rlConsumidosUltimo; // regressão do relativo: nunca regride
 }
 
 /// Lê `faltas` do nativo e ajusta `auAlvoQuadros`: uma falta NOVA desde o
@@ -510,6 +829,9 @@ export function mixarBloco(quadros: number): number {
 /// falta na primeira oscilação seguinte.
 function auAtualizarAlvo(): void {
   if (audio.stats(auDev, auStats) === 0) return;
+  // Relógio audível: mesma leitura de `audio.stats` (sem 2ª chamada nativa
+  // por quadro) — `auStats[0]` é `consumidos`, `auStats[3]` a taxa efetiva.
+  auAtualizarRelogio(auStats[0], auStats[3] > 0.0 ? auStats[3] : auTaxa);
   const faltasAgora = auStats[1];
   if (faltasAgora !== auFaltasAntes) {
     auFaltasAntes = faltasAgora;

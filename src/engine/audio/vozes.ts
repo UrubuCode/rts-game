@@ -2,7 +2,7 @@
 // lugar dos 14 arrays paralelos. Chega ao mixer POR PARÂMETRO (20 ns por
 // acesso, contra 260 ns de um array de módulo — medido).
 export const MAX_VOZES: number = 32;
-export const VOZ_FLOATS: number = 28;
+export const VOZ_FLOATS: number = 31;
 
 export const V_ESTADO: number = 0;
 export const V_CLIPE: number = 1;
@@ -32,6 +32,13 @@ export const V_CANAIS: number = 24;
 export const V_DIST: number = 25;     // distância ao ouvinte no último bloco
 export const V_CORTE: number = 26;    // corte do passa-baixa em Hz no último bloco
 export const V_GERACAO: number = 27;  // conta alocações do slot; faz o id antigo ficar inválido
+// ── relógio DSP (ritmo) ─────────────────────────────────────────────────────
+// V_ATRASO/V_INICIO_MIX/V_BASE_TEMPO dão a `tempoAudivel`/`timeSamples` do
+// AudioSource (audio.ts) sem tocar o mixer nativo: são só bookkeeping de TS,
+// nunca lidos por `mix_add`/`mixAddTs` (só os campos D_* do descritor vão lá).
+export const V_ATRASO: number = 28;   // quadros a SILENCIAR no começo do bloco atual (agendarEm); consumido a cada mixarBloco
+export const V_INICIO_MIX: number = 29; // âncora do relógio audível (amostras, mesma escala de `amostrasDsp()`) do ponto onde V_BASE_TEMPO valia
+export const V_BASE_TEMPO: number = 30; // segundos de clipe acumulados até a âncora (recalculada em play/seek/pausa/despausa/pitch)
 
 export const ESTADO_LIVRE: number = 0;
 export const ESTADO_TOCANDO: number = 1;
