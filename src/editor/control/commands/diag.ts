@@ -21,7 +21,7 @@ export function cmdErrors(parts: string[]): string {
   if (parts.length > 1 && parts[1] === "clear") { limparFalhas(); return "[ok] errors limpo"; }
   if (parts.length > 1) return erroUso("errors");
   const e = ultimaExcecao();
-  let s = "[errors] excecoes=" + totalDeExcecoes() + " assets_com_falha=" + falhasDeAsset().length;
+  let s = "[falhas] excecoes=" + totalDeExcecoes() + " assets_com_falha=" + falhasDeAsset().length;
   if (e === null) s = s + NL + "ultima: nenhuma";
   else {
     s = s + NL + "ultima: [" + e.origem + "] ha " + ((Date.now() - e.quandoMs) / 1000.0).toFixed(1) + "s: " + e.mensagem;

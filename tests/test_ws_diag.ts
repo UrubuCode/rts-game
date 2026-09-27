@@ -31,7 +31,7 @@ check(cmd("log clear") === "[log] limpo", "clear");
 // ── errors ─────────────────────────────────────────────────────────────────
 check(cmd("errors clear") === "[ok] errors limpo", "errors clear");
 const vazio = cmd("errors");
-check(vazio.indexOf("[errors] excecoes=0") === 0 && vazio.indexOf("ultima: nenhuma") > 0 && vazio.indexOf("desligados por falha: 0") > 0, "vazio: " + vazio);
+check(vazio.indexOf("[falhas] excecoes=0") === 0 && vazio.indexOf("ultima: nenhuma") > 0 && vazio.indexOf("desligados por falha: 0") > 0, "vazio: " + vazio);
 registerCommand("teste_diag_lanca", "teste_diag_lanca :: lanca", false, (p: string[]) => { throw new Error("falhou de proposito"); });
 check(cmd("teste_diag_lanca").indexOf("[erro] teste_diag_lanca: falhou de proposito") === 0, "comando lanca");
 scene.clear();
@@ -39,7 +39,7 @@ cmd("spawn Alvo 0 0 0");
 cmd("addcomp Alvo Spinner");
 scene.objects[0].behaviors[0].falhasEditor = FALHA_GIZMO;
 const e = cmd("errors");
-check(e.indexOf("[errors] excecoes=1") === 0, "conta: " + e);
+check(e.indexOf("[falhas] excecoes=1") === 0, "conta: " + e);
 check(e.indexOf("ultima: [comando teste_diag_lanca]") > 0 && e.indexOf("falhou de proposito") > 0, "origem e mensagem: " + e);
 check(e.indexOf("pilha:") > 0 && e.indexOf("    at ") > 0, "pilha do runtime: " + e);
 check(e.indexOf("desligados por falha: 1") > 0 && e.indexOf("#0 Alvo [0] Spinner: gizmo desligado") > 0, "gancho desligado: " + e);

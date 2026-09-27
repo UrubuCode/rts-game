@@ -23,7 +23,7 @@ Saída:
 Um argumento com várias linhas vira um comando por linha (o editor responde
 uma mensagem por linha, e todas são lidas).
 
-Código de saída: 0 se todas as respostas vieram sem "[erro"; 1 se alguma é
+Código de saída: 0 se todas as respostas vieram sem "[erro]"; 1 se alguma é
 [erro] ou não chegou; 2 se não conectou.
 
 Acentos (Windows/Git Bash): a saída é forçada para UTF-8 e um argumento que
@@ -41,7 +41,7 @@ import websockets
 
 PORTA_PADRAO = 7777
 TIMEOUT_PADRAO = 5.0
-PREFIXO_ERRO = "[erro"
+PREFIXO_ERRO = "[erro]"
 
 
 def utf8_na_saida():
