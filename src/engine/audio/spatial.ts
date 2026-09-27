@@ -19,6 +19,7 @@
 /// voz. O artefato dessa escolha (o salto de ganho na fronteira do bloco) está
 /// anotado no fim.
 import math from "@compat/math.ts";
+import { V_X, V_Y, V_Z, V_BLEND, V_MIN, V_MAX, V_ROLLOFF, ROLLOFF_LINEAR, CORTE_ABERTO } from "./vozes";
 
 // ── OUVINTE ─────────────────────────────────────────────────────────────────
 // Estado de módulo, empurrado uma vez por frame por quem tem a câmera. O
@@ -30,14 +31,23 @@ let lYaw: f64 = 0.0; let lPitch: f64 = 0.0;
 // Vetor LATERAL do ouvinte, derivado do yaw uma vez por `setListener` em vez de
 // por voz. Mesma convenção do render (LH, yaw 0 = +Z).
 let rx: f64 = 1.0; let rz: f64 = 0.0;
+// Velocidade do ouvinte (fase 1: só armazenada; Doppler fica para depois).
+let lvx: f64 = 0.0; let lvy: f64 = 0.0; let lvz: f64 = 0.0;
+// Vetor de FRENTE do ouvinte, com pitch — convenção do render:
+// fwd = (sin yaw·cos p, sin p, cos yaw·cos p), pitch > 0 olha para cima.
+let fx: f64 = 0.0; let fy: f64 = 0.0; let fz: f64 = 1.0;
 
 /// Onde está e para onde olha quem ouve. Chamar uma vez por frame, na mesma
 /// linha do `pumpAudio()` — ganho e som saem do mesmo instante.
-/// `pose` = [x, y, z, yaw, pitch] (≤ 4 parâmetros: 5+ alocam por chamada no RTS).
+/// `pose` = [x, y, z, yaw, pitch, vx, vy, vz] (com 5 floats a velocidade é 0).
 export function setListener(pose: Float64Array): void {
   lx = pose[0]; ly = pose[1]; lz = pose[2]; lYaw = pose[3]; lPitch = pose[4];
   rx = math.cos(lYaw);
   rz = 0.0 - math.sin(lYaw);
+  const cp: f64 = math.cos(lPitch);
+  fx = math.sin(lYaw) * cp; fy = math.sin(lPitch); fz = math.cos(lYaw) * cp;
+  if (pose.length >= 8) { lvx = pose[5]; lvy = pose[6]; lvz = pose[7]; }
+  else { lvx = 0.0; lvy = 0.0; lvz = 0.0; }
 }
 
 export function listenerX(): f64 { return lx; }
@@ -45,6 +55,9 @@ export function listenerY(): f64 { return ly; }
 export function listenerZ(): f64 { return lz; }
 export function listenerYaw(): f64 { return lYaw; }
 export function listenerPitch(): f64 { return lPitch; }
+export function listenerVX(): f64 { return lvx; }
+export function listenerVY(): f64 { return lvy; }
+export function listenerVZ(): f64 { return lvz; }
 
 // ── CURVA DE DISTÂNCIA ──────────────────────────────────────────────────────
 /// Raio de ganho cheio, e a distância em que a fonte cala.
@@ -131,17 +144,87 @@ export function panGains(sx: f64, sy: f64, sz: f64, out: f64[]): void {
   out[1] = math.sin(th) * att;
 }
 
+// ── POR FONTE (fase 1 do spec §3.6/§3.8) ────────────────────────────────────
+export const ESP_GL: number = 0;
+export const ESP_GR: number = 1;
+export const ESP_LP: number = 2;      // coeficiente do passa-baixa de um polo
+export const ESP_DIST: number = 3;
+export const ESP_CORTE: number = 4;   // corte em Hz (inspeção: `audio list`)
+export const ESP_FLOATS: number = 5;
+/// Corte de uma fonte bem atrás do ouvinte. À frente é `CORTE_ABERTO` (22 kHz);
+/// entre os dois, interpolação geométrica pelo cosseno com o `fwd`.
+export const ESP_CORTE_ATRAS: f64 = 5000.0;
+/// Corte a partir do qual o filtro é desligado (coeficiente 1).
+export const ESP_CORTE_DESLIGA: f64 = 20000.0;
+/// Fração do corte que sobra no `maxDistance` (cai linearmente de min a max).
+export const ESP_FATOR_CORTE_LONGE: f64 = 0.5;
+const ESP_DIST_MIN: f64 = 0.001;
+
+/// Atenuação de uma fonte: log = `min/d`, linear = `(max − d)/(max − min)`,
+/// 1 dentro de `min` e 0 além de `max` (spec §3.6).
+export function atenuacaoFonte(d: f64, min: f64, max: f64, modo: number): f64 {
+  const mn: f64 = min > ESP_DIST_MIN ? min : ESP_DIST_MIN;
+  const mx: f64 = max > mn ? max : mn + ESP_DIST_MIN;
+  if (d >= mx) return 0.0;
+  if (d <= mn) return 1.0;
+  if (modo === ROLLOFF_LINEAR) return (mx - d) / (mx - mn);
+  return mn / d;
+}
+
+/// Coeficiente `a` de `y += a(x − y)` para um corte em Hz; ≥ 20 kHz desliga (1).
+export function corteParaCoef(corteHz: f64, taxa: f64): f64 {
+  if (corteHz >= ESP_CORTE_DESLIGA || taxa <= 0.0) return 1.0;
+  return 1.0 - math.exp(0.0 - 2.0 * Math.PI * corteHz / taxa);
+}
+
+/// Ganhos L/R, coeficiente do passa-baixa, distância e corte de UMA voz para o
+/// próximo bloco, a partir do slot `b` da tabela de vozes. 2D (blend 0) é
+/// (1, 1) sem filtro; 3D é atenuação por fonte × pan de potência constante,
+/// com o corte caindo de 22 kHz (frente) a 5 kHz (atrás) e com a distância.
+/// `L = (1 − b)·1 + b·L3D` (spec §3.6), e o mesmo para R e o coeficiente.
+export function espGanhosVoz(vozes: Float64Array, b: number, taxa: f64, out: Float64Array): void {
+  let blend: f64 = vozes[b + V_BLEND];
+  if (!(blend > 0.0)) {
+    out[ESP_GL] = 1.0; out[ESP_GR] = 1.0; out[ESP_LP] = 1.0; out[ESP_DIST] = 0.0; out[ESP_CORTE] = CORTE_ABERTO;
+    return;
+  }
+  if (blend > 1.0) blend = 1.0;
+  const dx: f64 = vozes[b + V_X] - lx; const dy: f64 = vozes[b + V_Y] - ly; const dz: f64 = vozes[b + V_Z] - lz;
+  const d: f64 = math.sqrt(dx * dx + dy * dy + dz * dz);
+  const mn: f64 = vozes[b + V_MIN] > ESP_DIST_MIN ? vozes[b + V_MIN] : ESP_DIST_MIN;
+  const mx: f64 = vozes[b + V_MAX] > mn ? vozes[b + V_MAX] : mn + ESP_DIST_MIN;
+  const att: f64 = atenuacaoFonte(d, mn, mx, vozes[b + V_ROLLOFF]);
+  let gl3: f64 = 0.0; let gr3: f64 = 0.0; let corte: f64 = CORTE_ABERTO;
+  if (att > 0.0) {
+    let p: f64 = 0.0; let frente: f64 = 1.0;
+    if (d > ESP_DIST_MIN) {
+      p = (dx * rx + dz * rz) / d;
+      frente = (dx * fx + dy * fy + dz * fz) / d;
+      if (d < mn) p = p * (d / mn);
+      if (p > 1.0) p = 1.0;
+      if (p < 0.0 - 1.0) p = 0.0 - 1.0;
+    }
+    const th: f64 = (p + 1.0) * 0.78539816339744831;
+    gl3 = math.cos(th) * att; gr3 = math.sin(th) * att;
+    const t: f64 = (1.0 - frente) * 0.5;
+    corte = CORTE_ABERTO * Math.pow(ESP_CORTE_ATRAS / CORTE_ABERTO, t);
+    let longe: f64 = (d - mn) / (mx - mn);
+    if (longe < 0.0) longe = 0.0;
+    if (longe > 1.0) longe = 1.0;
+    corte = corte * (1.0 - (1.0 - ESP_FATOR_CORTE_LONGE) * longe);
+  }
+  const coef3: f64 = corteParaCoef(corte, taxa);
+  out[ESP_GL] = (1.0 - blend) + blend * gl3;
+  out[ESP_GR] = (1.0 - blend) + blend * gr3;
+  out[ESP_LP] = (1.0 - blend) + blend * coef3;
+  out[ESP_DIST] = d;
+  out[ESP_CORTE] = corte;
+}
+
 // ── O QUE FALTA, dito aqui para não virar surpresa ──────────────────────────
 //
-// **Frente e trás soam igual.** Com panorâmica L/R pura a ambiguidade é do
-// modelo, não um defeito: distinguir exige filtrar o traseiro, que é um filtro
-// por voz. É a fase seguinte, junto de ITD (atraso interaural, ~31 amostras no
-// extremo, custo zero por ser um deslocamento de índice) e do polo de sombra de
-// cabeça — juntos, ~5 % do custo por amostra.
+// **Frente e trás: resolvido na fase 1 pelo passa-baixa de `espGanhosVoz`
+// (22 kHz → 5 kHz); ITD e sombra de cabeça seguem para depois.**
 //
-// **O ganho salta na fronteira do bloco.** Uma fonte que cruza rápido muda de
-// ganho a cada frame, e um salto de amplitude é um degrau — cujo espectro é
-// banda-larga. A 60 Hz isso vira um zumbido tonal. A correção é rampar o ganho
-// por amostra (`g += (alvo − g)/frames`, ~2 ns), e ela entra quando o mixer
-// tiver os ganhos-alvo separados dos correntes. Está anotado como dívida
-// consciente: hoje as fontes do jogo se movem devagar perto do ouvinte.
+// **Resolvido: `mix_add` rampa o ganho por amostra do valor corrente ao alvo
+// (Task 6).**

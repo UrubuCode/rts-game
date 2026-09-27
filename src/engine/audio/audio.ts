@@ -11,13 +11,13 @@
 // passam pelo mesmo caminho: há UM mixer.
 import audio, { AUDIO_REAL, AUDIO_NULO } from "@compat/audio.ts";
 import { AudioClip, toneClip, definirTaxaDosClipes, FORMA_SENO, FORMA_QUADRADA, FORMA_RUIDO } from "./clip";
-import { panGains, rolloffRef, rolloffMax } from "./spatial";
+import { rolloffRef, rolloffMax, espGanhosVoz, ESP_GL, ESP_GR, ESP_LP, ESP_DIST, ESP_CORTE, ESP_FLOATS } from "./spatial";
 import { D_POS, D_PASSO, D_CANAIS_SRC, D_CANAIS_DST, D_QUADROS, D_GL0, D_GR0, D_GL1, D_GR1, D_LP_COEF,
          D_LP_L, D_LP_R, D_LACO_INI, D_LACO_FIM, D_FIM, DESC_FLOATS, N_CANAIS, N_QUADROS, NIVEL_FLOATS } from "./mix_desc";
 import { mixAddTs } from "./mix_ts";
 import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PASSO, V_LACO, V_GL, V_GR, V_ALVO_L, V_ALVO_R,
          V_LP_COEF, V_LP_L, V_LP_R, V_GRUPO, V_FONTE, V_FLAGS, V_VOLUME, V_X, V_Y, V_Z, V_BLEND, V_MIN, V_MAX,
-         V_ROLLOFF, V_PITCH, V_CANAIS, V_CORTE, V_GERACAO, ESTADO_LIVRE, ESTADO_TOCANDO, ESTADO_PAUSADA,
+         V_ROLLOFF, V_PITCH, V_CANAIS, V_CORTE, V_GERACAO, V_DIST, ESTADO_LIVRE, ESTADO_TOCANDO, ESTADO_PAUSADA,
          ESTADO_PARANDO, ESTADO_PAUSANDO,
          FLAG_VIRTUAL, FLAG_PREVIA, FLAG_3D, FLAG_CONGELADA, CORTE_ABERTO, PEDIDO_VOLUME, PEDIDO_PITCH,
          PEDIDO_LACO, PEDIDO_GRUPO, PEDIDO_FONTE, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_Y, PEDIDO_Z, PEDIDO_BLEND,
@@ -53,8 +53,8 @@ while (auIni < MAX_VOZES) { auAmostras.push(auVazio); auIni = auIni + 1; }
 const auDesc = new Float64Array(DESC_FLOATS);
 auDesc[D_CANAIS_DST] = AU_CANAIS_PADRAO;
 const auNivel = new Float64Array(NIVEL_FLOATS);
-/// Saída de `panGains` (o motor não devolve tuplas).
-const auGanho: f64[] = [0.0, 0.0];
+/// Saída de `espGanhosVoz` (o motor não devolve tuplas).
+const auEsp = new Float64Array(ESP_FLOATS);
 /// Pedido reaproveitado pelos tons de antes.
 const auPedido = new Float64Array(PEDIDO_FLOATS);
 
@@ -232,8 +232,9 @@ function atualizarAlvoVoz(vz: Float64Array, b: number): void {
   let gl: f64 = 1.0; let gr: f64 = 1.0;
   const flags = vz[b + V_FLAGS] | 0;
   if ((flags & FLAG_3D) !== 0) {
-    panGains(vz[b + V_X], vz[b + V_Y], vz[b + V_Z], auGanho);
-    gl = auGanho[0]; gr = auGanho[1];
+    espGanhosVoz(vz, b, auTaxa, auEsp);
+    gl = auEsp[ESP_GL]; gr = auEsp[ESP_GR];
+    vz[b + V_LP_COEF] = auEsp[ESP_LP]; vz[b + V_DIST] = auEsp[ESP_DIST]; vz[b + V_CORTE] = auEsp[ESP_CORTE];
   }
   const vol = vz[b + V_VOLUME];
   gl = gl * vol; gr = gr * vol;
