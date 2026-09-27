@@ -241,7 +241,7 @@ export const UI_CONSOLE = {
 };
 export const UI_ICONS = {
   directory: "assets/editor/icons/", maxPixels: 256,
-  names: ["info", "warning", "error", "clear", "collapse", "search", "follow", "luz-direcional", "luz-pontual", "luz-spot", "camera", "audio-fonte", "audio-ouvinte"],
+  names: ["info", "warning", "error", "clear", "collapse", "search", "follow", "luz-direcional", "luz-pontual", "luz-spot", "camera", "audio-fonte", "audio-ouvinte", "asset-imagem", "asset-modelo", "asset-prefab", "asset-cena", "asset-script", "particulas-emissor"],
 };
 /// Gizmos da vista de Cena: lado do ícone clicável (desenho E clique) e espessura das linhas.
 export const UI_GIZMO = { iconSize: 24, lineWidth: 1 };

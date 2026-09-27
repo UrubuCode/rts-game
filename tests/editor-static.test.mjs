@@ -67,3 +67,11 @@ test('a skill do agente RTS puxa comandos/componentes do runtime (contexto.py), 
       'SKILL.md cita o comando `' + tok + '` num trecho de código: a lista/sintaxe deveria vir só de `contexto`/`doc` (bootstrap permitido: ' + PERMITIDOS.join(', ') + ')');
   }
 });
+
+test('todo ícone de source.json está em UI_ICONS.names (senão icon_images lança "Icone desconhecido")', () => {
+  const ids = Object.keys(JSON.parse(read('assets/editor/icons/source.json')).icons);
+  const m = read('src/editor/ui_config.ts').match(/names: \[(.*?)\],/);
+  assert.ok(m, 'UI_ICONS.names');
+  const nomes = m[1].split(',').map(s => s.trim().replace(/"/g, ''));
+  for (const id of ids) assert.ok(nomes.includes(id), 'UI_ICONS.names inclui ' + id);
+});
