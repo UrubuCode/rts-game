@@ -174,7 +174,7 @@ export function atenuacaoFonte(d: f64, min: f64, max: f64, modo: number): f64 {
 /// Coeficiente `a` de `y += a(x − y)` para um corte em Hz; ≥ 20 kHz desliga (1).
 export function corteParaCoef(corteHz: f64, taxa: f64): f64 {
   if (corteHz >= ESP_CORTE_DESLIGA || taxa <= 0.0) return 1.0;
-  return 1.0 - math.exp(0.0 - 2.0 * Math.PI * corteHz / taxa);
+  return 1.0 - math.exp(0.0 - 2.0 * math.PI * corteHz / taxa);
 }
 
 /// Ganhos L/R, coeficiente do passa-baixa, distância e corte de UMA voz para o
@@ -207,7 +207,7 @@ export function espGanhosVoz(vozes: Float64Array, b: number, taxa: f64, out: Flo
     const th: f64 = (p + 1.0) * 0.78539816339744831;
     gl3 = math.cos(th) * att; gr3 = math.sin(th) * att;
     const t: f64 = (1.0 - frente) * 0.5;
-    corte = CORTE_ABERTO * Math.pow(ESP_CORTE_ATRAS / CORTE_ABERTO, t);
+    corte = CORTE_ABERTO * math.pow(ESP_CORTE_ATRAS / CORTE_ABERTO, t);
     let longe: f64 = (d - mn) / (mx - mn);
     if (longe < 0.0) longe = 0.0;
     if (longe > 1.0) longe = 1.0;

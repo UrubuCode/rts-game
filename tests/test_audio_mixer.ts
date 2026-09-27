@@ -108,6 +108,41 @@ check(((vz[base(idV) + V_FLAGS] | 0) & FLAG_VIRTUAL) === 0 && vz[base(idV) + V_P
 check(nivel[N_RMS_R] > 0.01 && nivel[N_RMS_L] < 1e-6, "fonte à direita: só o canal direito");
 pararTodas();
 
+// ── parar/pausar voz VIRTUAL: já silenciosa, sem bloco de rampa de áudio ────
+const p4 = novoPedido();
+p4[PEDIDO_FLAGS] = FLAG_3D; p4[PEDIDO_BLEND] = 1.0; p4[PEDIDO_MIN] = 1.0; p4[PEDIDO_MAX] = 60.0; p4[PEDIDO_X] = 100.0;
+const idVParar = tocarClipe(dc, p4);
+check(((vz[base(idVParar) + V_FLAGS] | 0) & FLAG_VIRTUAL) !== 0, "fora do alcance desde a criação: virtual");
+pararVoz(idVParar);
+mixarBloco(100); // 1 bloco: avancarVirtual (não mix_add) — não precisa de rampa de ganho
+check(activeVoices() === 0 && vozTocando(idVParar) === 0, "parar uma voz virtual libera sem rampa de áudio");
+const idVPausar = tocarClipe(dc, p4);
+check(((vz[base(idVPausar) + V_FLAGS] | 0) & FLAG_VIRTUAL) !== 0, "fora do alcance desde a criação: virtual");
+pausarVoz(idVPausar, 1);
+mixarBloco(100);
+check(activeVoices() === 1 && vozTocando(idVPausar) === 0, "pausar uma voz virtual congela sem rampa de áudio");
+pausarVoz(idVPausar, 0);
+check(vozTocando(idVPausar) === 1, "despausar a volta a tocar (ainda virtual, mas TOCANDO)");
+pararTodas();
+
+// ── segurança de pararVoz: duplicada, id já livre, slot reaproveitado ───────
+const idSeg = tocarClipe(dc, p);
+mixarBloco(50);
+pararVoz(idSeg);
+pararVoz(idSeg); // segunda chamada em ESTADO_PARANDO: não reinicia nem quebra a rampa
+mixarBloco(50);
+check(activeVoices() === 0 && vozTocando(idSeg) === 0, "parar duas vezes seguidas libera normalmente");
+pararVoz(idSeg); // id já livre: sem efeito, sem lançar
+check(activeVoices() === 0, "parar um id já livre não faz nada");
+const idNovoSlot = tocarClipe(dc, p);
+check(idNovoSlot > 0 && idNovoSlot !== idSeg && vozIndice(idNovoSlot) === vozIndice(idSeg + MAX_VOZES) && vozTocando(idNovoSlot) === 1,
+      "voz nova reaproveita o mesmo slot (id antigo + MAX_VOZES = próxima geração) e toca normalmente");
+pararVoz(idSeg); // id antigo (geração velha), agora aponta pro slot da voz NOVA
+check(vozTocando(idNovoSlot) === 1, "parar o id antigo NÃO afeta a voz nova que herdou o slot");
+mixarBloco(50);
+check(vozTocando(idNovoSlot) === 1, "…nem depois de mixar: a voz nova continua tocando");
+pararTodas();
+
 // ── pressão de vozes ────────────────────────────────────────────────────────
 const ids: number[] = [];
 k = 0;
