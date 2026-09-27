@@ -8,8 +8,15 @@
 import { Editor, registerGizmo, Gizmos } from "@editor/api";
 import { Behavior } from "@engine/core/behavior";
 import { GameObject } from "@engine/core/gameobject";
-import { ParticleSystem } from "@scripts/particlesystem";
+import { ParticleSystem, definirConsultaSelecao } from "@scripts/particlesystem";
 import { FORMA_ESFERA, FORMA_CONE, FORMA_CAIXA } from "@engine/particles/desc";
+
+// Task 9: injeta a consulta de seleção no núcleo do componente (que não pode
+// importar @editor/api, CLAUDE.md "sem ciclos") — a prévia de edição do
+// ParticleSystem (`update()`/`onInspectorGUI` em particlesystem.ts) só
+// simula fora do Play quando este pacote de editor está carregado E o objeto
+// está selecionado.
+definirConsultaSelecao((id: number) => Editor.selecionado(id));
 
 const ICONE_EMISSOR: string = "particulas-emissor";
 /// Cor do gizmo de forma (esfera/cone/caixa) quando o objeto está

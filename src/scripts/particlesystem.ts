@@ -8,6 +8,7 @@ import { PoolParticulas, criarPool, emitirN, atualizarVidas } from "@engine/part
 import { avaliarGradiente, avaliarCurva, aplicarVelocidade } from "@engine/particles/curvas";
 import { drawParticlesSeguro, drawParticlesTexSeguro, setParticleTex } from "@compat/particles";
 import { emJogo } from "@engine/core/modo_jogo";
+import { clockDelta } from "@engine/core/clock";
 import { frustumParams, inFrustumFast } from "@engine/render/gpu3d";
 import { DESC_FLOATS, D_FORMA, D_RAIO, D_ANGULO, D_CAIXA_X, D_CAIXA_Y, D_CAIXA_Z,
          D_VEL_MIN, D_VEL_MAX, D_TAM_MIN, D_TAM_MAX, D_VIDA_MIN, D_VIDA_MAX, D_ROT0, D_COR_R, D_COR_G, D_COR_B,
@@ -42,6 +43,13 @@ const MAX_BURSTS: number = 4;
 const MAX_CHAVES: number = 4;
 const CHAVE_GRADIENTE_FLOATS: number = 5;
 const CHAVE_CURVA_FLOATS: number = 2;
+
+/// Injeção do editor (Task 9): `assets/pacotes/particulas/particulas_editor.ts`
+/// chama isto uma vez, na carga do pacote, pra o núcleo não importar
+/// `@editor/api` (evitaria o ciclo `scripts → editor` que o CLAUDE.md proíbe).
+/// `id` é o `GameObject.id` do dono; devolve 1 = objeto selecionado no editor.
+let consultaSelecao: ((id: number) => boolean) | null = null;
+export function definirConsultaSelecao(fn: (id: number) => boolean): void { consultaSelecao = fn; }
 
 /**
  * @componentCategory Efeitos
@@ -141,6 +149,14 @@ export class ParticleSystem extends Behavior {
   /// gravação, não a visibilidade do campo.
   /** @nonSerialized */
   time: number = 0.0;
+  /// Task 9: setado pelo `PlayMode` ao copiar o objeto pro Play (hoje
+  /// `scene.update()`/`updateAll` só roda dentro do Play, chamado por
+  /// `sim_step.ts` — então isto é uma segunda trava, não a única: mesmo que
+  /// algum caminho futuro chame `update()` fora do Play, `emPlay` continua
+  /// protegendo). Estado de execução, nunca gravado na cena — mesmo motivo
+  /// de `time` acima.
+  /** @nonSerialized */
+  emPlay: boolean = false;
   get particleCount(): number { return this.pool === null ? 0 : this.pool.vivas; }
 
   /// Bbox local (sem somar a posição do dono) das partículas vivas — usado
@@ -360,6 +376,23 @@ export class ParticleSystem extends Behavior {
   /// carried item (c): um hitch de 2 s não emite nem envelhece um passo de
   /// 2 s de uma vez.
   update(dtArg: f64): void {
+    // Task 9: fora do Play, só simula se o editor disser que este objeto
+    // está selecionado (prévia de edição) — economiza CPU com o efeito
+    // parado/oculto, como a Unity. `emJogo()!==0` cobre o Play de verdade
+    // (jogo exportado E o Play do editor — `PlayMode.play()` chama
+    // `audioEntrarJogo()`/`entrarJogo()`, o mesmo flag que `mount()` já usa
+    // acima para `playOnAwake`): a cópia do Play não depende de ninguém
+    // setar `emPlay` nela. `emPlay` continua existindo pra quem quiser
+    // simular incondicionalmente sem esse flag global (e é o que o teste
+    // isolado usa pra exercitar o caminho "dentro do Play" sem depender de
+    // `entrarJogo()`). `consultaSelecao === null` (nenhum pacote de editor
+    // carregado: teste isolado, jogo exportado sem o pacote) não bloqueia
+    // nada, pro comportamento de antes desta task continuar valendo nesses
+    // casos.
+    if (!this.emPlay && emJogo() === 0 && consultaSelecao !== null) {
+      const dono = this.owner === null ? 0 - 1 : this.owner.id;
+      if (!consultaSelecao(dono)) return;
+    }
     if (this.pausado !== 0) return;
     const dt: f64 = dtArg > PS_DT_MAX_PASSO ? PS_DT_MAX_PASSO : (dtArg < 0.0 ? 0.0 : dtArg);
     const pool = this.garantirPool();
@@ -645,6 +678,21 @@ export class ParticleSystem extends Behavior {
       psTmpCurva[0] = 1.0; psTmpCurva[1] = 1.0;
       this.setChaveTamanho(this.nChavesTamanho, psTmpCurva);
     }
+
+    // ── Prévia de edição (Task 9) ────────────────────────────────────────
+    // Fora do Play, `onInspectorGUI` roda uma vez por quadro de editor
+    // enquanto ESTE componente está selecionado com o Inspector aberto (o
+    // mesmo gancho, `inspector.ts`) — o ponto certo pra avançar a prévia sem
+    // precisar de um laço próprio em `main.ts` nem de import de `@editor/api`
+    // aqui. Dentro do Play, `scene.update()` já roda este `update()` pelo
+    // caminho normal (`sim_step.ts`); chamar de novo aqui duplicaria a
+    // simulação, por isso o `emJogo()===0`. O corte por seleção de verdade
+    // ainda é o de dentro de `update()` (`consultaSelecao`) — chamar aqui é
+    // só o "quem avança o relógio".
+    if (emJogo() === 0) this.update(clockDelta());
+    ui.label("Prévia");
+    if (ui.button(this.isPlaying() ? "Pausar" : "Continuar")) { if (this.isPlaying()) this.pause(); else this.unPause(); }
+    if (ui.button("Reiniciar")) { this.clear(); this.play(); }
   }
 
   /// Cabeçalhos "N/MAX ..." refeitos só quando a contagem muda (nada de
