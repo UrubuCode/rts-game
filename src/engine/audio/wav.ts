@@ -78,7 +78,16 @@ export function decodeWav(bytes: any): WavDecodificado {
   let o = dataIni;
   if (formato === WAV_FLOAT) {
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
-    while (i < n) { out[i] = dv.getFloat32(o, true); o = o + 4; i = i + 1; }
+    // Float do arquivo pode vir fora de [−1, 1] (clipping de quem gravou) ou
+    // NaN (amostra corrompida); `WavDecodificado.amostras` documenta [−1, 1],
+    // então prendemos aqui — o resto do motor confia nesse contrato.
+    while (i < n) {
+      let v = dv.getFloat32(o, true);
+      if (v !== v) v = 0.0;
+      else if (v > 1.0) v = 1.0;
+      else if (v < 0.0 - 1.0) v = 0.0 - 1.0;
+      out[i] = v; o = o + 4; i = i + 1;
+    }
   } else if (bits === 8) {
     while (i < n) { out[i] = (bytes[o] - 128) / 128.0; o = o + 1; i = i + 1; }
   } else if (bits === 16) {

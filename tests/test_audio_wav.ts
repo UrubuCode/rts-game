@@ -91,4 +91,31 @@ const antes = cruzamentos(w.amostras, 2);
 const depois = cruzamentos(re, 2);
 check(Math.abs(antes - depois) <= 2, "mesma frequência: " + antes + " x " + depois + " cruzamentos");
 check(reamostrar(w.amostras, 2, 44100, 44100) === w.amostras, "mesma taxa devolve o próprio array");
-io.print("[PASSOU] wav: 30 combinações, LIST ímpar, EXTENSIBLE, 8 recusas com mensagem, reamostragem 44,1→48 kHz");
+
+// ── float fora de [−1, 1] e NaN: preso no decodificador ────────────────────
+function wavFloatBruto(valores: f64[]): Uint8Array {
+  const quadros = valores.length;
+  const dataLen = quadros * 4;
+  const total = 12 + 8 + 16 + 8 + dataLen;
+  const b = new Uint8Array(total);
+  const dv = new DataView(b.buffer);
+  let p = 0;
+  function id(s: string): void { let k = 0; while (k < 4) { b[p + k] = s.charCodeAt(k); k = k + 1; } p = p + 4; }
+  function u16(v: number): void { b[p] = v & 255; b[p + 1] = (v >> 8) & 255; p = p + 2; }
+  function u32(v: number): void { b[p] = v & 255; b[p + 1] = (v >> 8) & 255; b[p + 2] = (v >> 16) & 255; b[p + 3] = (v >>> 24) & 255; p = p + 4; }
+  id("RIFF"); u32(total - 8); id("WAVE");
+  id("fmt "); u32(16);
+  u16(3); u16(1); u32(48000); u32(48000 * 4); u16(4); u16(32);
+  id("data"); u32(dataLen);
+  let q = 0;
+  while (q < quadros) { dv.setFloat32(p, valores[q], true); p = p + 4; q = q + 1; }
+  return b;
+}
+const bruto = wavFloatBruto([2.0, 0.0 - 3.0, NaN, 0.25]);
+const wFloat = decodeWav(bruto);
+check(wFloat.amostras[0] === 1.0, "float > 1 preso em 1: " + wFloat.amostras[0]);
+check(wFloat.amostras[1] === 0.0 - 1.0, "float < -1 preso em -1: " + wFloat.amostras[1]);
+check(wFloat.amostras[2] === 0.0, "NaN vira 0: " + wFloat.amostras[2]);
+check(wFloat.amostras[3] === 0.25, "float dentro da faixa não muda: " + wFloat.amostras[3]);
+
+io.print("[PASSOU] wav: 30 combinações, LIST ímpar, EXTENSIBLE, 8 recusas com mensagem, reamostragem 44,1→48 kHz, float preso em [-1,1] e NaN vira 0");
