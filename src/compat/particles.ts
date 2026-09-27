@@ -75,8 +75,12 @@ export function temDrawParticlesTex(): boolean {
 
 /// Estado do próximo `drawParticlesTexSeguro` (o `tex` não cabe nos 4
 /// parâmetros do wrapper — ver comentário acima). Vale para as chamadas
-/// seguintes até o próximo `setParticleTex(win, 0)`. 2 parâmetros.
-export function setParticleTex(win: number, tex: number): void {
+/// seguintes até o próximo `setParticleTex(0)`. Sem `win`: `specTex` é um
+/// objeto de opções por MÓDULO, não por janela (o mesmo grão de
+/// `pincel`/`estiloTexto` em `compat/draw2d.ts` — hoje o editor só desenha
+/// numa janela por vez; se isso mudar, o estado vira por-win então, não
+/// antes).
+export function setParticleTex(tex: number): void {
   specTex.tex = tex;
 }
 

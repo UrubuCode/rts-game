@@ -4,6 +4,8 @@
 // entre quadros, e teto de dt (hitch não emite/simula um passo gigante).
 import { ParticleSystem } from "@scripts/particlesystem";
 import { fixarSementeAleatorio } from "@engine/core/aleatorio";
+import { entrarJogo, sairJogo, emJogo } from "@engine/core/modo_jogo";
+import { audioEmJogo } from "@engine/audio/audio";
 
 function assertTrue(msg: string, v: boolean): void { if (!v) { console.log("[FALHOU] " + msg); process.exit(1); } }
 function assertEq(msg: string, a: f64, b: f64): void { if (Math.abs(a - b) > 1e-6) { console.log("[FALHOU] " + msg + " esperado=" + b + " obtido=" + a); process.exit(1); } }
@@ -121,6 +123,81 @@ assertEq("pause() congela time", ps2.time, tAntesDoPause);
   copia.stop(true); // Stop com limpeza — nenhuma partícula sobra na cópia
   assertEq("stop(true) limpa a cópia", copia.particleCount, 0);
   assertEq("original continua limpo", original.particleCount, 0);
+}
+
+// ── Fix round 1, item 1 (CRÍTICO): playOnAwake só dentro do Play/jogo ─────
+// mount() não deve tocar sozinho ao carregar a cena no editor (emJogo()===0);
+// só toca quando o flag global de engine/core/modo_jogo diz que estamos no
+// Play/jogo. audioEmJogo() (áudio) e emJogo() (genérico) precisam concordar
+// — audio.ts passou a delegar no mesmo flag (ver fix round 1).
+{
+  sairJogo(); // estado inicial limpo, independente de testes anteriores
+  assertTrue("estado inicial: fora do jogo", emJogo() === 0);
+  assertTrue("audioEmJogo concorda com emJogo (fora do jogo)", audioEmJogo() === 0);
+
+  const editor = new ParticleSystem();
+  editor.playOnAwake = true;
+  editor.mount(); // carregar a cena / anexar o componente no editor
+  assertTrue("mount() no editor (fora do jogo): não toca sozinho", !editor.isPlaying());
+  assertEq("mount() no editor: nenhuma partícula", editor.particleCount, 0);
+
+  entrarJogo();
+  assertTrue("entrarJogo(): emJogo()==1", emJogo() !== 0);
+  assertTrue("entrarJogo(): audioEmJogo() concorda", audioEmJogo() !== 0);
+  const jogo = new ParticleSystem();
+  jogo.playOnAwake = true;
+  jogo.mount(); // a cópia do Play monta dentro do jogo
+  assertTrue("mount() dentro do jogo: toca sozinho", jogo.isPlaying());
+
+  sairJogo(); // volta ao editor parado (Stop)
+  assertTrue("sairJogo(): emJogo()==0 de novo", emJogo() === 0);
+  const depoisDoStop = new ParticleSystem();
+  depoisDoStop.playOnAwake = true;
+  depoisDoStop.mount();
+  assertTrue("mount() depois do Stop: não toca mais sozinho", !depoisDoStop.isPlaying());
+
+  // sem playOnAwake, mount() nunca toca, mesmo dentro do jogo.
+  entrarJogo();
+  const semAutoplay = new ParticleSystem();
+  semAutoplay.playOnAwake = false;
+  semAutoplay.mount();
+  assertTrue("playOnAwake=false: mount() nunca toca, nem dentro do jogo", !semAutoplay.isPlaying());
+  sairJogo(); // deixa o flag global limpo pro resto do processo/suíte
+}
+
+// ── Fix round 1, item 2: guarda t=idade/vida contra vida<=0 ──────────────
+// emit() sem update() no meio: a partícula continua com P_VIDA=0 (ainda não
+// envelheceu/reciclou) e drawSelf() precisa calcular t sem gerar NaN/lançar.
+{
+  fixarSementeAleatorio(5);
+  const zero = new ParticleSystem();
+  zero.maxParticles = 10; zero.startLifetimeMin = 0.0; zero.startLifetimeMax = 0.0;
+  zero.emit(1);
+  assertEq("emit com vida=0: partícula viva até a próxima atualizarVidas", zero.particleCount, 1);
+  const pos0 = new Float64Array([0.0, 0.0, 0.0]);
+  zero.drawSelf(0, pos0, 0.0 - 1.0); // não deve lançar (t=idade/vida guardado contra vida<=0)
+  assertEq("drawSelf com vida=0 não altera particleCount", zero.particleCount, 1);
+}
+
+// ── Fix round 1, item 4: prewarm e sort ───────────────────────────────────
+{
+  fixarSementeAleatorio(6);
+  const pw = new ParticleSystem();
+  pw.maxParticles = 200; pw.rateOverTime = 50.0; pw.startLifetimeMin = 10.0; pw.startLifetimeMax = 10.0;
+  pw.duration = 1.0; pw.loop = true; pw.prewarm = true;
+  pw.play(); // já nasce "em regime": prewarm simula `duration` antes do 1º quadro
+  assertTrue("prewarm: já tem partículas logo após play()", pw.particleCount > 0);
+
+  fixarSementeAleatorio(7);
+  const st = new ParticleSystem();
+  st.maxParticles = 100; st.rateOverTime = 200.0; st.startLifetimeMin = 5.0; st.startLifetimeMax = 5.0;
+  st.sort = 1; st.modo = 0; // back-to-front só no modo alfa
+  st.play();
+  st.update(0.2);
+  const vivasAntes = st.particleCount;
+  const posSort = new Float64Array([0.0, 0.0, 0.0]);
+  st.drawSelf(0, posSort, 0.0 - 1.0); // não deve lançar nem mudar particleCount
+  assertEq("sort=1: drawSelf não muda particleCount", st.particleCount, vivasAntes);
 }
 
 console.log("[PASSOU] test_particulas_source");

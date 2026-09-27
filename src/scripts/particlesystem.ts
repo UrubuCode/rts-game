@@ -6,6 +6,8 @@ import { Behavior, KIND_RENDERER } from "@engine/core/behavior";
 import { PoolParticulas, criarPool, emitirN, atualizarVidas } from "@engine/particles/sim";
 import { avaliarGradiente, avaliarCurva, aplicarVelocidade } from "@engine/particles/curvas";
 import { drawParticlesSeguro, drawParticlesTexSeguro, setParticleTex } from "@compat/particles";
+import { emJogo } from "@engine/core/modo_jogo";
+import { frustumParams } from "@engine/render/gpu3d";
 import { DESC_FLOATS, D_FORMA, D_RAIO, D_ANGULO, D_CAIXA_X, D_CAIXA_Y, D_CAIXA_Z,
          D_VEL_MIN, D_VEL_MAX, D_TAM_MIN, D_TAM_MAX, D_VIDA_MIN, D_VIDA_MAX, D_ROT0, D_COR_R, D_COR_G, D_COR_B,
          P_X, P_Y, P_Z, P_VX, P_VY, P_VZ, P_IDADE, P_VIDA, P_TAM0, P_ROT, P_COR_R, P_COR_G, P_COR_B, P_COR_A, P_FLOATS } from "@engine/particles/desc";
@@ -22,6 +24,11 @@ const PART_INSTANCIA_FLOATS: number = 9;
 /// `atualizarVidas`/`aplicarVelocidade` avançariam a vida/velocidade num
 /// passo enorme. `dtArg` é limitado a isto (e a >=0) antes de qualquer uso.
 const PS_DT_MAX_PASSO: f64 = 0.25;
+
+/// Passo fixo do `prewarm` (1/30 s) — bem abaixo de `PS_DT_MAX_PASSO`, então
+/// nunca é clampado; simula `duration` segundos em passos pequenos e
+/// regulares antes do primeiro quadro visível.
+const PS_PREWARM_PASSO: f64 = 1.0 / 30.0;
 
 /// Até 4 bursts fixos (Emission) — nada de array dinâmico no caminho por
 /// quadro, mesmo espírito de `MAX_GRUPOS` no mixer de áudio.
@@ -86,6 +93,16 @@ export class ParticleSystem extends Behavior {
   /// Buffers reaproveitados por quadro — nenhuma alocação em update()/drawSelf().
   private ventoBuf: Float64Array = new Float64Array(3);
   private corBuf: Float64Array = new Float64Array(4);
+  /// `sort` (back-to-front, só modo alfa): distância² à câmera por partícula
+  /// desenhada, índice de ordenação e a cópia final reordenada do buffer de
+  /// instância — os três crescem junto com `saidaBuf` (nunca encolhem),
+  /// mesmo padrão de `bufT`/`bufC` de `scenedraw.ts`. `camBuf` é o mesmo
+  /// formato de `frustumParams` (`scenedraw.ts:fParams`): 9 números, só os
+  /// 3 primeiros (posição da câmera) importam aqui.
+  private distBuf: Float64Array = new Float64Array(0);
+  private ordemBuf: Int32Array = new Int32Array(0);
+  private saidaOrdenadaBuf: Float32Array = new Float32Array(0);
+  private camBuf: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
   private acumulado: number = 0.0;
   private tocando: number = 0;
   private pausado: number = 0;
@@ -130,9 +147,27 @@ export class ParticleSystem extends Behavior {
   burstTime(indice: number): f64 { return indice >= 0 && indice < this.nBursts ? this.bursts[indice * 2] : 0.0; }
   burstAmount(indice: number): f64 { return indice >= 0 && indice < this.nBursts ? this.bursts[indice * 2 + 1] : 0.0; }
 
+  /// `prewarm`: simula `duration` segundos ANTES do primeiro quadro visível
+  /// (a fogueira já ardendo, não começando do zero) — passos fixos de
+  /// `PS_PREWARM_PASSO` (1/30 s, bem abaixo do teto de dt), cada um
+  /// chamando `update()` de verdade (mesma emissão/burst/vida/vento que um
+  /// quadro normal teria feito, só que antes do primeiro desenho). Não
+  /// aloca: `update()` já é zero-alocação (sonda de GC cobre este caminho).
+  /// `guard` é a mesma rede de segurança contra `duration` degenerado que
+  /// `update()` usa para o wrap do loop.
   play(): void {
     this.tocando = 1; this.pausado = 0; this.time = 0.0; this.acumulado = 0.0;
     let i = 0; while (i < MAX_BURSTS) { this.burstDisparado[i] = 0; i = i + 1; }
+    if (this.prewarm && this.duration > 0.0) {
+      let restante = this.duration;
+      let guard = 0;
+      while (restante > 0.0 && guard < 100000) {
+        const passo = PS_PREWARM_PASSO < restante ? PS_PREWARM_PASSO : restante;
+        this.update(passo);
+        restante = restante - passo;
+        guard = guard + 1;
+      }
+    }
   }
   stop(clear: boolean): void { this.tocando = 0; if (clear) this.clear(); }
   pause(): void { this.pausado = 1; }
@@ -154,7 +189,12 @@ export class ParticleSystem extends Behavior {
     p.vivas = 0; p.nLivres = p.max;
   }
 
-  mount(): void { if (this.playOnAwake) this.play(); }
+  /// `playOnAwake` só vale DENTRO do Play/jogo (`emJogo()`) — carregar a
+  /// cena no editor ou arrastar o componente num objeto não deve começar a
+  /// simular sozinho (spec §5, "nunca simula fora do Play sem seleção" — a
+  /// prévia de edição selecionada é um caminho separado, do pacote de
+  /// editor, que chama `play()` explicitamente).
+  mount(): void { if (this.playOnAwake && emJogo() !== 0) this.play(); }
 
   /// Avança um trecho da simulação que não cruza a borda do ciclo
   /// (`duration`): emissão por taxa (acumulador fracionário, resto
@@ -248,7 +288,11 @@ export class ParticleSystem extends Behavior {
     while (slot < pool.max) {
       const k = slot * P_FLOATS;
       if (pool.dados[k + P_VIDA] >= 0.0) {
-        const t = pool.dados[k + P_IDADE] / pool.dados[k + P_VIDA];
+        // vida<=0 (sorteada em 0, min=max=0): sem isto, idade/vida seria
+        // Infinity/NaN — trata como "no fim da vida" (t=1), coerente com o
+        // marcador de `sim.ts` (nasce e morre no mesmo quadro).
+        const vidaK = pool.dados[k + P_VIDA];
+        const t = vidaK > 0.0 ? pool.dados[k + P_IDADE] / vidaK : 1.0;
         avaliarGradiente(this.gradiente, this.nChavesGradiente, t, cor);
         const escala = avaliarCurva(this.curvaTamanho, this.nChavesTamanho, t);
         const o = n * PART_INSTANCIA_FLOATS;
@@ -262,7 +306,56 @@ export class ParticleSystem extends Behavior {
       slot = slot + 1;
     }
     if (n === 0) return 0;
-    if (this.textura > 0) { setParticleTex(win, this.textura); return drawParticlesTexSeguro(win, out, n, this.modo); }
-    return drawParticlesSeguro(win, out, n, this.modo);
+    // `sort` (back-to-front): só faz sentido no modo alfa (o aditivo é
+    // comutativo — soma pura, a ordem não muda o resultado). Ordenação por
+    // inserção sobre um índice (O(n²), mas só custa algo quando `sort=1`,
+    // opt-in e default 0; um `Array.sort`/`TypedArray.sort` com comparador
+    // teria custo/alocação não comprovados neste runtime — ver o comentário
+    // acima do campo `distBuf`).
+    const buf = (this.sort !== 0 && this.modo === 0 && n > 1) ? this.ordenarPorDistancia(out, n) : out;
+    if (this.textura > 0) { setParticleTex(this.textura); return drawParticlesTexSeguro(win, buf, n, this.modo); }
+    return drawParticlesSeguro(win, buf, n, this.modo);
+  }
+
+  /// Reordena as `n` primeiras partículas de `buf` (formato de instância, 9
+  /// floats cada) da mais distante para a mais próxima da câmera
+  /// (back-to-front, pintor's algorithm) e devolve a cópia ordenada — nunca
+  /// muta `buf` (que é `saidaBuf`, reaproveitado pelo próximo `drawSelf`).
+  /// 2 parâmetros (buf, n; câmera/buffers auxiliares ficam em campos).
+  private ordenarPorDistancia(buf: Float32Array, n: number): Float32Array {
+    if (this.distBuf.length < n) this.distBuf = new Float64Array(n);
+    if (this.ordemBuf.length < n) this.ordemBuf = new Int32Array(n);
+    if (this.saidaOrdenadaBuf.length < buf.length) this.saidaOrdenadaBuf = new Float32Array(buf.length);
+    frustumParams(this.camBuf);
+    const camX = this.camBuf[0]; const camY = this.camBuf[1]; const camZ = this.camBuf[2];
+    const dist = this.distBuf; const ordem = this.ordemBuf;
+    let i = 0;
+    while (i < n) {
+      const o = i * PART_INSTANCIA_FLOATS;
+      const dx = buf[o] - camX; const dy = buf[o + 1] - camY; const dz = buf[o + 2] - camZ;
+      dist[i] = dx * dx + dy * dy + dz * dz;
+      ordem[i] = i;
+      i = i + 1;
+    }
+    // Inserção, decrescente por distância (farthest primeiro): estável, sem
+    // alocar, e barato o bastante pros N típicos de um emissor (centenas a
+    // poucos milhares) — não é o algoritmo pra 10k+ com sort=1 todo quadro.
+    let a = 1;
+    while (a < n) {
+      const chaveIdx = ordem[a]; const chaveDist = dist[chaveIdx];
+      let b = a - 1;
+      while (b >= 0 && dist[ordem[b]] < chaveDist) { ordem[b + 1] = ordem[b]; b = b - 1; }
+      ordem[b + 1] = chaveIdx;
+      a = a + 1;
+    }
+    const saida = this.saidaOrdenadaBuf;
+    let k = 0;
+    while (k < n) {
+      const src = ordem[k] * PART_INSTANCIA_FLOATS; const dst = k * PART_INSTANCIA_FLOATS;
+      let f = 0;
+      while (f < PART_INSTANCIA_FLOATS) { saida[dst + f] = buf[src + f]; f = f + 1; }
+      k = k + 1;
+    }
+    return saida;
   }
 }

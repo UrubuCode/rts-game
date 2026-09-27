@@ -57,4 +57,24 @@ let c = 0;
 while (c < n) { ps.update(0.016); ps.drawSelf(0, pos, 0.0 - 1.0); c = c + 1; }
 io.print("FIM drawSelf_com_textura " + n);
 
-io.print("[PASSOU] claude-test-particulasystem-gc (vivas=" + ps.particleCount + ")");
+// FASE drawSelf_sort: fix round 1, item 4 — `sort=1` (back-to-front, modo
+// alfa) passa por `ordenarPorDistancia` (frustumParams + inserção sobre um
+// índice + cópia reordenada), todos buffers reaproveitados (distBuf/
+// ordemBuf/saidaOrdenadaBuf/camBuf). Pool pequeno de propósito (~30 vivas):
+// inserção é O(k²) por chamada, e k grande demais tornaria esta fase lenta
+// demais pra sonda (não é o caminho pensado pra milhares de partículas todo
+// quadro — ver comentário em ordenarPorDistancia).
+const psSort = new ParticleSystem();
+psSort.maxParticles = 50; psSort.rateOverTime = 60.0;
+psSort.startLifetimeMin = 0.5; psSort.startLifetimeMax = 0.5;
+psSort.sort = 1; psSort.modo = 0;
+psSort.play();
+psSort.update(0.016);
+psSort.drawSelf(0, pos, 0.0 - 1.0); // aquece (cresce distBuf/ordemBuf/saidaOrdenadaBuf)
+
+io.print("FASE drawSelf_sort " + n);
+let d = 0;
+while (d < n) { psSort.update(0.016); psSort.drawSelf(0, pos, 0.0 - 1.0); d = d + 1; }
+io.print("FIM drawSelf_sort " + n);
+
+io.print("[PASSOU] claude-test-particulasystem-gc (vivas=" + ps.particleCount + ", vivasSort=" + psSort.particleCount + ")");
