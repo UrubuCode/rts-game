@@ -1,12 +1,16 @@
 import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { UIScene } from "@engine/ui/uiscene";
 import { GameObject } from "@engine/core/gameobject";
-import { numField, propertyField, assetField } from "./widgets";
+import { numField, propertyField, assetField, widgetRect, widgetMouse, CampoCache } from "./widgets";
 import { UI_C, UI_INSPECTOR as L, UI_NUMERIC as N, UI_CONSOLE as C, UI_SKELETON as K } from "./ui_config";
-import { drawEditorIcon } from "./icon_images";
+import { drawEditorIcon, iconAt } from "./icon_images";
 
+import { caixa, estiloTexto, pincel, texto } from "@compat/draw2d.ts";
 // Shared identities across all panels: native focus/click state is window-wide.
 const editorControlIds = { next: L.controlId };
+/// Os primeiros `n` caracteres de `texto`, sem string nova quando ele já cabe
+/// (o caso comum: desenhar não aloca por frame).
+function cortar(texto: string, n: number): string { return texto.length <= n ? texto : texto.slice(0, Math.max(0, n)); }
 
 // Um controle e um componente real: Transform guarda seu retangulo, active
 // controla visibilidade, enabled controla o componente, inputEnabled o input.
@@ -27,7 +31,23 @@ export class EditorControl extends Behavior {
   hot: number = 0;
   dragging: boolean = false;   // "timeline": arrasto iniciado dentro dela, segue até soltar
   mx: number = 0; my: number = 0; down: number = 0; pressed: number = 0;
+  /// Legenda cortada (ou "[x] rótulo") refeita só quando o rótulo, o limite ou o estado mudam.
+  legendaDe: string = ""; legendaN: number = 0 - 1; legendaModo: number = 0 - 1; legendaTexto: string = "";
+  /// Texto mostrado pelos campos numérico/asset (ver widgets.CampoCache).
+  campo: CampoCache = new CampoCache();
   constructor(app: any) { super(); this.app = app; }
+  /// `label` com no máximo `n` caracteres; `modo` 1 = com "…" no corte (linhas do
+  /// Console), 2/3 = "[ ] "/"[x] " na frente (caixa desabilitada), 0 = corte seco.
+  legenda(n: number, modo: number): string {
+    if (this.legendaDe !== this.label || this.legendaN !== n || this.legendaModo !== modo) {
+      this.legendaDe = this.label; this.legendaN = n; this.legendaModo = modo;
+      if (modo === 1) this.legendaTexto = this.label.length > n ? this.label.slice(0, Math.max(0, n - 1)) + "…" : this.label;
+      else if (modo === 2) this.legendaTexto = "[ ] " + this.label;
+      else if (modo === 3) this.legendaTexto = "[x] " + this.label;
+      else this.legendaTexto = cortar(this.label, n);
+    }
+    return this.legendaTexto;
+  }
   kind(): number { return KIND_UI; }
   typeName(): string { return "EditorControl"; }
 
@@ -36,21 +56,22 @@ export class EditorControl extends Behavior {
     const w = this.host.sx; const h = this.host.sy;
     const app = this.app;
     this.clicked = false;
-    if (this.mode === "surface") { app.box(x, y, w, h, this.fill, 0, 0, 0); return; }
-    if (this.mode === "icon") { drawEditorIcon(win, this.icon, x, y, w); return; }
+    if (this.mode === "surface") { pincel(this.fill, 0, 0, 0); caixa(x, y, w, h); return; }
+    if (this.mode === "icon") { iconAt(x, y, w); drawEditorIcon(this.icon); return; }
     if (this.mode === "flat" || this.mode === "row") {
-      this.hot = this.inputEnabled ? app.clickable(this.id, x, y, w, h) : 0;
-      app.box(x, y, w, h, this.hot === 1 || this.hot === 2 ? UI_C.consoleHover : this.fill, 0, 0, this.mode === "row" ? 0 : C.radius);
+      app.at(x, y, w, h);
+      this.hot = this.inputEnabled ? app.clickableAt(this.id) : 0;
+      pincel(this.hot === 1 || this.hot === 2 ? UI_C.consoleHover : this.fill, 0, 0, this.mode === "row" ? 0 : C.radius); caixa(x, y, w, h);
       let textX = x + C.padding;
       if (this.icon.length > 0) {
-        drawEditorIcon(win, this.icon, textX, y + (h - C.iconSize) / 2, C.iconSize);
+        iconAt(textX, y + (h - C.iconSize) / 2, C.iconSize); drawEditorIcon(this.icon);
         textX = textX + C.iconSize + C.iconGap;
       }
       const trailingW = this.trailing.length > 0 ? C.repeatW : 0;
       const available = Math.max(0, Math.floor((x + w - trailingW - C.gap - textX) / C.charW));
-      const caption = this.label.length > available ? this.label.slice(0, Math.max(0, available - 1)) + "…" : this.label;
-      app.text(textX, y + C.textY, caption, this.color, C.font);
-      if (trailingW > 0) app.text(x + w - trailingW, y + C.textY, this.trailing, UI_C.consoleMuted, C.font);
+      const caption = this.legenda(available, 1);
+      texto(textX, y + C.textY, caption, estiloTexto(this.color, C.font));
+      if (trailingW > 0) texto(x + w - trailingW, y + C.textY, this.trailing, estiloTexto(UI_C.consoleMuted, C.font));
       this.clicked = this.hot === 3; return;
     }
     if (this.mode === "timeline") {
@@ -61,53 +82,57 @@ export class EditorControl extends Behavior {
       if (this.inputEnabled && this.pressed !== 0 && over) this.dragging = true;
       if (this.dragging && w > 0) this.value = Math.max(0, Math.min(1, (this.mx - x) / w));
       this.hot = this.dragging ? 1 : 0;
-      app.box(x, y, w, h, UI_C.timelineTrack, L.border, UI_C.border, L.radius);
-      if (this.value > 0) app.box(x, y, w * this.value, h, UI_C.timelineFill, 0, 0, L.radius);
+      pincel(UI_C.timelineTrack, L.border, UI_C.border, L.radius); caixa(x, y, w, h);
+      if (this.value > 0) { pincel(UI_C.timelineFill, 0, 0, L.radius); caixa(x, y, w * this.value, h); }
       const handleX = Math.max(x, Math.min(x + w - K.handleW, x + w * this.value - K.handleW / 2));
-      app.box(handleX, y, K.handleW, h, UI_C.timelineHandle, 0, 0, 0);
-      app.text(x + L.gap, y + K.textY, this.label, UI_C.timelineText, L.font);
+      pincel(UI_C.timelineHandle, 0, 0, 0); caixa(handleX, y, K.handleW, h);
+      texto(x + L.gap, y + K.textY, this.label, estiloTexto(UI_C.timelineText, L.font));
       return;
     }
-    if (this.mode === "panel") { app.box(x, y, w, h, this.fill, L.border, UI_C.border, L.radius); return; }
+    if (this.mode === "panel") { pincel(this.fill, L.border, UI_C.border, L.radius); caixa(x, y, w, h); return; }
     if (this.mode === "number" || this.mode === "axis") {
-      this.value = this.mode === "number" ?
-        propertyField(win, this.id, x, y, w, this.label, this.value, this.mx, this.my,
-          this.inputEnabled ? this.down : 0, this.inputEnabled ? this.pressed : 0) :
-        numField(win, this.id, x, y, w, this.label, this.color, this.value, this.mx, this.my,
-          this.inputEnabled ? this.down : 0, this.inputEnabled ? this.pressed : 0);
+      widgetRect(x, y, w, h);
+      widgetMouse(this.mx, this.my, this.inputEnabled ? this.down : 0, this.inputEnabled ? this.pressed : 0);
+      this.campo.id = this.id;
+      this.value = this.mode === "number" ? propertyField(this.campo, this.label, this.value) :
+        numField(this.campo, this.label, this.color, this.value);
       return;
     }
     if (this.mode === "text") {
-      this.textValue = app.textField(this.id, x, y, w, this.textValue, this.inputEnabled);
+      app.at(x, y, w, h);
+      this.textValue = app.textField(this.id, this.textValue, this.inputEnabled);
       return;
     }
     if (this.mode === "propertyText") {
       const labelW = w * N.labelFraction;
-      app.text(x, y + L.textY, this.label.slice(0, Math.floor((labelW - N.labelGap) / N.charWidth)), this.color, L.font);
-      this.textValue = app.textField(this.id, x + labelW, y, w - labelW, this.textValue, this.inputEnabled);
+      texto(x, y + L.textY, this.legenda(Math.floor((labelW - N.labelGap) / N.charWidth), 0), estiloTexto(this.color, L.font));
+      app.at(x + labelW, y, w - labelW, h);
+      this.textValue = app.textField(this.id, this.textValue, this.inputEnabled);
       return;
     }
     if (this.mode === "asset") {
-      this.hot = assetField(win, x, y, w, h, this.label, this.textValue,
-        this.inputEnabled ? this.value : 0, this.mx, this.my);
+      widgetRect(x, y, w, h);
+      widgetMouse(this.mx, this.my, 0, 0);
+      this.hot = assetField(this.campo, this.label, this.textValue, this.inputEnabled ? this.value : 0);
       if (!this.inputEnabled) this.hot = 0;
       return;
     }
     if (this.mode === "toggle") {
       if (this.inputEnabled) this.value = app.checkbox(x, y + L.textY, this.value, this.label);
-      else app.text(x, y + L.textY, (this.value !== 0 ? "[x] " : "[ ] ") + this.label, UI_C.disabledText, L.font);
+      else texto(x, y + L.textY, this.legenda(0, this.value !== 0 ? 3 : 2), estiloTexto(UI_C.disabledText, L.font));
       return;
     }
     if (this.mode === "button" || this.mode === "header") {
-      const state = this.inputEnabled ? app.clickable(this.id, x, y, w, h) : 0;
+      app.at(x, y, w, h);
+      const state = this.inputEnabled ? app.clickableAt(this.id) : 0;
       const fill = state === 1 || state === 2 ? UI_C.controlHover : this.fill;
-      app.box(x, y, w, h, fill, L.border, UI_C.border, L.radius);
-      const caption = this.label.slice(0, Math.max(0, Math.floor((w - L.gap * 2) / L.charWidth)));
-      app.text(x + L.gap, y + L.textY, caption, this.inputEnabled || this.mode === "header" ? this.color : UI_C.disabledText, L.font);
+      pincel(fill, L.border, UI_C.border, L.radius); caixa(x, y, w, h);
+      const caption = this.legenda(Math.floor((w - L.gap * 2) / L.charWidth), 0);
+      texto(x + L.gap, y + L.textY, caption, estiloTexto(this.inputEnabled || this.mode === "header" ? this.color : UI_C.disabledText, L.font));
       this.clicked = state === 3;
       return;
     }
-    app.text(x, y + L.textY, this.label.slice(0, Math.max(0, Math.floor(w / L.charWidth))), this.color, L.font);
+    texto(x, y + L.textY, this.legenda(Math.floor(w / L.charWidth), 0), estiloTexto(this.color, L.font));
   }
 }
 
@@ -116,19 +141,26 @@ export class EditorUI {
   scene: UIScene = new UIScene();
   root: GameObject;
   names: string[] = [];
+  /// nome → índice em `controls` (busca por Map, não `names.indexOf` linear a cada controle).
+  indices: Map<string, number> = new Map<string, number>();
   controls: EditorControl[] = [];
   app: any;
   mx: number = 0; my: number = 0; down: number = 0; pressed: number = 0;
+  atX: number = 0; atY: number = 0; atW: number = 0; atH: number = 0;
   constructor(app: any, name: string) { this.app = app; this.root = this.scene.createGameObject(name); }
   begin(mx: number, my: number, down: number, pressed: number): void {
     this.mx = mx; this.my = my; this.down = down; this.pressed = pressed;
     let objectIndex = 1;
     while (objectIndex < this.scene.panels.length) { this.scene.panels[objectIndex].active = 0; objectIndex = objectIndex + 1; }
   }
-  control(name: string, mode: string, x: number, y: number, w: number, h: number,
-          label: string, inputEnabledArg?: boolean): EditorControl {
+  /// Retângulo do próximo `control` (≤ 4 parâmetros por chamada: 5+ alocam no RTS).
+  at(x: number, y: number, w: number, h: number): void { this.atX = x; this.atY = y; this.atW = w; this.atH = h; }
+  /// Controle `name` no retângulo do último `at`.
+  control(name: string, mode: string, label: string, inputEnabledArg?: boolean): EditorControl {
     const inputEnabled: boolean = inputEnabledArg !== undefined ? inputEnabledArg : true;
-    let index = this.names.indexOf(name);
+    const x = this.atX; const y = this.atY; const w = this.atW; const h = this.atH;
+    const achado = this.indices.get(name);
+    let index = achado !== undefined ? achado : 0 - 1;
     if (index < 0) {
       const object = this.scene.createGameObject(this.root.name + "/" + name, 0);
       const component = new EditorControl(this.app);
@@ -137,6 +169,7 @@ export class EditorUI {
       object.addBehavior(component);
       this.names.push(name); this.controls.push(component);
       index = this.controls.length - 1;
+      this.indices.set(name, index);
     }
     const control = this.controls[index];
     this.scene.panels[control.sceneIndex].active = 1;

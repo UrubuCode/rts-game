@@ -4,13 +4,12 @@
 // presets, models. Clique seleciona; duplo-clique entra na pasta ou "abre" o
 // asset. Estado em vars de MÓDULO (ok desde o fix de gcell); desenha via render.*.
 
-import render from "../compat/render.ts";
 import input from "rts:input";
 import { clockNow, clockSince, DOUBLE_CLICK_MS } from "../engine/core/clock";
 import fs from "../compat/fs.ts";
 
-import { PANEL, PANEL_DK, HEADER, BORDER, FIELD, TEXT, TEXT_DIM, SEL, HOVER, button, subStr } from "./widgets";
-import { drawThumb } from "./thumbs";
+import { PANEL, PANEL_DK, HEADER, BORDER, FIELD, TEXT, TEXT_DIM, SEL, HOVER, button, subStr, widgetRect, widgetMouse } from "./widgets";
+import { drawThumb, thumbAt } from "./thumbs";
 import { ProjectTree } from "./project_tree";
 import { UI_C, UI_WORKSPACE, UI_PROJECT_HEADER_H, UI_PROJECT_PATH_Y, UI_PROJECT_PATH_H,
          UI_PROJECT_TOOL_W, UI_PROJECT_GRID_Y, UI_PROJECT_TILE_W, UI_PROJECT_TILE_H,
@@ -21,6 +20,7 @@ import { UI_C, UI_WORKSPACE, UI_PROJECT_HEADER_H, UI_PROJECT_PATH_Y, UI_PROJECT_
          UI_PROJECT_TREE_FONT, UI_PROJECT_TREE_CHAR_W, UI_PROJECT_TREE_SCROLL_STEP,
          UI_PROJECT_TREE_SCROLL_W, UI_PROJECT_TREE_ROOT_LABEL, UI_PROJECT_CONTENT_PADDING } from "./ui_config";
 
+import { caixa, estiloTexto, pincel, texto } from "@compat/draw2d.ts";
 // tipos de asset (cor + rótulo do ícone)
 const T_FOLDER = 0;
 const T_SCENE = 1;   // .json de cena
@@ -59,6 +59,12 @@ let lastClickIdx = 0 - 1;
 /// desempenho muda. O sintoma nem parece desempenho.
 let lastClickMs: f64 = 0.0 - 999999.0;
 
+// Área e mouse do quadro (`assetsArea`/`assetsMouse`): as funções de desenho
+// recebem no máximo 4 parâmetros (Task 10.5: 5+ alocam por chamada no RTS).
+let aX: f64 = 0.0; let aY: f64 = 0.0; let aW: f64 = 0.0; let aH: f64 = 0.0;
+let aMx: f64 = 0.0; let aMy: f64 = 0.0; let aPressed = 0; let aDown = 0;
+let treeH: f64 = 0.0;
+
 // ── DRAG & DROP (estilo Unity): arrastar um tile do Project pra fora do painel ─
 // dragIdx  = índice do tile sendo arrastado (-1 = nenhum)
 // dragArmed= 1 depois que o mouse saiu do tile de origem (evita "drag" em clique seco)
@@ -70,6 +76,12 @@ let dragY0: f64 = 0.0;
 // entradas do diretório atual (arrays paralelos — nada de objetos aninhados)
 let names: string[] = [];
 let types: number[] = [];
+// Por entrada, feitos uma vez no `rescan` (Task 10.5: nada de concatenar/cortar por
+// tile por quadro): caminho completo, nome cortado do tile e do fantasma, payload do arrasto.
+let fulls: string[] = [];
+let curtos: string[] = [];
+let curtosFantasma: string[] = [];
+let payloads: string[] = [];
 let count = 0;
 
 // ── classificação por extensão ───────────────────────────────────────────────
@@ -123,6 +135,7 @@ function rescan(): void {
   lastClickIdx = 0 - 1;
   names = [];
   types = [];
+  fulls = []; curtos = []; curtosFantasma = []; payloads = [];
   count = 0;
   selIdx = 0 - 1;
   deleteArmed = 0;
@@ -141,6 +154,23 @@ function rescan(): void {
   while (i < list.length) {
     const nm = list[i];
     if (!fs.is_dir(curDir + "/" + nm)) { names.push(nm); types.push(classify(nm, 0)); count = count + 1; }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < count) {
+    const nm = names[i]; const t = types[i];
+    const full = curDir + "/" + nm;
+    fulls.push(full);
+    curtos.push(nm.length > 12 ? subStr(nm, 0, 11) + "…" : nm);
+    curtosFantasma.push(nm.length > 13 ? subStr(nm, 0, 12) + "…" : nm);
+    let pay = "other:";
+    if (t === T_FOLDER) pay = "dir:";
+    else if (t === T_SCENE) pay = "scene:";
+    else if (t === T_PREFAB) pay = "prefab:";
+    else if (t === T_IMAGE) pay = "tex:";
+    else if (t === T_MODEL) pay = "model:";
+    else if (t === T_SCRIPT) pay = "script:";
+    payloads.push(pay + full);
     i = i + 1;
   }
   selIdx = 0 - 1;
@@ -195,15 +225,7 @@ export function assetDragActive(): number {
 /// "prefab:<path>", "scene:<path>", "model:<path>", "dir:<path>"...). "" se nada.
 export function assetDragPayload(): string {
   if (assetDragActive() === 0) return "";
-  const t = types[dragIdx];
-  const full = curDir + "/" + names[dragIdx];
-  if (t === T_FOLDER) return "dir:" + full;
-  if (t === T_SCENE) return "scene:" + full;
-  if (t === T_PREFAB) return "prefab:" + full;
-  if (t === T_IMAGE) return "tex:" + full;
-  if (t === T_MODEL) return "model:" + full;
-  if (t === T_SCRIPT) return "script:" + full;
-  return "other:" + full;
+  return payloads[dragIdx];
 }
 /// Nome do arquivo sendo arrastado (pra desenhar o "fantasma" que segue o mouse).
 export function assetDragName(): string {
@@ -221,11 +243,9 @@ export function assetDragClear(): void {
 export function drawAssetDragGhost(win: i64, mx: f64, my: f64): void {
   if (assetDragActive() === 0) return;
   const t = types[dragIdx];
-  render.rect(win, mx + 12, my - 10, 128, 26, UI_C.assetDragGhost, 1, typeColor(t), 4);
-  render.rect(win, mx + 16, my - 6, 18, 18, typeColor(t), 0, 0, 3);
-  let nm = names[dragIdx];
-  if (nm.length > 13) nm = subStr(nm, 0, 12) + "…";
-  render.text(win, mx + 40, my - 5, nm, TEXT, 12, 0);
+  pincel(UI_C.assetDragGhost, 1, typeColor(t), 4); caixa(mx + 12, my - 10, 128, 26);
+  pincel(typeColor(t), 0, 0, 3); caixa(mx + 16, my - 6, 18, 18);
+  texto(mx + 40, my - 5, curtosFantasma[dragIdx], estiloTexto(TEXT, 12));
 }
 
 // ── OPERAÇÕES REAIS DE ARQUIVO (gerenciamento de pastas de verdade) ──────────
@@ -251,43 +271,45 @@ function deleteSelected(): void {
 // Desenha o ícone do asset num quadrado (x,y,s). Para IMAGEM e MODELO tenta
 // primeiro o THUMBNAIL REAL (a própria imagem / um render 3D da malha); só cai
 // no ícone genérico se não der pra gerar. `full` é o path do arquivo.
-function drawIcon(win: i64, x: number, y: number, s: number, t: number, full: string): void {
+function drawIcon(x: number, y: number, s: number, i: number): void {
+  const t = types[i];
   if (t === T_IMAGE || t === T_MODEL || t === T_PREFAB || t === T_SCENE) {
-    if (drawThumb(win, full, t, x, y, s) !== 0) {
-      render.rect(win, x, y, s, s, 0, 1, BORDER, 3);   // moldura por cima do preview
+    thumbAt(x, y, s);
+    if (drawThumb(fulls[i], t) !== 0) {
+      pincel(0, 1, BORDER, 3); caixa(x, y, s, s);   // moldura por cima do preview
       const tg = typeTag(t);
-      if (tg.length > 0) render.text(win, x + 3, y + s - 13, tg, UI_C.buildText, 10, 0);
+      if (tg.length > 0) texto(x + 3, y + s - 13, tg, estiloTexto(UI_C.buildText, 10));
       return;
     }
   }
   const c = typeColor(t);
   if (t === T_FOLDER) {
-    render.rect(win, x, y + 5, s, s - 8, c, 0, 0, 3);
-    render.rect(win, x + 3, y + 1, s * 0.45, 6, c, 0, 0, 2);  // aba da pasta
+    pincel(c, 0, 0, 3); caixa(x, y + 5, s, s - 8);
+    pincel(c, 0, 0, 2); caixa(x + 3, y + 1, s * 0.45, 6);  // aba da pasta
   } else if (t === T_IMAGE) {
-    render.rect(win, x, y, s, s, c, 1, BORDER, 3);
-    render.rect(win, x + 5, y + s - 12, s - 10, 7, UI_C.assetThumbnailLight, 0, 0, 1);  // "montanha"
+    pincel(c, 1, BORDER, 3); caixa(x, y, s, s);
+    pincel(UI_C.assetThumbnailLight, 0, 0, 1); caixa(x + 5, y + s - 12, s - 10, 7);  // "montanha"
   } else if (t === T_SCENE || t === T_PREFAB || t === T_MODEL) {
     // cubinho 3D (losango)
-    render.rect(win, x + 6, y + 6, s - 12, s - 12, c, 1, UI_C.assetThumbnailShadow, 3);
+    pincel(c, 1, UI_C.assetThumbnailShadow, 3); caixa(x + 6, y + 6, s - 12, s - 12);
   } else {
     // "folha de arquivo"
-    render.rect(win, x + 4, y + 2, s - 8, s - 4, c, 1, BORDER, 3);
+    pincel(c, 1, BORDER, 3); caixa(x + 4, y + 2, s - 8, s - 4);
   }
   const tag = typeTag(t);
-  if (tag.length > 0) render.text(win, x + 3, y + s - 13, tag, UI_C.assetThumbnailLabel, 10, 0);
+  if (tag.length > 0) texto(x + 3, y + s - 13, tag, estiloTexto(UI_C.assetThumbnailLabel, 10));
 }
 
 // Arvore de pastas com selecao e expansao independentes. Somente linhas inteiras
 // sao desenhadas, pois o backend imediato nao recorta texto automaticamente.
-function drawFolderTree(win: i64, x: number, y: number, w: number, h: number,
-                        mx: f64, my: f64, pressed: number): string {
+function drawFolderTree(win: i64, x: number, y: number, w: number): string {
+  const h = treeH; const mx = aMx; const my = aMy; const pressed = aPressed;
   if (treeDirty !== 0) {
     folderTree.reveal(curDir);
     treeDirty = 0;
   }
-  render.rect(win, x, y, w, h, PANEL_DK, 0, 0, 0);
-  render.rect(win, x + w - 1, y, 1, h, BORDER, 0, 0, 0);
+  pincel(PANEL_DK, 0, 0, 0); caixa(x, y, w, h);
+  pincel(BORDER, 0, 0, 0); caixa(x + w - 1, y, 1, h);
   const rows = math_floor(h / UI_PROJECT_TREE_ROW_H);
   if (rows < 1) return "";
   let maxScroll = folderTree.paths.length - rows;
@@ -314,7 +336,7 @@ function drawFolderTree(win: i64, x: number, y: number, w: number, h: number,
     const over = mx >= x && mx < x + rowW && my >= ry && my < ry + UI_PROJECT_TREE_ROW_H;
     const path = folderTree.paths[row];
     if (path === curDir || over) {
-      render.rect(win, x, ry, rowW, UI_PROJECT_TREE_ROW_H, path === curDir ? SEL : HOVER, 0, 0, 0);
+      pincel(path === curDir ? SEL : HOVER, 0, 0, 0); caixa(x, ry, rowW, UI_PROJECT_TREE_ROW_H);
     }
     let indent = folderTree.depths[row] * UI_PROJECT_TREE_INDENT;
     const maxIndent = rowW - UI_PROJECT_TREE_PADDING - UI_PROJECT_TREE_TOGGLE_W -
@@ -323,16 +345,15 @@ function drawFolderTree(win: i64, x: number, y: number, w: number, h: number,
     const arrowX = x + UI_PROJECT_TREE_PADDING + indent;
     const textY = ry + (UI_PROJECT_TREE_ROW_H - UI_PROJECT_TREE_FONT) / 2;
     if (folderTree.branches[row] !== 0) {
-      render.text(win, arrowX, textY, folderTree.isExpanded(path) ? "v" : ">", TEXT_DIM, UI_PROJECT_TREE_FONT, 0);
+      texto(arrowX, textY, folderTree.isExpanded(path) ? "v" : ">", estiloTexto(TEXT_DIM, UI_PROJECT_TREE_FONT));
     }
     const iconX = arrowX + UI_PROJECT_TREE_TOGGLE_W;
-    render.rect(win, iconX, ry + (UI_PROJECT_TREE_ROW_H - UI_PROJECT_TREE_ICON_SIZE) / 2,
-                UI_PROJECT_TREE_ICON_SIZE, UI_PROJECT_TREE_ICON_SIZE, UI_C.assetFolder, 0, 0, 0);
+    pincel(UI_C.assetFolder, 0, 0, 0); caixa(iconX, ry + (UI_PROJECT_TREE_ROW_H - UI_PROJECT_TREE_ICON_SIZE) / 2, UI_PROJECT_TREE_ICON_SIZE, UI_PROJECT_TREE_ICON_SIZE);
     const labelX = iconX + UI_PROJECT_TREE_ICON_SIZE + UI_PROJECT_TREE_ICON_GAP;
     const maxChars = math_floor((x + rowW - labelX) / UI_PROJECT_TREE_CHAR_W);
     let label = row === 0 ? UI_PROJECT_TREE_ROOT_LABEL : folderTree.labels[row];
     if (label.length > maxChars) label = subStr(label, 0, maxChars - 1) + "…";
-    render.text(win, labelX, textY, label, TEXT, UI_PROJECT_TREE_FONT, 0);
+    texto(labelX, textY, label, estiloTexto(TEXT, UI_PROJECT_TREE_FONT));
     if (over && pressed !== 0) {
       if (folderTree.branches[row] !== 0 && mx >= arrowX && mx < iconX) toggle = path;
       else chosen = path;
@@ -343,8 +364,7 @@ function drawFolderTree(win: i64, x: number, y: number, w: number, h: number,
     let thumbH = h * rows / folderTree.paths.length;
     if (thumbH < UI_PROJECT_THUMB_MIN_H) thumbH = UI_PROJECT_THUMB_MIN_H;
     const thumbY = y + (h - thumbH) * treeScroll / maxScroll;
-    render.rect(win, x + w - UI_PROJECT_TREE_SCROLL_W, thumbY, UI_PROJECT_TREE_SCROLL_W,
-                thumbH, UI_C.componentScrollThumb, 0, 0, 0);
+    pincel(UI_C.componentScrollThumb, 0, 0, 0); caixa(x + w - UI_PROJECT_TREE_SCROLL_W, thumbY, UI_PROJECT_TREE_SCROLL_W, thumbH);
   }
   if (toggle !== "") folderTree.toggle(toggle);
   return chosen;
@@ -357,43 +377,52 @@ function drawFolderTree(win: i64, x: number, y: number, w: number, h: number,
 ///   "tex:<path>"   — duplo-clique numa imagem (main aplica no obj selecionado)
 /// `mDown` é o estado ATUAL do botão esquerdo (segurando) — usado pra iniciar e
 /// manter o DRAG dos tiles; o drop em si é tratado pelo main via assetDrag*().
-export function drawAssets(win: i64, px: number, py: number, pw: number, ph: number,
-                           mx: f64, my: f64, mPressed: number, mDown: number, frame: number): string {
+/// Área do painel Project (chamar antes de `drawAssets`).
+export function assetsArea(x: number, y: number, w: number, h: number): void { aX = x; aY = y; aW = w; aH = h; }
+/// Mouse do quadro para o painel Project (chamar antes de `drawAssets`).
+export function assetsMouse(mx: number, my: number, pressed: number, down: number): void {
+  aMx = mx; aMy = my; aPressed = pressed; aDown = down;
+}
+export function drawAssets(win: i64): string {
+  const px = aX; const py = aY; const pw = aW; const ph = aH;
+  const mx = aMx; const my = aMy; const mPressed = aPressed; const mDown = aDown;
   if (scanned === 0) rescan();
-  render.rect(win, px, py, pw, ph, PANEL_DK, 0, 0, 0);
+  pincel(PANEL_DK, 0, 0, 0); caixa(px, py, pw, ph);
   // header
-  render.rect(win, px, py, pw, UI_PROJECT_HEADER_H, HEADER, 0, 0, 0);
-  render.text(win, px + 10, py + 5, "Project", TEXT, 13, 0);
+  pincel(HEADER, 0, 0, 0); caixa(px, py, pw, UI_PROJECT_HEADER_H);
+  texto(px + 10, py + 5, "Project", estiloTexto(TEXT, 13));
   if (deleteArmed !== 0 && selIdx >= 0 && selIdx < count) {
     let target = names[selIdx];
     if (target.length > 22) target = subStr(target, 0, 21) + "…";
-    render.text(win, px + UI_WORKSPACE.padding + UI_WORKSPACE.bottomTabs.length * (UI_WORKSPACE.tabW + UI_WORKSPACE.gap), py + 5, "Excluir " + target + "?", UI_C.assetDeleteWarning, 12, 0);
+    texto(px + UI_WORKSPACE.padding + UI_WORKSPACE.bottomTabs.length * (UI_WORKSPACE.tabW + UI_WORKSPACE.gap), py + 5, "Excluir " + target + "?", estiloTexto(UI_C.assetDeleteWarning, 12));
   }
   // barra de caminho + botão subir
   const barY = py + UI_PROJECT_PATH_Y;
-  render.rect(win, px, barY, pw, UI_PROJECT_PATH_H, PANEL, 0, 0, 0);
+  pincel(PANEL, 0, 0, 0); caixa(px, barY, pw, UI_PROJECT_PATH_H);
   const upOver = mx >= px + 4 && mx < px + 30 && my >= barY + 2 && my < barY + 20;
-  render.rect(win, px + 4, barY + 2, 26, 18, upOver !== false ? HOVER : PANEL_DK, 1, BORDER, 3);
-  render.text(win, px + 12, barY + 4, "^", TEXT, 13, 0);
+  pincel(upOver !== false ? HOVER : PANEL_DK, 1, BORDER, 3); caixa(px + 4, barY + 2, 26, 18);
+  texto(px + 12, barY + 4, "^", estiloTexto(TEXT, 13));
   if (upOver !== false && mPressed !== 0) goUp();
   let pathShow = curDir;
   let pathChars = math_floor((pw - 260) / 7);
   if (pathChars < 4) pathChars = 4;
   if (pathShow.length > pathChars) pathShow = "…" + subStr(pathShow, pathShow.length - pathChars + 1, pathShow.length);
-  render.text(win, px + 40, barY + 5, pathShow, TEXT_DIM, 12, 0);
+  texto(px + 40, barY + 5, pathShow, estiloTexto(TEXT_DIM, 12));
   // toolbar de gerenciamento REAL: criar pasta / deletar selecionado / atualizar
   const bw = UI_PROJECT_TOOL_W;
   const delX = px + pw - bw * 2 - 8;
   if (deleteArmed !== 0 && mPressed !== 0 &&
       !(mx >= delX && mx < delX + bw && my >= barY + 1 && my < barY + 21)) deleteArmed = 0;
-  if (button(win, px + pw - bw * 3 - 12, barY + 1, bw, 20, "+ Pasta", PANEL_DK, mx, my, mPressed) !== 0) newFolder();
-  if (button(win, delX, barY + 1, bw, 20,
-             deleteArmed !== 0 ? "Apagar?" : "Excluir", deleteArmed !== 0 ? UI_C.assetDeleteArmed : PANEL_DK,
-             mx, my, mPressed) !== 0) {
+  widgetMouse(mx, my, 0, mPressed);
+  widgetRect(px + pw - bw * 3 - 12, barY + 1, bw, 20);
+  if (button("+ Pasta", PANEL_DK) !== 0) newFolder();
+  widgetRect(delX, barY + 1, bw, 20);
+  if (button(deleteArmed !== 0 ? "Apagar?" : "Excluir", deleteArmed !== 0 ? UI_C.assetDeleteArmed : PANEL_DK) !== 0) {
     if (deleteArmed !== 0) deleteSelected();
     else if (selIdx >= 0) deleteArmed = 1;
   }
-  if (button(win, px + pw - bw - 4, barY + 1, bw, 20, "Atualizar", PANEL_DK, mx, my, mPressed) !== 0) { scanned = 0; rescan(); }
+  widgetRect(px + pw - bw - 4, barY + 1, bw, 20);
+  if (button("Atualizar", PANEL_DK) !== 0) { scanned = 0; rescan(); }
 
   let action = "";
 
@@ -411,7 +440,8 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
   let treeW = math_floor(pw * UI_PROJECT_TREE_FRACTION);
   if (treeW > UI_PROJECT_TREE_W) treeW = UI_PROJECT_TREE_W;
   const gy0 = py + UI_PROJECT_GRID_Y;
-  const chosenFolder = drawFolderTree(win, px, gy0, treeW, ph - UI_PROJECT_GRID_Y, mx, my, mPressed);
+  treeH = ph - UI_PROJECT_GRID_Y;
+  const chosenFolder = drawFolderTree(win, px, gy0, treeW);
   if (chosenFolder !== "" && chosenFolder !== curDir) navigateTo(chosenFolder);
   const contentX = px + treeW;
   const contentW = pw - treeW;
@@ -445,15 +475,13 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
       let bg = PANEL;
       if (i === selIdx) bg = SEL;
       else if (over !== false) bg = HOVER;
-      render.rect(win, tx, ty, tileW, tileH, bg, 1, BORDER, 4);
-      drawIcon(win, tx + (tileW - iconS) / 2, ty + 6, iconS, types[i], curDir + "/" + names[i]);
+      pincel(bg, 1, BORDER, 4); caixa(tx, ty, tileW, tileH);
+      drawIcon(tx + (tileW - iconS) / 2, ty + 6, iconS, i);
       // nome (corta se longo)
-      let nm = names[i];
-      if (nm.length > 12) nm = subStr(nm, 0, 11) + "…";
-      render.text(win, tx + 5, ty + tileH - 15, nm, TEXT, 11, 0);
+      texto(tx + 5, ty + tileH - 15, curtos[i], estiloTexto(TEXT, 11));
 
       // realce do tile que está sendo arrastado
-      if (i === dragIdx && dragArmed !== 0) render.rect(win, tx, ty, tileW, tileH, UI_C.assetSelectionGhost, 0, 0, 4);
+      if (i === dragIdx && dragArmed !== 0) { pincel(UI_C.assetSelectionGhost, 0, 0, 4); caixa(tx, ty, tileW, tileH); }
 
       if (over !== false && mPressed !== 0) {
         // Do RELÓGIO, não do `performance.now()` direto: um valor por frame,
@@ -468,7 +496,7 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
         dragIdx = i; dragArmed = 0; dragX0 = mx; dragY0 = my;
         if (dbl !== 0) {
           const t = types[i];
-          const full = curDir + "/" + names[i];
+          const full = fulls[i];
           if (t === T_FOLDER) { navigateTo(full); return ""; }
           else if (t === T_SCENE) action = "scene:" + full;
           else if (t === T_PREFAB) action = "prefab:" + full;
@@ -487,10 +515,10 @@ export function drawAssets(win: i64, px: number, py: number, pw: number, ph: num
     let thumbH = math_floor(trackH * visRows / rowCount);
     if (thumbH < UI_PROJECT_THUMB_MIN_H) thumbH = UI_PROJECT_THUMB_MIN_H;
     const thumbY = trackY + math_floor((trackH - thumbH) * assetScroll / maxScroll);
-    render.rect(win, px + pw - 9, trackY, 5, trackH, FIELD, 0, 0, 2);
-    render.rect(win, px + pw - 9, thumbY, 5, thumbH, UI_C.componentScrollThumb, 0, 0, 2);
+    pincel(FIELD, 0, 0, 2); caixa(px + pw - 9, trackY, 5, trackH);
+    pincel(UI_C.componentScrollThumb, 0, 0, 2); caixa(px + pw - 9, thumbY, 5, thumbH);
   }
-  if (count === 0) render.text(win, gx0, gy0, "(pasta vazia)", TEXT_DIM, 12, 0);
+  if (count === 0) texto(gx0, gy0, "(pasta vazia)", estiloTexto(TEXT_DIM, 12));
   return action;
 }
 

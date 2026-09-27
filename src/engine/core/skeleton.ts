@@ -17,7 +17,7 @@
 import { Behavior, KIND_RENDERER } from "./behavior";
 import { SkeletonAsset, loadSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
 import { logWarn } from "./logger";
-import { drawGPUMeshQ, meshRadius } from "../render/gpu3d";
+import { drawGPUMeshQBuf, meshRadius, DRAW_FLOATS, D_X, D_Y, D_Z, D_QX, D_QY, D_QZ, D_QW, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX } from "../render/gpu3d";
 import { quatFromYawPitchInto } from "../render/quat";
 
 /// Valores por osso num registro salvo: [osso, tx,ty,tz, rx,ry,rz,rw, sx,sy,sz].
@@ -78,7 +78,8 @@ export class Skeleton extends Behavior {
   // (yaw do host); o resto da matemática do quaternion está aberta em locais
   // f64 dentro de `compose()` (ver o comentário do método).
   private rootR: Float64Array;
-  private drawQ: Float64Array;
+  /// Transform/material de cada peça para `drawGPUMeshQBuf` (DRAW_FLOATS), reaproveitado.
+  private drawBuf: Float64Array;
 
   constructor(pathArg?: string) {
     super();
@@ -95,7 +96,7 @@ export class Skeleton extends Behavior {
     this.failedPath = "";
     this.failedUploadWin = 0;
     this.rootR = new Float64Array(4);
-    this.drawQ = new Float64Array(4);
+    this.drawBuf = new Float64Array(DRAW_FLOATS);
   }
 
   kind(): number { return KIND_RENDERER; }
@@ -115,6 +116,12 @@ export class Skeleton extends Behavior {
     }
   }
 
+  /// Sobe as peças do asset (fora de `ensureAsset`, que roda por quadro: no RTS
+  /// uma função que contém `try/catch` aloca a cada chamada).
+  subirPecas(win: number): void {
+    try { loadSkeletonAsset(win, this.modelPath); this.updateBound(); }
+    catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); }
+  }
   /// Carrega o modelo (cache por caminho) e dimensiona os buffers por osso, uma
   /// vez. `win` = 0 não sobe nada para a GPU (testes sem janela); se o asset
   /// veio de uma carga sem janela, a primeira chamada com janela real sobe as
@@ -122,10 +129,7 @@ export class Skeleton extends Behavior {
   ensureAsset(win: number): void {
     const cur = this.asset;
     if (cur !== null && cur.path === this.modelPath) {
-      if (skeletonNeedsUpload(cur, win) && this.failedUploadWin !== win) {
-        try { loadSkeletonAsset(win, this.modelPath); this.updateBound(); }
-        catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); }
-      }
+      if (skeletonNeedsUpload(cur, win) && this.failedUploadWin !== win) this.subirPecas(win);
       return;
     }
     if (this.modelPath === "" || this.modelPath === this.failedPath) return;
@@ -324,20 +328,22 @@ export class Skeleton extends Behavior {
   /// Desenha cada peça no osso dela, com a raiz na posição de render (x,y,z)
   /// e, se `tint` >= 0, todas as peças nessa cor (seleção). 1 = desenhou (o laço de render pula o
   /// desenho por meshKind); 0 = sem modelo, o laço segue o caminho normal.
-  drawSelf(win: number, x: f64, y: f64, z: f64, tint: number): number {
+  drawSelf(win: number, pos: Float64Array, tint: number): number {
     this.ensureAsset(win);
     const a = this.asset;
     if (a === null) return 0;
-    this.composeAt(x, y, z);
-    const q = this.drawQ;
+    this.composeAt(pos[0], pos[1], pos[2]);
+    const d = this.drawBuf;
     let i = 0;
     while (i < a.partBone.length) {
       const mesh = a.partMesh[i];
       const b = a.partBone[i];
       if (mesh > 0 && b >= 0) {
-        q[0] = this.worldR[b * 4]; q[1] = this.worldR[b * 4 + 1]; q[2] = this.worldR[b * 4 + 2]; q[3] = this.worldR[b * 4 + 3];
-        drawGPUMeshQ(win, mesh, this.worldT[b * 3], this.worldT[b * 3 + 1], this.worldT[b * 3 + 2], q,
-          this.worldS[b * 3], this.worldS[b * 3 + 1], this.worldS[b * 3 + 2], tint >= 0 ? tint : a.partColor[i], 0, a.partTex[i]);
+        d[D_X] = this.worldT[b * 3]; d[D_Y] = this.worldT[b * 3 + 1]; d[D_Z] = this.worldT[b * 3 + 2];
+        d[D_QX] = this.worldR[b * 4]; d[D_QY] = this.worldR[b * 4 + 1]; d[D_QZ] = this.worldR[b * 4 + 2]; d[D_QW] = this.worldR[b * 4 + 3];
+        d[D_SX] = this.worldS[b * 3]; d[D_SY] = this.worldS[b * 3 + 1]; d[D_SZ] = this.worldS[b * 3 + 2];
+        d[D_COR] = tint >= 0 ? tint : a.partColor[i]; d[D_EMISSIVO] = 0; d[D_TEX] = a.partTex[i];
+        drawGPUMeshQBuf(win, mesh, d);
       }
       i = i + 1;
     }

@@ -28,8 +28,13 @@ export class EditorBuild {
       this.started = Date.now(); this.running = true; this.status = "Compilando jogo..."; logInfo(this.status);
     } catch (error) { this.running = false; this.status = "Build falhou: " + String(error); logError(this.status); }
   }
+  /// Chamado todo quadro: só a guarda barata. A leitura do status (com `try`)
+  /// fica em `lerStatus`: no RTS a função que contém `try` aloca a cada chamada.
   poll(): void {
     if (!this.running || Date.now() - this.lastPoll < BUILD_POLL_MS) return;
+    this.lerStatus();
+  }
+  lerStatus(): void {
     this.lastPoll = Date.now();
     if (this.lastPoll - this.started >= BUILD_FINISH_TIMEOUT_MS) {
       this.running = false; this.status = "Build sem resposta. Consulte " + this.directory; logError(this.status); return;

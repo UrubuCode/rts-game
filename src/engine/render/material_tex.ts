@@ -19,6 +19,15 @@ export function resolveMaterialTexture(win: number, m: Behavior): number {
   const proc = m.matProc();
   const path = m.matTexPath();
   if (proc.length === 0 && path.length === 0) return 0;
+  return resolverDevagar(win, m, proc, path);
+}
+
+/// O caminho lento (gera/carrega a textura, uma vez por Material) fica numa
+/// função própria: no RTS uma função que CONTÉM `try/catch` aloca a cada chamada,
+/// mesmo saindo antes do `try` (medido em scratch/claude-t105/bis-mat.ts: ~1
+/// objeto por chamada; a mesma função sem o `try`, 0). O caminho rápido acima
+/// roda por objeto e por quadro.
+function resolverDevagar(win: number, m: Behavior, proc: string, path: string): number {
   let id = 0 - 1;
   if (proc.length > 0) {
     if (PROC_NOMES.indexOf(proc) >= 0) id = procTexture(win, proc);

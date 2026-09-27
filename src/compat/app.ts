@@ -28,9 +28,10 @@
 // do motor, aqui falta apenas aritmética.
 //
 // `delta`/`fps` idem: são `Date.now()` e uma média, não uma capacidade.
-import { drawRect, drawText, drawLine, openWindow, setNextWindowPos, isOpen, pump, beginFrame, endFrame, close } from "rts:egui";
+import { drawRect, drawText, openWindow, setNextWindowPos, isOpen, pump, beginFrame, endFrame, close } from "rts:egui";
 import { mouseX, mouseY, mouseDown, mousePressed, mouseReleased, mouseClicked, key, textInput, modCtrl } from "rts:input";
-import { dcRect, dcText, dcLine, dcReset } from "./drawcount.ts";
+import { dcReset } from "./drawcount.ts";
+import { janela2D } from "./draw2d.ts";
 
 // Fases de `input.key(win, code, phase)`, do trait `InputSource`:
 // 0 = segurada agora, 1 = disparou neste frame (borda). Escritas como constante
@@ -110,10 +111,24 @@ let avgMs = 16.0;
 // 85% do custo sem tocar no motor.
 const oRect = { x: 0.0, y: 0.0, w: 0.0, h: 0.0, fill: 0, strokeW: 0, stroke: 0, radius: 0 };
 const oText = { x: 0.0, y: 0.0, text: "", color: 0, size: 12, flags: 0 };
-const oLine = { x1: 0.0, y1: 0.0, x2: 0.0, y2: 0.0, w: 1, color: 0 };
+
+// Retângulo pendente de `at(x, y, w, h)`, lido pelo `button`/`textField` seguinte.
+let atX = 0.0; let atY = 0.0; let atW = 0.0; let atH = 0.0;
 
 function inRect(x: number, y: number, w: number, h: number): boolean {
   return curMx >= x && curMx < x + w && curMy >= y && curMy < y + h;
+}
+
+/// 0 nada, 1 hover, 2 pressionado, 3 clicado (ver `clickable`).
+function clicavel(cx: number, cy: number, cw: number, ch: number): number {
+  const over = inRect(cx, cy, cw, ch);
+  if (!over) return 0;
+  // "clicado" é o egui dizer que houve clique E a pressão ter começado AQUI.
+  // A segunda metade é o que faz um arrasto iniciado noutro botão não
+  // disparar este; a primeira deixou de ser deduzida de `released`.
+  if (curClicked !== 0 && pressX >= cx && pressX < cx + cw && pressY >= cy && pressY < cy + ch) return 3;
+  if (curDown !== 0) return 2;
+  return 1;
 }
 
 /// `createAppAt(titulo, w, h, x, y)` — abre a janela NA POSIÇÃO pedida.
@@ -129,6 +144,7 @@ function inRect(x: number, y: number, w: number, h: number): boolean {
 export function createAppAt(titulo: string, w: number, h: number, x: number, y: number): any {
   setNextWindowPos(x, y);
   const win = openWindow(titulo, w, h, 0);
+  janela2D(win);
   lastMs = Date.now();
 
   return {
@@ -174,55 +190,30 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
     fps(): number { return avgMs > 0.0 ? 1000.0 / avgMs : 0.0; },
 
     // ── desenho ───────────────────────────────────────────────────────────
-    // Mesma tradução de `compat/render.ts` (lista de argumentos → objeto), com
-    // o `win` já fechado por cima. Não reuso o `render.rect` de lá de propósito:
-    // aquele shim traduz `rts:render`, este traduz `createAppAt`, e encadear um
-    // no outro faria uma dívida depender da outra para ser paga.
-    box(bx: number, by: number, bw: number, bh: number, fill: number,
-        strokeW: number, stroke: number, radius: number): void {
-      dcRect();
-      oRect.x = bx; oRect.y = by; oRect.w = bw; oRect.h = bh;
-      oRect.fill = fill; oRect.strokeW = strokeW; oRect.stroke = stroke; oRect.radius = radius;
-      drawRect(win, oRect);
-    },
-
-    // O `app.text` antigo não tinha `flags` (o editor chama sempre com 5
-    // argumentos); do lado novo `flags` é bitmask 1=negrito 2=itálico 4=mono.
-    text(tx: number, ty: number, s: string, color: number, size: number): void {
-      dcText();
-      oText.x = tx; oText.y = ty; oText.text = s; oText.color = color; oText.size = size;
-      drawText(win, oText);
-    },
-
-    line(x1: number, y1: number, x2: number, y2: number, lw: number, color: number): void {
-      dcLine();
-      oLine.x1 = x1; oLine.y1 = y1; oLine.x2 = x2; oLine.y2 = y2; oLine.w = lw; oLine.color = color;
-      drawLine(win, oLine);
-    },
+    // `box`/`text`/`line` saíram (Task 10.5): com 5+ parâmetros eles alocavam
+    // por chamada. O desenho 2D é `@compat/draw2d.ts` (pincel/caixa, texto/
+    // estiloTexto, traco/linha), que desenha nesta janela (`janela2D` acima).
 
     // ── widgets posicionados (hit-test em TS, ver o cabeçalho) ────────────
-    /// `clickable(id, x, y, w, h)` → 0 nada, 1 hover, 2 pressionado, 3 clicado.
+    /// `clickable(x, y, w, h)` → 0 nada, 1 hover, 2 pressionado, 3 clicado.
     ///
-    /// O `id` não é usado: ele existia no motor antigo porque a camada de
-    /// widgets guardava estado por id. Aqui o estado do clique é do MOUSE, não
-    /// do widget, então o id não tem o que indexar. Mantido na assinatura
-    /// porque os 19 chamadores o passam.
-    clickable(_id: number, cx: number, cy: number, cw: number, ch: number): number {
-      const over = inRect(cx, cy, cw, ch);
-      if (!over) return 0;
-      // "clicado" é o egui dizer que houve clique E a pressão ter começado AQUI.
-      // A segunda metade é o que faz um arrasto iniciado noutro botão não
-      // disparar este; a primeira deixou de ser deduzida de `released`.
-      if (curClicked !== 0 && pressX >= cx && pressX < cx + cw && pressY >= cy && pressY < cy + ch) return 3;
-      if (curDown !== 0) return 2;
-      return 1;
-    },
+    /// Sem `id`: ele existia no motor antigo porque a camada de widgets guardava
+    /// estado por id; aqui o estado do clique é do MOUSE. Saiu na Task 10.5 para
+    /// a chamada ter 4 parâmetros (5+ alocam por chamada no RTS).
+    clickable(cx: number, cy: number, cw: number, ch: number): number { return clicavel(cx, cy, cw, ch); },
+    /// `clickable` no retângulo do último `at`. O `id` é do controle (EditorControl)
+    /// e só serve aos testes sem janela, que respondem cliques por controle.
+    clickableAt(_id: number): number { return clicavel(atX, atY, atW, atH); },
 
-    /// `button(x, y, w, h, label)` — desenha e responde se foi clicado.
+    /// Retângulo do próximo `button`/`textField` (altura ignorada pelo campo).
+    at(x: number, y: number, w: number, h: number): void { atX = x; atY = y; atW = w; atH = h; },
+
+    /// `button(label)` no retângulo do último `at` — desenha e responde se foi clicado.
     ///
     /// NÃO é o `button` de `rts:egui`: aquele se posiciona sozinho na coluna do
     /// egui e ignoraria x/y/w/h. Este é o retângulo do editor.
-    button(bx: number, by: number, bw: number, bh: number, label: string): boolean {
+    button(label: string): boolean {
+      const bx = atX; const by = atY; const bw = atW; const bh = atH;
       const over = inRect(bx, by, bw, bh);
       let fill = 0x2D2D2DFF;
       if (over && curDown !== 0) fill = 0x252525FF;
@@ -256,11 +247,13 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
     isFocused(id: number): boolean { return focusId === id; },
     hasTextFocus(): boolean { return focusId >= 0; },
 
-    /// `textField(id, x, y, w, texto)` → o texto, possivelmente digitado.
+    /// `textField(id, texto, habilitado)` no retângulo do último `at` → o texto,
+    /// possivelmente digitado.
     ///
     /// Campo posicionado para nome e buscas. Aceita texto, Backspace, Delete,
     /// Ctrl+A, Enter e Escape; ainda não tem cursor em posição arbitrária.
-    textField(id: number, tx: number, ty: number, tw: number, value: string, enabled: boolean): string {
+    textField(id: number, value: string, enabled: boolean): string {
+      const tx = atX; const ty = atY; const tw = atW;
       const h2 = 20;
       const over = inRect(tx, ty, tw, h2);
       if (enabled && over && curPressed !== 0) { focusId = id; focusSelectAll = 0; }

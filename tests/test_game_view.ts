@@ -1,0 +1,72 @@
+// Teste SEM JANELA da aba Jogo: faixas (letterbox) por proporção, comando
+// gameview e a escolha de câmera.
+//   rts.exe run tests/test_game_view.ts
+import io from "@compat/io.ts";
+import { areaComFaixas, prepararPrevia, restaurarPrevia } from "@editor/game_view";
+import { VistasDeCamera, coletarCameras, frustumDaVista } from "@engine/render/camera_views";
+import { cmdGameView } from "@editor/control/commands/gameview";
+import { WorkspaceViews } from "@editor/workspace_views";
+import { scene, S } from "@editor/control/session";
+import { Camera } from "@engine/core/camera";
+import { definirEntradaAtiva, entradaAtiva, teclaSegurada, mouseDX, TECLA_W } from "@engine/core/entrada";
+
+function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
+function perto(a: number, b: number): boolean { return Math.abs(a - b) < 1e-9; }
+const area = new Float64Array(4); const out = new Float64Array(4);
+area[0] = 250.0; area[1] = 97.0; area[2] = 660.0; area[3] = 400.0;
+areaComFaixas(area, 16.0 / 9.0, out);
+check(perto(out[0], 250.0) && perto(out[1], 111.375) && perto(out[2], 660.0) && perto(out[3], 371.25), "16:9 numa área larga de menos: faixas em cima e embaixo");
+area[0] = 0.0; area[1] = 0.0; area[2] = 1000.0; area[3] = 500.0;
+areaComFaixas(area, 4.0 / 3.0, out);
+check(perto(out[0], 166.66666666666666) && perto(out[2], 666.6666666666666) && perto(out[3], 500.0), "4:3 numa área larga: faixas dos lados");
+areaComFaixas(area, 0.0, out);
+check(perto(out[2], 1000.0) && perto(out[3], 500.0), "Livre = a área toda");
+
+scene.clear();
+const a = scene.createGameObject("A"); a.addBehavior(new Camera());
+const b = scene.createGameObject("B"); const cb = new Camera(); cb.isMain = 0; cb.profundidade = 1.0; b.addBehavior(cb);
+check(cmdGameView(["gameview", "jogo"]).indexOf("[ok]") === 0 && S.gameView === 1, "gameview jogo");
+check(cmdGameView(["gameview", "proporcao", "16:9"]).indexOf("[ok]") === 0 && S.gameAspect === 1, "proporção");
+check(cmdGameView(["gameview", "proporcao", "21:9"]).indexOf("[erro]") === 0, "proporção inválida");
+check(cmdGameView(["gameview", "camera", "1"]).indexOf("[ok]") === 0 && S.gameCamera === b, "câmera escolhida");
+check(cmdGameView(["gameview", "camera", "5"]).indexOf("[erro]") === 0, "objeto sem câmera");
+check(cmdGameView(["gameview", "previa", "on"]).indexOf("[ok]") === 0 && S.cameraPreview === 1, "prévia");
+check(cmdGameView(["gameview"]).indexOf("aba=jogo proporcao=16:9 camera=#1 previa=on") > 0, "consulta: " + cmdGameView(["gameview"]));
+const views = new WorkspaceViews({ _win: 0 });
+check(views.cameraEscolhida() === cb, "cameraEscolhida resolve o índice");
+views.proximaCamera();
+check(S.gameCamera === null && views.cameraEscolhida() === null, "depois da última: Todas");
+views.proximaCamera();
+check(S.gameCamera === a, "Todas → a primeira por profundidade");
+// referência, não índice: apagar um objeto antes dela não troca a câmera escolhida
+const antes = scene.createGameObject("Antes");
+cmdGameView(["gameview", "camera", "" + scene.objects.indexOf(b)]);
+scene.removeAt(scene.objects.indexOf(a));
+check(views.cameraEscolhida() === cb && views.textoCamera().indexOf("B") >= 0, "apagar outro objeto não troca a escolha: " + views.textoCamera());
+scene.removeAt(scene.objects.indexOf(b));
+check(views.cameraEscolhida() === null && S.gameCamera === null, "objeto da câmera removido: volta a Todas");
+scene.removeAt(scene.objects.indexOf(antes));
+scene.add(a); scene.add(b);
+cmdGameView(["gameview", "camera", "todas"]); cmdGameView(["gameview", "cena"]); cmdGameView(["gameview", "previa", "off"]);
+check(S.gameCamera === null && S.gameView === 0 && S.cameraPreview === 0, "volta ao padrão");
+// prévia: desenha a câmera no canto SEM trocar o retângulo de runtime dela (o da aba Jogo)
+scene.computeWorld();
+const jogo = new VistasDeCamera(); jogo.area[0] = 250.0; jogo.area[1] = 97.0; jogo.area[2] = 660.0; jogo.area[3] = 400.0;
+jogo.tela[0] = 1200.0; jogo.tela[1] = 720.0;
+coletarCameras(jogo, scene, a.behaviors[a.camIdx] as Camera);
+const previa = new VistasDeCamera(); previa.area[0] = 644.0; previa.area[1] = 343.0; previa.area[2] = 256.0; previa.area[3] = 144.0;
+const guarda = new Float64Array(4);
+const camA = a.behaviors[a.camIdx] as Camera;
+check(prepararPrevia(previa, scene, camA, guarda) === 1 && camA.retanguloPx()[2] === 256.0, "prévia coleta a câmera no quadro do canto");
+const f2: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+camA.parametrosDeRender(previa.camBuf); frustumDaVista(previa.camBuf, f2);
+check(perto(f2[7], f2[8] * 256.0 / 144.0) && f2[9] === camA.near && f2[3] === 1.0, "frustum da prévia com o aspecto do quadro");
+restaurarPrevia(previa, guarda);
+const rr = camA.retanguloPx();
+check(rr[0] === 250.0 && rr[1] === 97.0 && rr[2] === 660.0 && rr[3] === 400.0, "depois da prévia o retângulo de runtime volta ao da aba Jogo");
+// entrada dos scripts: o editor a desliga fora da aba Jogo; desligada, tudo 0
+check(entradaAtiva(), "entrada ligada por padrão (jogo exportado)");
+definirEntradaAtiva(false);
+check(!entradaAtiva() && !teclaSegurada(TECLA_W) && mouseDX() === 0.0, "entrada desligada responde 0");
+definirEntradaAtiva(true);
+io.print("[PASSOU] game view: faixas, gameview, escolha de câmera");

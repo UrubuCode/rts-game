@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverComponents, renderComponents, generateComponents } from '../tools/generate-components.mjs';
+import { discoverComponents, renderComponents, generateComponents, renderEditorExtensions, discoverEditorExtensions } from '../tools/generate-components.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rts-component-test-'));
@@ -135,4 +135,68 @@ test('unresolved Behavior imports and invalid project configuration fail instead
   assert.throws(() => discoverComponents(root), /resolver Behavior/);
   write('tsconfig.json', '{ invalid JSON');
   assert.throws(() => discoverComponents(root));
+});
+
+test('@editorOnly keeps files out of the game registry and loads them only in the editor', t => {
+  const { root, write } = fixture(t);
+  // pacotes ficam um nível abaixo de assets/scripts: o import da base sobe três pastas
+  const importPacote = 'import { Behavior } from "../../../src/engine/core/behavior";\n';
+  write('assets/pacotes/luz/Game.ts', importPacote + 'export class Jogo extends Behavior { v: number = 1; }');
+  write('assets/pacotes/luz/Tool.ts', '/** @editorOnly */\n' + importPacote + 'export class Ferramenta extends Behavior { v: number = 2; }');
+  write('assets/pacotes/luz/cmds.ts', '/** @editorOnly */\nexport const x = 1;');
+  const entries = discoverComponents(root);
+  assert.deepEqual(entries.map(e => [e.name, e.editorOnly]), [['Ferramenta', true], ['Jogo', false]]);
+  const out = renderComponents(entries);
+  assert.match(out['src/engine/generated/components.ts'], /Ferramenta/);
+  assert.match(out['src/engine/generated/components.ts'], /REGISTRO = "editor"/);
+  assert.doesNotMatch(out['src/engine/generated/components_game.ts'], /Ferramenta/);
+  assert.match(out['src/engine/generated/components_game.ts'], /REGISTRO = "jogo"/);
+  const ext = renderEditorExtensions(discoverEditorExtensions(root))['src/engine/generated/editor_extensions.ts'];
+  assert.match(ext, /import "\.\.\/\.\.\/\.\.\/assets\/pacotes\/luz\/Tool";/);
+  assert.match(ext, /import "\.\.\/\.\.\/\.\.\/assets\/pacotes\/luz\/cmds";/);
+  assert.doesNotMatch(ext, /luz\/Game/);
+});
+
+test('components with onDrawGizmos are flagged in the generated reflection', t => {
+  const { root, write } = fixture(t);
+  write('assets/scripts/G.ts', importBase + 'export class ComGizmo extends Behavior { onDrawGizmosSelected(g: any): void {} }\nexport class SemGizmo extends Behavior {}');
+  const entries = discoverComponents(root);
+  assert.deepEqual(entries.map(e => [e.name, e.gizmos]), [['ComGizmo', true], ['SemGizmo', false]]);
+  assert.match(renderComponents(entries)['src/engine/generated/components.ts'], /drawsGizmos\(component: any\): boolean/);
+});
+
+test('@menuItem on static zero-arg methods becomes MENU_ITEMS and runMenuItem', t => {
+  const { root, write } = fixture(t);
+  write('assets/pacotes/luz/menu.ts', '/** @editorOnly */\nexport class LuzMenu {\n  /** @menuItem Criar/Luz/Pontual */\n  static pontual(): void {}\n  /** @menuItem Janela/Ambiente */\n  static janela(opcional?: number): void {}\n}');
+  const ext = discoverEditorExtensions(root);
+  assert.deepEqual(ext.menuItems.map(i => i.caminho), ['Criar/Luz/Pontual', 'Janela/Ambiente']);
+  const text = renderEditorExtensions(ext)['src/engine/generated/editor_extensions.ts'];
+  assert.match(text, /export const MENU_ITEMS: string\[\] = \["Criar\/Luz\/Pontual","Janela\/Ambiente"\];/);
+  assert.match(text, /if \(index === 0\) \{ Menu0\.pontual\(\); return; \}/);
+});
+test('@menuItem errors: not static, required argument, unknown root, duplicate path', t => {
+  const cases = [
+    ['export class A { /** @menuItem Criar/X */ x(): void {} }', /static/],
+    ['export class A { /** @menuItem Criar/X */ static x(n: number): void {} }', /static sem argumentos/],
+    ['export class A { /** @menuItem Arquivo/X */ static x(): void {} }', /Criar ou Janela/],
+    ['export class A { /** @menuItem Criar/X */ static x(): void {} /** @menuItem Criar/X */ static y(): void {} }', /repetido/],
+  ];
+  for (const [source, error] of cases) {
+    const { root, write } = fixture(t);
+    write('assets/pacotes/p/m.ts', source);
+    assert.throws(() => discoverEditorExtensions(root), error);
+  }
+});
+test('@menuItem only counts as a JSDoc tag: prose and // comments are ignored, non-method members fail', t => {
+  const { root, write } = fixture(t);
+  write('assets/pacotes/p/m.ts', 'export class A {\n  /** Veja o exemplo @menuItem Criar/Prosa no README. */\n  static a(): void {}\n  // @menuItem Criar/Linha\n  static b(): void {}\n  /**\n   * Cria.\n   * @menuItem Criar/Tag\n   */\n  static c(): void {}\n}');
+  assert.deepEqual(discoverEditorExtensions(root).menuItems.map(i => i.caminho), ['Criar/Tag']);
+  write('assets/pacotes/p/m.ts', 'export class A { /** @menuItem Criar/X */ x: number = 1; }');
+  assert.throws(() => discoverEditorExtensions(root), /so vale em um metodo static/);
+});
+test('fieldName is generated for visible fields', t => {
+  const { root, write } = fixture(t);
+  write('assets/scripts/F.ts', importBase + 'export class F extends Behavior { velocidade: number = 1; nome: string = ""; }');
+  const out = renderComponents(discoverComponents(root))['src/engine/generated/components.ts'];
+  assert.match(out, /fieldName\(component: any, index: number\): string \{\n    if \(component instanceof Component0\) \{\n      if \(index === 0\) return "velocidade";\n      if \(index === 1\) return "nome";/);
 });

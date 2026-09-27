@@ -10,7 +10,18 @@ browser.reset();
 check(browser.isRoot() && browser.rows.length === COMPONENT_CATEGORIES.length, "raiz mostra categorias derivadas");
 browser.selected = COMPONENT_CATEGORIES.indexOf("Renderização");
 check(browser.activate() === "" && browser.category === "Renderização", "entrar em categoria nao adiciona componente");
-check(browser.rows.length === 3 && browser.activate() === "Camera", "categoria filtra componentes");
+// A contagem vem do catálogo gerado (Light, Camera, Skeleton, pacotes… entram na
+// categoria sem quebrar o teste); a lista segue a ordem do catálogo.
+let renderCount = 0; let renderFirst = ""; let renderIndex = 0;
+while (renderIndex < COMPONENT_CATALOG.length) {
+  if (COMPONENT_CATALOG[renderIndex].category === "Renderização") {
+    if (renderCount === 0) renderFirst = COMPONENT_CATALOG[renderIndex].name;
+    renderCount = renderCount + 1;
+  }
+  renderIndex = renderIndex + 1;
+}
+check(renderCount >= 3 && COMPONENT_CATALOG.length > renderCount, "Renderização tem componentes e não é o catálogo inteiro");
+check(browser.rows.length === renderCount && browser.activate() === renderFirst, "categoria filtra componentes");
 browser.query = "GRAVIDADE";
 browser.refresh();
 check(browser.rows.length === 1 && browser.activate() === "Rigidbody", "busca global por funcao e sem case");

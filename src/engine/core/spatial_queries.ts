@@ -25,10 +25,22 @@ import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerW
          centerLocalX, centerLocalY, centerLocalZ,
          SHAPE_SPHERE, SHAPE_BOX, SHAPE_HULL } from "./collider";
 import { hullAt } from "./hullreg";
-import { hullContactLocal, Contact } from "./hullpack";
+import { hullContactLocal, Contact, Hull } from "./hullpack";
 import { stepCount } from "./fixedstep";
 import { pbActiveBackend, pbGpuLastReadbackStep } from "./physics_backend";
 import { BODY_STATIC, bodyTypeOf, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
+/// Esfera [x, y, z, r] no espaço da casca para `hullContactLocal` (reaproveitada).
+const sEsferaHc = new Float64Array(4);
+/// Raio da esfera da próxima `contatoCasca` (escalar de módulo).
+let sRaioHc: f64 = 0.0;
+/// `hullContactLocal` com a esfera (x, y, z, sRaioHc). Função própria de ≤ 4
+/// parâmetros: escrever em elemento de array DENTRO das funções de consulta (9+
+/// parâmetros, com `return` no bloco) é o padrão que aloca um bloco de spill por
+/// chamada no RTS (rts#2760); aqui a escrita fica numa função de 4 parâmetros.
+function contatoCasca(hull: Hull, x: f64, y: f64, z: f64): number {
+  sEsferaHc[0] = x; sEsferaHc[1] = y; sEsferaHc[2] = z; sEsferaHc[3] = sRaioHc;
+  return hullContactLocal(hull, sEsferaHc, sHullContactOut);
+}
 
 export const COL_SPHERE = SHAPE_SPHERE;
 export const COL_BOX = SHAPE_BOX;
@@ -2829,7 +2841,8 @@ function overlapSphereObject(
     }
 
     const menor = sx < sy ? (sx < sz ? sx : sz) : (sy < sz ? sy : sz);
-    if (hullContactLocal(hull, rx / sx, ry / sy, rz / sz, radius / menor, sHullContactOut) === 0) {
+    sRaioHc = radius / menor;
+    if (contatoCasca(hull, rx / sx, ry / sy, rz / sz) === 0) {
       return false;
     }
 
@@ -2927,7 +2940,8 @@ function testOverlapSphereObject(
     }
 
     const menor = sx < sy ? (sx < sz ? sx : sz) : (sy < sz ? sy : sz);
-    return hullContactLocal(hull, rx / sx, ry / sy, rz / sz, radius / menor, sHullContactOut) !== 0;
+    sRaioHc = radius / menor;
+    return contatoCasca(hull, rx / sx, ry / sy, rz / sz) !== 0;
   }
 
   return false;
@@ -3620,7 +3634,8 @@ function testOverlapBoxObject(
     }
 
     const menor = sx < sy ? (sx < sz ? sx : sz) : (sy < sz ? sy : sz);
-    return hullContactLocal(hull, rx / sx, ry / sy, rz / sz, (hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz)) / menor, sHullContactOut) !== 0;
+    sRaioHc = (hx < hy ? (hx < hz ? hx : hz) : (hy < hz ? hy : hz)) / menor;
+    return contatoCasca(hull, rx / sx, ry / sy, rz / sz) !== 0;
   }
 
   return false;

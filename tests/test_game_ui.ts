@@ -21,7 +21,8 @@ check(anchorX(ANCHOR_TL, 10, 800, 100) === 10, "TL: x = offset");
 check(anchorX(ANCHOR_TR, 10, 800, 100) === 690, "TR: x = W - w - offset");
 check(anchorY(ANCHOR_BL, 20, 600, 30) === 550, "BL: y = H - h - offset");
 check(anchorY(ANCHOR_BR, 20, 600, 30) === 550 && anchorX(ANCHOR_BR, 10, 800, 100) === 690, "BR: ambos");
-check(hitRect(15, 15, 10, 10, 20, 20) === 1 && hitRect(30, 15, 10, 10, 20, 20) === 0 && hitRect(9, 15, 10, 10, 20, 20) === 0, "hitRect: dentro/fora/borda");
+const ret = new Float64Array(4); ret[0] = 10; ret[1] = 10; ret[2] = 20; ret[3] = 20;
+check(hitRect(ret, 15, 15) === 1 && hitRect(ret, 30, 15) === 0 && hitRect(ret, 9, 15) === 0, "hitRect: dentro/fora/borda");
 
 // ── catálogo e fábrica ────────────────────────────────────────────────────
 check(COMPONENT_NAMES.indexOf("UIText") >= 0 && COMPONENT_NAMES.indexOf("UIButton") >= 0, "UIText e UIButton no catalogo gerado");

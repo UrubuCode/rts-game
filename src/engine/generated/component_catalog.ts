@@ -22,6 +22,34 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/keyframeanimator.ts"
   },
   {
+    "name": "CameraOrbita",
+    "category": "Câmera",
+    "description": "Órbita em volta de um alvo (nome do objeto): botão direito gira, roda aproxima.",
+    "keywords": "camera câmera órbita orbita orbit alvo terceira pessoa zoom",
+    "source": "assets/pacotes/camera/camera_orbita.ts"
+  },
+  {
+    "name": "CameraPrimeiraPessoa",
+    "category": "Câmera",
+    "description": "Primeira pessoa: olhar com o mouse (botão direito) e andar com WASD; espaço sobe.",
+    "keywords": "camera câmera fps primeira pessoa wasd mouse controle voar",
+    "source": "assets/pacotes/camera/camera_primeira_pessoa.ts"
+  },
+  {
+    "name": "CameraRTS",
+    "category": "Câmera",
+    "description": "Câmera de estratégia: WASD move no plano, roda muda a altura, inclinação fixa.",
+    "keywords": "camera câmera rts estratégia estrategia pan zoom topo",
+    "source": "assets/pacotes/camera/camera_rts.ts"
+  },
+  {
+    "name": "CameraSeguir",
+    "category": "Câmera",
+    "description": "Segue um alvo (nome do objeto) a um deslocamento, com suavização, olhando para ele.",
+    "keywords": "camera câmera seguir follow alvo terceira pessoa suave",
+    "source": "assets/pacotes/camera/camera_seguir.ts"
+  },
+  {
     "name": "VitrineContador",
     "category": "Demo",
     "description": "Conta os contatos e gatilhos que este objeto recebe (cena vitrine).",
@@ -59,9 +87,23 @@ export const COMPONENT_CATALOG = [
   {
     "name": "Camera",
     "category": "Renderização",
-    "description": "Define a câmera usada pelo jogo.",
-    "keywords": "camera visão perspectiva",
+    "description": "Câmera do jogo: perspectiva ou ortográfica, viewport, fundo e ordem de desenho.",
+    "keywords": "camera câmera visão perspectiva ortográfica viewport",
     "source": "src/engine/core/camera.ts"
+  },
+  {
+    "name": "CicloDoDia",
+    "category": "Renderização",
+    "description": "Gira o sol e interpola as cores do céu ao longo do dia.",
+    "keywords": "dia noite sol ciclo ambiente céu",
+    "source": "assets/pacotes/ambiente/ciclo_do_dia.ts"
+  },
+  {
+    "name": "Light",
+    "category": "Renderização",
+    "description": "Luz direcional, pontual ou spot usada pelo renderer.",
+    "keywords": "luz light sol lâmpada lampada spot iluminação",
+    "source": "src/engine/core/light.ts"
   },
   {
     "name": "Material",

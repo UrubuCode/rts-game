@@ -5,6 +5,8 @@ export class ComponentReflection {
   name(component: any): string { return "Script"; }
   fieldCount(component: any): number { return 0; }
   fieldLabel(component: any, index: number): string { return ""; }
+  /// Nome do campo `index` na classe (o mesmo do JSON da cena).
+  fieldName(component: any, index: number): string { return ""; }
   fieldType(component: any, index: number): string { return "number"; }
   fieldGet(component: any, index: number): f64 { return 0; }
   fieldSet(component: any, index: number, value: f64): void {}
@@ -13,6 +15,8 @@ export class ComponentReflection {
   serialize(component: any): any { return null; }
   legacyFields(component: any): any { return null; }
   restoreLegacyFields(component: any, fields: any): void {}
+  /// O component sobrescreve onDrawGizmos/onDrawGizmosSelected (editor).
+  drawsGizmos(component: any): boolean { return false; }
 }
 
 export class ComponentMetadata {

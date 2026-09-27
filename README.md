@@ -144,6 +144,14 @@ The editor embeds a **non-blocking WebSocket server** on `ws://127.0.0.1:7777`
 (polled once per frame), so an AI drives the exact scene the human is looking at,
 live. Every editor operation has a command. Send one command per message:
 
+**Security.** The port binds to the loopback interface only (`127.0.0.1`) and
+refuses connections whose `Host` header is not local (`127.0.0.1`, `localhost`,
+`[::1]`), which blocks DNS-rebinding pages. The engine's `ws` server does not
+expose the `Origin` header yet, so a web page open in a local browser can still
+reach `ws://127.0.0.1:7777` directly; don't browse untrusted sites while the
+editor is open with the control port, until `Origin` is available to reject
+browser origins (`http://`/`https://`).
+
 ```
 select 1
 selectadd 2
@@ -171,6 +179,11 @@ CI (`.github/workflows/build-executable.yml`) **downloads the `rts.exe` from the
 engine's latest release** (no engine rebuild — that binary is AOT-capable), runs
 `rts compile`, and **publishes a GitHub Release** of the executable + assets on
 every push to `master`.
+
+Because CI always uses the engine's *latest release*, a branch that needs new
+engine natives must be merged in this order: **engine (`rts`) PR → `rts`
+release → this repo's branch**. Merging here first breaks the CI build (see
+the migration notes in [docs/components.md](docs/components.md)).
 
 ## Performance
 

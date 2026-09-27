@@ -23,15 +23,20 @@ export class DocumentPanel extends Behavior {
     if (sceneDocument.pending.length === 0) { this.ui.end(); return; }
     const width = Math.min(L.width, w - L.padding * 2);
     const x = (w - width) / 2; const y = (h - L.height) / 2;
-    const bg = this.ui.control("Background", "panel", x, y, width, L.height, "", false); bg.fill = UI_C.popupDark; this.ui.draw(bg);
-    this.ui.draw(this.ui.control("Title", "label", x + L.padding, y + L.padding, width - L.padding * 2, L.rowH, L.title, false));
-    this.ui.draw(this.ui.control("Hint", "label", x + L.padding, y + L.padding + L.rowH, width - L.padding * 2, L.rowH, L.hint, false));
-    const error = this.ui.control("Error", "label", x + L.padding, y + L.padding + L.rowH * 2, width - L.padding * 2, L.rowH, sceneDocument.error, false); error.color = UI_C.destructiveText; this.ui.draw(error);
+    this.ui.at(x, y, width, L.height);
+    const bg = this.ui.control("Background", "panel", "", false); bg.fill = UI_C.popupDark; this.ui.draw(bg);
+    this.ui.at(x + L.padding, y + L.padding, width - L.padding * 2, L.rowH);
+    this.ui.draw(this.ui.control("Title", "label", L.title, false));
+    this.ui.at(x + L.padding, y + L.padding + L.rowH, width - L.padding * 2, L.rowH);
+    this.ui.draw(this.ui.control("Hint", "label", L.hint, false));
+    this.ui.at(x + L.padding, y + L.padding + L.rowH * 2, width - L.padding * 2, L.rowH);
+    const error = this.ui.control("Error", "label", sceneDocument.error, false); error.color = UI_C.destructiveText; this.ui.draw(error);
     const labels = [L.save, L.discard, L.cancel];
     const bw = (width - L.padding * 2 - L.gap * 2) / labels.length;
     let i = 0;
     while (i < labels.length) {
-      const button = this.ui.control("Action/" + i, "button", x + L.padding + i * (bw + L.gap), y + L.height - L.padding - L.rowH, bw, L.rowH, labels[i]);
+      this.ui.at(x + L.padding + i * (bw + L.gap), y + L.height - L.padding - L.rowH, bw, L.rowH);
+      const button = this.ui.control("Action/" + i, "button", labels[i]);
       this.ui.draw(button);
       if (button.clicked) {
         if (i === 2) sceneDocument.cancel();

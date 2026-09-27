@@ -12,6 +12,10 @@ import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc } from "./commands/doc";
+import { cmdGizmoAt } from "./commands/gizmo";
+import { cmdMenu } from "./commands/menu";
+import { cmdGameView } from "./commands/gameview";
+import { commandIndex, commandMutates, runCommand } from "../api";
 import { scene, S } from "./session";
 import { history } from "../undo";
 import { cmdStop } from "./commands/scene";
@@ -52,6 +56,19 @@ export function execCommand(w: number, h: number, line: string): string {
   return out;
 }
 
+/// Comando registrado por script (@editor/api). Só `muta = true` tira snapshot
+/// de Desfazer; se a resposta for `[erro]`, o snapshot é descartado e a pilha de
+/// Refazer volta como estava (um erro não deixa entrada vazia no Desfazer).
+function runRegistered(i: number, parts: string[]): string {
+  if (!commandMutates(i)) return runCommand(i, parts);
+  const undoAntes = history.u.slice();
+  const redoAntes = history.r;
+  history.snapshot();
+  const out = runCommand(i, parts);
+  if (out.indexOf("[erro]") === 0) { history.u = undoAntes; history.r = redoAntes; }
+  return out;
+}
+
 function execCommandInner(w: number, h: number, line: string): string {
   const parts = line.split(" ");
   const cmd = parts[0];
@@ -69,6 +86,7 @@ function execCommandInner(w: number, h: number, line: string): string {
   // `anim ... preview` também não: a prévia é estado do editor (só trocar o
   // clipe entra no undo, e o próprio subcomando faz esse snapshot).
   if (isMutating(cmd) && !(cmd === "anim" && (parts[2] === "state" || parts[2] === "preview"))) history.snapshot();
+  const registrado = commandIndex(cmd);
   // `animator` fica FORA do snapshot genérico: `set`/`trigger` mexem em
   // parâmetros (estado de execução), `state`/`params` são consultas (polling
   // não pode zerar o redo, como no `anim ... state`), e `load` tira o próprio
@@ -220,9 +238,15 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "dropat": return cmdDropAt(parts);
     case "dropon": return cmdDropOn(parts);
     case "pickat": return cmdPickAt(parts, w, h);
+    // seleção não é mutação da cena: fora de isMutating (sem snapshot)
+    case "gizmoat": return cmdGizmoAt(parts);
+    // fora de isMutating: o executor tira o proprio snapshot, so para "Criar/"
+    case "menu": return cmdMenu(parts);
+    // estado da aba Jogo (editor): fora de isMutating, sem Desfazer
+    case "gameview": return cmdGameView(parts);
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);
-    default: return "[erro] desconhecido: " + cmd;
+    default: return registrado >= 0 ? runRegistered(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

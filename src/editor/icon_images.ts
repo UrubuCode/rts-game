@@ -1,11 +1,13 @@
 import fs from "@compat/fs";
 import { decodePNG } from "@engine/render/png";
-import render from "@compat/render";
+import { imagemEm, imagem, imagemId, registrarImagem } from "@compat/draw2d.ts";
 import { logWarn } from "@engine/core/logger";
 import { UI_ICONS } from "./ui_config";
 
 export class IconImage {
   width: number; height: number; pixels: Uint8Array;
+  /// Textura retida na janela (0 = ainda não registrada): o ícone sobe uma vez.
+  texId: number = 0;
   constructor(w: number, h: number, pixels: Uint8Array) { this.width = w; this.height = h; this.pixels = pixels; }
 }
 // O leitor de PNG agora é do motor (`@engine/render/png`), compartilhado com
@@ -16,16 +18,28 @@ export function decodeIconPNG(bytes: any): IconImage {
 }
 const iconCache = new Map<string, IconImage>();
 const iconFailures = new Map<string, boolean>();
+/// Ícone `name` do cache (carrega na primeira vez). Sem `try` aqui: roda por
+/// ícone por quadro, e no RTS a função que contém `try/catch` aloca a cada chamada.
 export function editorIcon(name: string): IconImage | null {
   const cached = iconCache.get(name); if (cached !== undefined) return cached;
   if (iconFailures.get(name) === true) return null;
+  return carregarIcone(name);
+}
+/// Lê e decodifica o PNG do ícone uma vez (caminho lento, com `try`).
+function carregarIcone(name: string): IconImage | null {
   try {
     if (UI_ICONS.names.indexOf(name) < 0) throw new Error("Icone desconhecido");
     const decoded = decodeIconPNG(fs.read_all(UI_ICONS.directory + name + ".png"));
     iconCache.set(name, decoded); return decoded;
   } catch (error) { iconFailures.set(name, true); logWarn("Icone " + name + ": " + String(error)); return null; }
 }
-export function drawEditorIcon(win: number, name: string, x: number, y: number, size: number): boolean {
+/// Ícone `name` no quadrado do último `iconAt(x, y, lado)` (≤ 4 parâmetros por chamada).
+export function iconAt(x: number, y: number, size: number): void { icX = x; icY = y; icS = size; }
+let icX = 0.0; let icY = 0.0; let icS = 0.0;
+export function drawEditorIcon(name: string): boolean {
   const icon = editorIcon(name); if (icon === null) return false;
-  render.image(win, x, y, size, size, icon.pixels, icon.width, icon.height); return true;
+  if (icon.texId === 0) icon.texId = registrarImagem(icon.pixels, icon.width, icon.height);
+  imagemEm(icX, icY, icS, icS);
+  if (icon.texId === 0) imagem(icon.pixels, icon.width, icon.height); else imagemId(icon.texId);
+  return true;
 }

@@ -34,8 +34,9 @@ class TestApp {
   clickId: number = -1;
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string { return value; }
-  clickable(id: number, x: number, y: number, width: number, height: number): number { return id === this.clickId ? 3 : 0; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string { return value; }
+  clickableAt(id: number): number { return id === this.clickId ? 3 : 0; }
   checkbox(x: number, y: number, value: number, label: string): number { return value; }
   box(x: number, y: number, width: number, height: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
@@ -143,7 +144,7 @@ const app = new TestApp();
 const inspector = new Inspector(app);
 inspector.transformOpen = false;
 function render(mx: number, my: number, down: number, pressed: number): void {
-  inspector.render(app, 0, 0, 290, PANEL_H, mx, my, down, pressed, false, 0, 0);
+  inspector.area(0, 0, 290, PANEL_H); inspector.mouse(mx, my, down, pressed); inspector.render(app, false, 0, 0);
 }
 function control(name: string): EditorControl {
   const index = inspector.ui.names.indexOf(name);
@@ -296,14 +297,14 @@ S.selected = 0; S.selection = [0];
 const player2 = scene.objects[0].behaviors[1] as AnimationPlayer;
 const inspector2 = new Inspector(app);
 inspector2.transformOpen = false;
-inspector2.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0);
+inspector2.area(0, 0, 290, PANEL_H); inspector2.mouse(-1, -1, 0, 0); inspector2.render(app, false, 0, 0);
 previewStart(player2);
 previewTick(0.1);
 check(previewIsTouched(player2), "setup: prévia mexendo no player");
 const resetIndex = inspector2.ui.names.indexOf("Skeleton/Reset");
 check(resetIndex >= 0, "botão Resetar pose");
 app.clickId = inspector2.ui.controls[resetIndex].id;
-inspector2.render(app, 0, 0, 290, PANEL_H, -1, -1, 0, 0, false, 0, 0);
+inspector2.area(0, 0, 290, PANEL_H); inspector2.mouse(-1, -1, 0, 0); inspector2.render(app, false, 0, 0);
 app.clickId = -1;
 check(loadedSk!.overrideMask[arm] === 0, "Resetar pose esquece a pose manual");
 check(!previewIsTouched(player2) && !previewIsPlaying(player2), "Resetar pose tira o player da prévia");
@@ -313,7 +314,7 @@ check(sameRot(loadedSk!.poseR, arm * 4, loadedSk!.asset!.restR, arm * 4), "Reset
 selectBone(scene.objects[0], arm);
 check(cmdPose(["pose", "0", "arm-right", "rot", "30", "0", "10"]).indexOf("[ok]") === 0, "setup: pose rot 30 0 10");
 function render2(mx: number, my: number, down: number, pressed: number): void {
-  inspector2.render(app, 0, 0, 290, PANEL_H, mx, my, down, pressed, false, 0, 0);
+  inspector2.area(0, 0, 290, PANEL_H); inspector2.mouse(mx, my, down, pressed); inspector2.render(app, false, 0, 0);
 }
 function control2(name: string): EditorControl {
   const index = inspector2.ui.names.indexOf(name);

@@ -17,12 +17,13 @@ class TestApp {
   focus: number = -1;
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  textField(id: number, x: number, y: number, width: number, value: string, enabled: boolean): string {
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, value: string, enabled: boolean): string {
     if (id === L.nameId || !enabled) return value;
     this.focus = id;
     return "after";
   }
-  clickable(id: number, x: number, y: number, width: number, height: number): number { return 0; }
+  clickableAt(id: number): number { return 0; }
   checkbox(x: number, y: number, value: number, label: string): number { return value; }
   box(x: number, y: number, width: number, height: number, fill: number, border: number, stroke: number, radius: number): void {}
   text(x: number, y: number, value: string, color: number, font: number): void {}
@@ -30,9 +31,9 @@ class TestApp {
 scene.clear();
 const object = scene.createGameObject("Test"); const text = new TextOnly(); object.addBehavior(text); S.selected = 0;
 const app = new TestApp(); const inspector = new Inspector(app); inspector.transformOpen = false;
-inspector.render(app, 0, 0, 290, 720, -1, -1, 0, 0, false, 0, 0);
+inspector.area(0, 0, 290, 720); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0);
 if (text.text !== "after" || app.focus < 0) throw new Error("Inspector string field failed to edit or retain focus");
 object.behaviors[0].collapsed = 1;
-inspector.render(app, 0, 0, 290, 720, -1, -1, 0, 0, false, 0, 0);
+inspector.area(0, 0, 290, 720); inspector.mouse(-1, -1, 0, 0); inspector.render(app, false, 0, 0);
 if (app.focus >= 0) throw new Error("hidden text field retains focus");
 io.print("[PASSOU] Inspector: texto editavel e foco liberado quando oculto");

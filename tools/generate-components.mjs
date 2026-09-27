@@ -22,9 +22,15 @@ const hasMethod = (nodes, name) => nodes.some(node => node.members.some(member =
   ts.isMethodDeclaration(member) && member.name.getText() === name));
 const humanize = name => name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/^./, c => c.toUpperCase());
 
-export function discoverComponents(root = projectRoot) {
-  const roots = ['src/engine/core', 'src/scripts', 'assets/scripts'].map(dir => path.join(root, dir));
-  const files = roots.flatMap(filesUnder);
+export const ROOTS = ['src/engine/core', 'src/scripts', 'assets/scripts', 'assets/pacotes'];
+export const MENU_ROOTS = ['Criar', 'Janela'];
+/// `/** @editorOnly */` no comentário de abertura do arquivo: o arquivo fica fora do jogo exportado.
+export function isEditorOnly(source) {
+  return (ts.getLeadingCommentRanges(source.text, 0) ?? []).some(r => /@editorOnly\b/.test(source.text.slice(r.pos, r.end)));
+}
+
+function createProject(root) {
+  const files = ROOTS.map(dir => path.join(root, dir)).flatMap(filesUnder);
   const configPath = path.join(root, 'tsconfig.json');
   const configResult = fs.existsSync(configPath) ? ts.readConfigFile(configPath, ts.sys.readFile) : { config: {} };
   if (configResult.error) throw new Error(ts.flattenDiagnosticMessageText(configResult.error.messageText, '\n'));
@@ -33,7 +39,6 @@ export function discoverComponents(root = projectRoot) {
   const options = converted.options;
   const program = ts.createProgram(files, { ...options, noLib: true, noEmit: true, target: ts.ScriptTarget.ESNext });
   const checker = program.getTypeChecker();
-  const baseFile = slash(path.resolve(root, 'src/engine/core/behavior.ts'));
   const diagnostics = program.getSyntacticDiagnostics();
   if (diagnostics.length) throw new Error(ts.formatDiagnosticsWithColorAndContext(diagnostics, {
     getCanonicalFileName: f => f, getCurrentDirectory: () => root, getNewLine: () => '\n',
@@ -43,6 +48,12 @@ export function discoverComponents(root = projectRoot) {
     const pos = source.getLineAndCharacterOfPosition(node.getStart());
     throw new Error(`${slash(path.relative(root, source.fileName))}:${pos.line + 1}: ${message}`);
   }
+  return { files, program, checker, fail };
+}
+
+export function discoverComponents(root = projectRoot, project = createProject(root)) {
+  const { files, program, checker, fail } = project;
+  const baseFile = slash(path.resolve(root, 'src/engine/core/behavior.ts'));
   function parent(node) {
     const heritage = node.heritageClauses?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)?.types[0];
     if (!heritage) return null;
@@ -85,6 +96,7 @@ export function discoverComponents(root = projectRoot) {
       }
       const customInspector = hasMethod(chain, 'fieldCount');
       const customSerialization = hasMethod(chain, 'toData');
+      const gizmos = hasMethod(chain, 'onDrawGizmos') || hasMethod(chain, 'onDrawGizmosSelected');
       const factory = metadata.get('componentFactory');
       if (factory && !node.members.some(member => ts.isMethodDeclaration(member) &&
           member.name.getText() === factory && hasModifier(member, ts.SyntaxKind.StaticKeyword) &&
@@ -122,7 +134,8 @@ export function discoverComponents(root = projectRoot) {
         category: metadata.get('componentCategory') || 'Scripts',
         description: metadata.get('componentDescription') || `Componente definido em ${relative}.`,
         keywords: metadata.get('componentKeywords') || '',
-        factory, customInspector, customSerialization, fields: [...fields.values()],
+        factory, customInspector, customSerialization, gizmos, fields: [...fields.values()],
+        editorOnly: isEditorOnly(source),
       });
     }
   }
@@ -134,21 +147,20 @@ export function discoverComponents(root = projectRoot) {
   return result.sort((a, b) => compare(a.category, b.category) || compare(a.name, b.name));
 }
 
-export function renderComponents(entries) {
-  const header = '// GERADO por tools/generate-components.mjs. Edite as classes .ts, nao este arquivo.\n';
-  const catalog = header + 'export const COMPONENT_CATALOG = ' + JSON.stringify(entries.map(({ name, category, description, keywords, source }) =>
-    ({ name, category, description, keywords, source })), null, 2) + ';\n';
-  const imports = entries.map((entry, index) => {
-    entry.alias = `Component${index}`;
+const header = '// GERADO por tools/generate-components.mjs. Edite as classes .ts, nao este arquivo.\n';
+/// Um registro (fábrica + reflexão) para `entries`; `marker` diz qual ("editor" ou "jogo").
+function renderRegistry(entries, marker) {
+  const alias = new Map(entries.map((e, i) => [e, 'Component' + i]));
+  const imports = entries.map(entry => {
     const relative = slash(path.posix.relative('src/engine/generated', entry.source)).replace(/\.ts$/, '');
-    return `import { ${entry.name} as ${entry.alias} } from ${quote(relative.startsWith('.') ? relative : './' + relative)};`;
+    return `import { ${entry.name} as ${alias.get(entry)} } from ${quote(relative.startsWith('.') ? relative : './' + relative)};`;
   });
   // Filhos antes dos pais: instanceof tambem reconhece uma subclasse.
   const ordered = [...entries].sort((a, b) => b.depth - a.depth);
   function method(name, args, type, fallback, bodyFor) {
     return `  ${name}(component: any${args}): ${type} {\n` + ordered.map(entry => {
       const body = bodyFor(entry);
-      return `    if (component instanceof ${entry.alias}) {\n${body || `      return ${fallback};`}\n    }\n`;
+      return `    if (component instanceof ${alias.get(entry)}) {\n${body || `      return ${fallback};`}\n    }\n`;
     }).join('') + `${type === 'void' ? '' : `    return ${fallback};\n`}  }\n`;
   }
   const visible = entry => entry.customInspector ? [] : entry.fields.filter(field => field.visible);
@@ -168,6 +180,7 @@ export function renderComponents(entries) {
   provider += method('name', '', 'string', '"Script"', entry => `      return ${quote(entry.name)};`);
   provider += method('fieldCount', '', 'number', '0', entry => `      return ${visible(entry).length};`);
   provider += method('fieldLabel', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.label), '""'));
+  provider += method('fieldName', ', index: number', 'string', '""', entry => lookup(visible(entry), field => quote(field.name), '""'));
   provider += method('fieldType', ', index: number', 'string', '"number"', entry => lookup(visible(entry), field => quote(field.kind), '"number"'));
   provider += method('fieldGet', ', index: number', 'f64', '0', entry => lookup(visible(entry), field => field.kind === 'string' ? '0' : field.kind === 'boolean' ? `(${access(field)} ? 1 : 0)` : access(field), '0'));
   provider += method('fieldStringGet', ', index: number', 'string', '""', entry => lookup(visible(entry), field => field.kind === 'string' ? access(field) : '""', '""'));
@@ -182,20 +195,88 @@ export function renderComponents(entries) {
     `      return { ${entry.fields.map(field => `${quote(field.name)}: ${access(field)}`).join(', ')} };` : '      return null;');
   provider += method('restoreLegacyFields', ', fields: any', 'void', '', entry => entry.customSerialization && !entry.customInspector ?
     `      if (fields === null || fields === undefined) return;\n${restoreFields(entry, 'fields')}\n      return;` : '      return;');
+  provider += method('drawsGizmos', '', 'boolean', 'false', entry => '      return ' + (entry.gizmos ? 'true' : 'false') + ';');
   provider += '}\ncomponentMetadata.provider = new GeneratedReflection();\n';
   const create = 'export function createRegisteredComponent(name: string): Behavior {\n' + entries.map(entry =>
-    `  if (name === ${quote(entry.name)}) return ${entry.factory ? `${entry.alias}.${entry.factory}()` : `new ${entry.alias}()`};`).join('\n') + '\n  throw new Error("Componente nao registrado: " + name);\n}\n';
+    `  if (name === ${quote(entry.name)}) return ${entry.factory ? `${alias.get(entry)}.${entry.factory}()` : `new ${alias.get(entry)}()`};`).join('\n') + '\n  throw new Error("Componente nao registrado: " + name);\n}\n';
   const restore = 'export function restoreRegisteredComponent(data: any): any {\n' + entries.filter(entry => !entry.customSerialization).map(entry => {
     const assignments = restoreFields(entry, 'data.fields');
-    return `  if (data.type === ${quote(entry.id)}) {\n    const component = new ${entry.alias}();\n    if (data.fields === undefined || data.fields === null) return component;\n${assignments}\n    return component;\n  }`;
+    return `  if (data.type === ${quote(entry.id)}) {\n    const component = new ${alias.get(entry)}();\n    if (data.fields === undefined || data.fields === null) return component;\n${assignments}\n    return component;\n  }`;
   }).join('\n') + '\n  return null;\n}\n';
+  return header + 'import { Behavior } from "../core/behavior";\nimport { ComponentReflection, componentMetadata } from "../core/component_metadata";\n' + imports.join('\n') + '\n' + provider + create + restore +
+    'export const REGISTRO = ' + quote(marker) + ';\n';
+}
+
+export function renderComponents(entries) {
+  const catalog = header + 'export const COMPONENT_CATALOG = ' + JSON.stringify(entries.map(({ name, category, description, keywords, source }) =>
+    ({ name, category, description, keywords, source })), null, 2) + ';\n';
   return { 'src/engine/generated/component_catalog.ts': catalog,
-    'src/engine/generated/components.ts': header + 'import { Behavior } from "../core/behavior";\nimport { ComponentReflection, componentMetadata } from "../core/component_metadata";\n' + imports.join('\n') + '\n' + provider + create + restore };
+    'src/engine/generated/components.ts': renderRegistry(entries, 'editor'),
+    'src/engine/generated/components_game.ts': renderRegistry(entries.filter(e => !e.editorOnly), 'jogo') };
+}
+
+const fromGenerated = source => {
+  const r = slash(path.posix.relative('src/engine/generated', source)).replace(/\.ts$/, '');
+  return r.startsWith('.') ? r : './' + r;
+};
+/// Valor de `@menuItem` no bloco JSDoc (`/** ... */`) logo antes do membro, ou null.
+/// Lido do texto porque a API de JSDoc do TS ignora o bloco na mesma linha do
+/// codigo anterior. So vale como TAG: no inicio de uma linha do bloco (depois do
+/// `*`) ou logo apos o `/**`; mencao no meio de uma frase e comentario `//` nao contam.
+function menuTag(member) {
+  const text = member.getSourceFile().text;
+  // "trailing" = comentarios ainda na linha anterior ao membro; "leading" = os das linhas seguintes.
+  const blocos = [...(ts.getTrailingCommentRanges(text, member.pos) ?? []), ...(ts.getLeadingCommentRanges(text, member.pos) ?? [])]
+    .map(r => text.slice(r.pos, r.end)).filter(c => c.startsWith('/**'));
+  if (blocos.length === 0) return null;
+  const tag = /(?:^\/\*\*|\n)[ \t]*\*?[ \t]*@menuItem\b[ \t]*([^\r\n*]*)/.exec(blocos[blocos.length - 1]);
+  return tag ? tag[1].trim() : null;
+}
+/// Arquivos `@editorOnly` (componentes ou não): só o editor os importa.
+export function discoverEditorExtensions(root = projectRoot, project = createProject(root)) {
+  const { files, program, fail } = project;
+  const editorFiles = files.filter(f => isEditorOnly(program.getSourceFile(f))).map(f => slash(path.relative(root, f))).sort(compare);
+  // `/** @menuItem Criar/Luz/Pontual */` num metodo static sem argumentos obrigatorios.
+  const menuItems = [];
+  for (const file of files) {
+    const source = program.getSourceFile(file);
+    for (const node of source.statements) {
+      if (!ts.isClassDeclaration(node) || !node.name || !hasModifier(node, ts.SyntaxKind.ExportKeyword)) continue;
+      for (const member of node.members) {
+        const caminho = menuTag(member);
+        if (caminho === null) continue;
+        if (!ts.isMethodDeclaration(member)) fail(member, '@menuItem so vale em um metodo static.');
+        if (!hasModifier(member, ts.SyntaxKind.StaticKeyword)) fail(member, '@menuItem precisa de um metodo static.');
+        if (!member.parameters.every(p => p.initializer || p.questionToken)) fail(member, '@menuItem precisa de um metodo static sem argumentos obrigatorios.');
+        const partes = caminho.split('/');
+        if (partes.length < 2 || partes.some(p => p.trim().length === 0) || !MENU_ROOTS.includes(partes[0])) fail(member, `@menuItem "${caminho}": comece com Criar ou Janela e nomeie o item (Criar/Luz/Pontual).`);
+        if (menuItems.some(i => i.caminho === caminho)) fail(member, `@menuItem "${caminho}" repetido.`);
+        menuItems.push({ caminho, source: slash(path.relative(root, file)), classe: node.name.text, metodo: member.name.getText() });
+      }
+    }
+  }
+  menuItems.sort((a, b) => compare(a.caminho, b.caminho));
+  return { editorFiles, menuItems };
+}
+export function renderEditorExtensions(ext) {
+  const header = '// GERADO por tools/generate-components.mjs. Só o editor (main.ts) importa este arquivo.\n';
+  let text = header + ext.editorFiles.map(f => 'import ' + quote(fromGenerated(f)) + ';').join('\n') + '\n';
+  // Uma importacao por classe com @menuItem; o indice segue a ordem de MENU_ITEMS.
+  const chave = i => i.source + '#' + i.classe;
+  const classes = [...new Map(ext.menuItems.map(i => [chave(i), i])).values()];
+  const alias = new Map(classes.map((i, k) => [chave(i), 'Menu' + k]));
+  text += classes.map(i => `import { ${i.classe} as ${alias.get(chave(i))} } from ${quote(fromGenerated(i.source))};\n`).join('');
+  text += 'export const MENU_ITEMS: string[] = ' + JSON.stringify(ext.menuItems.map(i => i.caminho)) + ';\n';
+  text += 'export function runMenuItem(index: number): void {\n' +
+    ext.menuItems.map((i, k) => `  if (index === ${k}) { ${alias.get(chave(i))}.${i.metodo}(); return; }\n`).join('') +
+    '  throw new Error("Item de menu inexistente: " + index);\n}\n';
+  return { 'src/engine/generated/editor_extensions.ts': text };
 }
 
 export function generateComponents(root = projectRoot, check = false) {
-  const entries = discoverComponents(root);
-  const outputs = renderComponents(entries);
+  const project = createProject(root);   // um programa TS só para as duas descobertas
+  const entries = discoverComponents(root, project);
+  const outputs = { ...renderComponents(entries), ...renderEditorExtensions(discoverEditorExtensions(root, project)) };
   for (const [relative, contents] of Object.entries(outputs)) {
     const output = path.join(root, relative);
     const previous = fs.existsSync(output) ? fs.readFileSync(output, 'utf8').replaceAll('\r\n', '\n') : '';

@@ -1,6 +1,7 @@
 // Estado mutável COMPARTILHADO do editor — um singleton que main + comandos usam.
 import type { AnimationPlayer } from "@engine/core/animation_player";
 import type { Animator } from "@engine/core/animator";
+import type { GameObject } from "@engine/core/gameobject";
 export class Session {
   camX: f64; camY: f64; camZ: f64; camYaw: f64; camPitch: f64;
   selected: number; playing: number;
@@ -28,6 +29,13 @@ export class Session {
   /// Animators em prévia fora do Play (parâmetro mexido pelo Inspector/WS):
   /// avançam a cada frame até a prévia ser encerrada. Ver skeleton_preview.ts.
   previewAnimators: Animator[];
+  /// Aba Jogo (estado do editor, sem Desfazer; ws `gameview`): 1 = aba Jogo
+  /// ativa; índice da proporção em UI_GAME_VIEW; 1 = prévia da câmera
+  /// selecionada na vista de Cena.
+  gameView: number; gameAspect: number; cameraPreview: number;
+  /// Objeto da câmera única da aba Jogo (null = todas). Referência, não
+  /// índice: apagar ou reordenar objetos não troca a câmera escolhida.
+  gameCamera: GameObject | null;
   constructor() {
     this.camX = 0.0; this.camY = 11.0; this.camZ = -15.0;
     this.camYaw = 0.0; this.camPitch = 0 - 0.5;
@@ -46,10 +54,13 @@ export class Session {
     this.previewPlayers = [];
     this.previewTouched = [];
     this.previewAnimators = [];
+    this.gameView = 0; this.gameAspect = 0; this.gameCamera = null; this.cameraPreview = 0;
   }
 }
 export const S = new Session();
 
 // cena compartilhada (singleton) — main + comandos operam nela
 import { Scene } from "@engine/core/scene";
+import { setActiveScene } from "@engine/core/active_scene";
 export const scene = new Scene("Main");
+setActiveScene(scene);

@@ -9,9 +9,9 @@
 // (em torno de X). Um ponto só desenha se cair na frente (z_cam > perto).
 
 import math from "@compat/math.ts";
-import render from "@compat/render.ts";
 
 
+import { linha, traco } from "@compat/draw2d.ts";
 // Projeta um ponto de MUNDO pra TELA. Escreve o resultado em 3 slots de um
 // buffer não — em vez disso devolvemos via um truque: retornamos sx e o chamador
 // recomputa? Não. Aqui projetamos INLINE dentro de drawCube (sem cross-fn de
@@ -89,7 +89,7 @@ export function drawCube(
     const a = ea[ei];
     const b = ea[ei + 1];
     if (viA[a] !== 0 && viA[b] !== 0) {
-      render.line(win, sxA[a], syA[a], sxA[b], syA[b], 2, col);
+      traco(2, col); linha(sxA[a], syA[a], sxA[b], syA[b]);
     }
     ei = ei + 2;
   }
@@ -140,5 +140,5 @@ function drawSeg(
   const asy = halfH - (ay2 / az2) * focal;
   const bsx = halfW + (bx1 / bz2) * focal;
   const bsy = halfH - (by2 / bz2) * focal;
-  render.line(win, asx, asy, bsx, bsy, 1, col);
+  traco(1, col); linha(asx, asy, bsx, bsy);
 }

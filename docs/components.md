@@ -132,6 +132,229 @@ export class MinhaNave extends Behavior {
 - Scripts ausentes aparecem como tal no Inspector, preservam seus dados ao
   salvar e bloqueiam Rodar até serem recuperados ou removidos explicitamente.
 
+## Luz, câmera e ambiente por script
+
+`Light`, `Camera` e o bloco `scene.ambiente` são dados comuns da cena: um script
+escreve os campos e o renderer recebe a mudança no quadro seguinte. Não há
+`markDirty`: o motor compara o que empacotou com o último envio e só reenvia
+quando algo mudou.
+
+```ts
+import { Behavior } from "@engine/core/behavior";
+import { Light } from "@engine/core/light";
+import { Camera } from "@engine/core/camera";
+import { activeScene } from "@engine/core/active_scene";
+
+export class Lanterna extends Behavior {
+  // saídas reaproveitadas: nada de `new` por quadro
+  private raio: Float64Array = new Float64Array(6);
+  private tela: Float64Array = new Float64Array(3);
+
+  mount(): void {
+    const sc = activeScene();
+    if (sc === null) return;
+    const o = sc.createGameObject("Lanterna");
+    o.transform.setPosition(0.0, 3.0, 0.0);
+    const luz = new Light();
+    luz.tipo = "spot";           // "direcional" | "pontual" | "spot"
+    luz.cor = 0xFFE0A0;          // 0xRRGGBB
+    luz.intensidade = 2.0;
+    luz.alcance = 12.0;          // pontual e spot chegam a zero aqui
+    luz.anguloSpot = 40.0;       // abertura TOTAL, em graus
+    o.addBehavior(luz);
+    // céu: "estrelas" | "procedural" | "cor" | "panorama" (ceu.textura = PNG equirretangular)
+    sc.ambiente.ceu.modo = "procedural";
+    sc.ambiente.neblina.densidade = 0.03;
+    sc.ambiente.luzAmbiente.modo = "cor";   // "legado" (padrão) | "cor" | "ceu"
+    sc.ambiente.luzAmbiente.intensidade = 0.1;
+  }
+  update(dt: f64): void {
+    const cam = Camera.main();
+    if (cam === null) return;
+    cam.screenPointToRay(640.0, 360.0, this.raio);          // origem(3) + direção(3)
+    if (cam.worldToScreenPoint(0.0, 0.0, 0.0, this.tela) === 1) {
+      // a origem do mundo está à frente da câmera, em (tela[0], tela[1]) px
+    }
+  }
+}
+```
+
+- A direção de uma direcional ou de um spot vem da rotação do GameObject
+  (`transform.rx` é o pitch e `transform.ry`, o yaw). O disco do sol no céu
+  procedural segue a direcional principal. É a indicada em `ambiente.sol`
+  (nome do objeto); sem ela, a primeira direcional ativa com sombra; sem
+  nenhuma com sombra, a primeira direcional ativa.
+- Sombra: só a primeira direcional ativa com `sombra = true` usa o shadow map.
+- Até 8 luzes por quadro: a direcional principal e, depois, as mais próximas da câmera.
+- `Camera`:
+  - `fov` em radianos (o Inspector mostra graus), `isMain`, `near`/`far`,
+    `ortografica`/`tamanhoOrto`, `fundo` (`"ceu"`, `"cor"`, `"nada"`) com
+    `corFundo`, o retângulo `viewportX/Y/W/H` (0..1) e `profundidade` (ordem de
+    desenho);
+  - `Camera.main()` e `Camera.all()` (este devolve um array reaproveitado: copie
+    se for guardar);
+  - raios por `viewportPointToRay(u, v, out)` e `screenPointToRay(x, y, out)`;
+    projeção por `worldToScreenPoint(x, y, z, out)`.
+- No JSON da cena, o ambiente fica no bloco `"ambiente"` (`ceu`, `neblina`,
+  `luzAmbiente`, `sol`). Sem o bloco, a cena mantém o visual antigo.
+
+### Pacotes de exemplo (`assets/pacotes/`)
+
+Os três pacotes mostram como estender o motor sem tocar no editor:
+
+| Pacote | Jogo | Editor (`@editorOnly`) |
+|---|---|---|
+| `luz/` | — (a `Light` é do motor) | `luz_editor.ts`: gizmo por tipo (`registerGizmo("Light", …)`), `Criar/Luz/*`, comandos `luz` e `luzes` |
+| `camera/` | `CameraPrimeiraPessoa`, `CameraOrbita`, `CameraSeguir`, `CameraRTS` | `camera_editor.ts`: frustum, `Criar/Câmera`, comandos `camera` e `cameras` |
+| `ambiente/` | `CicloDoDia` (gira o sol e interpola as cores do céu) | `ambiente_editor.ts`: `Janela/Ambiente`, comandos `ambiente` e `ambienteinfo` |
+
+Os controles de câmera leem teclado e mouse por `@engine/core/entrada`. No
+editor, essa entrada só fica ligada com a aba **Jogo** ativa e sem campo de
+texto ou de número em edição. No jogo exportado, fica sempre ligada.
+
+## Estender o editor por script
+
+Tudo vem de `@editor/api`. No jogo exportado não há editor, e as chamadas viram
+no-op, sem erro. Registre comandos, ganchos e desenhadores no carregamento do
+módulo (fora de funções), para que existam antes do primeiro quadro.
+
+**Comando da porta WS** (`ws://127.0.0.1:7777`):
+- o nome não pode ter espaço nem repetir um comando embutido;
+- `muta = true` põe o comando no Desfazer;
+- uma resposta que não começa com `[` ganha `[ok] ` na frente;
+- a ajuda no formato `"<args> :: descrição"` aparece no `help` e no `doc`.
+
+```ts
+import { Editor, registerCommand } from "@editor/api";
+registerCommand("oi", "oi :: responde olá", false, (p: string[]) => "olá " + p.length);
+```
+
+**Ganchos**: `salvar`, `abrirCena`, `entrarPlay` e `sairPlay`.
+
+```ts
+Editor.on("salvar", (caminho: string) => { Editor.log("salvo em " + caminho); });
+```
+
+`Editor` também oferece `scene()`, `selection()`, `select(o)`,
+`snapshot(rótulo)` (um passo de Desfazer), `log(msg)`, `viewPose(out)`,
+`spawnPoint(out)` e `inspect(b, título)`.
+
+**Gizmos, menu Criar e Inspector próprio** num componente:
+
+```ts
+import { Behavior } from "@engine/core/behavior";
+import type { InspectorUI } from "@engine/core/inspector_ui";
+import { Editor, Gizmos } from "@editor/api";
+
+export class Farol extends Behavior {
+  alcance: number = 5.0;
+  private centro: Float64Array = new Float64Array(3);
+  // Todo quadro no editor, para objetos visíveis; nunca roda no jogo.
+  // onDrawGizmosSelected(g) é igual, mas só com o objeto selecionado.
+  onDrawGizmos(g: Gizmos): void {
+    this.centro[0] = this.host.wx; this.centro[1] = this.host.wy; this.centro[2] = this.host.wz;
+    g.color(0xFFCC00);
+    g.wireSphere(this.centro, this.alcance);
+  }
+  // Substitui a lista automática de campos. Sem nenhum controle, a lista automática volta.
+  onInspectorGUI(ui: InspectorUI): void {
+    ui.field("alcance");                       // o campo com o controle padrão
+    if (ui.button("Dobrar alcance")) { ui.alterar(); this.alcance = this.alcance * 2.0; }
+  }
+  /** @menuItem Criar/Meu/Farol */
+  static criar(): void {
+    const sc = Editor.scene();
+    if (sc !== null) { const o = sc.createGameObject("Farol"); o.addBehavior(new Farol()); Editor.select(o); }
+  }
+}
+```
+
+- `Gizmos`: `color(0xRRGGBB)`, `line(a, b)`, `wireSphere(c, r)`,
+  `wireCone(ápice, dir, comprimento, ânguloGraus)` e `icon(nome, pos)`. Os
+  pontos são `Float64Array(3)` do chamador. Clicar num ícone na vista de Cena
+  seleciona o dono.
+- `onInspectorGUI(ui)`: `field(nome)`, `label`, `button`, `toggle`, `slider`,
+  `color` (#RRGGBB), `dropdown`, `alterar()` (Desfazer antes de o componente
+  mudar a si mesmo) e `alinharComVista(o)`.
+- `@menuItem Caminho/Do/Item` vale em métodos `static` sem argumentos, e só
+  como tag JSDoc.
+  - `Criar/…` entra no menu Criar global e no menu de contexto da Hierarquia,
+    com Desfazer. Os dois menus leem o mesmo registro.
+  - `Janela/…` entra no menu Janela.
+  - Pela porta WS, `menu` lista os itens e `menu Criar/Meu/Farol` executa um.
+
+**Gizmo para um tipo que você não pode editar** (por exemplo, `Light` e
+`Camera`, que são do motor):
+
+```ts
+import type { GameObject } from "@engine/core/gameobject";
+import type { Behavior } from "@engine/core/behavior";
+import { registerGizmo, Gizmos } from "@editor/api";
+
+const ponto = new Float64Array(3);
+function desenharMarcador(g: Gizmos, dono: GameObject, comp: Behavior): void {
+  ponto[0] = dono.transform.wx; ponto[1] = dono.transform.wy; ponto[2] = dono.transform.wz;
+  g.icon("luz-pontual", ponto);
+}
+registerGizmo("Marcador", desenharMarcador);   // pelo typeName do componente
+```
+
+**Código só do editor.** `/** @editorOnly */` no topo do arquivo tira o arquivo
+do jogo exportado.
+- O build do jogo entra por `tools/game-build/entry.ts`. O `tsconfig.json` dessa
+  pasta troca o registro gerado pelo registro sem as classes `@editorOnly`.
+- `npm run build:game` usa essa entrada. `npm run check:game-build` confere que
+  o registro do jogo não tem nada do editor.
+- Um arquivo `@editorOnly` pode importar `@editor/…`. Um arquivo que roda no
+  jogo não deve.
+
+**Onde pôr.** Scripts de gameplay ficam em `assets/scripts/`. Pacotes (jogo e
+editor juntos) ficam em `assets/pacotes/<nome>/`. O gerador do catálogo
+(`npm run components`) lê as duas pastas.
+
+## Migração: API de desenho por quadro (Task 10.5)
+
+No RTS, uma chamada com 5 ou mais parâmetros escalares aloca a cada chamada.
+Só isso dava de 8 a 18 coletas de lixo a cada 1000 quadros no editor. Por isso,
+as chamadas de desenho passaram a ter no máximo 4 parâmetros. Scripts de fora
+do repositório, como o `rts-fps`, precisam destas trocas:
+
+| Antes | Agora |
+|---|---|
+| `drawSelf(win, x, y, z, tint)` | `drawSelf(win, pos: Float64Array, tint)`, com `pos = [x, y, z]` |
+| `app.box(x, y, w, h, fill, strokeW, stroke, radius)` / `render.rect(…)` | `pincel(fill, strokeW, stroke, radius)` e depois `caixa(x, y, w, h)` |
+| `app.text(x, y, s, cor, tamanho)` / `render.text(…)` | `texto(x, y, s, estiloTexto(cor, tamanho))` |
+| `app.line(x1, y1, x2, y2, w, cor)` / `render.line(…)` | `traco(w, cor)` e depois `linha(x1, y1, x2, y2)` |
+| `render.image(…)` a cada quadro | `registrarImagem(pixels, w, h)` uma vez; por quadro, `imagemEm(x, y, w, h)` e `imagemId(id)` |
+| `app.button(x, y, w, h, …)` / `app.textField(x, y, w, h, …)` | `app.at(x, y, w, h)` e depois `app.button(…)` / `app.textField(id, texto, hab)` |
+| `app.clickable(id, x, y, w, h)` | `app.clickable(x, y, w, h)`, ou `app.at(…)` e `app.clickableAt(id)` |
+| `EditorUI.control(nome, modo, x, y, w, h, …)` | `ui.at(x, y, w, h)` e depois `ui.control(nome, modo, rótulo, hab)` |
+| `fpsApp.text(x, y, s, cor, tamanho)` e outras chamadas `<app>.text`/`box`/`line` num app próprio | `texto(x, y, s, estiloTexto(cor, tamanho))`, `pincel`+`caixa`, `traco`+`linha` de `@compat/draw2d.ts` (o app não desenha mais) |
+| `drawGPUMeshQ(win, mesh, px, py, pz, q, sx, sy, sz, cor, emissivo, tex)` (removida) | `drawGPUMeshQBuf(win, mesh, d)`, com `d` de `DRAW_FLOATS` números: posição em `D_X..D_Z`, escala em `D_SX..D_SZ`, `D_COR`, `D_EMISSIVO`, `D_TEX` e o quaternion em `D_QX..D_QW` |
+| `drawSceneObjects(objs, trs, n, sc, win, selected, alpha, cx, cy, cz, cyw, syw, cpt, spt, …)` | `prepararDesenho(cfg, fParams, selected, alpha)` e depois `drawSceneObjects(sc, n, win, cfg)`, com `cfg` de `DS_FLOATS` números (`@engine/render/scenedraw`) |
+| `scene.mainCameraIdx()` (removida) | `Camera.main()` (`@engine/core/camera`): devolve o componente; o objeto é `Camera.main().owner` |
+| `behavior.camIsMain()` (removida) | `Camera.main() === câmera`, ou o campo `isMain` do componente `Camera` |
+
+- `pincel`, `caixa`, `texto`, `estiloTexto`, `traco`, `linha`, `imagemEm`,
+  `imagemId` e `registrarImagem` vêm de `@compat/draw2d.ts`. Chame
+  `janela2D(win)` uma vez para escolher a janela.
+- Também mudaram:
+  - `hullContactLocal` recebe a esfera num `Float64Array`;
+  - `setListener` recebe a pose num `Float64Array`;
+  - `hitRect` recebe o retângulo num `Float64Array`;
+  - `pbDecideAuto` recebe o estado num `Float64Array`.
+- Continuam existindo, mas alocam por chamada: `drawGPU`, `drawGPUMesh`,
+  `setCam`, `frustumBegin`, `setLgt` e `setShadow`. Em código por quadro, use
+  `drawGPUBuf`/`drawGPUMeshBuf` e `setCamBuf`/`frustumBeginBuf`.
+- `npm run check:params` acusa funções com 5+ parâmetros que estejam fora da
+  lista de exceções justificadas.
+
+**Ordem de merge.** Este conjunto depende de nativos novos do motor (imagens
+retidas `imageRegister`/`drawImageId`, `setVsync` booleano, luzes e céu da
+cena 3D). O CI (`.github/workflows/build-executable.yml`) baixa o `rts.exe` do
+**último release** do motor, então a ordem é: PR do `rts` → release do `rts`
+→ merge deste branch. Mesclar antes do release quebra o build do CI.
+
 ## Compatibilidade e limites
 
 Esta etapa suporta campos escalares `number/f64`, `boolean` e `string`. Arrays,
@@ -163,4 +386,11 @@ rts.exe run tests/test_code_editor_selector.ts
 rts.exe run tests/test_component_factory.ts
 rts.exe run tests/test_component_picker.ts
 rts.exe run tests/test_play_mode.ts
+rts.exe run tests/test_editor_api.ts
+rts.exe run tests/test_menu_items.ts
+rts.exe run tests/test_inspector_gui.ts
+rts.exe run tests/test_pacote_luz.ts
+rts.exe run tests/test_pacote_camera.ts
+rts.exe run tests/test_pacote_ambiente.ts
+npm run check:game-build
 ```

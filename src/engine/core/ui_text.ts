@@ -8,8 +8,8 @@
 
 import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { anchorX, anchorY, ANCHOR_TL } from "@engine/ui/anchor";
-import render from "@compat/render.ts";
 
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 /**
  * @componentCategory UI
  * @componentDescription Texto na tela do jogo, ancorado a um canto da janela.
@@ -37,7 +37,7 @@ export class UIText extends Behavior {
     const estW: f64 = this.text.length * this.size * 0.6;
     const x = anchorX(this.anchor, this.host.px, w, estW);
     const y = anchorY(this.anchor, this.host.py, h, this.size);
-    render.text(win, x, y, this.text, this.color, this.size, 0);
+    texto(x, y, this.text, estiloTexto(this.color, this.size));
   }
 
   setUITitle(s: string): void { this.text = s; }

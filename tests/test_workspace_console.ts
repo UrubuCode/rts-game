@@ -2,6 +2,7 @@ import io from "@compat/io.ts";
 import { scene, S } from "@editor/control/session";
 import { Camera } from "@engine/core/camera";
 import { WorkspaceViews } from "@editor/workspace_views";
+import { VistasDeCamera, coletarCameras } from "@engine/render/camera_views";
 import { ConsolePanel } from "@editor/console_panel";
 import { EditorUI } from "@editor/ui_controls";
 import { logInfo, logWarn, logError, logClear, logEntries, logRevision, setLogEcho, LOG_ERROR } from "@engine/core/logger";
@@ -12,8 +13,9 @@ class TestApp {
   _win: number = 0; target: number = -1; focus: number = -1;
   setFocus(id: number): void { this.focus = id; }
   isFocused(id: number): boolean { return this.focus === id; }
-  clickable(id: number, x: number, y: number, w: number, h: number): number { return id === this.target ? 3 : 0; }
-  textField(id: number, x: number, y: number, w: number, text: string, enabled: boolean): string { return text; }
+  clickableAt(id: number): number { return id === this.target ? 3 : 0; }
+  at(x: number, y: number, w: number, h: number): void {}
+  textField(id: number, text: string, enabled: boolean): string { return text; }
   box(x: number, y: number, w: number, h: number, color: number, stroke: number, border: number, radius: number): void {}
   text(x: number, y: number, text: string, color: number, size: number): void {}
 }
@@ -33,15 +35,15 @@ const count = views.ui.scene.count(); views.tabs(200, 60, 500, false);
 check(views.ui.scene.count() === count, "tabs reuse GameObjects");
 app.target = views.ui.controls[views.ui.names.indexOf("View/1")].id;
 views.tabs(200, 60, 500, true); check(!views.game, "blocked tab cannot switch");
-views.tabs(200, 60, 500, false); check(views.game, "game tab clicks");
+views.tabs(200, 60, 500, false); check(views.game && S.gameView === 1, "game tab clicks");
 app.target = -1;
-consolePanel.render(200, 524, 600, 240, false);
-const controls = consolePanel.ui.scene.count(); consolePanel.render(200, 524, 600, 240, false);
+consolePanel.blocked = false; consolePanel.render(200, 524, 600, 240);
+const controls = consolePanel.ui.scene.count(); consolePanel.blocked = false; consolePanel.render(200, 524, 600, 240);
 check(consolePanel.ui.scene.count() === controls, "console reuses GameObjects");
 app.target = consolePanel.ui.controls[consolePanel.ui.names.indexOf("Clear")].id;
-consolePanel.render(200, 524, 600, 240, true); check(logEntries().length === 1, "blocked clear retains messages");
-consolePanel.render(200, 524, 600, 240, false); check(logEntries().length === 0, "clear button clears");
-const second = new EditorUI(app, "Other"); const button = second.control("Button", "button", 0, 0, 80, 24, "Other");
+consolePanel.blocked = true; consolePanel.render(200, 524, 600, 240); check(logEntries().length === 1, "blocked clear retains messages");
+consolePanel.blocked = false; consolePanel.render(200, 524, 600, 240); check(logEntries().length === 0, "clear button clears");
+const second = new EditorUI(app, "Other"); second.at(0, 0, 80, 24); const button = second.control("Button", "button", "Other");
 check(button.id !== views.ui.controls[0].id && button.id !== consolePanel.ui.controls[0].id, "window-global control IDs");
 app.target = -1;
 logInfo("Repeated message"); logInfo("Repeated message"); logWarn("Missing mesh"); logError("Script failed", "test.ts", 20);
@@ -58,24 +60,29 @@ consolePanel.query = ""; consolePanel.show = [true, true, true]; consolePanel.re
 consolePanel.selected = 2; const selectedId = consolePanel.rows[2].id;
 logInfo("Another log"); consolePanel.refresh(false);
 check(consolePanel.rows[consolePanel.selected].id === selectedId, "new logs preserve selected message");
-consolePanel.render(0, 0, 320, 126, false);
+consolePanel.blocked = false; consolePanel.render(0, 0, 320, 126);
 const searchControl = consolePanel.ui.controls[consolePanel.ui.names.indexOf("Search")];
 const filterControl = consolePanel.ui.controls[consolePanel.ui.names.indexOf("Level/0")];
 check(searchControl.host.px + searchControl.host.sx <= filterControl.host.px, "narrow toolbar search and counters do not overlap");
 const controlCount = consolePanel.ui.scene.count();
-consolePanel.render(0, 0, 320, 126, false);
+consolePanel.blocked = false; consolePanel.render(0, 0, 320, 126);
 check(consolePanel.ui.scene.count() === controlCount, "icon and detail controls keep identity");
 consolePanel.follow = false; consolePanel.scroll = 2; const previousRows = consolePanel.rows.length;
 logWarn("Arrived while reading"); consolePanel.refresh(false);
 check(consolePanel.scroll === 2 + consolePanel.rows.length - previousRows, "paused follow anchors existing rows");
-consolePanel.query = "does not exist"; consolePanel.refresh(); consolePanel.render(0, 0, 600, 240, false);
+consolePanel.query = "does not exist"; consolePanel.refresh(); consolePanel.blocked = false; consolePanel.render(0, 0, 600, 240);
 check(consolePanel.rows.length === 0 && consolePanel.selected === -1, "empty search clears stale selection");
-scene.clear(); views.camera(1); check(!views.hasCamera, "empty scene has no game camera");
-const camObject = scene.createGameObject("MainCamera"); const cam = new Camera(0.8); camObject.addBehavior(cam);
+// A aba Jogo desenha as câmeras da cena como o jogo (coletarCameras, no main.ts);
+// `camera()` é só a câmera do editor, que a aba Jogo nunca move.
+const vistas = new VistasDeCamera(); vistas.area[2] = 800; vistas.area[3] = 450; vistas.tela[0] = 800; vistas.tela[1] = 450;
+scene.clear(); check(coletarCameras(vistas, scene, views.cameraEscolhida()) === 0, "empty scene has no game camera");
+const camObject = scene.createGameObject("MainCamera"); const cam = new Camera(); cam.fov = 0.8; camObject.addBehavior(cam);
 camObject.transform.setPosition(3, 4, 5); camObject.transform.ry = 0.4; scene.computeWorld();
 const authorX = S.camX; views.camera(1);
-check(views.hasCamera && views.x === 3 && views.y === 4 && views.fov === 0.8 && S.camX === authorX, "game view uses scene camera without moving editor camera");
-cam.enabled = 0; views.camera(1); check(!views.hasCamera, "disabled camera ignored");
+check(coletarCameras(vistas, scene, views.cameraEscolhida()) === 1 && vistas.cams[0] === cam && S.camX === authorX, "game view uses scene camera without moving editor camera");
+check(cam.retanguloPx()[2] === 800 && cam.retanguloPx()[3] === 450, "game tab area is the camera pixel rectangle");
+check(views.x === S.camX && views.fov === 1, "camera() is the editor camera even on the game tab");
+cam.enabled = 0; check(coletarCameras(vistas, scene, views.cameraEscolhida()) === 0, "disabled camera ignored");
 views.game = false; views.camera(1); check(views.x === S.camX && views.fov === 1, "scene tab restores fly view");
 check(scriptEditorArguments("C:/Apps/Code.exe", "C:/Game/My Script.ts", 12)[1] === "C:/Game/My Script.ts:12", "VS Code location argument");
 check(scriptEditorArguments("C:/Apps/notepad++.exe", "test.ts", 12)[0] === "-n12", "Notepad++ location argument");

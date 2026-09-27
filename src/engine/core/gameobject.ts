@@ -3,8 +3,11 @@
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
 import { Transform } from "./transform";
-import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI } from "./behavior";
+import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI, KIND_LIGHT, KIND_CAMERA } from "./behavior";
 import { Material } from "./material";
+import { componentMetadata } from "./component_metadata";
+// gizmos.ts só importa TIPOS do núcleo: sem ciclo.
+import { gizmoDrawerIndex } from "./gizmos";
 
 /// Formas de colisor (ver `GameObject.colShape`).
 export const COL_SPHERE = 0;
@@ -28,6 +31,8 @@ export function getNextGameObjectId(): number {
 /// Interface e não `Scene` para não criar ciclo de import.
 export interface UIOwner {
   uiChanged(go: GameObject): void;
+  lightChanged(go: GameObject): void;
+  cameraChanged(go: GameObject): void;
 }
 
 export class GameObject {
@@ -99,6 +104,12 @@ export class GameObject {
   /// Índice do primeiro component de UI (KIND_UI) em behaviors, -1 se nenhum.
   /// Cache para o pass de UI do jogo achar quem tem UI sem varrer behaviors.
   uiIdx: number;
+  /// Índice do component Light (KIND_LIGHT) em behaviors, -1 se nenhum. Cache
+  /// para `Scene.lightObjs` saber quem tem luz sem varrer behaviors.
+  lightIdx: number;
+  /// Índice do component Camera (KIND_CAMERA) em behaviors, -1 se nenhum. Cache
+  /// para `Scene.camObjs` saber quem tem câmera sem varrer behaviors.
+  camIdx: number;
   /// A cena que registra este objeto na lista de UI (null fora de cena).
   uiOwner: UIOwner | null;
   /// Índice deste objeto nas tabelas paralelas do índice espacial (sObjs), ou -1 se não indexado.
@@ -112,6 +123,9 @@ export class GameObject {
   /// Raio envolvente do renderer que se desenha sozinho (Skeleton), em
   /// unidades do objeto; 0 = usar o da malha. Cache O(1) pro culling do render.
   boundRadius: f64;
+  /// 1 = algum component desenha gizmos (sobrescreve onDrawGizmos(Selected) ou
+  /// tem desenhador registrado por tipo). Cache O(1) para o passe de gizmos do editor.
+  gizmoFlag: number;
 
   constructor(name: string) {
     this.id = nextGameObjectId;
@@ -139,11 +153,14 @@ export class GameObject {
     this.rendIdx = 0 - 1;
     this.colIdx = 0 - 1;
     this.uiIdx = 0 - 1;
+    this.lightIdx = 0 - 1;
+    this.camIdx = 0 - 1;
     this.uiOwner = null;
     this.spatialSlot = 0 - 1;
     this.spatialDynSlot = 0 - 1;
     this.sceneIndex = 0 - 1;
     this.boundRadius = 0.0;
+    this.gizmoFlag = 0;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`
@@ -169,6 +186,20 @@ export class GameObject {
     const hadUI = this.uiIdx;
     this.uiIdx = this.componentIdx(KIND_UI);
     if (this.uiOwner !== null && (hadUI >= 0) !== (this.uiIdx >= 0)) this.uiOwner.uiChanged(this);
+    const hadLight = this.lightIdx;
+    this.lightIdx = this.componentIdx(KIND_LIGHT);
+    if (this.uiOwner !== null && (hadLight >= 0) !== (this.lightIdx >= 0)) this.uiOwner.lightChanged(this);
+    const hadCam = this.camIdx;
+    this.camIdx = this.componentIdx(KIND_CAMERA);
+    if (this.uiOwner !== null && (hadCam >= 0) !== (this.camIdx >= 0)) this.uiOwner.cameraChanged(this);
+    let gz = 0;
+    let bi = 0;
+    while (bi < this.behaviors.length) {
+      const b = this.behaviors[bi];
+      if (componentMetadata.provider.drawsGizmos(b) || gizmoDrawerIndex(b.typeName()) >= 0) gz = 1;
+      bi = bi + 1;
+    }
+    this.gizmoFlag = gz;
   }
 
   /// Renderer do objeto: um que se desenha sozinho (Skeleton) tem prioridade
@@ -285,4 +316,21 @@ export class GameObject {
       i = i + 1;
     }
   }
+}
+
+/// Profundidade máxima de hierarquia percorrida (a mesma guarda de `moveSubtree`).
+export const MAX_PROFUNDIDADE_HIERARQUIA: number = 128;
+/// `o` e todos os ancestrais ativos (`parent` indexa `objs`).
+export function activeInScene(objs: GameObject[], o: GameObject): boolean {
+  let atual: GameObject = o;
+  let passo = 0;
+  let ativo = true;
+  while (passo < MAX_PROFUNDIDADE_HIERARQUIA) {
+    if (atual.active === 0) { ativo = false; break; }
+    const p = atual.parent;
+    if (p < 0 || p >= objs.length) break;
+    atual = objs[p];
+    passo = passo + 1;
+  }
+  return ativo;
 }

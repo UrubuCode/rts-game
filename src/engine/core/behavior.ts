@@ -12,6 +12,8 @@ import { componentMetadata } from "./component_metadata";
 // só de TIPO: GameObject importa Behavior por valor, então isto teria que
 // ser ciclo se não fosse `import type` (apagado na compilação).
 import type { GameObject } from "./gameobject";
+import type { Gizmos } from "./gizmos";
+import type { InspectorUI } from "./inspector_ui";
 
 // TIPOS de component (tag numérica) — o primitivo do modelo uniforme "tudo é
 // GameObject + componentes". Systems e o render acham um component por kind()
@@ -24,7 +26,13 @@ export const KIND_UI: number = 3;         // elemento de UI (desenha em tela 2D)
 export const KIND_SCENE_REF: number = 4;  // instância de outra cena (cena dentro de cena)
 export const KIND_CAMERA: number = 5;     // ponto de vista (o jogo renderiza pela main)
 export const KIND_COLLIDER: number = 6;   // a FORMA que colide (pode nao ser a que desenha)
-// reservados p/ as próximas camadas: 6=COLLIDER, 7=LIGHT…
+export const KIND_LIGHT: number = 7;      // luz (direcional/pontual/spot) usada pelo renderer
+// novos kinds entram aqui
+
+/// Bits de `Behavior.falhasEditor`: o gancho do EDITOR que lançou exceção e
+/// ficou desligado para este componente (o editor segue rodando).
+export const FALHA_GIZMO: number = 1;
+export const FALHA_GUI: number = 2;
 
 export class Behavior {
   host: Transform;   // transform do GameObject dono (setado no attach)
@@ -37,6 +45,10 @@ export class Behavior {
   /// (cache), em vez de varrer a cena — não é herdado por Transform, que é
   /// compartilhado por todos os behaviors do objeto mas não sabe quem os tem.
   owner: GameObject | null;
+  /// FALHA_GIZMO / FALHA_GUI: onDrawGizmos(Selected)/desenhador ou
+  /// onInspectorGUI lançou; o editor pula esse gancho deste componente daí em
+  /// diante (gizmo_pass.ts, inspector.ts). Estado do editor, não serializado.
+  falhasEditor: number;
 
   constructor() {
     this.host = new Transform();
@@ -44,6 +56,7 @@ export class Behavior {
     this.collapsed = 0;
     this.bodyType = 0;
     this.owner = null;
+    this.falhasEditor = 0;
   }
 
   /// Liga o script ao transform do GameObject dono.
@@ -75,6 +88,15 @@ export class Behavior {
   /// Recebido por TODOS os behaviors habilitados do objeto cujo botão foi
   /// clicado — o script do botão é um irmão, como o OnClick da Unity.
   onUIClick(name: string): void {}
+
+  // ── gizmos do editor (src/engine/core/gizmos.ts) ─────────────────────────
+  /// EDITOR: ajudas visuais deste componente (todo frame, objetos visíveis). Nunca roda no jogo.
+  onDrawGizmos(g: Gizmos): void {}
+  /// EDITOR: como onDrawGizmos, só quando o objeto está selecionado.
+  onDrawGizmosSelected(g: Gizmos): void {}
+  /// EDITOR: desenha o Inspector deste componente no lugar da lista automática
+  /// de campos. Sem controles desenhados (o padrão), vale a lista automática.
+  onInspectorGUI(ui: InspectorUI): void {}
 
   /// Um backend EXTERNO (GPU ou o solver em Rust) assumiu (`1`) ou devolveu
   /// (`0`) a simulação do corpo dono. Quem INTEGRA movimento sobrescreve e para
@@ -123,6 +145,8 @@ export class Behavior {
   fieldType(i: number): string { return componentMetadata.provider.fieldType(this, i); }
   /// Rótulo curto do campo `i` (ex.: "SpdY").
   fieldLabel(i: number): string { return componentMetadata.provider.fieldLabel(this, i); }
+  /// Nome do campo `i` na classe (ex.: "velocidade"); usado por `InspectorUI.field(nome)`.
+  fieldName(i: number): string { return componentMetadata.provider.fieldName(this, i); }
   /// Valor atual do campo `i`.
   fieldGet(i: number): f64 { return componentMetadata.provider.fieldGet(this, i); }
   /// Grava `v` no campo `i` (chamado pelo inspector ao arrastar/editar).
@@ -157,11 +181,18 @@ export class Behavior {
   // ── SURFACE DE CÂMERA (só o component Camera sobrescreve) ───────────────────
   /// Campo de visão vertical em radianos.
   camFov(): f64 { return 1.05; }
-  /// 1 = é a câmera principal da cena (a que o jogo usa pra renderizar).
-  camIsMain(): number { return 0; }
   /// Aplica uma textura de imagem (id + path) — só o Material implementa; nos
   /// demais é no-op. Chamado pelo asset browser / ws ao aplicar uma textura.
   setMatTexture(id: number, path: string): void {}
+
+  // ── SURFACE DE LUZ (só o component Light sobrescreve) ────────────────────
+  /// Tipo da luz: 0 direcional, 1 pontual, 2 spot; -1 = não é luz.
+  lightType(): number { return 0 - 1; }
+  /// Escreve os 16 números da luz em `out[base..]` (formato do `setLights`).
+  lightPack(out: Float64Array, base: number): void {}
+  /// 1 = esta luz (quando direcional) alimenta o shadow map (`Light.sombra`).
+  /// Lido por `coletarLuzes` para escolher a PRINCIPAL sem cast; default 0.
+  lightCastsShadow(): number { return 0; }
 
   // ── SURFACE DE RENDERER (lida pelo render via dispatch virtual, sem cast) ────
   // O MeshRenderer sobrescreve; os demais devolvem 0 (o render só consulta um
@@ -173,10 +204,10 @@ export class Behavior {
   /// Um renderer que se desenha sozinho (ex.: Skeleton, várias peças por
   /// objeto) devolve 1 depois de desenhar; o laço de render então pula o
   /// desenho por meshKind/customMesh. 0 = seguir o caminho normal.
-  /// `x/y/z` = posição de RENDER do objeto (interpolada, a mesma que o laço
-  /// usa para os demais); `tint` = cor 0xRRGGBB que substitui a das peças
+  /// `pos` = [x, y, z], posição de RENDER do objeto (interpolada, a mesma que o
+  /// laço usa para os demais); `tint` = cor 0xRRGGBB que substitui a das peças
   /// (destaque de seleção do editor) ou -1 para as cores do modelo.
-  drawSelf(win: number, x: f64, y: f64, z: f64, tint: number): number { return 0; }
+  drawSelf(win: number, pos: Float64Array, tint: number): number { return 0; }
   /// 1 = este renderer se desenha sozinho (`drawSelf`) e tem prioridade sobre
   /// os demais renderers do objeto. Lido só em `refreshComponentCache`.
   drawsSelf(): number { return 0; }
@@ -184,6 +215,10 @@ export class Behavior {
   /// dele (0 = sem raio próprio: o culling usa o da malha). Lido só em
   /// `refreshComponentCache` e cacheado em `GameObject.boundRadius`.
   rBoundRadius(): f64 { return 0.0; }
+  /// 1 = este componente move o transform da câmera do seu objeto (controles de
+  /// câmera por script). O jogo exportado não aplica o voo embutido numa câmera
+  /// assim — senão os dois somam o movimento (game.ts, core/voo_livre.ts).
+  controlaCamera(): number { return 0; }
 
   // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
   // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão

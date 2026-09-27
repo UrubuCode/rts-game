@@ -3,7 +3,7 @@
 
 import { GameObject, COL_BOX } from "./gameobject";
 import { Transform } from "./transform";
-import { Behavior, KIND_CAMERA } from "./behavior";
+import { Behavior } from "./behavior";
 import { shapeOf, halfLocalX, halfLocalY, halfLocalZ, hullIdOf, COL_HULL,
          centerLocalX, centerLocalY, centerLocalZ, triggerOf } from "./collider";
 import { Hull, Contact, hullContactLocal } from "./hullpack";
@@ -12,6 +12,8 @@ import { ContactEvents } from "./contact_events";
 import { eventsOf } from "./collider";
 import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "../rigid/materials";
 import math from "@compat/math.ts";
+import { coletarLuzes, LUZ_DIST_INICIAL } from "./light";
+import { Ambiente } from "./ambiente";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
 /// MÓDULO e não um contador por cena: quem compara versões (o backend de
@@ -118,6 +120,18 @@ export class Scene {
   /// `add`/`removeAt`/`clear` e por `GameObject.refreshComponentCache` via
   /// `uiChanged`. O pass de UI do jogo lê daqui: zero varredura por frame.
   uiObjs: GameObject[];
+  /// Objetos desta cena com componente Light, mantida em `add`/`removeAt`/`clear`
+  /// e por `GameObject.refreshComponentCache` via `lightChanged`. `Scene.collectLights`
+  /// lê daqui: zero varredura por frame.
+  lightObjs: GameObject[];
+  /// Objetos desta cena com componente Camera, mantida como `lightObjs`.
+  /// `Camera.main()/all()` e `coletarCameras` leem daqui.
+  camObjs: GameObject[];
+  /// Rascunho de distâncias de `coletarLuzes` (ver light.ts): só cresce, nunca
+  /// realoca por frame.
+  luzDist: Float64Array;
+  /// Céu, neblina, luz ambiente e qual direcional é o sol (ver ambiente.ts).
+  ambiente: Ambiente;
 
   constructor(name: string) {
     this.name = name;
@@ -137,6 +151,10 @@ export class Scene {
     this.spatialIndex = null;
     this.contacts = new ContactEvents();
     this.uiObjs = [];
+    this.lightObjs = [];
+    this.camObjs = [];
+    this.luzDist = new Float64Array(LUZ_DIST_INICIAL);
+    this.ambiente = new Ambiente();
     this.colDirty = 1;
     sceneVersionSeq = sceneVersionSeq + 1;
     this.compVersion = sceneVersionSeq;
@@ -176,6 +194,30 @@ export class Scene {
     if (k >= 0) this.uiObjs.splice(k, 1);
   }
 
+  /// `GameObject.refreshComponentCache` avisa quando o objeto ganhou ou perdeu
+  /// componente Light depois de estar na cena.
+  lightChanged(go: GameObject): void {
+    if (go.lightIdx >= 0) { if (this.lightObjs.indexOf(go) < 0) this.lightObjs.push(go); }
+    else this.lightForget(go);
+  }
+
+  lightForget(go: GameObject): void {
+    const k = this.lightObjs.indexOf(go);
+    if (k >= 0) this.lightObjs.splice(k, 1);
+  }
+
+  /// `GameObject.refreshComponentCache` avisa quando o objeto ganhou ou perdeu
+  /// componente Camera depois de estar na cena.
+  cameraChanged(go: GameObject): void {
+    if (go.camIdx >= 0) { if (this.camObjs.indexOf(go) < 0) this.camObjs.push(go); }
+    else this.cameraForget(go);
+  }
+
+  cameraForget(go: GameObject): void {
+    const k = this.camObjs.indexOf(go);
+    if (k >= 0) this.camObjs.splice(k, 1);
+  }
+
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
   markStaticDirty(): void {
     this.markCollidersDirty();
@@ -187,6 +229,8 @@ export class Scene {
     this.trs.push(go.transform);   // espelho paralelo (ver `trs`)
     go.uiOwner = this;
     if (go.uiIdx >= 0) this.uiObjs.push(go);
+    if (go.lightIdx >= 0) this.lightObjs.push(go);
+    if (go.camIdx >= 0) this.camObjs.push(go);
     if (bodyTypeOf(go) === BODY_STATIC) {
       this.markCollidersDirty();
     } else {
@@ -238,7 +282,19 @@ export class Scene {
     this.objects = [];
     this.trs = [];
     this.uiObjs.length = 0;
+    this.lightObjs.length = 0;
+    this.camObjs.length = 0;
     this.markStaticDirty();
+  }
+
+  /// Até MAX_LUZES luzes ativas em `buf` (16 números cada); devolve quantas.
+  /// `cam` = [x, y, z] de quem vê. Sem alocação (ver `coletarLuzes`).
+  collectLights(buf: Float64Array, cam: Float64Array): number {
+    // `ambiente.sol` NÃO entra aqui: o slot 0 (a direcional do shadow map) segue
+    // só a regra do Task 3 (primeira ativa com sombra, senão a primeira ativa).
+    // `ambiente.sol` escolhe apenas pra onde o disco do céu aponta — ver
+    // `direcaoSol` em light.ts e `aplicarAmbiente` em scene_lighting.ts.
+    return coletarLuzes(this, buf, cam);
   }
 
   /// Move a subárvore do objeto `dragIdx` (ele + descendentes) para antes do
@@ -364,6 +420,8 @@ export class Scene {
     removedObj.sceneIndex = 0 - 1;
     removedObj.uiOwner = null;
     if (removedObj.uiIdx >= 0) this.uiForget(removedObj);
+    if (removedObj.lightIdx >= 0) this.lightForget(removedObj);
+    if (removedObj.camIdx >= 0) this.cameraForget(removedObj);
 
     if (isStatic) {
       this.markCollidersDirty();
@@ -382,29 +440,6 @@ export class Scene {
         }
       }
     }
-  }
-
-  /// Índice do objeto ATIVO que carrega a câmera principal (-1 = nenhuma).
-  /// O runtime do jogo renderiza por ela; se houver várias, vence a primeira
-  /// marcada como `isMain`, senão a primeira câmera encontrada.
-  mainCameraIdx(): number {
-    let fallback = 0 - 1;
-    let i = 0;
-    while (i < this.objects.length) {
-      const o = this.objects[i];
-      if (o.active !== 0) {
-        const ci = o.componentIdx(KIND_CAMERA);
-        if (ci >= 0) {
-          const c = o.behaviors[ci];
-          if (c.enabled !== 0) {
-            if (c.camIsMain() !== 0) return i;
-            if (fallback < 0) fallback = i;
-          }
-        }
-      }
-      i = i + 1;
-    }
-    return fallback;
   }
 
   /// Computa a posição de MUNDO (wx,wy,wz) de cada objeto a partir do local
@@ -474,7 +509,7 @@ export class Scene {
       this.cIdx.length = 0;
       this.sIdx.length = 0;
       this.bIdx.length = 0;
-      collectColliders(objs, this.trs, this.cIdx, this.sIdx, this.bIdx);
+      collectColliders(this);
       this.colMaxR = ccMaxR;
       this.colDirty = 0;
     }
@@ -485,7 +520,7 @@ export class Scene {
     if (m === 0 && this.bIdx.length === 0) return;
 
     // Poucos dinâmicos: laço direto (todos × todos + grandes + estáticos).
-    if (m < 24) { collideRangeInto(this.objects, this.trs, this.cIdx, m, this.sIdx, this.bIdx); return; }
+    if (m < 24) { collideRangeInto(this, m); return; }
 
     // ── 2) monta o grid ──────────────────────────────────────────────────────
     // Célula = 2× o maior raio: assim dois objetos que se tocam NUNCA estão a
@@ -499,7 +534,7 @@ export class Scene {
     // a REMONTAGEM vive numa função livre tipada: dentro do método, os acessos
     // a campo do laço caíam no caminho dinâmico — 5,8 ms POR FRAME com a cena
     // inteira dormindo (o custo fixo que impedia os 60 fps no repouso)
-    buildSceneGrid(this.trs, this.cIdx, m, this.gHead, this.gNext, this.gCell, this.gUsed, inv);
+    buildSceneGrid(this, m, inv);
     this.gUsed = m;
 
     // ── 3) resolve ───────────────────────────────────────────────────────────
@@ -507,17 +542,13 @@ export class Scene {
     // do `computeWorld` (ver `computeWorldInto`): dentro de um método os locais
     // perdem as provas de tipo e cada `this.objects[i].transform.px` cai no
     // caminho dinâmico de propriedade. Este é o laço mais quente do motor.
-    resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, this.bIdx, 1);
+    resolveInto(this, m, inv, 1);
     // SEGUNDA iteração, SEM a reatividade: uma pilha alta empurra o bloco de
     // baixo para dentro do chão mais do que UMA resolução devolve — o de baixo
     // afundava 0.34 em regime e, espremido o bastante, era CUSPIDO pelo fundo
     // (medido: bloco a y=-6 com vy=-10). A segunda passada redistribui as
     // correções de baixo para cima. Corpos dormindo continuam fora.
-    resolveInto(this.objects, this.trs, this.cIdx, m,
-                this.gHead, this.gNext, this.lastX, this.lastY, this.lastZ, inv,
-                this.sIdx, this.bIdx, 0);
+    resolveInto(this, m, inv, 0);
   }
 
 }
@@ -526,10 +557,15 @@ export class Scene {
 /// mesmo motivo do `computeWorldInto`: dentro de um método `this.objects[i]`
 /// e `.transform.px` caem no caminho dinâmico de propriedade. Aqui o compilador
 /// conhece os shapes e lê cada campo por offset constante.
-function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
-                     gHead: number[], gNext: number[],
-                     lastX: f64[], lastY: f64[], lastZ: f64[], inv: f64,
-                     sIdx: number[], bIdx: number[], reactive: number): void {
+///
+/// Task 10.5: eram 13 parâmetros (5+ alocam por chamada no RTS). Os arrays da
+/// cena são lidos para LOCAIS TIPADOS aqui, uma vez por chamada — a regra desta
+/// função (nada de leitura de campo/módulo dentro do laço) continua valendo.
+function resolveInto(sc: Scene, m: number, inv: f64, reactive: number): void {
+  const objs: GameObject[] = sc.objects; const trs: Transform[] = sc.trs; const cIdx: number[] = sc.cIdx;
+  const gHead: number[] = sc.gHead; const gNext: number[] = sc.gNext;
+  const lastX: f64[] = sc.lastX; const lastY: f64[] = sc.lastY; const lastZ: f64[] = sc.lastZ;
+  const sIdx: number[] = sc.sIdx; const bIdx: number[] = sc.bIdx;
   // O `const` de MÓDULO lido para um LOCAL, uma vez. É a mesma regra que este
   // arquivo já aplica aos arrays de voz e ao `trs`, e ela vale para constantes
   // também: `CGRID_MASK` era lido do escopo de módulo NOVE vezes por objeto por
@@ -746,8 +782,9 @@ function resolveInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: nu
 }
 
 /// Laço direto A×B (usado quando há poucos objetos pro grid valer a pena).
-function collideRangeInto(objs: GameObject[], trs: Transform[], cIdx: number[], m: number,
-                          sIdx: number[], bIdx: number[]): void {
+function collideRangeInto(sc: Scene, m: number): void {
+  const objs: GameObject[] = sc.objects; const trs: Transform[] = sc.trs; const cIdx: number[] = sc.cIdx;
+  const sIdx: number[] = sc.sIdx; const bIdx: number[] = sc.bIdx;
   const ns = sIdx.length;
   const nb = bIdx.length;
   let i = 0;
@@ -797,8 +834,16 @@ let obbNx: f64 = 0.0; let obbNy: f64 = 0.0; let obbNz: f64 = 0.0; let obbDepth: 
 /// penetração em `obb*`, ou 0 se algum eixo separa. Os centros já vêm com o
 /// offset do colisor aplicado. Convenção de rotação: a mesma de `applyParentTo`
 /// e do offset — eixo local X vira (cos, -sin) em (x, z), eixo Z vira (sin, cos).
-function obbBoxBox(trs: Transform[], ia: number, ib: number,
-                   ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64): number {
+/// Centros (já deslocados) do par de `obbBoxBox`/`hullContact`: [ax, ay, az, bx, by, bz].
+/// Task 10.5: as duas tinham 9 e 11 parâmetros escalares e rodam por par por
+/// passo; 5+ parâmetros alocam por chamada no RTS. Quem chama preenche isto.
+const parAB = new Float64Array(6);
+/// Esfera [x, y, z, r] no espaço da casca, para `hullContactLocal`.
+const esferaHc = new Float64Array(4);
+
+function obbBoxBox(trs: Transform[], ia: number, ib: number): number {
+  const ax: f64 = parAB[0]; const ay: f64 = parAB[1]; const az: f64 = parAB[2];
+  const bx: f64 = parAB[3]; const by: f64 = parAB[4]; const bz: f64 = parAB[5];
   const ta: Transform = trs[ia];
   const tb: Transform = trs[ib];
   const hyA = csHY[ia] * ta.sy; const hyB = csHY[ib] * tb.sy;
@@ -855,11 +900,11 @@ function abs1(v: f64): f64 { return v < 0.0 ? 0.0 - v : v; }
 ///
 /// Devolve 1 e preenche `hcOut` quando há contato, na convenção "de A para B"
 /// que o resto do `solvePair` usa.
-function hullContact(
-  trs: Transform[], ia: number, ib: number,
-  ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64,
-  hullA: Hull | null, hullB: Hull | null,
-): number {
+function hullContact(trs: Transform[], ia: number, ib: number): number {
+  const ax: f64 = parAB[0]; const ay: f64 = parAB[1]; const az: f64 = parAB[2];
+  const bx: f64 = parAB[3]; const by: f64 = parAB[4]; const bz: f64 = parAB[5];
+  const hullA = csShape[ia] === COL_HULL ? hullAt(csHull[ia]) : null;
+  const hullB = csShape[ib] === COL_HULL ? hullAt(csHull[ib]) : null;
   // Quem é a casca e quem entra como esfera. Com casca dos DOIS lados, a casca
   // fica com quem tem maior raio envolvente e o outro vira esfera: casca contra
   // casca não escala (docs/colisores.md §3), e degradar o MENOR erra menos.
@@ -923,7 +968,8 @@ function hullContact(
   // não uniforme vira elipsoide, e a menor escala é a leitura conservadora —
   // nunca inventa contato onde não há, que é a mesma regra do `radiusOfCol`.
   const menor = minOf3(ex, ey, ez);
-  if (hullContactLocal(h, lx / ex, dy / ey, lz / ez, r / menor, hcOut) === 0) return 0;
+  esferaHc[0] = lx / ex; esferaHc[1] = dy / ey; esferaHc[2] = lz / ez; esferaHc[3] = r / menor;
+  if (hullContactLocal(h, esferaHc, hcOut) === 0) return 0;
 
   // ── volta: a normal para o mundo ────────────────────────────────────────
   let wnx = hcOut.nx; const wny = hcOut.ny; let wnz = hcOut.nz;
@@ -1041,13 +1087,15 @@ function solvePair(objs: GameObject[], trs: Transform[], ia: number, ib: number)
     // que os outros ramos usam — impulso, restituição, herança de apoio. Um
     // caminho de resposta próprio para a casca seria a terceira cópia de uma
     // regra que já tem duas (aqui e no WGSL), e é como os backends divergem.
-    if (hullContact(trs, ia, ib, ax, ay, az, bx, by, bz, hullA, hullB) === 0) return;
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    if (hullContact(trs, ia, ib) === 0) return;
     nx = hcOut.nx; ny = hcOut.ny; nz = hcOut.nz; overlap = hcOut.depth;
   } else if (boxA !== 0 && boxB !== 0 && (ta.ry !== 0.0 || tb.ry !== 0.0)) {
     // ── CAIXA × CAIXA girada (OBB em Y, Lote C0) ──────────────────────────
     // Uma das caixas tem yaw: SAT no plano XZ (os 2 eixos de cada caixa) mais
     // Y. Caixas com yaw = 0 nunca entram aqui e seguem no ramo AABB abaixo.
-    if (obbBoxBox(trs, ia, ib, ax, ay, az, bx, by, bz) === 0) return;
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    if (obbBoxBox(trs, ia, ib) === 0) return;
     nx = obbNx; ny = obbNy; nz = obbNz; overlap = obbDepth;
   } else if (boxA !== 0 && boxB !== 0) {
     // ── CAIXA × CAIXA (AABB) ──────────────────────────────────────────────
@@ -1328,9 +1376,10 @@ const CGRID_CAP = 8192;
 const CGRID_MASK = 8191;
 
 /// Remontagem do grid da colisão como FUNÇÃO LIVRE tipada (ver o chamador).
-function buildSceneGrid(trs: Transform[], cIdx: number[], m: number,
-                        gHead: number[], gNext: number[], gCell: number[],
-                        gUsedPrev: number, inv: f64): void {
+function buildSceneGrid(sc: Scene, m: number, inv: f64): void {
+  const trs: Transform[] = sc.trs; const cIdx: number[] = sc.cIdx;
+  const gHead: number[] = sc.gHead; const gNext: number[] = sc.gNext; const gCell: number[] = sc.gCell;
+  const gUsedPrev = sc.gUsed;
   // local, não o `const` de módulo — ver a nota longa em `resolveInto`
   const mask = CGRID_MASK;
   // limpa APENAS os buckets que a passada anterior sujou (no máximo m)
@@ -1558,8 +1607,9 @@ const csEvents: number[] = [];
 let curContacts: ContactEvents | null = null;
 const csTipo: number[] = [];
 
-function collectColliders(objs: GameObject[], trs: Transform[], out: number[],
-                          outStatic: number[], outBig: number[]): void {
+function collectColliders(sc: Scene): void {
+  const objs: GameObject[] = sc.objects; const trs: Transform[] = sc.trs;
+  const out: number[] = sc.cIdx; const outStatic: number[] = sc.sIdx; const outBig: number[] = sc.bIdx;
   const n = objs.length;
   // As tabelas crescem DENSAS, com um `push` por índice, e nunca por atribuição
   // num índice de array vazio: um array com buracos sai do caminho de elementos
@@ -1763,12 +1813,14 @@ function pairOverlaps(objs: GameObject[], trs: Transform[], ia: number, ib: numb
   const hullA = csShape[ia] === COL_HULL ? hullAt(csHull[ia]) : null;
   const hullB = csShape[ib] === COL_HULL ? hullAt(csHull[ib]) : null;
   if (hullA !== null || hullB !== null) {
-    return hullContact(trs, ia, ib, ax, ay, az, bx, by, bz, hullA, hullB);
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    return hullContact(trs, ia, ib);
   }
   const boxA = csShape[ia] === COL_BOX ? 1 : 0;
   const boxB = csShape[ib] === COL_BOX ? 1 : 0;
   if (boxA !== 0 && boxB !== 0 && (ta.ry !== 0.0 || tb.ry !== 0.0)) {
-    return obbBoxBox(trs, ia, ib, ax, ay, az, bx, by, bz);
+    parAB[0] = ax; parAB[1] = ay; parAB[2] = az; parAB[3] = bx; parAB[4] = by; parAB[5] = bz;
+    return obbBoxBox(trs, ia, ib);
   }
   if (boxA !== 0 && boxB !== 0) {
     const dx = bx - ax; const dy = by - ay; const dz = bz - az;

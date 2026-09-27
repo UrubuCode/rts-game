@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": { "@engine/generated/components": ["../../src/engine/generated/components_game.ts"] }
+  }
+}

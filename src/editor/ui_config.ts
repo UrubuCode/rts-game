@@ -34,6 +34,7 @@ export const UI_COMPONENT_PICKER = {
   emptyHint: "Tente outro nome ou função.",
   help: "Enter seleciona • Esc fecha",
   categoryHint: "Escolha uma categoria ou busque.",
+  resultsOpen: "Resultados (", resultsClose: ")", backMark: "< ",
 };
 // Codigos do backend de input usados pelo navegador de componentes.
 export const UI_PICKER_KEYS = { enter: 1, escape: 2, up: 5, down: 6, left: 7, right: 8 };
@@ -49,6 +50,20 @@ export const UI_INSPECTOR = {
   active: "Ativo", stationary: "Estático", mesh: "Malha", texture: "Textura",
   changeMesh: "Próxima primitiva", noComponents: "Sem componentes adicionais",
   parent: "Pai: ", unparent: "Desaninhar", charWidth: 7,
+  /// Título de uma janela de pacote (Editor.inspect) no lugar do nome do objeto.
+  windowPrefix: "Janela: ", windowKey: "/Janela/", windowTitleKey: "Window/Title",
+  /// Prefixos das chaves dos controles de componente (objeto selecionado / janela).
+  componentsKey: "Components/", windowComponentsKey: "Window/Components/",
+  headerKey: "/Header", removeKey: "/Remove", enabledKey: "/Enabled", expandedMark: "v  ", collapsedMark: ">  ",
+  /// Sufixos das chaves de campo automático ("<comp>/Field/<i>") e do rótulo de vetor ("<chave>/Label").
+  fieldKey: "/Field/", labelKey: "/Label",
+};
+// onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
+// "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
+export const UI_INSPECTOR_GUI = {
+  guiKey: "/GUI/", valueSeparator: ": ", digits: 1, unknownField: "Campo desconhecido: ",
+  /// Sliders com faixa menor que `fineRange` mostram `fineDigits` casas (ex.: densidade 0..0.2).
+  fineRange: 1, fineDigits: 3,
 };
 export const UI_PLAY = {
   buttonW: 66, gap: 4, textY: 7, radius: 3, id: 5000,
@@ -103,13 +118,20 @@ export const UI_TOOL_BUTTON_STEP = UI_TOOL_BUTTON_W + 4;
 export const UI_CONTROL_Y = UI_MENU_H + 9;
 export const UI_CONTROL_H = 28;
 
-export const UI_MENU_NAMES: string[] = ["Arquivo", "Editar", "Criar", "Configurações", "Ajuda"];
-export const UI_MENU_BUTTON_W: number[] = [66, 56, 54, 120, 52];
+export const UI_MENU_NAMES: string[] = ["Arquivo", "Editar", "Criar", "Janela", "Configurações", "Ajuda"];
+export const UI_MENU_BUTTON_W: number[] = [66, 56, 54, 62, 120, 52];
+/// Menu Janela: a 1ª linha (fixa) troca de rótulo com o estado da prévia; depois vêm os itens @menuItem "Janela/…".
+export const UI_WINDOW = { previewOn: "Pré-visualização da câmera: ligada", previewOff: "Pré-visualização da câmera: desligada" };
 export const UI_TOOLS: string[] = ["Mover", "Girar", "Escala", "Grade"];
 export const UI_FILE_ACTIONS: string[] = ["Abrir cena...", "Nova cena", "Salvar cena    Ctrl+S", "Salvar como...", "Build do jogo"];
 export const UI_EDIT_ACTIONS: string[] = ["Desfazer    Ctrl+Z", "Refazer    Ctrl+Y", "Duplicar    Ctrl+D", "Excluir    Delete"];
 export const UI_CONTEXT_ACTIONS: string[] = ["Duplicar", "Excluir"];
 export const UI_HELP_ACTIONS: string[] = ["Atalhos e navegação"];
+// Menu Configurações: as duas primeiras linhas trocam de rótulo com o estado.
+export const UI_SETTINGS = {
+  gridOn: "Grade: ligada", gridOff: "Grade: desligada", vsyncOn: "VSync: ligado", vsyncOff: "VSync: desligado",
+  resetLayout: "Restaurar layout",
+};
 
 // Paleta compartilhada pelos paineis legados e pelos gizmos. Os nomes descrevem
 // o papel visual; nao codificam RGB nos consumidores.
@@ -141,25 +163,52 @@ export const UI_CONSOLE = {
   empty: "Nenhuma mensagem no Console", emptyFiltered: "Nenhuma mensagem corresponde aos filtros",
   hint: "Selecione uma mensagem para ver os detalhes", open: "Abrir fonte", details: "DETALHES",
   follow: "Acompanhar novas mensagens", paused: "Rolagem pausada", count: " mensagens",
+  /// Chaves dos controles (uma por nível, linha e linha de detalhe; criadas uma vez).
+  levelKeys: ["Level/0", "Level/1", "Level/2"], rowKey: "Row/", detailKey: "Detail/",
 };
 export const UI_ICONS = {
   directory: "assets/editor/icons/", maxPixels: 256,
-  names: ["info", "warning", "error", "clear", "collapse", "search", "follow"],
+  names: ["info", "warning", "error", "clear", "collapse", "search", "follow", "luz-direcional", "luz-pontual", "luz-spot", "camera"],
 };
+/// Gizmos da vista de Cena: lado do ícone clicável (desenho E clique) e espessura das linhas.
+export const UI_GIZMO = { iconSize: 24, lineWidth: 1 };
 export const UI_WORKSPACE = {
   tabs: ["Cena", "Jogo"], bottomTabs: ["Project", "Console"], tabW: 90, tabH: 24,
   gap: 4, padding: 6, noCamera: "Nenhuma Camera ativa. Adicione Camera a um GameObject.",
   gameHint: "Jogo: camera da cena, sem ferramentas de edicao",
+  /// Chaves dos controles das abas ("View/0", "Bottom/1"…).
+  tabKey: "View/", bottomTabKey: "Bottom/",
   buildRunning: "Compilando jogo... acompanhe no Console", buildResult: "Build: resultado e caminho no Console",
 };
+/// Aba Jogo: seletores de proporção (faixas quando não bate com a área) e de câmera, à direita das abas.
+export const UI_GAME_VIEW = {
+  aspectLabels: ["Livre", "16:9", "4:3"], aspectTokens: ["livre", "16:9", "4:3"], aspectRatios: [0.0, 16.0 / 9.0, 4.0 / 3.0],
+  aspectPrefix: "Proporção: ", cameraPrefix: "Câmera: ", cameraAll: "Todas", aspectW: 130, cameraW: 170,
+  aspectKey: "View/Aspect", cameraKey: "View/Camera",
+};
+/// Prévia da câmera selecionada no canto inferior direito da vista de Cena.
+export const UI_CAMERA_PREVIEW = { w: 256, h: 144, margin: 10, border: 1, titlePrefix: "Câmera: ", titleY: 4, font: 12 };
 export const UI_DOCUMENT = {
   width: 540, height: 194, padding: 16, rowH: 28, gap: 8,
   title: "Alteracoes nao salvas", hint: "Deseja salvar antes de continuar?",
   save: "Salvar e continuar", discard: "Descartar", cancel: "Cancelar",
   untitled: "Sem titulo", pollMs: 750,
+  /// A cada quantos `refresh` sem mudança na assinatura rápida a comparação completa roda mesmo assim.
+  fullCheckEvery: 8,
 };
 
+/// Rótulos dinâmicos da barra, Hierarquia e status (montados por `editor/rotulos.ts` só quando mudam).
+export const UI_ROTULOS = {
+  titlePrefix: "RTS • ", dirtyMark: " *", fpsPrefix: "fps ", objCount: " obj", results: " resultado(s)",
+  statusSep: "  •  ", statusObjects: " objetos", childOf: "Filho de ", childOfChars: 14,
+  /// Intervalo (ms) entre atualizações do rótulo de fps.
+  fpsMs: 250,
+};
+/// Textos do host de @editor/api (editor_host.ts).
+export const UI_EDITOR_API = { undoPrefix: "Desfazer: " };
+
 export const UI_C = {
+  previewBorder: 0x6A9DD2FF,
   consoleBackground: 0x26282CFF, consoleToolbar: 0x303237FF,
   consoleRowAlternate: 0x2B2D31FF, consoleHover: 0x383C43FF,
   consoleSelected: 0x344D68FF, consoleActive: 0x414A55FF,
@@ -283,6 +332,8 @@ export const UI_C = {
 // Seção "Esqueleto" do Inspector (Skeleton + AnimationPlayer). As medidas de
 // linha/cabeçalho são as de UI_INSPECTOR; aqui ficam só as próprias da seção.
 export const UI_SKELETON = {
+  /// Prefixos das chaves de controle por osso e por clipe.
+  boneKey: "Skeleton/Bone/", clipKey: "Skeleton/Clip/",
   boneIndent: 12, maxIndentDepth: 8, boneRowH: 22, clipRowH: 22,
   timelineH: 20, handleW: 4, buttonGap: 6, textY: 3,
   title: "Esqueleto", bones: "Ossos", clips: "Clipes",
@@ -301,6 +352,8 @@ export const UI_SKELETON = {
 // Seção "Animator" do Inspector (máquina de estados). Linhas/cabeçalho usam
 // UI_INSPECTOR; aqui ficam rótulos e medidas próprias da seção.
 export const UI_ANIMATOR = {
+  /// Prefixos das chaves de controle por parâmetro e por camada.
+  paramKey: "Animator/Param/", layerKey: "Animator/Layer/",
   title: "Animator", controller: "Controlador: ", none: "(nenhum)", error: "Erro: ",
   params: "Parâmetros", noParams: "O controlador não tem parâmetros", layers: "Camadas",
   layerSeparator: ": ", timeOpen: "  t=", fadeOpen: "  (fade de ", fadeStateGap: " ", fadeClose: "%)",

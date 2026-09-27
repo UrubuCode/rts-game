@@ -35,7 +35,8 @@ function chunk(type, data) {
 }
 const size = source.size * source.scale;
 for (const [name, shapes] of Object.entries(source.icons)) {
-  if (!/^[a-z]+$/.test(name)) throw new Error('Invalid icon name');
+  // kebab-case: só letras minúsculas e hífen interno (nome vira caminho de arquivo)
+  if (!/^[a-z]+(-[a-z]+)*$/.test(name)) throw new Error('Invalid icon name');
   const scanlines = Buffer.alloc(size * (size * 4 + 1));
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const sum = [0, 0, 0]; let covered = 0;

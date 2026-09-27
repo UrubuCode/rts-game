@@ -34,7 +34,7 @@
 
 import math from "../compat/math.ts";
 import fs from "../compat/fs.ts";
-import render from "../compat/render.ts";
+import { imagemEm, imagem, imagemId, registrarImagem, soltarImagem, janelaAtual2D } from "@compat/draw2d.ts";
 
 import { parseObj, parseGltf, primitivePart, Part } from "../engine/render/model";
 
@@ -50,12 +50,19 @@ const TH_BG = 42 + 42 * 256 + 42 * 65536;
 const thumbCache = new Map<string, Uint8Array>();
 // paths que JÁ tentamos e falharam — evita re-tentar todo frame.
 const thumbFailed = new Map<string, number>();
+// path → textura retida da miniatura (Task 10.5: uma subida por miniatura, não por quadro).
+const thumbTex = new Map<string, number>();
+const thumbIds: number[] = [];
 
 /// Descarta os thumbnails. Chamar ao trocar de projeto.
 ///
 /// Não "libera" mais nada: os framebuffers são células do heap gerenciado, e
 /// esvaziar o cache é exatamente o que os torna coletáveis.
 export function clearThumbs(): void {
+  let k = 0;
+  while (k < thumbIds.length) { soltarImagem(thumbIds[k]); k = k + 1; }
+  thumbIds.length = 0;
+  thumbTex.clear();
   thumbCache.clear();
   thumbFailed.clear();
 }
@@ -63,12 +70,20 @@ export function clearThumbs(): void {
 /// Desenha o thumbnail do asset em (x,y,s). Devolve 1 se desenhou algo real,
 /// 0 se não há preview (o chamador então desenha o ícone genérico).
 /// Gera sob demanda no primeiro frame em que o tile aparece.
-export function drawThumb(win: number, path: string, kind: number, x: number, y: number, s: number): number {
-  const buf = getThumb(win, path, kind);
-  if (buf === null) return 0;
-  // A view no lugar do endereço: era `buffer.ptr(buf)`, e é a única mudança
-  // deste caminho — o `drawImage` do motor novo lê o comprimento da própria view.
-  render.image(win, x, y, s, s, buf, TH_SIZE, TH_SIZE);
+/// Quadrado (x, y, lado) da próxima `drawThumb` (≤ 4 parâmetros por chamada).
+export function thumbAt(x: number, y: number, s: number): void { thX = x; thY = y; thS = s; }
+let thX = 0.0; let thY = 0.0; let thS = 0.0;
+export function drawThumb(path: string, kind: number): number {
+  let id = thumbTex.get(path);
+  if (id === undefined) {
+    const buf = getThumb(janelaAtual2D(), path, kind);
+    if (buf === null) return 0;
+    id = registrarImagem(buf, TH_SIZE, TH_SIZE);
+    if (id === 0) { imagemEm(thX, thY, thS, thS); imagem(buf, TH_SIZE, TH_SIZE); return 1; }
+    thumbTex.set(path, id); thumbIds.push(id);
+  }
+  imagemEm(thX, thY, thS, thS);
+  imagemId(id);
   return 1;
 }
 

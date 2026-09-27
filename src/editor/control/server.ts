@@ -33,6 +33,27 @@ import { execCommand } from "./dispatch";
 // depende disto). Medido: `conexoes=0` depois de 2040 polls com um cliente
 // conectado.
 let wssRef: any = null;
+/// A porta de controle executa comandos que mudam a cena e gravam arquivos: só
+/// escuta no loopback. O `ws` do runtime escuta em 0.0.0.0 sem `host`.
+export const CONTROLE_HOST: string = "127.0.0.1";
+/// Nomes aceitos no cabeçalho Host (com ou sem ":porta").
+const HOSTS_LOCAIS: string[] = ["127.0.0.1", "localhost", "[::1]"];
+/// Código de fechamento "policy violation" (RFC 6455 §7.4.1).
+const WS_FECHA_POLITICA: number = 1008;
+
+/// O cabeçalho Host de uma conexão à porta de controle é local? Recusa o que
+/// chega por outro nome — a defesa contra DNS rebinding, em que uma página
+/// externa resolve o próprio domínio para 127.0.0.1. O `ws` do runtime não
+/// expõe o `Origin` no servidor (só `req.headers.host`), então uma página
+/// aberta no navegador ainda consegue abrir ws://127.0.0.1:<porta>; ver
+/// docs/editor-workspace.md. Vazio (cliente sem Host) é aceito.
+export function hostDeControleAceito(host: string, port: number): boolean {
+  if (host.length === 0) return true;
+  let nome = host.toLowerCase();
+  const sufixo = ":" + port;
+  if (nome.length > sufixo.length && nome.slice(nome.length - sufixo.length) === sufixo) nome = nome.slice(0, nome.length - sufixo.length);
+  return HOSTS_LOCAIS.indexOf(nome) >= 0;
+}
 let curW = 0;
 let curH = 0;
 
@@ -44,7 +65,7 @@ let curH = 0;
 /// volta para quem perguntou sem que exista slot algum a disputar; suportar um
 /// só custaria uma linha de rejeição em vez de economizar código.
 export function ctrlServe(port: number): void {
-  const wss = new WebSocketServer({ port: port });
+  const wss = new WebSocketServer({ port: port, host: CONTROLE_HOST });
   wssRef = wss;
   // Os campos da Session viram CONTADORES: nada mais no editor os lê, e um
   // handle não cabe mais neles (o `ws` agora é objeto, não número).
@@ -71,7 +92,7 @@ export function ctrlServe(port: number): void {
   // A confirmação de que a porta É NOSSA. Só a partir daqui o `ctrlPoll` bombeia.
   wss.on("listening", () => {
     S.wsServer = 1;
-    println("[controle] ws://127.0.0.1:" + port + " pronto");
+    println("[controle] ws://" + CONTROLE_HOST + ":" + port + " pronto");
   });
 
   wss.on("error", (erro: any) => {
@@ -80,7 +101,14 @@ export function ctrlServe(port: number): void {
     S.wsServer = 0 - 1;
   });
 
-  wss.on("connection", (ws: any) => {
+  wss.on("connection", (ws: any, req: any) => {
+    const host = req !== undefined && req !== null && req.headers !== undefined && typeof req.headers.host === "string" ? req.headers.host : "";
+    if (!hostDeControleAceito(host, port)) {
+      println("[controle] conexão recusada: Host '" + host + "' não é local");
+      ws.on("error", (_e: any) => { });
+      ws.close(WS_FECHA_POLITICA, "host nao local");
+      return;
+    }
     S.wsClient = S.wsClient + 1;
     ws.send("[engine] editor conectado. envie 'help' (lista) ou 'doc' (detalhes+exemplos p/ IA).");
 

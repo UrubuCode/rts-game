@@ -11,6 +11,10 @@ import io from "@compat/io.ts";
 import math from "@compat/math.ts";
 import { setListener, setRolloff, attenuation, panOf, panGains, distanceTo,
          rolloffRef, rolloffMax } from "@engine/audio/spatial";
+const poseOuvinte = new Float64Array(5);
+function ouvinte(x: number, y: number, z: number, yaw: number, pitch: number): void {
+  poseOuvinte[0] = x; poseOuvinte[1] = y; poseOuvinte[2] = z; poseOuvinte[3] = yaw; poseOuvinte[4] = pitch; setListener(poseOuvinte);
+}
 
 let pass = 0;
 let fail = 0;
@@ -28,7 +32,7 @@ function perto(a: f64, b: f64): number {
 const g: f64[] = [0.0, 0.0];
 
 io.print("[audio3d] ouvinte na origem, yaw 0 (frente = +Z, direita = +X)");
-setListener(0.0, 0.0, 0.0, 0.0, 0.0);
+ouvinte(0.0, 0.0, 0.0, 0.0, 0.0);
 setRolloff(1.0, 60.0);
 
 // ── A. PANORÂMICA ───────────────────────────────────────────────────────────
@@ -84,21 +88,21 @@ ok("alem do maximo, silencio", perto(attenuation(rolloffMax() + 0.001), 0.0));
 
 // ── C. O REFERENCIAL E O OUVINTE, NAO O MUNDO ───────────────────────────────
 // Sem esta, uma panoramica com os eixos do mundo cravados passaria em A inteiro.
-setListener(0.0, 0.0, 0.0, 1.5707963267948966, 0.0);   // yaw 90 graus: frente vira +X
+ouvinte(0.0, 0.0, 0.0, 1.5707963267948966, 0.0);   // yaw 90 graus: frente vira +X
 panGains(5.0, 0.0, 0.0, g);
 ok("com yaw 90, a fonte em +X passa a estar A FRENTE", perto(g[0], g[1]));
 
 // e transladar os dois pelo mesmo vetor nao muda nada
-setListener(0.0, 0.0, 0.0, 0.0, 0.0);
+ouvinte(0.0, 0.0, 0.0, 0.0, 0.0);
 panGains(3.0, 0.0, 4.0, g);
 const eL: f64 = g[0]; const eR: f64 = g[1];
-setListener(100.0, 50.0, 0.0 - 20.0, 0.0, 0.0);
+ouvinte(100.0, 50.0, 0.0 - 20.0, 0.0, 0.0);
 panGains(103.0, 50.0, 0.0 - 16.0, g);
 ok("transladar ouvinte e fonte juntos nao muda o ganho",
    perto(g[0], eL) !== 0 && perto(g[1], eR) !== 0 ? 1 : 0);
 
 // ── D. FONTE COLADA NO OUVINTE ──────────────────────────────────────────────
-setListener(0.0, 0.0, 0.0, 0.0, 0.0);
+ouvinte(0.0, 0.0, 0.0, 0.0, 0.0);
 panGains(0.0, 0.0, 0.0, g);
 ok("fonte na cabeca nao estoura nem vira NaN",
    g[0] === g[0] && g[1] === g[1] && g[0] <= 1.0 && g[1] <= 1.0 ? 1 : 0);

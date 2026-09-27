@@ -42,6 +42,8 @@ import {
   meshUpload, textureUpload, setCamera, setLight, setShadow as eguiSetShadow,
   drawMesh, drawMeshBatch, setVsync as eguiSetVsync,
   winWidth as eguiWinWidth, winHeight as eguiWinHeight,
+  setLights as eguiSetLights, setSky as eguiSetSky, setFog as eguiSetFog,
+  setViewport as eguiSetViewport, setClearColor as eguiSetClearColor, setSkybox as eguiSetSkybox,
 } from "rts:egui";
 import math from "@compat/math.ts";
 import { decodePNG } from "./png";
@@ -305,34 +307,61 @@ export function loadTexture(win: number, path: string): number {
   return uploadTexture(win, img.pixels, img.width, img.height, path);
 }
 
-/// Enfileira um draw de um mesh id ARBITRÁRIO (ex.: .obj carregado), fora do
-/// mapeamento meshKind→primitivo. Mesmos params de transform/cor de drawGPU.
-///
-/// Os `| 0` que existiam aqui foram embora com a razão deles: eram contra o
-/// marshalling posicional do motor antigo, que BITCASTAVA os bits de um `number`
-/// em repr f64 num param U64 (5.0 virava 0x4014…). Um objeto de opções é lido
-/// campo a campo como número — não há param tipado pra bitcastar.
+// ── DRAW POR BUFFER (Task 10.5) ────────────────────────────────────────────
+// `drawGPU`/`drawGPUMesh` tinham 14 parâmetros e montavam um literal de 13
+// campos por objeto: ~3 células de lixo por draw (e 5+ parâmetros alocam por
+// chamada no RTS mesmo com objeto reaproveitado). O caminho por quadro é
+// `drawGPUBuf(win, kind, d)`: o chamador preenche um Float64Array de módulo e o
+// objeto de opções do nativo é reaproveitado (o nativo copia os campos).
+/// Layout de `d`: x, y, z, rx, ry, sx, sy, sz, cor, emissivo, tex, tile, qx, qy, qz, qw.
+export const DRAW_FLOATS: number = 16;
+export const D_X = 0; export const D_Y = 1; export const D_Z = 2;
+export const D_RX = 3; export const D_RY = 4;
+export const D_SX = 5; export const D_SY = 6; export const D_SZ = 7;
+export const D_COR = 8; export const D_EMISSIVO = 9; export const D_TEX = 10; export const D_TILE = 11;
+export const D_QX = 12; export const D_QY = 13; export const D_QZ = 14; export const D_QW = 15;
+const optMesh = { mesh: 0, x: 0.0, y: 0.0, z: 0.0, rx: 0.0, ry: 0.0,
+  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0 };
+const optMeshQ = { mesh: 0, x: 0.0, y: 0.0, z: 0.0, rx: 0.0, ry: 0.0, qx: 0.0, qy: 0.0, qz: 0.0, qw: 1.0,
+  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0 };
+
+/// Enfileira um draw do mesh id `meshId` com o transform/material de `d` (DRAW_FLOATS).
+export function drawGPUMeshBuf(win: number, meshId: number, d: Float64Array): void {
+  optMesh.mesh = meshId; optMesh.x = d[0]; optMesh.y = d[1]; optMesh.z = d[2]; optMesh.rx = d[3]; optMesh.ry = d[4];
+  optMesh.sx = d[5]; optMesh.sy = d[6]; optMesh.sz = d[7]; optMesh.color = d[8]; optMesh.emissive = d[9];
+  optMesh.tex = d[10]; optMesh.tile = d[11];
+  drawMesh(win, optMesh);
+}
+
+/// Como `drawGPUMeshBuf` com a rotação pelo QUATERNION de `d` (qx..qw, glTF): é
+/// como o Skeleton desenha cada osso. Com qualquer componente ≠ 0 o runtime ignora rx/ry.
+export function drawGPUMeshQBuf(win: number, meshId: number, d: Float64Array): void {
+  optMeshQ.mesh = meshId; optMeshQ.x = d[0]; optMeshQ.y = d[1]; optMeshQ.z = d[2];
+  optMeshQ.qx = d[12]; optMeshQ.qy = d[13]; optMeshQ.qz = d[14]; optMeshQ.qw = d[15];
+  optMeshQ.sx = d[5]; optMeshQ.sy = d[6]; optMeshQ.sz = d[7]; optMeshQ.color = d[8]; optMeshQ.emissive = d[9];
+  optMeshQ.tex = d[10]; optMeshQ.tile = 0.0;
+  drawMesh(win, optMeshQ);
+}
+
+/// Enfileira 1 objeto de malha primitiva `kind` (meshKind → mesh id) com `d` (DRAW_FLOATS).
+export function drawGPUBuf(win: number, kind: number, d: Float64Array): void {
+  drawGPUMeshBuf(win, meshIdFor(kind), d);
+}
+
+// Buffer dos invólucros antigos abaixo (demos/harness; fora dos caminhos por quadro do motor).
+const dLegado = new Float64Array(DRAW_FLOATS);
+function preencherLegado(px: number, py: number, pz: number, rx: number): void {
+  dLegado[0] = px; dLegado[1] = py; dLegado[2] = pz; dLegado[3] = rx;
+}
+
+/// Invólucro antigo de 14 parâmetros (demos/harness). O motor usa `drawGPUMeshBuf`.
 export function drawGPUMesh(win: number, meshId: number, px: number, py: number, pz: number,
                            rx: number, ry: number, sx: number, sy: number, sz: number,
                            color: number, emissive: number, tex: number, tileArg?: number): void {
-  const tile: number = tileArg !== undefined ? tileArg : 0.0;
-  drawMesh(win, {
-    mesh: meshId, x: px, y: py, z: pz, rx: rx, ry: ry,
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: tile,
-  });
-}
-
-/// Como `drawGPUMesh`, com a rotação dada por um QUATERNION `q` = [x, y, z, w]
-/// (glTF) em vez de pitch/yaw: é como o Skeleton desenha cada osso. Com
-/// qualquer componente de `q` ≠ 0 o runtime ignora rx/ry. Sem tiling.
-export function drawGPUMeshQ(win: number, meshId: number, px: number, py: number, pz: number,
-                             q: Float64Array, sx: number, sy: number, sz: number,
-                             color: number, emissive: number, tex: number): void {
-  drawMesh(win, {
-    mesh: meshId, x: px, y: py, z: pz, rx: 0.0, ry: 0.0,
-    qx: q[0], qy: q[1], qz: q[2], qw: q[3],
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: 0.0,
-  });
+  preencherLegado(px, py, pz, rx);
+  dLegado[4] = ry; dLegado[5] = sx; dLegado[6] = sy; dLegado[7] = sz;
+  dLegado[8] = color; dLegado[9] = emissive; dLegado[10] = tex; dLegado[11] = tileArg !== undefined ? tileArg : 0.0;
+  drawGPUMeshBuf(win, meshId, dLegado);
 }
 
 /// Liga/desliga o VSYNC da janela (1 = Fifo, o padrão; 0 = sem espera).
@@ -342,11 +371,13 @@ export function drawGPUMeshQ(win: number, meshId: number, px: number, py: number
 /// medem os mesmos 60 fps. Desligar revela o custo verdadeiro do frame — é o
 /// que o comando ws `vsync 0` faz pra medir otimizações.
 ///
-/// Continua recebendo NÚMERO, e converte aqui: a superfície nova quer `boolean`,
-/// mas os chamadores (`query.ts`, os demos) passam o 0/1 que vem do comando de
-/// texto. Traduzir num lugar só é mais barato que mexer em todos eles.
+/// Passa NÚMERO 0/1 ao nativo. Passava `on !== 0` (boolean), e o `setVsync` do
+/// rts lia o argumento como inteiro: `false` virava o padrão 1 e o vsync nunca
+/// desligava em tempo de execução — o comando WS `vsync 0` media a espera do
+/// monitor (Task 10.5). O rts agora aceita os dois (rts-ui `vsync_flag`), mas o
+/// número funciona também com um runtime anterior.
 export function setVsync(win: number, on: number): void {
-  eguiSetVsync(win, on !== 0);
+  eguiSetVsync(win, on !== 0 ? 1 : 0);
 }
 
 /// Define a câmera do frame 3D (fly cam). Ângulos em RADIANOS; base canhota,
@@ -364,6 +395,53 @@ export function setShadow(win: number, dx: number, dy: number, dz: number,
                           cx: number, cy: number, cz: number, radius: number): void {
   eguiSetShadow(win, { dx: dx, dy: dy, dz: dz, cx: cx, cy: cy, cz: cz, radius: radius });
 }
+
+// ── INVÓLUCROS SEM ALOCAÇÃO ────────────────────────────────────────────────
+// Os nativos leem objetos de opções; um literal por chamada seria uma alocação
+// por frame. Estes objetos são do módulo e só têm os campos mutados.
+/// Números do `setCamBuf`: x, y, z, yaw, pitch, fov, aspecto, near, far, ortográfica (0/1), meia altura orto.
+export const CAM_FLOATS: number = 11;
+/// Meia altura ortográfica padrão (a mesma do nativo quando o campo falta).
+export const CAM_ORTO_PADRAO: number = 5.0;
+const optCam = { x: 0.0, y: 0.0, z: 0.0, yaw: 0.0, pitch: 0.0, fov: 1.05, aspect: 1.0, near: 0.1, far: 500.0, ortho: 0.0, orthoSize: 5.0 };
+const optLuz = { x: 0.0, y: 10.0, z: 0.0, ambient: 0.2 };
+const optSombra = { dx: 0.0, dy: -1.0, dz: 0.0, cx: 0.0, cy: 0.0, cz: 0.0, radius: 0.0 };
+const optVista = { x: 0.0, y: 0.0, w: 1.0, h: 1.0, limpar: 1.0 };
+const optNeblina = { r: 0.0, g: 0.0, b: 0.0, densidade: 0.0 };
+export function setCamBuf(win: number, c: Float64Array): void {
+  optCam.x = c[0]; optCam.y = c[1]; optCam.z = c[2]; optCam.yaw = c[3]; optCam.pitch = c[4];
+  optCam.fov = c[5]; optCam.aspect = c[6]; optCam.near = c[7]; optCam.far = c[8]; optCam.ortho = c[9]; optCam.orthoSize = c[10];
+  setCamera(win, optCam);
+}
+/// Luz legada: [x, y, z, ambiente].
+export function setLgtBuf(win: number, l: Float64Array): void {
+  optLuz.x = l[0]; optLuz.y = l[1]; optLuz.z = l[2]; optLuz.ambient = l[3];
+  setLight(win, optLuz);
+}
+/// Sombra: [dx, dy, dz, cx, cy, cz, raio] (raio <= 0 desliga).
+export function setShadowBuf(win: number, s: Float64Array): void {
+  optSombra.dx = s[0]; optSombra.dy = s[1]; optSombra.dz = s[2];
+  optSombra.cx = s[3]; optSombra.cy = s[4]; optSombra.cz = s[5]; optSombra.radius = s[6];
+  eguiSetShadow(win, optSombra);
+}
+/// Começa uma vista: [x, y, w, h, limpar] em fração da janela, y a partir do topo.
+export function setViewportBuf(win: number, r: Float64Array): void {
+  optVista.x = r[0]; optVista.y = r[1]; optVista.w = r[2]; optVista.h = r[3]; optVista.limpar = r[4];
+  eguiSetViewport(win, optVista);
+}
+/// Neblina: [r, g, b, densidade] (0..1; densidade 0 desliga).
+export function setFogBuf(win: number, f: Float64Array): void {
+  optNeblina.r = f[0]; optNeblina.g = f[1]; optNeblina.b = f[2]; optNeblina.densidade = f[3];
+  eguiSetFog(win, optNeblina);
+}
+export function setLightsBuf(win: number, buf: Float64Array, n: number): void { eguiSetLights(win, buf, n); }
+export function setSkyBuf(win: number, buf: Float64Array): void { eguiSetSky(win, buf); }
+/// Fundo chapado 0xRRGGBB na vista corrente.
+export function setFundoCor(win: number, rgb: number): void {
+  eguiSetClearColor(win, ((rgb >> 16) & 255) / 255.0, ((rgb >> 8) & 255) / 255.0, (rgb & 255) / 255.0);
+}
+export function setFundoCeu(win: number): void { eguiSetSkybox(win, 1); }
+
 /// Largura/altura LÓGICA atual da janela (segue o resize).
 export function winWidth(win: number): number { return eguiWinWidth(win); }
 export function winHeight(win: number): number { return eguiWinHeight(win); }
@@ -387,6 +465,11 @@ let fCamX: number = 0.0; let fCamY: number = 0.0; let fCamZ: number = 0.0;
 let fCyw: number = 1.0; let fSyw: number = 0.0;
 let fCpt: number = 1.0; let fSpt: number = 0.0;
 let fTanV: number = 0.5; let fTanH: number = 0.5;
+/// Planos near/far do culling quando quem prepara o frustum não informa a lente
+/// (`frustumBegin`, a fly-cam do editor e os demos).
+export const FRUSTUM_NEAR_PADRAO: number = 0.1;
+export const FRUSTUM_FAR_PADRAO: number = 500.0;
+let fNear: number = FRUSTUM_NEAR_PADRAO; let fFar: number = FRUSTUM_FAR_PADRAO;
 
 /// Prepara o frustum do frame. Chame UMA vez, antes do laço de objetos.
 export function frustumBegin(camx: number, camy: number, camz: number, yaw: number, pitch: number,
@@ -396,7 +479,23 @@ export function frustumBegin(camx: number, camy: number, camz: number, yaw: numb
   fCpt = math.cos(pitch); fSpt = math.sin(pitch);
   fTanV = math.tan(fovY * 0.5);
   fTanH = fTanV * aspect;
+  fNear = FRUSTUM_NEAR_PADRAO; fFar = FRUSTUM_FAR_PADRAO;
 }
+
+/// `frustumBegin` a partir dos 11 números de `setCamBuf` (x, y, z, yaw, pitch,
+/// fov, aspecto, near, far, …), com o near/far da câmera. Um parâmetro só: sem
+/// a alocação por chamada das funções de 5+ parâmetros.
+export function frustumBeginBuf(c: Float64Array): void {
+  fCamX = c[0]; fCamY = c[1]; fCamZ = c[2];
+  fCyw = math.cos(c[3]); fSyw = math.sin(c[3]);
+  fCpt = math.cos(c[4]); fSpt = math.sin(c[4]);
+  fTanV = math.tan(c[5] * 0.5);
+  fTanH = fTanV * c[6];
+  fNear = c[7]; fFar = c[8];
+}
+/// Near/far do frustum preparado (lidos uma vez por frame por `drawSceneObjects`).
+export function frustumNear(): number { return fNear; }
+export function frustumFar(): number { return fFar; }
 
 /// Copia os 9 valores do frustum preparado para `out` (índices 0..8: camX, camY,
 /// camZ, cosYaw, sinYaw, cosPitch, sinPitch, tanH, tanV).
@@ -421,8 +520,8 @@ export function inFrustumFast(wx: number, wy: number, wz: number, radius: number
   const z1 = dx * fSyw + dz * fCyw;
   const y2 = dy * fCpt - z1 * fSpt;
   const z2 = dy * fSpt + z1 * fCpt;
-  if (z2 + radius < 0.1) return 0;         // atrás do near
-  if (z2 - radius > 500.0) return 0;       // além do far
+  if (z2 + radius < fNear) return 0;       // atrás do near
+  if (z2 - radius > fFar) return 0;        // além do far
   const limH: number = z2 * fTanH;
   if (x1 - radius > limH) return 0;
   if (0.0 - x1 - radius > limH) return 0;
@@ -478,21 +577,17 @@ export function meshIdFor(kind: number): number {
 /// buffer desde antes disto. O que isto remove é a FRONTEIRA: eram N idas ao
 /// nativo por frame, cada uma materializando um objeto de 12 campos, para no fim
 /// empurrar N tuplas na mesma fila.
+const optLote = { transforms: new Float32Array(0), codes: new Uint32Array(0) };
 export function drawBatch(win: number, transforms: Float32Array, codes: Uint32Array): number {
-  return drawMeshBatch(win, { transforms: transforms, codes: codes });
+  optLote.transforms = transforms; optLote.codes = codes;
+  return drawMeshBatch(win, optLote);
 }
 
-/// Enfileira 1 objeto pra desenhar na GPU (mapeia meshKind → mesh id).
+/// Invólucro antigo de 14 parâmetros (demos/harness). O motor usa `drawGPUBuf`.
 /// `tile` > 0: textura em coordenada de MUNDO, `tile` repetições por unidade
-/// (ver `proc_textures.ts`); 0 = UV da malha. Precisa de runtime com `tile`
-/// no `drawMesh` — um runtime antigo ignora o campo e estica a textura.
+/// (ver `proc_textures.ts`); 0 = UV da malha.
 export function drawGPU(win: number, kind: number, px: number, py: number, pz: number,
                         rx: number, ry: number, sx: number, sy: number, sz: number, color: number,
                         emissive: number, tex: number, tileArg?: number): void {
-  const tile: number = tileArg !== undefined ? tileArg : 0.0;
-  const id = meshIdFor(kind);
-  drawMesh(win, {
-    mesh: id, x: px, y: py, z: pz, rx: rx, ry: ry,
-    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: tile,
-  });
+  drawGPUMesh(win, meshIdFor(kind), px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex, tileArg);
 }

@@ -48,62 +48,13 @@
 // precisaria de um giro de bits aqui — não precisa. `fill: 0` continua
 // significando "não preenche", que é como `assets.ts:204` desenha a moldura.
 
-import { drawRect, drawText, drawLine, drawImage } from "rts:egui";
-import { dcRect, dcText, dcLine } from "./drawcount.ts";
+import { drawImage } from "rts:egui";
 
-// Objetos de opções REUSADOS — a mesma decisão (e a mesma medição) que
-// `compat/app.ts` documenta: o literal por chamada custa 4,5 us e o objeto
-// mutado custa 0,67. Duas cópias do estado, e não uma importada de lá, porque os
-// dois shims são independentes de propósito: `render.*` é `rts:render` e
-// `app.*` é `createAppAt`, e nenhum deve morrer preso ao outro.
-const oRect = { x: 0.0, y: 0.0, w: 0.0, h: 0.0, fill: 0, strokeW: 0, stroke: 0, radius: 0 };
-const oText = { x: 0.0, y: 0.0, text: "", color: 0, size: 12, flags: 0 };
-const oLine = { x1: 0.0, y1: 0.0, x2: 0.0, y2: 0.0, w: 1, color: 0 };
-
+// `rect`/`text`/`line` saíram na Task 10.5: com 7–9 parâmetros eles alocavam
+// por chamada no RTS (5+ parâmetros escalares = bloco de spill por chamada).
+// O desenho 2D é `@compat/draw2d.ts` (pincel/caixa, texto/estiloTexto,
+// traco/linha), sempre com no máximo 4 parâmetros.
 export default {
-  // `rect(win, x, y, w, h, fill, strokeW, stroke, radius)`.
-  //
-  // Os nove parâmetros antigos são os oito campos que `drawRect` lê, na mesma
-  // ordem: a superfície nova trocou a lista por um objeto e não mudou mais nada.
-  rect(
-    win: number,
-    x: number, y: number, w: number, h: number,
-    fill: number, strokeW: number, stroke: number, radius: number,
-  ): void {
-    dcRect();
-    oRect.x = x; oRect.y = y; oRect.w = w; oRect.h = h;
-    oRect.fill = fill; oRect.strokeW = strokeW; oRect.stroke = stroke; oRect.radius = radius;
-    drawRect(win, oRect);
-  },
-
-  // `text(win, x, y, s, color, size, flags)`.
-  //
-  // `flags` é bitmask 1=negrito 2=itálico 4=mono do lado novo. Todos os 17
-  // chamadores do jogo passam `0`, então nenhum depende de saber se o bitmask
-  // antigo era o mesmo — o que é bom, porque eu NÃO sei o que os bits do
-  // `rts:render` significavam. Se algum chamador passar não-zero um dia, esse é
-  // o ponto a conferir.
-  text(
-    win: number,
-    x: number, y: number, s: string,
-    color: number, size: number, flags: number,
-  ): void {
-    dcText();
-    oText.x = x; oText.y = y; oText.text = s; oText.color = color; oText.size = size; oText.flags = flags;
-    drawText(win, oText);
-  },
-
-  // `line(win, x1, y1, x2, y2, w, color)` — tradução direta.
-  line(
-    win: number,
-    x1: number, y1: number, x2: number, y2: number,
-    w: number, color: number,
-  ): void {
-    dcLine();
-    oLine.x1 = x1; oLine.y1 = y1; oLine.x2 = x2; oLine.y2 = y2; oLine.w = w; oLine.color = color;
-    drawLine(win, oLine);
-  },
-
   // `image(win, x, y, w, h, pixels, iw, ih)` — blit de um framebuffer RGBA8.
   //
   // O sexto argumento chamava-se `ptr` e era um endereço; agora é a view

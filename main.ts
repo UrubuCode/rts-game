@@ -16,13 +16,14 @@ import process from "@compat/process.ts";
 // está do outro lado costura a janela (`rts:egui`), o input (`rts:input`), o
 // relógio e os widgets posicionados, que lá eram uma coisa só.
 import { createAppAt } from "@compat/app.ts";
+import { tituloJanela, janelaX, janelaY } from "@engine/core/janela_env";
 
 import { GameObject } from "@engine/core/gameobject";
 import { Scene } from "@engine/core/scene";
-import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
+import { drawSceneObjects, fParams, fParams2, definirSegundaVista, prepararDesenho, DS_FLOATS } from "@engine/render/scenedraw";
 import { Transform } from "@engine/core/transform";
 import { subStr, nfEditing, nfCancel } from "@editor/widgets";
-import { createComponent } from "@editor/components";
+import { definirJanelaEntrada, definirEntradaAtiva } from "@engine/core/entrada";
 import { Inspector } from "@editor/inspector";
 import { previewFrame } from "@editor/skeleton_preview";
 import { EditorUI } from "@editor/ui_controls";
@@ -35,20 +36,29 @@ import { drawGameUI } from "@engine/ui/game_ui";
 import { playMode } from "@editor/play_mode";
 import { UI_PLAY } from "@editor/ui_config";
 import { UI_WORKSPACE, UI_DOCUMENT } from "@editor/ui_config";
+import { UI_GIZMO } from "@editor/ui_config";
+import { gizmosBegin } from "@engine/core/gizmos";
+import { gizmosDoEditor, passeDeGizmosProtegido, pintarGizmos, gizmoIconAt } from "@editor/gizmo_pass";
 import { ConsolePanel } from "@editor/console_panel";
 import { WorkspaceViews } from "@editor/workspace_views";
 import { sceneDocument } from "@editor/scene_document";
 import { DocumentPanel, saveDocument } from "@editor/document_panel";
 import { chooseSceneFile } from "@editor/scene_dialog";
 import { EditorBuild } from "@editor/editor_build";
-import { assetsInit, assetsOpenScenes, drawAssets, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
-import { initMeshes, setCam, setLgt, setShadow, drawGPU, drawGPUMesh, frustumBegin, frustumParams, winWidth, winHeight, loadTexture } from "@engine/render/gpu3d";
+import { assetsInit, assetsOpenScenes, drawAssets, assetsArea, assetsMouse, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
+import { initMeshes, setCamBuf, frustumBeginBuf, CAM_FLOATS, FRUSTUM_NEAR_PADRAO, FRUSTUM_FAR_PADRAO, CAM_ORTO_PADRAO, frustumParams, winWidth, winHeight, loadTexture,
+         setViewportBuf, setFundoCeu } from "@engine/render/gpu3d";
+import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas, posicaoDaVista, frustumDaVista } from "@engine/render/camera_views";
+import { Camera } from "@engine/core/camera";
+import type { Behavior } from "@engine/core/behavior";
+import { areaComFaixas, prepararPrevia, restaurarPrevia } from "@editor/game_view";
+import { aplicarLuzes, aplicarAmbiente } from "@engine/render/scene_lighting";
 import { scene, S } from "@editor/control/session";
-import { pickAxis, axisMove, projPt, screenToPlane, screenToForward, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE,
+import { pickAxis, axisMove, projPt, screenToGround, snapv, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE, VISTA_FLOATS, GIZMO_FLOATS, GZ_LEN,
   GIZMO_ROTATE_PER_UNIT, SNAP_MOVE_STEP, SNAP_ROTATE_STEP } from "@editor/gizmo";
 import { selectedBoneTarget, boneWorldOriginInto, boneDrag } from "@editor/bone_gizmo";
 import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
-import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "@editor/dnd";
+import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, vistaDaSessao } from "@editor/dnd";
 import { history } from "@editor/undo";
 import { rigidStep, rigidBackendName } from "@engine/core/physics_backend";
 import { stepsFor, stepMore, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "@engine/core/fixedstep";
@@ -56,6 +66,7 @@ import { snapshotWorld, renderX, renderY, renderZ, interpolateReset, interpolate
 import { clockTick, clockNow, DOUBLE_CLICK_MS } from "@engine/core/clock";
 import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "@engine/core/profiler";
 import { dcReport } from "@compat/drawcount.ts";
+import { benchInit, benchFrameBegin, benchCpuEnd, benchFrameEnd } from "@engine/core/frame_bench";
 
 // Seções do profiler — registradas uma vez, referidas por id no laço quente.
 const P_FISICA = profSection("fisica");
@@ -77,9 +88,15 @@ const P_UI_PROJ = profSection("  ui:project");
 // não medido que mora a surpresa: hoje isso já aconteceu três vezes.
 const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { instalarEditorReal } from "@editor/editor_host";
+// Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
+import "@engine/generated/editor_extensions";
 import { initAudio, pumpAudio } from "@engine/audio/audio";
 import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
+import { RotuloNumero, RotuloPar, RotulosDeLinha } from "@editor/rotulos";
+import { UI_ROTULOS } from "@editor/ui_config";
+import { menuDoCatalogo, executarItemDeMenu, MENU_CRIAR, MENU_JANELA } from "@editor/menu_items";
 import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_PROJECT_DEFAULT,
          UI_HIER_MIN, UI_INSP_MIN, UI_PROJECT_MIN, UI_SCENE_MIN_W, UI_SCENE_MIN_H,
          UI_HIER_HEADER_H, UI_HIER_SEARCH_H, UI_HIER_ROW_H, UI_HIER_INDENT,
@@ -89,12 +106,41 @@ import { UI_MENU_H, UI_BAR_H, UI_STATUS_H, UI_HIER_DEFAULT, UI_INSP_DEFAULT, UI_
          UI_SCENE_HEADER_H, UI_TOOL_X, UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H,
          UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H, UI_TOOL_BUTTON_STEP, UI_CONTROL_Y, UI_CONTROL_H,
          UI_MENU_NAMES, UI_MENU_BUTTON_W, UI_TOOLS, UI_FILE_ACTIONS, UI_EDIT_ACTIONS,
-         UI_CONTEXT_ACTIONS, UI_HELP_ACTIONS, UI_C } from "@editor/ui_config";
+         UI_CONTEXT_ACTIONS, UI_HELP_ACTIONS, UI_SETTINGS, UI_C, UI_WINDOW, UI_GAME_VIEW, UI_CAMERA_PREVIEW } from "@editor/ui_config";
+import { caixa, estiloTexto, linha, pincel, texto, traco } from "@compat/draw2d.ts";
+// Menu Criar (global e de contexto): presets fixos + itens @menuItem "Criar/…",
+// montado uma vez. Configurações reaproveita o próprio array a cada frame.
+const menuCriar = menuDoCatalogo(MENU_CRIAR, OBJECT_PRESET_LABELS);
+const menuConfig: string[] = ["", "", UI_SETTINGS.resetLayout, UI_CODE_EDITOR.title];
+// Menu Janela: a prévia da câmera (rótulo com o estado) + itens @menuItem "Janela/…".
+const menuJanela = menuDoCatalogo(MENU_JANELA, [UI_WINDOW.previewOff]);
+// Aba Jogo e prévia da câmera: vistas reaproveitadas (sem alocação por frame).
+const vistasJogo = new VistasDeCamera(); const vistasPrevia = new VistasDeCamera();
+const areaCena = new Float64Array(4);
+/// Seleção, alpha e frustum de `drawSceneObjects` (ver `prepararDesenho`), reaproveitado.
+const desenhoCfg = new Float64Array(DS_FLOATS);
+/// Câmera do editor na tela (gizmo.VISTA_FLOATS), preenchida uma vez por quadro; projeções
+/// do gizmo e do drop escrevem em buffers fixos (Task 10.5: sem array novo por chamada).
+const vistaEditor = new Float64Array(VISTA_FLOATS);
+const gizmoTela = new Float64Array(GIZMO_FLOATS);
+const pontoMundo = new Float64Array(3);
+const pontoDrop = new Float64Array(4);
+const anelA = new Float64Array(3); const anelB = new Float64Array(3);
+/// Câmera do editor para `setCamBuf`/`frustumBeginBuf` (CAM_FLOATS; near/far/orto padrão).
+const camEditor = new Float64Array(CAM_FLOATS);
+camEditor[7] = FRUSTUM_NEAR_PADRAO; camEditor[8] = FRUSTUM_FAR_PADRAO; camEditor[10] = CAM_ORTO_PADRAO;
+/// Retângulo de runtime da câmera da prévia, guardado enquanto ela desenha no canto.
+const retanguloPrevia = new Float64Array(4);
+/// Viewport da janela inteira (x, y, w, h, limpar) da vista de Cena.
+const VISTA_CHEIA = new Float64Array(5);
+VISTA_CHEIA[2] = 1.0; VISTA_CHEIA[3] = 1.0; VISTA_CHEIA[4] = 1.0;
+// "Câmera: <nome>" da prévia, refeito só quando o nome muda.
+let previaTitulo = ""; let previaTituloDe = "";
 
 // ── janela ────────────────────────────────────────────────────────────────
 let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue o resize)
 let H = 720;
-const app = createAppAt("Engine RTS — editor", W, H, 120, 90);
+const app = createAppAt(tituloJanela("Engine RTS — editor"), W, H, janelaX(120), janelaY(90));
 const WIN = app._win;
 
 // layout do editor
@@ -104,7 +150,7 @@ const BAR_H = UI_BAR_H;
 let ASSET_H = UI_PROJECT_DEFAULT;
 const HIER_LIST_TOP = BAR_H + UI_HIER_HEADER_H + UI_HIER_SEARCH_H;
 let layoutDrag = 0;       // 1 hierarquia, 2 inspector, 3 Project
-let menuOpen = 0;         // 1 Arquivo, 2 Editar, 3 Criar, 4 Configurações, 5 Ajuda
+let menuOpen = 0;         // 1 Arquivo, 2 Editar, 3 Criar, 4 Janela, 5 Configurações, 6 Ajuda
 let menuX = 0;
 let helpOpen = 0;
 let vsyncOn = 1;
@@ -126,6 +172,8 @@ const RH = 200;
 
 // ── câmera (fly) — estado top-level ─────────────────────────────────────────
 const FOV: f64 = 1.05;
+/// Pose da vista de Cena para os Gizmos (x, y, z, yaw, pitch, fov, largura, altura), reaproveitada.
+const gizmoPose = new Float64Array(8);
 const focalR: f64 = (RH * 0.5) / math.tan(FOV * 0.5);   // p/ framebuffer
 let focalW: f64 = (H * 0.5) / math.tan(FOV * 0.5);      // p/ picking; recalc por frame
 
@@ -161,6 +209,7 @@ let gizmoAxis = 0 - 1;   // eixo do gizmo que está sendo arrastado (-1 = nenhum
 // Origem do gizmo quando o alvo é um osso (posição de mundo do osso); buffer
 // fixo, reaproveitado a cada frame.
 const boneGizmoOrigin = new Float64Array(3);
+const luzCam = new Float64Array(3); const luzLegada = new Float64Array(4);
 let prevF = 0;           // estado anterior da tecla F (edge-detection do focus)
 let addMenuOpen = 0;   // dropdown "Add Component" aberto?
 const inspector = new Inspector(app);
@@ -210,16 +259,28 @@ function ctxCreate(name: string, kind: number, r: number, g: number, b: number,
 }
 
 // Uma unica implementação para as opções "Criar" do menu global e de contexto.
+/// Linhas do menu global `menu` (1 Arquivo … 6 Ajuda): as mesmas no desenho e
+/// na área clicável. Janela e Configurações trocam só os rótulos de estado, sem array novo.
+function menuEntries(menu: number): string[] {
+  let entries: string[] = UI_HELP_ACTIONS;
+  if (menu === 1) entries = UI_FILE_ACTIONS;
+  else if (menu === 2) entries = UI_EDIT_ACTIONS;
+  else if (menu === 3) entries = menuCriar.rotulos;
+  else if (menu === 4) {
+    menuJanela.rotulos[0] = S.cameraPreview !== 0 ? UI_WINDOW.previewOn : UI_WINDOW.previewOff;
+    entries = menuJanela.rotulos;
+  } else if (menu === 5) {
+    menuConfig[0] = S.snap !== 0 ? UI_SETTINGS.gridOn : UI_SETTINGS.gridOff;
+    menuConfig[1] = vsyncOn !== 0 ? UI_SETTINGS.vsyncOn : UI_SETTINGS.vsyncOff;
+    entries = menuConfig;
+  }
+  return entries;
+}
+
 function createMenuObject(choice: number, parentIdx: number): void {
   if (choice < 0 || choice >= OBJECT_PRESETS.length) return;
   const preset = OBJECT_PRESETS[choice];
-  const obj = ctxCreate(preset.name, preset.meshKind, preset.r, preset.g, preset.b, parentIdx);
-  if (preset.camera !== 0) {
-    obj.transform.setPosition(S.camX, S.camY, S.camZ);
-    obj.transform.ry = S.camYaw;
-    obj.transform.rx = S.camPitch;
-    obj.addBehavior(createComponent("Camera"));
-  }
+  ctxCreate(preset.name, preset.meshKind, preset.r, preset.g, preset.b, parentIdx);
 }
 
 function frameObject(idx: number): void {
@@ -288,7 +349,7 @@ function hierRowAt(sy: f64): number {
   if (rel < 0.0) return 0 - 1;
   const row = ((rel / UI_HIER_ROW_H) | 0) + hierScroll;
   if (hierFilter.length > 0) {
-    if (row >= hierShown.length) return 0 - 1;
+    if (row >= hierShownN) return 0 - 1;
     return hierShown[row];
   }
   if (row >= scene.objects.length) return 0 - 1;
@@ -302,24 +363,20 @@ function hierRowAt(sy: f64): number {
 // Devolve o índice do objeto criado (-1 se o asset não gera objeto — cena/pasta).
 // É reusado pelo PREVIEW do drag: instancia de verdade e depois só reposiciona.
 // Delega pra editor/dnd.ts (mesma lógica usada pelos comandos WS `drop*`).
-function dropAssetInWorld(kind: string, path: string, sx: f64, sy: f64,
-                          cyw: f64, syw: f64, cpt2: f64, spt2: f64): number {
-  let wx: f64 = 0.0; let wy: f64 = 0.0; let wz: f64 = 0.0;
-  let placed = 0;
-  if (sx >= 0.0) {
-    const g = groundAt(sx, sy, focalW, W, H, cyw, syw, cpt2, spt2);
-    wx = g[0]; wy = g[1]; wz = g[2]; placed = 1;
-  }
-  return instantiateAt(kind, path, wx, wy, wz, placed, WIN);
+// A câmera vem da `vistaEditor` do quadro (preenchida no início do frame).
+function dropAssetInWorld(kind: string, path: string, sx: f64, sy: f64): number {
+  if (sx < 0.0) return instantiateAt(kind, path, null);
+  groundAt(pontoDrop, vistaEditor, sx, sy);
+  return instantiateAt(kind, path, pontoDrop);
 }
 
 // Reposiciona o objeto-preview no ponto do chão sob o cursor (segue o mouse).
-function movePreviewTo(sx: f64, sy: f64, cyw: f64, syw: f64, cpt2: f64, spt2: f64): void {
+function movePreviewTo(sx: f64, sy: f64): void {
   if (previewIdx < 0 || previewIdx >= scene.objects.length) return;
-  const g = groundAt(sx, sy, focalW, W, H, cyw, syw, cpt2, spt2);
+  groundAt(pontoDrop, vistaEditor, sx, sy);
   const t = scene.objects[previewIdx].transform;
   // mesma regra do instantiateAt: assenta SOBRE o chão (meia altura acima de Y=0)
-  t.setPosition(g[0], g[1] + t.sy * 0.5, g[2]);
+  t.setPosition(pontoDrop[0], pontoDrop[1] + t.sy * 0.5, pontoDrop[2]);
 }
 
 // Descarta o objeto-preview (arrasto saiu do viewport ou foi cancelado).
@@ -338,8 +395,8 @@ function killPreview(): void {
 // Objeto sob o cursor — wrapper de pickAt (editor/dnd.ts), compartilhado com o
 // comando WS `pickat`. Usado pelo drop de textura pra decidir entre "aplicar no
 // objeto existente" e "criar um novo".
-function pickObjectAt(sx: f64, sy: f64, cyw: f64, syw: f64, cpt2: f64, spt2: f64): number {
-  return pickAt(sx, sy, focalW, W, H, cyw, syw, cpt2, spt2);
+function pickObjectAt(sx: f64, sy: f64): number {
+  return pickAt(vistaEditor, sx, sy);
 }
 
 // "name contém filter" case-insensitive (só charCodeAt/length — robusto no motor).
@@ -375,6 +432,14 @@ let hierDrag = 0 - 1;
 let hierScroll = 0;
 let hierFilter = "";
 let hierShown: number[] = [];
+/// Quantos índices de `hierShown` valem neste quadro (o array é reaproveitado).
+let hierShownN = 0;
+// Rótulos refeitos só quando mudam (editor/rotulos.ts).
+const rotTitulo = new RotuloPar(UI_ROTULOS.titlePrefix); const rotFps = new RotuloNumero(UI_ROTULOS.fpsPrefix, "");
+const rotObjs = new RotuloNumero("", UI_ROTULOS.objCount); const rotResultados = new RotuloNumero("", UI_ROTULOS.results);
+const rotStatusN = new RotuloNumero(UI_ROTULOS.statusSep, UI_ROTULOS.statusObjects); const rotStatus = new RotuloPar("");
+const rotLinhas = new RotulosDeLinha(); let rotFilhoNome = ""; let rotFilhoTexto = "";
+let fpsAtualizadoMs: f64 = 0.0 - 1.0e9;
 /// 1 = arrastando o polegar da barra de scroll da hierarquia.
 let hierBarDrag = 0;
 
@@ -400,6 +465,9 @@ let previewPay = "";
 initMeshes(WIN);
 assetsInit();
 ctrlServe(7777);
+const host = instalarEditorReal();
+// Editor.inspect(b, título) de um pacote abre `b` como janela no Inspector.
+host.janela = (b: Behavior, titulo: string) => { inspector.abrirJanela(b, titulo); };
 // Profiler LIGADO por padrão: o custo de medir é um `if` por seção, e a
 // alternativa — descobrir onde o frame foi gasto adivinhando — já custou duas
 // investigações erradas nesta engine. `prof off` desliga pela porta de controle.
@@ -408,18 +476,42 @@ profEnable(1);
 // renderizar centenas de frames idênticos por segundo. Benchmarks podem desligar
 // o vsync explicitamente quando precisam medir o custo real do frame.
 setVsync(WIN, 1);
+// RTS_VSYNC=0 no ambiente: sem vsync desde o início, para medir o custo real do frame.
+if (process.env("RTS_VSYNC") === "0") { vsyncOn = 0; setVsync(WIN, 0); }
 S.win = WIN;
+definirJanelaEntrada(WIN);
 // áudio: se a máquina não tiver saída, `initAudio` devolve 0 e o editor segue mudo
 initAudio();
 
 
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
+// Bench de quadro (RTS_BENCH=N, ver engine/core/frame_bench.ts); RTS_BENCH_SELECT
+// escolhe o objeto selecionado, para medir o Inspector aberto.
+if (benchInit() !== 0) {
+  const sel = process.env("RTS_BENCH_SELECT");
+  if (sel !== "") S.selected = parseInt(sel);
+}
+
+// `try/catch` fora de `frame()`: no RTS a função que contém `try` aloca a cada
+// chamada, mesmo sem entrar nele (Task 10.5). Os trechos protegidos moram aqui.
+/// Um passo de `scene.update`; 0 se um script lançou (a simulação pausa).
+function atualizarCenaProtegido(): number {
+  try { scene.update(FIXED_DT); return 1; }
+  catch (error) { logError("Erro durante simulacao: " + String(error)); playMode.pause(); workspaceViews.console = true; return 0; }
+}
+/// Menu Arquivo → Abrir: diálogo de arquivo e pedido de troca de cena.
+function abrirCenaPeloDialogo(): void {
+  try { const path = chooseSceneFile(false); if (path.length > 0) sceneDocument.request("open", path); }
+  catch (error) { logError(String(error)); workspaceViews.console = true; }
+}
 
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
 // (scene/S) despacham corretamente em função, não no top-level do while.
 function frame(): void {
   // ── layout RESPONSIVO: lê o tamanho lógico atual da janela (segue o resize) ──
   logTick();   // avança o contador de frames do log
+  // A aba vem da sessão: o clique na aba e o ws `gameview` escrevem S.gameView.
+  workspaceViews.game = S.gameView !== 0;
   const nw = winWidth(WIN);
   const nh = winHeight(WIN);
   if (nw > 400) W = nw;
@@ -429,6 +521,7 @@ function frame(): void {
   // leitura do relógio do SO por frame, e todo mundo lê o mesmo instante — ver
   // engine/core/clock.ts para por que isso é correção e não só economia.
   clockTick();
+  benchFrameBegin();
   profFrameBegin();
   secBegin(P_CTRL);
   ctrlPoll(W, H);   // ← controle da LLM por WebSocket (não-bloqueante)
@@ -450,6 +543,10 @@ function frame(): void {
   const textEditing = app.hasTextFocus();
   const ctrlHeld = input.modCtrl(WIN);
   const flyInput = textEditing || ctrlHeld || addMenuOpen !== 0 || helpOpen !== 0 || workspaceViews.game ? 0 : 1;
+  // Entrada dos scripts de jogo (controles de câmera): só com a aba Jogo ativa e
+  // sem digitação/menus — senão disputariam o teclado com a navegação do editor
+  // e com os campos do Inspector (texto do egui E campo numérico em edição).
+  definirEntradaAtiva(workspaceViews.game && !textEditing && nfEditing() === 0 && addMenuOpen === 0 && helpOpen === 0 && menuOpen === 0);
   const kW = flyInput !== 0 ? app.keyDown(122) : 0;
   const kS = flyInput !== 0 ? app.keyDown(118) : 0;
   const kA = flyInput !== 0 ? app.keyDown(100) : 0;
@@ -553,8 +650,7 @@ function frame(): void {
       // velocidades diferentes conforme o frame — o tremor que a interpolação
       // existe para tirar. Custa um `computeWorld` a mais só nesses frames.
       if (p > 0 && p === passos - 1) { scene.computeWorld(); snapshotWorld(scene); }
-      try { scene.update(FIXED_DT); }
-      catch (error) { logError("Erro durante simulacao: " + String(error)); playMode.pause(); workspaceViews.console = true; break; }
+      if (atualizarCenaProtegido() === 0) break;
       // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
       // passo — e aí a varredura de pares da CPU não roda, porque seriam duas
       // físicas sobre o mesmo estado, a segunda vendo o que a primeira mexeu.
@@ -602,7 +698,7 @@ function frame(): void {
   const mx: f64 = input.mouseX(WIN);
   const my: f64 = input.mouseY(WIN);
   const inMenuSurface = menuOpen !== 0 && mx >= menuX && mx < menuX + UI_MENU_W &&
-                        my >= UI_MENU_H && my < UI_MENU_H + UI_MENU_PADDING + OBJECT_PRESETS.length * UI_MENU_ROW_H;
+                        my >= UI_MENU_H && my < UI_MENU_H + UI_MENU_PADDING + menuEntries(menuOpen).length * UI_MENU_ROW_H;
   if (mPressed !== 0 && my > BAR_H && !inMenuSurface && helpOpen === 0) {
     if (mx >= HIER_W - 5 && mx <= HIER_W + 5) layoutDrag = 1;
     else if (mx >= W - INSP_W - 5 && mx <= W - INSP_W + 5) layoutDrag = 2;
@@ -633,9 +729,10 @@ function frame(): void {
   const dndTex = dndOn !== 0 && dndPay.charCodeAt(0) === 116 ? 1 : 0;      // "tex:"
   const dndModel = dndOn !== 0 && dndPay.charCodeAt(0) === 109 ? 1 : 0;    // "model:"
   const cpt2 = math.cos(S.camPitch); const spt2 = math.sin(S.camPitch);
+  vistaDaSessao(vistaEditor, W, H, focalW);
   let scriptTarget = 0 - 1;
   if (dndScript && layoutDrag === 0 && helpOpen === 0 && menuOpen === 0 && ctxOn === 0 && addMenuOpen === 0) {
-    if (inViewport) scriptTarget = pickObjectAt(mx, my, cyw, syw, cpt2, spt2);
+    if (inViewport) scriptTarget = pickObjectAt(mx, my);
     else if (mx >= 0 && mx < HIER_W && my >= HIER_LIST_TOP && my < H - UI_STATUS_H) scriptTarget = hierRowAt(my);
     else if (mx > W - INSP_W && mx < W && my > BAR_H && my < H - UI_STATUS_H) scriptTarget = S.selected;
   }
@@ -653,11 +750,11 @@ function frame(): void {
       const p0 = subStr(dndPay, cut0 + 1, dndPay.length);
       // só assets que viram objeto ganham preview (cena/pasta/script não)
       if (k0 === "prefab" || k0 === "model") {
-        const ni = dropAssetInWorld(k0, p0, mx, my, cyw, syw, cpt2, spt2);
+        const ni = dropAssetInWorld(k0, p0, mx, my);
         if (ni >= 0) { previewIdx = ni; previewPay = dndPay; }
       }
     } else {
-      movePreviewTo(mx, my, cyw, syw, cpt2, spt2);
+      movePreviewTo(mx, my);
     }
     worldDirty = 1;   // o preview mudou de lugar: o render refaz o computeWorld
   } else if (previewIdx >= 0 && dndOn !== 0) {
@@ -709,13 +806,15 @@ function frame(): void {
         const y2 = dy * cpt2 - z1 * spt2; const z2 = dy * spt2 + z1 * cpt2;
         gzZx = W * 0.5 + (x1 / z2) * focalW; gzZy = H * 0.5 - (y2 / z2) * focalW; }
       gzOK = 1;
+      gizmoTela[0] = gzOx; gizmoTela[1] = gzOy; gizmoTela[2] = gzXx; gizmoTela[3] = gzXy;
+      gizmoTela[4] = gzYx; gizmoTela[5] = gzYy; gizmoTela[6] = gzZx; gizmoTela[7] = gzZy; gizmoTela[GZ_LEN] = gzLen;
     }
   }
 
   if (mPressed !== 0 && inViewport && dndOn === 0) {
     // 1) tenta pegar um EIXO do gizmo (prioridade sobre selecionar outro objeto)
     let ax = 0 - 1;
-    if (gzOK !== 0) ax = pickAxis(mx, my, gzOx, gzOy, gzXx, gzXy, gzYx, gzYy, gzZx, gzZy);
+    if (gzOK !== 0) ax = pickAxis(mx, my, gizmoTela);
     // 1b) HANDLES DE PLANO (só Move): arrastar 2 eixos. Checa se nenhum eixo foi pego.
     if (ax < 0 && gzOK !== 0 && S.tool === TOOL_MOVE) {
       const hxyX = gzOx + (gzXx - gzOx) * 0.4 + (gzYx - gzOx) * 0.4; const hxyY = gzOy + (gzXy - gzOy) * 0.4 + (gzYy - gzOy) * 0.4;
@@ -725,11 +824,14 @@ function frame(): void {
       else if (mx > hxzX - 8.0 && mx < hxzX + 8.0 && my > hxzY - 8.0 && my < hxzY + 8.0) ax = 4;  // plano XZ
       else if (mx > hyzX - 8.0 && mx < hyzX + 8.0 && my > hyzY - 8.0 && my < hyzY + 8.0) ax = 5;  // plano YZ
     }
+    // 1c) ÍCONE de gizmo (retângulo do frame anterior, o que está na tela): seleciona o dono
+    const iconeDono = ax < 0 ? gizmoIconAt(gizmosDoEditor, mx, my) : 0 - 1;
+    if (iconeDono >= 0) { S.selected = iconeDono; S.selection = [iconeDono]; }
     if (ax >= 0) {
       gizmoAxis = ax;
       // osso: 1 snapshot por arrasto (não por frame) e a prévia do objeto para
       if (boneSk !== null) boneDrag.begin(boneSk, S.selectedBone);
-    } else {
+    } else if (iconeDono < 0) {
       // 2) senão, seleciona o objeto projetado mais perto do mouse
       let best = 0 - 1; let bestD: f64 = 1e30; let pi = 0;
       while (pi < scene.objects.length) {
@@ -761,15 +863,12 @@ function frame(): void {
     worldDirty = 1;
     const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
     if (gizmoAxis >= 3) {
-      const mX = gizmoAxis === 5 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzXx, gzXy, gzLen);
-      const mY = gizmoAxis === 4 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzYx, gzYy, gzLen);
-      const mZ = gizmoAxis === 3 ? 0.0 : axisMove(dmx, dmy, gzOx, gzOy, gzZx, gzZy, gzLen);
+      const mX = gizmoAxis === 5 ? 0.0 : axisMove(dmx, dmy, gizmoTela, 0);
+      const mY = gizmoAxis === 4 ? 0.0 : axisMove(dmx, dmy, gizmoTela, 1);
+      const mZ = gizmoAxis === 3 ? 0.0 : axisMove(dmx, dmy, gizmoTela, 2);
       boneDrag.move(mX, mY, mZ);
     } else {
-      let ex: f64 = gzXx; let ey: f64 = gzXy;
-      if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
-      if (gizmoAxis === 2) { ex = gzZx; ey = gzZy; }
-      const mv = axisMove(dmx, dmy, gzOx, gzOy, ex, ey, gzLen);
+      const mv = axisMove(dmx, dmy, gizmoTela, gizmoAxis);
       if (S.tool === TOOL_MOVE) boneDrag.move(gizmoAxis === 0 ? mv : 0.0, gizmoAxis === 1 ? mv : 0.0, gizmoAxis === 2 ? mv : 0.0);
       else boneDrag.rotate(gizmoAxis, mv * GIZMO_ROTATE_PER_UNIT);
     }
@@ -778,9 +877,9 @@ function frame(): void {
     worldDirty = 1;   // o gizmo vai mover algo: refaz o computeWorld antes do render
     // PLANO (só Move): move nos DOIS eixos do plano (3=XY, 4=XZ, 5=YZ).
     const dmx: f64 = mx - lastMx; const dmy: f64 = my - lastMy;
-    const mX = axisMove(dmx, dmy, gzOx, gzOy, gzXx, gzXy, gzLen);
-    const mY = axisMove(dmx, dmy, gzOx, gzOy, gzYx, gzYy, gzLen);
-    const mZ = axisMove(dmx, dmy, gzOx, gzOy, gzZx, gzZy, gzLen);
+    const mX = axisMove(dmx, dmy, gizmoTela, 0);
+    const mY = axisMove(dmx, dmy, gizmoTela, 1);
+    const mZ = axisMove(dmx, dmy, gizmoTela, 2);
     let si = 0;
     while (si < nsel) {
       const idx = S.selection.length > 0 ? S.selection[si] : S.selected;
@@ -796,10 +895,7 @@ function frame(): void {
     lastMx = mx; lastMy = my;
   } else if (gizmoAxis >= 0 && mDownNow !== 0 && gzOK !== 0 && scene.objects.length > 0) {
     worldDirty = 1;
-    let ex: f64 = gzXx; let ey: f64 = gzXy;
-    if (gizmoAxis === 1) { ex = gzYx; ey = gzYy; }
-    if (gizmoAxis === 2) { ex = gzZx; ey = gzZy; }
-    const mv = axisMove(mx - lastMx, my - lastMy, gzOx, gzOy, ex, ey, gzLen);
+    const mv = axisMove(mx - lastMx, my - lastMy, gizmoTela, gizmoAxis);
     let si = 0;
     while (si < nsel) {
       const idx = S.selection.length > 0 ? S.selection[si] : S.selected;
@@ -858,16 +954,48 @@ function frame(): void {
   // ALGO MOVEU depois (gizmo, arrasto, preview de drop). Antes era incondicional
   // — o segundo passe custava um laço sobre a cena inteira todo frame à toa.
   if (worldDirty !== 0) { scene.computeWorld(); worldDirty = 0; }
-  workspaceViews.camera(FOV);
-  setCam(WIN, workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
-  setLgt(WIN, S.lightX, S.lightY, S.lightZ, S.lightAmb);   // luz PONTUAL (posição) — controlável via ws `light`
-  // Shadow map: a direção vem da POSIÇÃO REAL da luz (luz -> centro da cena).
-  // Antes era um vetor fixo (-7,-12,-5) desconectado de S.light*, então mover a
-  // luz mudava o sombreamento mas NÃO as sombras — elas caíam pro lado errado.
-  setShadow(WIN, 0.0 - S.lightX, 0.0 - S.lightY, 0.0 - S.lightZ, 0.0, 1.0, 0.0, 24.0);
+  // Aba Jogo: as câmeras da cena como no jogo exportado (game.ts), na área da
+  // vista com faixas pela proporção; o retângulo de cada câmera (screenPointToRay)
+  // passa a ser o da aba. Sem câmera, ou na aba Cena, a câmera do editor.
+  const cenaX = HIER_W; const cenaY = BAR_H + UI_SCENE_HEADER_H;
+  const cenaW = W - HIER_W - INSP_W; const cenaH = H - UI_STATUS_H - ASSET_H - cenaY;
+  let nJogo = 0; let nPrevia = 0;
+  if (workspaceViews.game) {
+    areaCena[0] = cenaX; areaCena[1] = cenaY; areaCena[2] = cenaW; areaCena[3] = cenaH;
+    areaComFaixas(areaCena, UI_GAME_VIEW.aspectRatios[S.gameAspect], vistasJogo.area);
+    vistasJogo.tela[0] = W; vistasJogo.tela[1] = H;
+    nJogo = coletarCameras(vistasJogo, scene, workspaceViews.cameraEscolhida());
+    if (nJogo > 0) { aplicarVistas(WIN, vistasJogo); posicaoDaVista(vistasJogo, luzCam); frustumDasVistas(vistasJogo, fParams); }
+  }
+  workspaceViews.hasCamera = nJogo > 0;
+  const selPrevia = S.selected >= 0 && S.selected < scene.objects.length ? scene.objects[S.selected] : null;
+  if (nJogo === 0) {
+    workspaceViews.camera(FOV);
+    setViewportBuf(WIN, VISTA_CHEIA); setFundoCeu(WIN);
+    camEditor[0] = workspaceViews.x; camEditor[1] = workspaceViews.y; camEditor[2] = workspaceViews.z;
+    camEditor[3] = workspaceViews.yaw; camEditor[4] = workspaceViews.pitch; camEditor[5] = workspaceViews.fov; camEditor[6] = W / H;
+    setCamBuf(WIN, camEditor);
+    luzCam[0] = workspaceViews.x; luzCam[1] = workspaceViews.y; luzCam[2] = workspaceViews.z;
+    // Prévia: a câmera selecionada num quadro no canto da vista de Cena.
+    // (só se o quadro cabe na vista de Cena com as margens)
+    if (!workspaceViews.game && S.cameraPreview !== 0 && selPrevia !== null && selPrevia.camIdx >= 0 &&
+        cenaW >= UI_CAMERA_PREVIEW.w + UI_CAMERA_PREVIEW.margin * 2 && cenaH >= UI_CAMERA_PREVIEW.h + UI_CAMERA_PREVIEW.margin * 2) {
+      vistasPrevia.area[0] = cenaX + cenaW - UI_CAMERA_PREVIEW.w - UI_CAMERA_PREVIEW.margin;
+      vistasPrevia.area[1] = cenaY + cenaH - UI_CAMERA_PREVIEW.h - UI_CAMERA_PREVIEW.margin;
+      vistasPrevia.area[2] = UI_CAMERA_PREVIEW.w; vistasPrevia.area[3] = UI_CAMERA_PREVIEW.h;
+      vistasPrevia.tela[0] = W; vistasPrevia.tela[1] = H;
+      // o retângulo de runtime da câmera (screenPointToRay no Play) não vira o do canto
+      nPrevia = prepararPrevia(vistasPrevia, scene, selPrevia.behaviors[selPrevia.camIdx] as Camera, retanguloPrevia);
+      if (nPrevia > 0) { aplicarVistas(WIN, vistasPrevia); frustumDaVista(vistasPrevia.camBuf, fParams2); }
+      restaurarPrevia(vistasPrevia, retanguloPrevia);
+    }
+  }
+  luzLegada[0] = S.lightX; luzLegada[1] = S.lightY; luzLegada[2] = S.lightZ; luzLegada[3] = S.lightAmb;
+  aplicarLuzes(WIN, scene, luzCam, luzLegada);
+  aplicarAmbiente(WIN, scene);   // DEPOIS de aplicarLuzes: usa ultimaN/luzBuf de lá como fallback do sol
   // Frustum do frame calculado UMA vez (antes: 5 chamadas trig por objeto).
   secBegin(P_MUNDO3D);
-  frustumBegin(workspaceViews.x, workspaceViews.y, workspaceViews.z, workspaceViews.yaw, workspaceViews.pitch, workspaceViews.fov, W / H);
+  if (nJogo === 0) frustumBeginBuf(camEditor);
   // Sincroniza a flag de seleção UMA vez por frame (custo O(n + |seleção|)),
   // em vez de o render varrer a lista inteira por objeto visível (O(n × |sel|)).
   // Feito aqui, num ponto só, porque a seleção é mexida em vários lugares.
@@ -879,15 +1007,29 @@ function frame(): void {
   // o campo virar offset constante — continua valendo e mora lá, aplicada aos
   // PARÂMETROS, que é onde ela finalmente rende os 3× medidos.
   const objs: GameObject[] = scene.objects;
-  const trs: Transform[] = scene.trs;   // espelho paralelo (ver Scene.trs)
   // Os 9 números do frustum que `frustumBegin` acabou de preparar, lidos UMA vez
   // por frame para um array reaproveitado (ver `frustumParams` em gpu3d.ts).
-  frustumParams(fParams);
-  const drawnN = drawSceneObjects(
-    objs, trs, workspaceViews.game && !workspaceViews.hasCamera ? 0 : objs.length, scene, WIN, workspaceViews.game ? -1 : S.selected, alphaR,
-    fParams[0], fParams[1], fParams[2],
-    fParams[3], fParams[4], fParams[5], fParams[6],
-    fParams[7], fParams[8]);
+  if (nJogo === 0) frustumParams(fParams);
+  // duas vistas (Cena + prévia) numa fila só: desenha o que está em QUALQUER dos dois frustums
+  definirSegundaVista(nPrevia > 0 ? 1 : 0);
+  prepararDesenho(desenhoCfg, fParams, workspaceViews.game ? -1 : S.selected, alphaR);
+  const drawnN = drawSceneObjects(scene, workspaceViews.game && !workspaceViews.hasCamera ? 0 : objs.length, WIN, desenhoCfg);
+  // GIZMOS dos componentes (onDrawGizmos + desenhadores por tipo), por cima do 3D
+  if (!workspaceViews.game) {
+    gizmoPose[0] = S.camX; gizmoPose[1] = S.camY; gizmoPose[2] = S.camZ; gizmoPose[3] = S.camYaw; gizmoPose[4] = S.camPitch;
+    gizmoPose[5] = FOV; gizmoPose[6] = W; gizmoPose[7] = H;
+    gizmosBegin(gizmosDoEditor, gizmoPose);
+    gizmosDoEditor.lado = UI_GIZMO.iconSize;
+    passeDeGizmosProtegido(gizmosDoEditor, scene, S.selected);
+    pintarGizmos(app, WIN, gizmosDoEditor);
+  }
+  // Moldura (só contorno) e nome da câmera da prévia, por cima do 3D.
+  if (nPrevia > 0 && selPrevia !== null) {
+    const pa = vistasPrevia.area; const bd = UI_CAMERA_PREVIEW.border;
+    pincel(0, bd, UI_C.previewBorder, 0); caixa(pa[0] - bd, pa[1] - bd, pa[2] + bd * 2, pa[3] + bd * 2);
+    if (previaTitulo.length === 0 || previaTituloDe !== selPrevia.name) { previaTituloDe = selPrevia.name; previaTitulo = UI_CAMERA_PREVIEW.titlePrefix + selPrevia.name; }
+    texto(pa[0] + UI_WORKSPACE.padding, pa[1] + UI_CAMERA_PREVIEW.titleY, previaTitulo, estiloTexto(UI_C.primaryText, UI_CAMERA_PREVIEW.font));
+  }
   secEnd(P_MUNDO3D);
   secBegin(P_UI);
   secBegin(P_UI_GIZ);
@@ -902,14 +1044,14 @@ function frame(): void {
     const cY = gizmoAxis === 1 ? UI_C.white : UI_C.axisY;   // Y verde
     const cZ = gizmoAxis === 2 ? UI_C.white : UI_C.axisZ;   // Z azul
     // eixos = handles de pick (sempre visíveis)
-    app.line(gzOx, gzOy, gzXx, gzXy, 3, cX);
-    app.line(gzOx, gzOy, gzYx, gzYy, 3, cY);
-    app.line(gzOx, gzOy, gzZx, gzZy, 3, cZ);
+    traco(3, cX); linha(gzOx, gzOy, gzXx, gzXy);
+    traco(3, cY); linha(gzOx, gzOy, gzYx, gzYy);
+    traco(3, cZ); linha(gzOx, gzOy, gzZx, gzZy);
     if (S.tool === TOOL_SCALE) {
       // handles-CUBO grandes nas pontas (estilo Scale da Unity)
-      app.box(gzXx - 5, gzXy - 5, 10, 10, cX, 0, 0, 1);
-      app.box(gzYx - 5, gzYy - 5, 10, 10, cY, 0, 0, 1);
-      app.box(gzZx - 5, gzZy - 5, 10, 10, cZ, 0, 0, 1);
+      { pincel(cX, 0, 0, 1); caixa(gzXx - 5, gzXy - 5, 10, 10); }
+      pincel(cY, 0, 0, 1); caixa(gzYx - 5, gzYy - 5, 10, 10);
+      pincel(cZ, 0, 0, 1); caixa(gzZx - 5, gzZy - 5, 10, 10);
     } else if (S.tool === TOOL_ROTATE) {
       // ANÉIS projetados: 1 círculo por eixo, no plano perpendicular a ele.
       // X-ring no plano YZ, Y-ring no XZ, Z-ring no XY. 24 segmentos cada.
@@ -921,51 +1063,53 @@ function frame(): void {
         const c0 = math.cos(a0); const s0 = math.sin(a0);
         const c1 = math.cos(a1); const s1 = math.sin(a1);
         // X-ring (plano YZ): (0, cos, sin)
-        const xa = projPt(gzWx, gzWy + c0 * rr, gzWz + s0 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
-        const xb = projPt(gzWx, gzWy + c1 * rr, gzWz + s1 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
-        if (xa[2] > 0.5 && xb[2] > 0.5) app.line(xa[0], xa[1], xb[0], xb[1], 2, cX);
+        const xa = anelA; const xb = anelB;
+        pontoMundo[0] = gzWx; pontoMundo[1] = gzWy + c0 * rr; pontoMundo[2] = gzWz + s0 * rr; projPt(xa, vistaEditor, pontoMundo);
+        pontoMundo[0] = gzWx; pontoMundo[1] = gzWy + c1 * rr; pontoMundo[2] = gzWz + s1 * rr; projPt(xb, vistaEditor, pontoMundo);
+        if (xa[2] > 0.5 && xb[2] > 0.5) { traco(2, cX); linha(xa[0], xa[1], xb[0], xb[1]); }
         // Y-ring (plano XZ): (cos, 0, sin)
-        const ya = projPt(gzWx + c0 * rr, gzWy, gzWz + s0 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
-        const yb = projPt(gzWx + c1 * rr, gzWy, gzWz + s1 * rr, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
-        if (ya[2] > 0.5 && yb[2] > 0.5) app.line(ya[0], ya[1], yb[0], yb[1], 2, cY);
+        const ya = anelA; const yb = anelB;
+        pontoMundo[0] = gzWx + c0 * rr; pontoMundo[1] = gzWy; pontoMundo[2] = gzWz + s0 * rr; projPt(ya, vistaEditor, pontoMundo);
+        pontoMundo[0] = gzWx + c1 * rr; pontoMundo[1] = gzWy; pontoMundo[2] = gzWz + s1 * rr; projPt(yb, vistaEditor, pontoMundo);
+        if (ya[2] > 0.5 && yb[2] > 0.5) { traco(2, cY); linha(ya[0], ya[1], yb[0], yb[1]); }
         // Z-ring (plano XY): (cos, sin, 0)
-        const za = projPt(gzWx + c0 * rr, gzWy + s0 * rr, gzWz, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
-        const zb = projPt(gzWx + c1 * rr, gzWy + s1 * rr, gzWz, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
-        if (za[2] > 0.5 && zb[2] > 0.5) app.line(za[0], za[1], zb[0], zb[1], 2, cZ);
+        const za = anelA; const zb = anelB;
+        pontoMundo[0] = gzWx + c0 * rr; pontoMundo[1] = gzWy + s0 * rr; pontoMundo[2] = gzWz; projPt(za, vistaEditor, pontoMundo);
+        pontoMundo[0] = gzWx + c1 * rr; pontoMundo[1] = gzWy + s1 * rr; pontoMundo[2] = gzWz; projPt(zb, vistaEditor, pontoMundo);
+        if (za[2] > 0.5 && zb[2] > 0.5) { traco(2, cZ); linha(za[0], za[1], zb[0], zb[1]); }
         seg = seg + 1;
       }
     } else {
       // MOVE: pontas dos eixos + HANDLES DE PLANO (arrastar 2 eixos)
-      app.box(gzXx - 3, gzXy - 3, 7, 7, cX, 0, 0, 1);
-      app.box(gzYx - 3, gzYy - 3, 7, 7, cY, 0, 0, 1);
-      app.box(gzZx - 3, gzZy - 3, 7, 7, cZ, 0, 0, 1);
+      { pincel(cX, 0, 0, 1); caixa(gzXx - 3, gzXy - 3, 7, 7); }
+      pincel(cY, 0, 0, 1); caixa(gzYx - 3, gzYy - 3, 7, 7);
+      pincel(cZ, 0, 0, 1); caixa(gzZx - 3, gzZy - 3, 7, 7);
       const hxyX = gzOx + (gzXx - gzOx) * 0.4 + (gzYx - gzOx) * 0.4; const hxyY = gzOy + (gzXy - gzOy) * 0.4 + (gzYy - gzOy) * 0.4;
       const hxzX = gzOx + (gzXx - gzOx) * 0.4 + (gzZx - gzOx) * 0.4; const hxzY = gzOy + (gzXy - gzOy) * 0.4 + (gzZy - gzOy) * 0.4;
       const hyzX = gzOx + (gzYx - gzOx) * 0.4 + (gzZx - gzOx) * 0.4; const hyzY = gzOy + (gzYy - gzOy) * 0.4 + (gzZy - gzOy) * 0.4;
-      app.box(hxyX - 6, hxyY - 6, 12, 12, gizmoAxis === 3 ? UI_C.axisSelected : UI_C.axisXY, 0, 0, 1);   // XY
-      app.box(hxzX - 6, hxzY - 6, 12, 12, gizmoAxis === 4 ? UI_C.axisSelected : UI_C.axisXZ, 0, 0, 1);   // XZ
-      app.box(hyzX - 6, hyzY - 6, 12, 12, gizmoAxis === 5 ? UI_C.axisSelected : UI_C.axisYZ, 0, 0, 1);   // YZ
+      pincel(gizmoAxis === 3 ? UI_C.axisSelected : UI_C.axisXY, 0, 0, 1); caixa(hxyX - 6, hxyY - 6, 12, 12);   // XY
+      pincel(gizmoAxis === 4 ? UI_C.axisSelected : UI_C.axisXZ, 0, 0, 1); caixa(hxzX - 6, hxzY - 6, 12, 12);   // XZ
+      pincel(gizmoAxis === 5 ? UI_C.axisSelected : UI_C.axisYZ, 0, 0, 1); caixa(hyzX - 6, hyzY - 6, 12, 12);   // YZ
     }
-    app.box(gzOx - 3, gzOy - 3, 6, 6, UI_C.gizmoCenter, 0, 0, 1); // centro
+    pincel(UI_C.gizmoCenter, 0, 0, 1); caixa(gzOx - 3, gzOy - 3, 6, 6); // centro
   }
 
   secEnd(P_UI_GIZ);
   secBegin(P_UI_BAR);
   // ═══ EDITOR UI (estilo Unity) ══════════════════════════════════════════════
   // toolbar
-  app.box(0, 0, W, BAR_H, UI_C.toolbar, 0, 0, 0);
-  app.box(0, 0, W, UI_MENU_H, UI_C.panelHeader, 0, 0, 0);
-  app.line(0, UI_MENU_H, W, UI_MENU_H, 1, UI_C.border);
-  app.line(0, BAR_H, W, BAR_H, 1, UI_C.border);
+  pincel(UI_C.toolbar, 0, 0, 0); caixa(0, 0, W, BAR_H);
+  pincel(UI_C.panelHeader, 0, 0, 0); caixa(0, 0, W, UI_MENU_H);
+  traco(1, UI_C.border); linha(0, UI_MENU_H, W, UI_MENU_H);
+  traco(1, UI_C.border); linha(0, BAR_H, W, BAR_H);
   let mt = 0;
   let menuButtonX = UI_MENU_START_X;
   while (mt < UI_MENU_NAMES.length) {
-    const st = app.clickable(1500 + mt, menuButtonX, 2, UI_MENU_BUTTON_W[mt], UI_MENU_H - 4);
+    const st = app.clickable(menuButtonX, 2, UI_MENU_BUTTON_W[mt], UI_MENU_H - 4);
     if (st === 1 || st === 2 || menuOpen === mt + 1) {
-      app.box(menuButtonX, 2, UI_MENU_BUTTON_W[mt], UI_MENU_H - 4,
-              menuOpen === mt + 1 ? UI_C.menuOpen : UI_C.controlHover, 0, 0, 3);
+      pincel(menuOpen === mt + 1 ? UI_C.menuOpen : UI_C.controlHover, 0, 0, 3); caixa(menuButtonX, 2, UI_MENU_BUTTON_W[mt], UI_MENU_H - 4);
     }
-    app.text(menuButtonX + 7, 5, UI_MENU_NAMES[mt], UI_C.menuText, 12);
+    texto(menuButtonX + 7, 5, UI_MENU_NAMES[mt], estiloTexto(UI_C.menuText, 12));
     if (st === 3) {
       menuOpen = menuOpen === mt + 1 ? 0 : mt + 1;
       menuX = menuButtonX;
@@ -973,65 +1117,63 @@ function frame(): void {
     menuButtonX = menuButtonX + UI_MENU_BUTTON_W[mt] + UI_MENU_GAP;
     mt = mt + 1;
   }
-  app.text(14, 39, "RTS • " + scene.name + (sceneDocument.dirty ? " *" : ""), UI_C.brandText, 16);
+  texto(14, 39, rotTitulo.de(scene.name, sceneDocument.dirty ? UI_ROTULOS.dirtyMark : ""), estiloTexto(UI_C.brandText, 16));
 
   playToolbar.render(W, menuOpen !== 0 || helpOpen !== 0 || addMenuOpen !== 0);
 
   // — BUILD: gera o .exe do JOGO (game.ts + assets), não o editor —
   // Acompanhe resultado e pasta do pacote pelo Console.
   const bxBuild = W - 260;
-  const stBuild = S.simulating === 0 ? app.clickable(924, bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H) : 0;
+  const stBuild = S.simulating === 0 ? app.clickable(bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H) : 0;
   let fBuild = UI_C.buildIdle;                       // verde: é a ação de "publicar"
   if (stBuild === 1) fBuild = UI_C.buildHover;
   if (editorBuild.running) fBuild = UI_C.controlActive;
   if (S.simulating !== 0) fBuild = UI_C.controlIdle;
-  app.box(bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H, fBuild, 1, UI_C.border, 3);
-  app.text(bxBuild + 8, 39, "Build", S.simulating === 0 ? UI_C.buildText : UI_C.disabledText, 12);
+  pincel(fBuild, 1, UI_C.border, 3); caixa(bxBuild, UI_CONTROL_Y, 52, UI_CONTROL_H);
+  texto(bxBuild + 8, 39, "Build", estiloTexto(S.simulating === 0 ? UI_C.buildText : UI_C.disabledText, 12));
   if (stBuild === 3 && menuOpen === 0 && helpOpen === 0 && S.simulating === 0) {
     startBuild();
   }
 
   // Ações de arquivo e histórico ficam juntas à direita.
   const bxSave = W - 204;
-  const stSave = S.simulating === 0 ? app.clickable(920, bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H) : 0;
-  app.box(bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H, stSave === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3);
-  app.text(bxSave + 7, 39, "Salvar", S.simulating === 0 ? UI_C.primaryText : UI_C.disabledText, 11);
+  const stSave = S.simulating === 0 ? app.clickable(bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H) : 0;
+  pincel(stSave === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3); caixa(bxSave, UI_CONTROL_Y, 48, UI_CONTROL_H);
+  texto(bxSave + 7, 39, "Salvar", estiloTexto(S.simulating === 0 ? UI_C.primaryText : UI_C.disabledText, 11));
   if (stSave === 3 && menuOpen === 0 && helpOpen === 0 && S.simulating === 0) saveDocument();
   const bxUndo = W - 152;
-  const stUndoB = app.clickable(922, bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H);
-  app.box(bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H, stUndoB === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3);
-  app.text(bxUndo + 11, 38, "<", UI_C.primaryText, 15);
+  const stUndoB = app.clickable(bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H);
+  pincel(stUndoB === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3); caixa(bxUndo, UI_CONTROL_Y, 34, UI_CONTROL_H);
+  texto(bxUndo + 11, 38, "<", estiloTexto(UI_C.primaryText, 15));
   if (stUndoB === 3 && menuOpen === 0 && helpOpen === 0) history.undo();
   const bxRedo = W - 114;
-  const stRedoB = app.clickable(923, bxRedo, UI_CONTROL_Y, 34, UI_CONTROL_H);
-  app.box(bxRedo, UI_CONTROL_Y, 34, UI_CONTROL_H, stRedoB === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3);
-  app.text(bxRedo + 11, 38, ">", UI_C.primaryText, 15);
+  const stRedoB = app.clickable(bxRedo, UI_CONTROL_Y, 34, UI_CONTROL_H);
+  pincel(stRedoB === 1 ? UI_C.controlHover : UI_C.controlIdle, 1, UI_C.border, 3); caixa(bxRedo, UI_CONTROL_Y, 34, UI_CONTROL_H);
+  texto(bxRedo + 11, 38, ">", estiloTexto(UI_C.primaryText, 15));
   if (stRedoB === 3 && menuOpen === 0 && helpOpen === 0) history.redo();
 
-  S.fpsLast = math.floor(app.fps());   // publica pro ws `dbg` (medir perf sem screenshot)
-  app.text(W - 74, 39, "fps " + S.fpsLast, UI_C.secondaryText, 12);
+  // publica pro ws `dbg` (medir perf sem screenshot); o rótulo muda a cada UI_ROTULOS.fpsMs, não por quadro
+  if (clockNow() - fpsAtualizadoMs >= UI_ROTULOS.fpsMs) { fpsAtualizadoMs = clockNow(); S.fpsLast = math.floor(app.fps()); }
+  texto(W - 74, 39, rotFps.de(S.fpsLast), estiloTexto(UI_C.secondaryText, 12));
 
   // Ferramentas de transformação pertencem à vista de cena, como um overlay.
   const sceneX = HIER_W;
   const sceneW = W - HIER_W - INSP_W;
-  app.box(sceneX, BAR_H, sceneW, UI_SCENE_HEADER_H, UI_C.sceneHeader, 0, 0, 0);
+  pincel(UI_C.sceneHeader, 0, 0, 0); caixa(sceneX, BAR_H, sceneW, UI_SCENE_HEADER_H);
   if (!workspaceViews.game) {
-  app.box(sceneX + UI_TOOL_X, BAR_H + UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H,
-          UI_C.toolBack, 1, UI_C.toolBackBorder, 5);
+  pincel(UI_C.toolBack, 1, UI_C.toolBackBorder, 5); caixa(sceneX + UI_TOOL_X, BAR_H + UI_TOOL_Y, UI_TOOL_W, UI_TOOL_H);
   let ti = 0;
   while (ti < UI_TOOLS.length) {
     const tx = sceneX + UI_TOOL_X + 6 + ti * UI_TOOL_BUTTON_STEP;
     const ty = BAR_H + UI_TOOL_Y + 4;
-    const st = app.clickable(910 + ti, tx, ty, UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H);
+    const st = app.clickable(tx, ty, UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H);
     let active = 0;
     if (ti === 0 && S.tool === TOOL_MOVE) active = 1;
     if (ti === 1 && S.tool === TOOL_ROTATE) active = 1;
     if (ti === 2 && S.tool === TOOL_SCALE) active = 1;
     if (ti === 3 && S.snap !== 0) active = 1;
-    app.box(tx, ty, UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H,
-            active !== 0 ? UI_C.controlActive : st === 1 ? UI_C.toolHover : UI_C.toolIdle,
-            1, UI_C.toolBorder, 3);
-    app.text(tx + 7, ty + 6, UI_TOOLS[ti], UI_C.toolText, 12);
+    pincel(active !== 0 ? UI_C.controlActive : st === 1 ? UI_C.toolHover : UI_C.toolIdle, 1, UI_C.toolBorder, 3); caixa(tx, ty, UI_TOOL_BUTTON_W, UI_TOOL_BUTTON_H);
+    texto(tx + 7, ty + 6, UI_TOOLS[ti], estiloTexto(UI_C.toolText, 12));
     if (st === 3 && menuOpen === 0 && helpOpen === 0) {
       if (ti === 0) S.tool = TOOL_MOVE;
       else if (ti === 1) S.tool = TOOL_ROTATE;
@@ -1045,37 +1187,43 @@ function frame(): void {
   secEnd(P_UI_BAR);
   secBegin(P_UI_HIER);
   // ── hierarquia (esquerda) ──────────────────────────────────────────────────
-  app.box(0, BAR_H, HIER_W, H - BAR_H, UI_C.panel, 0, 0, 0);
-  app.line(HIER_W, BAR_H, HIER_W, H, 1, UI_C.border);
+  pincel(UI_C.panel, 0, 0, 0); caixa(0, BAR_H, HIER_W, H - BAR_H);
+  traco(1, UI_C.border); linha(HIER_W, BAR_H, HIER_W, H);
   // header/tab
-  app.box(0, BAR_H, HIER_W, UI_HIER_HEADER_H, UI_C.panelHeader, 0, 0, 0);
-  app.box(4, BAR_H + 2, 88, 20, UI_C.panelTab, 0, 0, 3);
-  app.text(12, BAR_H + 5, "Hierarquia", UI_C.panelTitle, 12);
-  app.text(HIER_W - 52, BAR_H + 5, scene.objects.length + " obj", UI_C.panelCount, 11);
-  app.line(0, BAR_H + UI_HIER_HEADER_H, HIER_W, BAR_H + UI_HIER_HEADER_H, 1, UI_C.border);
+  pincel(UI_C.panelHeader, 0, 0, 0); caixa(0, BAR_H, HIER_W, UI_HIER_HEADER_H);
+  pincel(UI_C.panelTab, 0, 0, 3); caixa(4, BAR_H + 2, 88, 20);
+  texto(12, BAR_H + 5, "Hierarquia", estiloTexto(UI_C.panelTitle, 12));
+  texto(HIER_W - 52, BAR_H + 5, rotObjs.de(scene.objects.length), estiloTexto(UI_C.panelCount, 11));
+  traco(1, UI_C.border); linha(0, BAR_H + UI_HIER_HEADER_H, HIER_W, BAR_H + UI_HIER_HEADER_H);
 
-  if (menuOpen === 0 && helpOpen === 0 && app.button(8, BAR_H + 28, 72, 22, "+ Criar")) {
+  app.at(8, BAR_H + 28, 72, 22);
+  if (menuOpen === 0 && helpOpen === 0 && app.button("+ Criar")) {
     ctxOn = 1; ctxX = 8; ctxY = BAR_H + 28; ctxTarget = 0 - 1;
   }
   const oldFilter = hierFilter;
-  hierFilter = app.textField(952, 86, BAR_H + 29, HIER_W - 114, hierFilter, menuOpen === 0 && helpOpen === 0);
-  if (hierFilter.length === 0 && !app.isFocused(952)) app.text(92, BAR_H + 33, "Buscar...", UI_C.placeholder, 11);
-  if (hierFilter.length > 0 && app.button(HIER_W - 25, BAR_H + 29, 20, 20, "x")) {
+  app.at(86, BAR_H + 29, HIER_W - 114, 0);
+  hierFilter = app.textField(952, hierFilter, menuOpen === 0 && helpOpen === 0);
+  if (hierFilter.length === 0 && !app.isFocused(952)) texto(92, BAR_H + 33, "Buscar...", estiloTexto(UI_C.placeholder, 11));
+  app.at(HIER_W - 25, BAR_H + 29, 20, 20);
+  if (hierFilter.length > 0 && app.button("x")) {
     hierFilter = "";
     app.setFocus(0 - 1);
   }
   if (hierFilter !== oldFilter) { hierScroll = 0; S.hierScroll = 0; }
-  hierShown = [];
+  hierShownN = 0;
   if (hierFilter.length > 0) {
     let fi = 0;
     while (fi < scene.objects.length) {
-      if (containsCI(scene.objects[fi].name, hierFilter)) hierShown.push(fi);
+      if (containsCI(scene.objects[fi].name, hierFilter)) {
+        if (hierShownN < hierShown.length) hierShown[hierShownN] = fi; else hierShown.push(fi);
+        hierShownN = hierShownN + 1;
+      }
       fi = fi + 1;
     }
   }
-  const totalRows = hierFilter.length > 0 ? hierShown.length : scene.objects.length;
-  if (hierFilter.length > 0) app.text(14, BAR_H + 60, totalRows + " resultado(s)", UI_C.searchResult, 11);
-  else app.text(14, BAR_H + 60, "Duplo clique enquadra  •  arraste organiza", UI_C.hint, 11);
+  const totalRows = hierFilter.length > 0 ? hierShownN : scene.objects.length;
+  if (hierFilter.length > 0) texto(14, BAR_H + 60, rotResultados.de(totalRows), estiloTexto(UI_C.searchResult, 11));
+  else texto(14, BAR_H + 60, "Duplo clique enquadra  •  arraste organiza", estiloTexto(UI_C.hint, 11));
 
   // TREEVIEW com SLOTS de inserção (estilo Unity): por linha, o terço de cima =
   // soltar ANTES (irmão), o meio = virar FILHO, o de baixo = soltar DEPOIS (irmão).
@@ -1148,16 +1296,16 @@ function frame(): void {
     // arrastando uma TEXTURA do Project sobre esta linha → alvo do drop
     if (dndOn !== 0 && inRow && dndTex !== 0) fill = UI_C.rowDropTarget;
     if (dndScript && scriptTarget === hi && scriptError.length === 0) fill = UI_C.rowDropTarget;
-    app.box(8 + indent, ry0 + 1, HIER_W - 16 - indent, UI_HIER_ROW_H - 2, fill, 0, 0, 5);
-    if (depth > 0) app.text(8 + indent - 12, ry0 + 5, "└", UI_C.hierarchyBranch, 14);
+    pincel(fill, 0, 0, 5); caixa(8 + indent, ry0 + 1, HIER_W - 16 - indent, UI_HIER_ROW_H - 2);
+    if (depth > 0) texto(8 + indent - 12, ry0 + 5, "└", estiloTexto(UI_C.hierarchyBranch, 14));
     let icon = "[C]";
     if (obj.meshKind === 2) icon = "[P]";
     if (obj.meshKind === 3) icon = "[O]";
     if (obj.meshKind === 4) icon = "[S]";
-    app.text(14 + indent, ry0 + 6, icon + " " + obj.name, UI_C.primaryText, 13);
+    texto(14 + indent, ry0 + 6, rotLinhas.de(hi, icon, obj.name, obj.meshKind), estiloTexto(UI_C.primaryText, 13));
     row = row + 1;
   }
-  if (totalRows === 0) app.text(14, HIER_LIST_TOP + 12, "Nenhum objeto encontrado", UI_C.emptyText, 12);
+  if (totalRows === 0) texto(14, HIER_LIST_TOP + 12, "Nenhum objeto encontrado", estiloTexto(UI_C.emptyText, 12));
   // clique DIREITO na área vazia da hierarquia: menu criando na RAIZ
   if (mRight !== 0 && mx < HIER_W && my > HIER_LIST_TOP && dndOn === 0) {
     let overRow = 0;
@@ -1171,16 +1319,16 @@ function frame(): void {
     const trackY = HIER_LIST_TOP;
     const trackH = visRows * UI_HIER_ROW_H;
     const bx = HIER_W - 10;
-    app.box(bx, trackY, 6, trackH, UI_C.scrollbarTrack, 0, 0, 3);
+    pincel(UI_C.scrollbarTrack, 0, 0, 3); caixa(bx, trackY, 6, trackH);
     // altura proporcional ao quanto da lista está visível, com mínimo clicável
     let thumbH = (trackH * visRows / totalRows) | 0;
     if (thumbH < 24) thumbH = 24;
     const thumbY = trackY + (((trackH - thumbH) * hierScroll / maxScroll) | 0);
-    const stBar = app.clickable(1390, bx - 2, trackY, 10, trackH);
+    const stBar = app.clickable(bx - 2, trackY, 10, trackH);
     let barCol = UI_C.scrollbarThumb;
     if (stBar === 1) barCol = UI_C.scrollbarHover;
     if (stBar === 2 || hierBarDrag !== 0) barCol = UI_C.scrollbarDrag;
-    app.box(bx, thumbY, 6, thumbH, barCol, 0, 0, 3);
+    pincel(barCol, 0, 0, 3); caixa(bx, thumbY, 6, thumbH);
     // arrasto: enquanto o botão estiver preso, a posição do mouse na trilha
     // define o scroll direto (mapeia o centro do polegar sob o cursor)
     if (stBar === 2) hierBarDrag = 1;
@@ -1196,7 +1344,7 @@ function frame(): void {
   }
   // linha de inserção (irmão antes/depois)
   if (hierDrag >= 0 && (dropMode === 1 || dropMode === 3)) {
-    app.box(10, dropLineY - 1, HIER_W - 20, 3, UI_C.dropMarker, 0, 0, 0);
+    pincel(UI_C.dropMarker, 0, 0, 0); caixa(10, dropLineY - 1, HIER_W - 20, 3);
   }
   // soltar → aplica o move (reordena + reparenta a subárvore)
   if (hierDrag >= 0 && mDownNow === 0) {
@@ -1220,15 +1368,16 @@ function frame(): void {
   }
   // GHOST: o item arrastado segue o cursor
   if (hierDrag >= 0 && hierDrag < scene.objects.length) {
-    app.box(mx + 12, my - 9, 150, 22, UI_C.dragGhost, 1, UI_C.dragGhostBorder, 5);
-    app.text(mx + 18, my - 5, ">> " + scene.objects[hierDrag].name, UI_C.white, 13);
+    pincel(UI_C.dragGhost, 1, UI_C.dragGhostBorder, 5); caixa(mx + 12, my - 9, 150, 22);
+    texto(mx + 18, my - 5, ">> " + scene.objects[hierDrag].name, estiloTexto(UI_C.white, 13));
   }
 
   secEnd(P_UI_HIER);
   secBegin(P_UI_INSP);
   // Inspector: raiz e controles sao GameObjects de uma UIScene do editor.
-  inspector.render(app, W - INSP_W, BAR_H, INSP_W, H - BAR_H, mx, my,
-    mDownNow, mPressed, menuOpen !== 0 || helpOpen !== 0, dndModel, dndTex);
+  inspector.area(W - INSP_W, BAR_H, INSP_W, H - BAR_H);
+  inspector.mouse(mx, my, mDownNow, mPressed);
+  inspector.renderProtegido(app, menuOpen !== 0 || helpOpen !== 0, dndModel, dndTex);
   addMenuOpen = inspector.opened;
   slotMeshHot = inspector.meshHot;
   slotTexHot = inspector.textureHot;
@@ -1236,17 +1385,17 @@ function frame(): void {
   // ── barra inferior (status bar estilo Unity) sobre a área do viewport ───────
   const vpx = HIER_W;
   const vpw = W - HIER_W - INSP_W;
-  app.box(vpx, H - UI_STATUS_H, vpw, UI_STATUS_H, UI_C.controlIdle, 0, 0, 0);
-  app.line(vpx, H - UI_STATUS_H, vpx + vpw, H - UI_STATUS_H, 1, UI_C.border);
+  pincel(UI_C.controlIdle, 0, 0, 0); caixa(vpx, H - UI_STATUS_H, vpw, UI_STATUS_H);
+  traco(1, UI_C.border); linha(vpx, H - UI_STATUS_H, vpx + vpw, H - UI_STATUS_H);
   let modeTxt = UI_PLAY.editing;
   if (S.simulating !== 0) modeTxt = S.playing !== 0 ? UI_PLAY.running : UI_PLAY.paused;
   if (playMode.error.length > 0) modeTxt = playMode.error;
-  app.text(vpx + 10, H - 19, modeTxt + "  •  " + scene.objects.length + " objetos", UI_C.statusText, 12);
+  texto(vpx + 10, H - 19, rotStatus.de(modeTxt, rotStatusN.de(scene.objects.length)), estiloTexto(UI_C.statusText, 12));
   // O resultado detalhado do build fica no Console, sem cobrir o Inspector.
   if (editorBuild.status.length > 0) {
-    if (vpw > 520 && S.simulating === 0) app.text(vpx + 185, H - 19, editorBuild.running ? UI_WORKSPACE.buildRunning : UI_WORKSPACE.buildResult, UI_C.dropMarker, 11);
+    if (vpw > 520 && S.simulating === 0) texto(vpx + 185, H - 19, editorBuild.running ? UI_WORKSPACE.buildRunning : UI_WORKSPACE.buildResult, estiloTexto(UI_C.dropMarker, 11));
   } else if (vpw > 600 && S.simulating === 0 && playMode.error.length === 0) {
-    app.text(vpx + 185, H - 19, "WASD câmera • F enquadra • arraste assets do Project", UI_C.hint, 11);
+    texto(vpx + 185, H - 19, "WASD câmera • F enquadra • arraste assets do Project", estiloTexto(UI_C.hint, 11));
   }
 
   // ── PROJECT PANEL (asset browser) na base do viewport ───────────────────────
@@ -1255,18 +1404,21 @@ function frame(): void {
   const apW = W - HIER_W - INSP_W;
   secBegin(P_UI_PROJ);
   let assetAct = "";
-  if (workspaceViews.console) consolePanel.render(apX, apY + UI_WORKSPACE.tabH, apW, ASSET_H - UI_WORKSPACE.tabH, helpOpen !== 0 || menuOpen !== 0);
-  else assetAct = drawAssets(WIN, apX, apY, apW, ASSET_H, mx, my, helpOpen === 0 ? mPressed : 0, mDownNow, frames);
-  app.box(apX, apY, workspaceViews.console ? apW : UI_WORKSPACE.padding + UI_WORKSPACE.bottomTabs.length * (UI_WORKSPACE.tabW + UI_WORKSPACE.gap), UI_WORKSPACE.tabH, workspaceViews.console ? UI_C.consoleToolbar : UI_C.sceneHeader, 0, 0, 0);
+  if (workspaceViews.console) { consolePanel.blocked = helpOpen !== 0 || menuOpen !== 0; consolePanel.render(apX, apY + UI_WORKSPACE.tabH, apW, ASSET_H - UI_WORKSPACE.tabH); }
+  else {
+    assetsArea(apX, apY, apW, ASSET_H); assetsMouse(mx, my, helpOpen === 0 ? mPressed : 0, mDownNow);
+    assetAct = drawAssets(WIN);
+  }
+  pincel(workspaceViews.console ? UI_C.consoleToolbar : UI_C.sceneHeader, 0, 0, 0); caixa(apX, apY, workspaceViews.console ? apW : UI_WORKSPACE.padding + UI_WORKSPACE.bottomTabs.length * (UI_WORKSPACE.tabW + UI_WORKSPACE.gap), UI_WORKSPACE.tabH);
   workspaceViews.tabs(sceneX, BAR_H, apY, helpOpen !== 0 || menuOpen !== 0);
-  if (workspaceViews.game) app.text(sceneX + UI_WORKSPACE.padding, BAR_H + UI_SCENE_HEADER_H + UI_WORKSPACE.padding, workspaceViews.hasCamera ? UI_WORKSPACE.gameHint : UI_WORKSPACE.noCamera, UI_C.primaryText, 12);
+  if (workspaceViews.game) texto(sceneX + UI_WORKSPACE.padding, BAR_H + UI_SCENE_HEADER_H + UI_WORKSPACE.padding, workspaceViews.hasCamera ? UI_WORKSPACE.gameHint : UI_WORKSPACE.noCamera, estiloTexto(UI_C.primaryText, 12));
   secEnd(P_UI_PROJ);
   const splitLeft = layoutDrag === 1 || (mx >= HIER_W - 5 && mx <= HIER_W + 5 && my > BAR_H);
   const splitRight = layoutDrag === 2 || (mx >= W - INSP_W - 5 && mx <= W - INSP_W + 5 && my > BAR_H);
   const splitBottom = layoutDrag === 3 || (mx > HIER_W && mx < W - INSP_W && my >= apY - 5 && my <= apY + 5);
-  app.box(HIER_W - 2, BAR_H, 4, H - BAR_H, splitLeft ? UI_C.splitterHover : UI_C.border, 0, 0, 0);
-  app.box(W - INSP_W - 2, BAR_H, 4, H - BAR_H, splitRight ? UI_C.splitterHover : UI_C.border, 0, 0, 0);
-  app.box(HIER_W, apY - 2, apW, 4, splitBottom ? UI_C.splitterHover : UI_C.border, 0, 0, 0);
+  pincel(splitLeft ? UI_C.splitterHover : UI_C.border, 0, 0, 0); caixa(HIER_W - 2, BAR_H, 4, H - BAR_H);
+  pincel(splitRight ? UI_C.splitterHover : UI_C.border, 0, 0, 0); caixa(W - INSP_W - 2, BAR_H, 4, H - BAR_H);
+  pincel(splitBottom ? UI_C.splitterHover : UI_C.border, 0, 0, 0); caixa(HIER_W, apY - 2, apW, 4);
   if (assetAct.length > 0) {
     const path = assetAct.substring(assetAct.indexOf(":") + 1);
     const c0 = assetAct.charCodeAt(0);
@@ -1310,17 +1462,17 @@ function frame(): void {
       if (previewIdx >= 0) {
         // já existe o PREVIEW no lugar certo: soltar apenas o confirma (vira
         // objeto definitivo) — nada de instanciar de novo.
-        movePreviewTo(mx, my, cyw, syw, cpt2, spt2);
+        movePreviewTo(mx, my);
         S.selected = previewIdx;
         previewIdx = 0 - 1;
         previewPay = "";
       } else {
         // textura solta EM CIMA de um objeto → aplica nele (Unity); no vazio → cria
-        const hitObj = kind === "tex" ? pickObjectAt(mx, my, cyw, syw, cpt2, spt2) : 0 - 1;
+        const hitObj = kind === "tex" ? pickObjectAt(mx, my) : 0 - 1;
         if (hitObj >= 0) {
           if (applyTexToObject(hitObj, dpath, WIN) > 0) S.selected = hitObj;
         } else {
-          dropAssetInWorld(kind, dpath, mx, my, cyw, syw, cpt2, spt2);
+          dropAssetInWorld(kind, dpath, mx, my);
         }
       }
     } else if (mx < HIER_W && my > BAR_H) {
@@ -1329,7 +1481,7 @@ function frame(): void {
       if (kind === "tex" && hIdx >= 0 && hIdx < scene.objects.length) {
         applyTexToObject(hIdx, dpath, WIN);
       } else {
-        dropAssetInWorld(kind, dpath, 0.0 - 1.0, 0.0, cyw, syw, cpt2, spt2);
+        dropAssetInWorld(kind, dpath, 0.0 - 1.0, 0.0);
       }
     } else if (mx > W - INSP_W && S.selected >= 0 && S.selected < scene.objects.length) {
       // sobre o inspector: só os slots aceitam (hit-test guardado no draw)
@@ -1346,22 +1498,22 @@ function frame(): void {
   if (dndOn !== 0) {
     if (inViewport && !dndScript) {
       // alvo do drop: marca o objeto sob o cursor (textura) ou o ponto do chão
-      const prevObj = dndTex !== 0 ? pickObjectAt(mx, my, cyw, syw, cpt2, spt2) : 0 - 1;
+      const prevObj = dndTex !== 0 ? pickObjectAt(mx, my) : 0 - 1;
       if (prevObj >= 0) {
-        const pp = projPt(scene.objects[prevObj].transform.wx, scene.objects[prevObj].transform.wy,
-                          scene.objects[prevObj].transform.wz, S.camX, S.camY, S.camZ,
-                          cyw, syw, cpt2, spt2, focalW, W, H);
-        if (pp[2] !== 0.0) app.box(pp[0] - 22, pp[1] - 22, 44, 44, UI_C.dropTint, 1, UI_C.dropMarker, 6);
-        app.text(mx + 12, my + 16, "aplicar textura", UI_C.dropMarker, 12);
+        const pp = anelA;
+        pontoMundo[0] = scene.objects[prevObj].transform.wx; pontoMundo[1] = scene.objects[prevObj].transform.wy;
+        pontoMundo[2] = scene.objects[prevObj].transform.wz; projPt(pp, vistaEditor, pontoMundo);
+        if (pp[2] !== 0.0) { pincel(UI_C.dropTint, 1, UI_C.dropMarker, 6); caixa(pp[0] - 22, pp[1] - 22, 44, 44); }
+        texto(mx + 12, my + 16, "aplicar textura", estiloTexto(UI_C.dropMarker, 12));
       } else {
         // marca o ponto do chão sob o preview (cruz + coordenadas do mundo)
-        const gp = screenToPlane(mx, my, S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H, 0.0);
+        const gp = pontoDrop; screenToGround(gp, vistaEditor, mx, my);
         if (gp[3] !== 0.0) {
-          const sp = projPt(gp[0], gp[1], gp[2], S.camX, S.camY, S.camZ, cyw, syw, cpt2, spt2, focalW, W, H);
+          const sp = anelA; projPt(sp, vistaEditor, gp);
           if (sp[2] !== 0.0) {
-            app.line(sp[0] - 14, sp[1], sp[0] + 14, sp[1], 1, UI_C.dropMarker);
-            app.line(sp[0], sp[1] - 8, sp[0], sp[1] + 8, 1, UI_C.dropMarker);
-            app.text(sp[0] + 8, sp[1] + 6, "(" + fmt1(gp[0]) + ", " + fmt1(gp[2]) + ")", UI_C.dropMarker, 11);
+            traco(1, UI_C.dropMarker); linha(sp[0] - 14, sp[1], sp[0] + 14, sp[1]);
+            traco(1, UI_C.dropMarker); linha(sp[0], sp[1] - 8, sp[0], sp[1] + 8);
+            texto(sp[0] + 8, sp[1] + 6, "(" + fmt1(gp[0]) + ", " + fmt1(gp[2]) + ")", estiloTexto(UI_C.dropMarker, 11));
           }
         }
       }
@@ -1382,9 +1534,11 @@ function frame(): void {
     const width = Math.min(UI_SCRIPT_DROP.width, W - UI_SCRIPT_DROP.padding * 2);
     const x = dndScript ? Math.max(UI_SCRIPT_DROP.padding, Math.min(mx + UI_SCRIPT_DROP.cursorX, W - width - UI_SCRIPT_DROP.padding)) : HIER_W + UI_SCRIPT_DROP.noticeX;
     const y = dndScript ? Math.min(my + UI_SCRIPT_DROP.cursorY, H - UI_SCRIPT_DROP.height - UI_SCRIPT_DROP.padding) : BAR_H + UI_SCENE_HEADER_H + UI_SCRIPT_DROP.noticeY;
-    const panel = scriptDropUI.control("Feedback", "panel", x, y, width, UI_SCRIPT_DROP.height, "", false);
+    scriptDropUI.at(x, y, width, UI_SCRIPT_DROP.height);
+    const panel = scriptDropUI.control("Feedback", "panel", "", false);
     panel.fill = UI_C.popupDark; scriptDropUI.draw(panel);
-    const label = scriptDropUI.control("Caption", "label", x + UI_SCRIPT_DROP.padding, y, width - UI_SCRIPT_DROP.padding * 2, UI_SCRIPT_DROP.height, caption, false);
+    scriptDropUI.at(x + UI_SCRIPT_DROP.padding, y, width - UI_SCRIPT_DROP.padding * 2, UI_SCRIPT_DROP.height);
+    const label = scriptDropUI.control("Caption", "label", caption, false);
     label.color = dndScript && scriptError.length > 0 ? UI_C.destructiveText : UI_C.dropMarker;
     scriptDropUI.draw(label);
     if (!dndScript) scriptNoticeFrames = scriptNoticeFrames - 1;
@@ -1396,25 +1550,30 @@ function frame(): void {
   // depois cobre. Um menu que aparecesse sob a lista seria inclicável.
   if (ctxOn !== 0) {
     const CW = UI_CONTEXT_W;
-    const items = OBJECT_PRESETS.length + (ctxTarget >= 0 ? UI_CONTEXT_ACTIONS.length : 0);
+    const nCriar = menuCriar.rotulos.length;
+    const items = nCriar + (ctxTarget >= 0 ? UI_CONTEXT_ACTIONS.length : 0);
     const CH = 12 + items * UI_CONTEXT_ROW_H;
     let cx = ctxX;
     let cy = ctxY;
     if (cx + CW > W) cx = W - CW - 4;          // não vaza pela direita
     if (cy + CH > H) cy = H - CH - 4;          // nem por baixo
-    app.box(cx, cy, CW, CH, UI_C.popupDark, 1, UI_C.contextBorder, 4);
+    pincel(UI_C.popupDark, 1, UI_C.contextBorder, 4); caixa(cx, cy, CW, CH);
     // cabeçalho: mostra SE vai criar como filho, e de quem
     let head = "Criar na raiz";
     if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
-      head = "Filho de " + subStr(scene.objects[ctxTarget].name, 0, 14);
+      const nomeAlvo = scene.objects[ctxTarget].name;
+      if (rotFilhoTexto.length === 0 || rotFilhoNome !== nomeAlvo) {
+        rotFilhoNome = nomeAlvo; rotFilhoTexto = UI_ROTULOS.childOf + subStr(nomeAlvo, 0, UI_ROTULOS.childOfChars);
+      }
+      head = rotFilhoTexto;
     }
-    app.text(cx + 10, cy + 6, head, UI_C.scrollbarDrag, 11);
+    texto(cx + 10, cy + 6, head, estiloTexto(UI_C.scrollbarDrag, 11));
     let iy = cy + UI_CONTEXT_ROW_H;
     let clicked = 0 - 1;
     let n = 0;
     while (n < items) {
-      const st = app.clickable(1400 + n, cx + 4, iy, CW - 8, UI_CONTEXT_ROW_H - 2);
-      if (st === 1 || st === 2) app.box(cx + 4, iy, CW - 8, UI_CONTEXT_ROW_H - 2, UI_C.contextHover, 0, 0, 3);
+      const st = app.clickable(cx + 4, iy, CW - 8, UI_CONTEXT_ROW_H - 2);
+      if (st === 1 || st === 2) { pincel(UI_C.contextHover, 0, 0, 3); caixa(cx + 4, iy, CW - 8, UI_CONTEXT_ROW_H - 2); }
       if (st === 3) clicked = n;
       iy = iy + UI_CONTEXT_ROW_H;
       n = n + 1;
@@ -1422,16 +1581,15 @@ function frame(): void {
     // A mesma lista de criação serve ao menu global e ao menu de contexto.
     let labelIdx = 0;
     while (labelIdx < items) {
-      const label = labelIdx < OBJECT_PRESETS.length ? OBJECT_PRESET_LABELS[labelIdx] :
-                    UI_CONTEXT_ACTIONS[labelIdx - OBJECT_PRESETS.length];
-      app.text(cx + 12, cy + UI_CONTEXT_ROW_H + labelIdx * UI_CONTEXT_ROW_H + 4, label,
-               labelIdx === items - 1 && ctxTarget >= 0 ? UI_C.destructiveText : UI_C.primaryText, 12);
+      const label = labelIdx < nCriar ? menuCriar.rotulos[labelIdx] : UI_CONTEXT_ACTIONS[labelIdx - nCriar];
+      texto(cx + 12, cy + UI_CONTEXT_ROW_H + labelIdx * UI_CONTEXT_ROW_H + 4, label, estiloTexto(labelIdx === items - 1 && ctxTarget >= 0 ? UI_C.destructiveText : UI_C.primaryText, 12));
       labelIdx = labelIdx + 1;
     }
 
     if (clicked >= 0) {
-      if (clicked < OBJECT_PRESETS.length) createMenuObject(clicked, ctxTarget);
-      else if (clicked === OBJECT_PRESETS.length) {
+      if (clicked < menuCriar.fixos) createMenuObject(clicked, ctxTarget);
+      else if (clicked < nCriar) executarItemDeMenu(menuCriar.itens[clicked - menuCriar.fixos], ctxTarget);
+      else if (clicked === nCriar) {
         if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
           history.snapshot();
           const g = cloneObject(scene.objects[ctxTarget]);
@@ -1439,7 +1597,7 @@ function frame(): void {
           scene.add(g);
           S.selected = scene.objects.length - 1;
         }
-      } else if (clicked === OBJECT_PRESETS.length + 1) {
+      } else if (clicked === nCriar + 1) {
         if (ctxTarget >= 0 && ctxTarget < scene.objects.length) {
           history.snapshot();
           scene.removeAt(ctxTarget);
@@ -1456,23 +1614,17 @@ function frame(): void {
   // mantém o ring de áudio cheio (ver engine/audio/audio.ts)
   // Menus globais: comandos de projeto ficam separados das ferramentas da Cena.
   if (menuOpen !== 0) {
-    let entries: string[] = [];
-    if (menuOpen === 1) entries = UI_FILE_ACTIONS;
-    else if (menuOpen === 2) entries = UI_EDIT_ACTIONS;
-    else if (menuOpen === 3) entries = OBJECT_PRESET_LABELS;
-    else if (menuOpen === 4) entries = [S.snap !== 0 ? "Grade: ligada" : "Grade: desligada",
-                                       vsyncOn !== 0 ? "VSync: ligado" : "VSync: desligado", "Restaurar layout", UI_CODE_EDITOR.title];
-    else entries = UI_HELP_ACTIONS;
+    const entries = menuEntries(menuOpen);
     const menuW = UI_MENU_W;
     const menuH = UI_MENU_PADDING + entries.length * UI_MENU_ROW_H;
-    app.box(menuX, UI_MENU_H, menuW, menuH, UI_C.menuPopup, 1, UI_C.menuPopupBorder, 4);
+    pincel(UI_C.menuPopup, 1, UI_C.menuPopupBorder, 4); caixa(menuX, UI_MENU_H, menuW, menuH);
     let chosen = 0 - 1;
     let mi = 0;
     while (mi < entries.length) {
       const ey = UI_MENU_H + 4 + mi * UI_MENU_ROW_H;
-      const st = app.clickable(1600 + mi, menuX + 4, ey, menuW - 8, 25);
-      if (st === 1 || st === 2) app.box(menuX + 4, ey, menuW - 8, 25, UI_C.menuItemHover, 0, 0, 3);
-      app.text(menuX + 13, ey + 5, entries[mi], UI_C.menuItemText, 12);
+      const st = app.clickable(menuX + 4, ey, menuW - 8, 25);
+      if (st === 1 || st === 2) { pincel(UI_C.menuItemHover, 0, 0, 3); caixa(menuX + 4, ey, menuW - 8, 25); }
+      texto(menuX + 13, ey + 5, entries[mi], estiloTexto(UI_C.menuItemText, 12));
       if (st === 3) chosen = mi;
       mi = mi + 1;
     }
@@ -1481,7 +1633,7 @@ function frame(): void {
       menuOpen = 0;
       app.setFocus(0 - 1);
       if (activeMenu === 1) {
-        if (chosen === 0) { try { const path = chooseSceneFile(false); if (path.length > 0) sceneDocument.request("open", path); } catch (error) { logError(String(error)); workspaceViews.console = true; } }
+        if (chosen === 0) abrirCenaPeloDialogo();
         else if (chosen === 1) {
           sceneDocument.request("new");
         } else if (chosen === 2) saveDocument();
@@ -1503,31 +1655,36 @@ function frame(): void {
           }
         }
       } else if (activeMenu === 3) {
-        createMenuObject(chosen, 0 - 1);
+        if (chosen < menuCriar.fixos) createMenuObject(chosen, 0 - 1);
+        else executarItemDeMenu(menuCriar.itens[chosen - menuCriar.fixos], 0 - 1);
       } else if (activeMenu === 4) {
+        if (chosen === 0) S.cameraPreview = S.cameraPreview !== 0 ? 0 : 1;
+        else executarItemDeMenu(menuJanela.itens[chosen - menuJanela.fixos], 0 - 1);
+      } else if (activeMenu === 5) {
         if (chosen === 0) S.snap = S.snap !== 0 ? 0 : 1;
         else if (chosen === 1) { vsyncOn = vsyncOn !== 0 ? 0 : 1; setVsync(WIN, vsyncOn); }
         else if (chosen === 2) { HIER_W = UI_HIER_DEFAULT; INSP_W = UI_INSP_DEFAULT; ASSET_H = UI_PROJECT_DEFAULT; }
         else if (chosen === 3) { helpOpen = 2; preferencesPanel.open(); assetDragClear(); }
-      } else if (activeMenu === 5) helpOpen = 1;
+      } else if (activeMenu === 6) helpOpen = 1;
     }
     const overGlobalMenu = mx >= menuX && mx < menuX + menuW && my >= UI_MENU_H && my < UI_MENU_H + menuH;
     if (mPressed !== 0 && my >= UI_MENU_H && !overGlobalMenu) menuOpen = 0;
   }
 
-  if (helpOpen === 2 && preferencesPanel.render(W, H, mx, my, mDownNow, mPressed)) helpOpen = 0;
+  if (helpOpen === 2) { preferencesPanel.mouse(mx, my, mDownNow, mPressed); if (preferencesPanel.render(W, H)) helpOpen = 0; }
   if (helpOpen === 1) {
     const hw = math.min(370, W - HIER_W - INSP_W - 30);
     const hx = HIER_W + (W - HIER_W - INSP_W - hw) / 2;
     const hy = BAR_H + 90;
-    app.box(hx, hy, hw, 210, UI_C.helpBackground, 1, UI_C.helpBorder, 5);
-    app.text(hx + 18, hy + 15, "Atalhos e navegacao", UI_C.helpTitle, 16);
-    app.text(hx + 18, hy + 48, "Q / E / R     Mover / Girar / Escala", UI_C.helpText, 12);
-    app.text(hx + 18, hy + 72, "F              Enquadrar selecao", UI_C.helpText, 12);
-    app.text(hx + 18, hy + 96, "WASD + mouse direito   Camera livre", UI_C.helpText, 12);
-    app.text(hx + 18, hy + 120, "Ctrl+S / Z / Y / D   Salvar / desfazer / refazer / duplicar", UI_C.helpText, 11);
-    app.text(hx + 18, hy + 144, "Arraste um asset do Project para a Cena.", UI_C.helpText, 12);
-    if (app.button(hx + hw - 94, hy + 171, 76, 25, "Fechar") || app.keyPressed(2) !== 0) helpOpen = 0;
+    pincel(UI_C.helpBackground, 1, UI_C.helpBorder, 5); caixa(hx, hy, hw, 210);
+    texto(hx + 18, hy + 15, "Atalhos e navegacao", estiloTexto(UI_C.helpTitle, 16));
+    texto(hx + 18, hy + 48, "Q / E / R     Mover / Girar / Escala", estiloTexto(UI_C.helpText, 12));
+    texto(hx + 18, hy + 72, "F              Enquadrar selecao", estiloTexto(UI_C.helpText, 12));
+    texto(hx + 18, hy + 96, "WASD + mouse direito   Camera livre", estiloTexto(UI_C.helpText, 12));
+    texto(hx + 18, hy + 120, "Ctrl+S / Z / Y / D   Salvar / desfazer / refazer / duplicar", estiloTexto(UI_C.helpText, 11));
+    texto(hx + 18, hy + 144, "Arraste um asset do Project para a Cena.", estiloTexto(UI_C.helpText, 12));
+    app.at(hx + hw - 94, hy + 171, 76, 25);
+    if (app.button("Fechar") || app.keyPressed(2) !== 0) helpOpen = 0;
   }
   if (menuOpen !== 0 && app.keyPressed(2) !== 0) menuOpen = 0;
   if (sceneDocument.pending.length > 0) { helpOpen = 3; documentPanel.render(W, H); }
@@ -1539,6 +1696,7 @@ function frame(): void {
   pumpAudio();
 
   secEnd(P_UI);
+  benchCpuEnd();
   secBegin(P_PRESENT);
   // O `endFrame` inclui o PRESENT, e é ali que o vsync espera. Fica fora das
   // seções de propósito: contá-lo como "UI" faria a tabela dizer que a UI custa
@@ -1559,6 +1717,7 @@ function frame(): void {
 while (app.running()) {
   if (!app.beginFrame()) break;
   frame();
+  if (benchFrameEnd() !== 0) break;
 }
 
 

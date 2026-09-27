@@ -4,11 +4,11 @@
 // pelas funções (ok desde o fix de gcell). Cada função recebe o handle da janela
 // + o estado do mouse como PRIMITIVOS — nada de passar objetos/classes.
 
-import render from "../compat/render.ts";
 import math from "../compat/math.ts";
 import input from "rts:input";
 import { UI_C, UI_NUMERIC as N } from "./ui_config";
 
+import { caixa, estiloTexto, pincel, texto, janelaAtual2D } from "@compat/draw2d.ts";
 // ── cores do tema (Unity dark) ───────────────────────────────────────────────
 export const PANEL = UI_C.panel;
 export const PANEL_DK = UI_C.controlIdle;
@@ -57,25 +57,35 @@ function r2(v: f64): f64 {
   return math.floor(v * 100.0 + 0.5) / 100.0;
 }
 
-/// Retângulo preenchido simples.
-export function panel(win: i64, x: number, y: number, w: number, h: number, fill: number): void {
-  render.rect(win, x, y, w, h, fill, 0, 0, 0);
+/// Texto que um campo mostra, refeito só quando o valor (ou a largura/o caminho) muda.
+/// Um por controle (EditorControl.campo): sem `"" + valor` nem `subStr` por quadro.
+export class CampoCache {
+  id: number = 0;
+  valor: f64 = 0.0; largura: number = 0 - 1; texto: string = "";
+  caminho: string = ""; mostrado: string = "";
+  rotulo: string = ""; rotuloN: number = 0 - 1; rotuloTexto: string = "";
 }
-export function line(win: i64, x1: number, y1: number, x2: number, y2: number, color: number): void {
-  render.line(win, x1, y1, x2, y2, 1, color);
-}
-export function label(win: i64, x: number, y: number, s: string, color: number, size: number): void {
-  render.text(win, x, y, s, color, size, 0);
+
+// ── retângulo e mouse do próximo widget ──────────────────────────────────────
+// Os widgets recebem no máximo 4 parâmetros (Task 10.5: 5+ parâmetros alocam
+// por chamada no RTS). Quem desenha chama `widgetRect` e `widgetMouse` antes.
+let wX: f64 = 0.0; let wY: f64 = 0.0; let wW: f64 = 0.0; let wH: f64 = 0.0;
+let wMx: f64 = 0.0; let wMy: f64 = 0.0; let wDown = 0; let wPressed = 0;
+/// Retângulo do próximo widget.
+export function widgetRect(x: number, y: number, w: number, h: number): void { wX = x; wY = y; wW = w; wH = h; }
+/// Mouse visto pelo próximo widget (down/pressed zerados = sem input).
+export function widgetMouse(mx: number, my: number, down: number, pressed: number): void {
+  wMx = mx; wMy = my; wDown = down; wPressed = pressed;
 }
 
 /// Botão. Retorna 1 se foi clicado (pressionado sobre ele) neste frame.
-export function button(win: i64, x: number, y: number, w: number, h: number, s: string,
-                       base: number, mx: f64, my: f64, mPressed: number): number {
+export function button(s: string, base: number): number {
+  const x = wX; const y = wY; const w = wW; const h = wH; const mx = wMx; const my = wMy; const mPressed = wPressed;
   const over = mx >= x && mx < x + w && my >= y && my < y + h;
   let fill = base;
   if (over) fill = HOVER;
-  render.rect(win, x, y, w, h, fill, 1, BORDER, 3);
-  render.text(win, x + 8, y + (h / 2 - 8), s, TEXT, 13, 0);
+  pincel(fill, 1, BORDER, 3); caixa(x, y, w, h);
+  texto(x + 8, y + (h / 2 - 8), s, estiloTexto(TEXT, 13));
   if (over && mPressed !== 0) return 1;
   return 0;
 }
@@ -88,11 +98,10 @@ export function button(win: i64, x: number, y: number, w: number, h: number, s: 
 ///   `dragOK`    — 1 se o asset sendo arrastado é COMPATÍVEL com este slot
 /// Retorna 1 quando o cursor está sobre o slot (o chamador usa isso, junto com
 /// o release do mouse, pra confirmar o drop).
-export function assetField(win: i64, x: number, y: number, w: number, h: number,
-                           lbl: string, cur: string, dragOK: number,
-                           mx: f64, my: f64): number {
+export function assetField(c: CampoCache, lbl: string, cur: string, dragOK: number): number {
+  const x = wX; const y = wY; const w = wW; const h = wH; const mx = wMx; const my = wMy;
   const over = mx >= x && mx < x + w && my >= y && my < y + h ? 1 : 0;
-  render.text(win, x, y + (h / 2 - 7), lbl, TEXT_DIM, 12, 0);
+  texto(x, y + (h / 2 - 7), lbl, estiloTexto(TEXT_DIM, 12));
   const fx = x + 66;
   const fw = w - 66;
   // realce verde quando um drag COMPATÍVEL paira sobre o slot (feedback Unity)
@@ -100,28 +109,33 @@ export function assetField(win: i64, x: number, y: number, w: number, h: number,
   let brd = BORDER;
   if (dragOK !== 0 && over !== 0) { fill = UI_C.rowDropTarget; brd = UI_C.dropMarker; }
   else if (dragOK !== 0) brd = UI_C.componentEnabled;   // slots compatíveis "acendem" durante o drag
-  render.rect(win, fx, y, fw, h, fill, 1, brd, 3);
-  // mostra só o nome do arquivo (o path inteiro não cabe)
-  let show = cur;
-  if (show.length === 0) show = "None";
-  else {
-    let cut = 0 - 1;
-    let i = 0;
-    while (i < show.length) { if (show.charCodeAt(i) === 47) cut = i; i = i + 1; }   // '/'
-    if (cut >= 0) show = subStr(show, cut + 1, show.length);
-  }
+  pincel(fill, 1, brd, 3); caixa(fx, y, fw, h);
+  // mostra só o nome do arquivo (o path inteiro não cabe); refeito só quando o caminho ou a largura mudam
   const maxc = ((fw - 14) / 7) | 0;
-  if (show.length > maxc && maxc > 1) show = subStr(show, 0, maxc - 1) + "…";
-  render.text(win, fx + 7, y + (h / 2 - 7), show, cur.length === 0 ? TEXT_DIM : TEXT, 12, 0);
+  if (c.caminho !== cur || c.largura !== maxc || c.mostrado.length === 0) {
+    c.caminho = cur; c.largura = maxc;
+    let show = cur;
+    if (show.length === 0) show = "None";
+    else {
+      let cut = 0 - 1;
+      let i = 0;
+      while (i < show.length) { if (show.charCodeAt(i) === 47) cut = i; i = i + 1; }   // '/'
+      if (cut >= 0) show = subStr(show, cut + 1, show.length);
+    }
+    if (show.length > maxc && maxc > 1) show = subStr(show, 0, maxc - 1) + "…";
+    c.mostrado = show;
+  }
+  texto(fx + 7, y + (h / 2 - 7), c.mostrado, estiloTexto(cur.length === 0 ? TEXT_DIM : TEXT, 12));
   return over;
 }
 
 /// Campo numérico estilo Unity: aba colorida (X/Y/Z) = ARRASTAR faz scrub; área
 /// do VALOR = CLICAR entra em modo digitação (input de texto → parseFloat no
 /// Enter/clique fora). `id` estável por campo. Devolve o valor atual.
-export function numField(win: i64, id: number, x: number, y: number, w: number,
-                         lbl: string, tab: number, value: f64,
-                         mx: f64, my: f64, mDown: number, mPressed: number): f64 {
+export function numField(c: CampoCache, lbl: string, tab: number, value: f64): f64 {
+  const id = c.id;
+  const win = janelaAtual2D();
+  const x = wX; const y = wY; const w = wW; const mx = wMx; const my = wMy; const mDown = wDown; const mPressed = wPressed;
   const tabWidth = lbl.length === 0 ? 0 : N.axisWidth;
   const valueX = x + tabWidth;
   const valueWidth = w - tabWidth;
@@ -149,10 +163,10 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
   }
 
   // ── desenho ──
-  render.rect(win, x, y, w, N.height, FIELD, 1, BORDER, 3);
+  pincel(FIELD, 1, BORDER, 3); caixa(x, y, w, N.height);
   if (tabWidth > 0) {
-    render.rect(win, x, y, tabWidth, N.height, tab, 0, 0, 3);
-    render.text(win, x + 4, y + N.textY, lbl, UI_C.axisLabelText, N.font, 0);
+    pincel(tab, 0, 0, 3); caixa(x, y, tabWidth, N.height);
+    texto(x + 4, y + N.textY, lbl, estiloTexto(UI_C.axisLabelText, N.font));
   }
 
   if (nfEditId === id) {
@@ -164,12 +178,11 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
       nfEditText = nfSelectAll !== 0 || nfEditText.length === 0 ? "" : subStr(nfEditText, 0, nfEditText.length - 1);
       nfSelectAll = 0;
     }
-    render.rect(win, valueX, y, valueWidth, N.height, UI_C.numberEditor, 1, UI_C.numberEditorBorder, 3);
-    if (nfSelectAll !== 0) render.rect(win, valueX + N.textY, y + 2, valueWidth - N.padding, N.height - 4, UI_C.fieldSelection, 0, 0, 1);
+    pincel(UI_C.numberEditor, 1, UI_C.numberEditorBorder, 3); caixa(valueX, y, valueWidth, N.height);
+    if (nfSelectAll !== 0) { pincel(UI_C.fieldSelection, 0, 0, 1); caixa(valueX + N.textY, y + 2, valueWidth - N.padding, N.height - 4); }
     const editChars = math.max(1, ((valueWidth - N.padding * 2) / N.charWidth) | 0);
     const editingText = nfEditText;
-    render.text(win, valueX + N.padding, y + N.textY,
-      subStr(editingText, math.max(0, editingText.length - editChars), editingText.length) + "|", UI_C.white, N.font, 0);
+    texto(valueX + N.padding, y + N.textY, subStr(editingText, math.max(0, editingText.length - editChars), editingText.length) + "|", estiloTexto(UI_C.white, N.font));
     if (input.key(win, 2, 1)) { nfCancel(); return value; }
     if (input.key(win, 1, 1)) {
       const parsed = parseFloat(nfEditText);
@@ -180,33 +193,29 @@ export function numField(win: i64, id: number, x: number, y: number, w: number,
     return value;   // enquanto digita, mantém o valor até confirmar
   }
   const valueChars = math.max(1, ((valueWidth - N.padding * 2) / N.charWidth) | 0);
-  let valueText = "" + r2(v);
-  if (valueText.length > valueChars) valueText = subStr(valueText, 0, valueChars - 1) + "…";
-  render.text(win, valueX + N.padding, y + N.textY, valueText, UI_C.popupText, N.font, 0);
+  // "" + r2(v) só quando o valor mostrado ou a largura mudam (não por quadro)
+  if (c.valor !== v || c.largura !== valueChars || c.texto.length === 0) {
+    c.valor = v; c.largura = valueChars;
+    let valueText = "" + r2(v);
+    if (valueText.length > valueChars) valueText = subStr(valueText, 0, valueChars - 1) + "…";
+    c.texto = valueText;
+  }
+  texto(valueX + N.padding, y + N.textY, c.texto, estiloTexto(UI_C.popupText, N.font));
   return v;
 }
 
 // Propriedades de componentes: rotulo legivel em uma coluna, valor na outra.
 // Reusa a edicao numerica sem a aba de eixo, que so comporta X/Y/Z.
-export function propertyField(win: i64, id: number, x: number, y: number, w: number,
-                              lbl: string, value: f64, mx: f64, my: f64,
-                              mDown: number, mPressed: number): f64 {
+export function propertyField(c: CampoCache, lbl: string, value: f64): f64 {
+  const x = wX; const y = wY; const w = wW;
   const labelWidth = (w * N.labelFraction) | 0;
   const chars = math.max(1, ((labelWidth - N.labelGap) / N.charWidth) | 0);
-  let labelText = lbl;
-  if (labelText.length > chars) labelText = subStr(labelText, 0, chars - 1) + "…";
-  render.text(win, x, y + N.textY, labelText, TEXT, N.font, 0);
-  return numField(win, id, x + labelWidth, y, w - labelWidth, "", FIELD, value, mx, my, mDown, mPressed);
-}
-
-/// Checkbox. Recebe 0/1, devolve o novo estado (alterna ao clicar).
-export function checkbox(win: i64, x: number, y: number, checked: number, lbl: string,
-                         mx: f64, my: f64, mPressed: number): number {
-  const over = mx >= x && mx < x + 18 && my >= y && my < y + 18;
-  let r = checked;
-  if (over && mPressed !== 0) { if (checked === 0) r = 1; else r = 0; }
-  render.rect(win, x, y, 18, 18, FIELD, 1, BORDER, 3);
-  if (r !== 0) render.rect(win, x + 4, y + 4, 10, 10, UI_C.checkboxMark, 0, 0, 2);
-  render.text(win, x + 24, y + 1, lbl, TEXT, 13, 0);
-  return r;
+  // rótulo cortado: o chamador passa o mesmo `lbl` a cada quadro; refeito só quando muda
+  if (c.rotulo !== lbl || c.rotuloN !== chars) {
+    c.rotulo = lbl; c.rotuloN = chars;
+    c.rotuloTexto = lbl.length > chars ? subStr(lbl, 0, chars - 1) + "…" : lbl;
+  }
+  texto(x, y + N.textY, c.rotuloTexto, estiloTexto(TEXT, N.font));
+  wX = x + labelWidth; wW = w - labelWidth;
+  return numField(c, "", FIELD, value);
 }

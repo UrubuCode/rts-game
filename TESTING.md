@@ -61,6 +61,15 @@ savescene assets/my.json           # persists across restarts
 Mutating commands snapshot the scene first, so `undo` / `redo` cover the whole
 session.
 
+### Measuring frame cost (vsync)
+
+`vsync 0` over the port now turns vsync off at runtime (it used to pass a
+boolean that the runtime read as "on"). `RTS_VSYNC=0` in the environment still
+turns it off from the first frame, for the editor (`main.ts`) and the game
+(`game.ts`). For reproducible numbers use `node bench/claude-frame-bench.mjs`
+(RTS_BENCH: wall/CPU per frame, GC collections per 1000 frames, frames > 10 ms,
+machine CPU load) and `bench/claude-bench-vsync-runtime.ts` for the toggle.
+
 ## Legacy harnesses (headless / TCP)
 
 Two older headless control ports remain for scripted, deterministic tests of the

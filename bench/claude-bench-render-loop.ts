@@ -21,7 +21,9 @@ import { GameObject } from "@engine/core/gameobject";
 import { Transform } from "@engine/core/transform";
 import { scene } from "@editor/control/session";
 import { frustumBegin, frustumParams, inFrustumFast } from "@engine/render/gpu3d";
-import { drawSceneObjects, fParams } from "@engine/render/scenedraw";
+import { drawSceneObjects, prepararDesenho, DS_FLOATS, fParams } from "@engine/render/scenedraw";
+const cfgBench = new Float64Array(DS_FLOATS);
+function prepararCfg(): Float64Array { prepararDesenho(cfgBench, fParams, 0 - 1, 0.0); return cfgBench; }
 
 const N = 500;
 const F = 200;
@@ -76,9 +78,7 @@ function medir(nome: string, corpo: () => number): number {
 io.print("laco de render, " + N + " objetos, " + F + " frames, camera FIXA:");
 const a = medir("ANTIGO (corpo do frame)", lacoAntigo);
 const b = medir("NOVO (funcao livre tipada)", () => {
-  return drawSceneObjects(objs, trs, objs.length, scene, 0, 0 - 1, 0.0,
-    fParams[0], fParams[1], fParams[2], fParams[3], fParams[4],
-    fParams[5], fParams[6], fParams[7], fParams[8]);
+  return drawSceneObjects(scene, objs.length, 0, prepararCfg());
 });
 io.print("");
 io.print("  razao ANTIGO/NOVO: " + (a / b).toFixed(2) + "x");

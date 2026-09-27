@@ -25,6 +25,7 @@ import { gfAvailable, gfInit, gfSpawnBlock, gfSyncColliders, gfStep,
 import { initMeshes, setCam, setLgt, setShadow, drawGPU,
          frustumBegin, inFrustumFast, winWidth, winHeight, setVsync } from "@engine/render/gpu3d";
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { estiloTexto, texto } from "@compat/draw2d.ts";
 import { createAppAt } from "@compat/app.ts";   // era um GLOBAL do motor antigo
 
 let W = 1280;
@@ -225,8 +226,8 @@ function frame(): void {
   }
   tDraw = tDraw + (performance.now() - tB);
 
-  app.text(14, 12, "CASTELO INUNDADO — " + N + " particulas na GPU   fps " + math.floor(app.fps()), 0xD8E8FFFF, 15);
-  app.text(14, 34, "fisica em WGSL (rts:gpu) | WASD voa | R solta a agua de novo", 0x90A8C0FF, 12);
+  texto(14, 12, "CASTELO INUNDADO — " + N + " particulas na GPU   fps " + math.floor(app.fps()), estiloTexto(0xD8E8FFFF, 15));
+  texto(14, 34, "fisica em WGSL (rts:gpu) | WASD voa | R solta a agua de novo", estiloTexto(0x90A8C0FF, 12));
   app.endFrame();
 
   if (frames % 300 === 0) {

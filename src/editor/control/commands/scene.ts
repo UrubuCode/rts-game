@@ -278,7 +278,7 @@ export function cmdClear(): string {
 export function cmdLoad(parts: string[]): string {
   playMode.stop();
   loadSceneFrom(parts[1]);
-  sceneDocument.initialize(parts[1]);
+  sceneDocument.opened(parts[1]);
   return "[ok] loadscene " + parts[1] + " -> " + scene.objects.length;
 }
 

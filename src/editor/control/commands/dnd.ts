@@ -10,7 +10,8 @@ import fs from "@compat/fs.ts";
 
 import { scene, S } from "../session";
 import { sceneDocument } from "@editor/scene_document";
-import { kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject } from "@editor/dnd";
+import { kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, vistaDaSessao } from "@editor/dnd";
+import { VISTA_FLOATS } from "@editor/gizmo";
 import { isModelPath } from "@engine/render/model";
 import { thumbReport, TH_IMAGE, TH_MODEL, TH_PREFAB, TH_SCENE } from "@editor/thumbs";
 import { subStr } from "@editor/widgets";
@@ -25,6 +26,9 @@ function sceneDropResult(path: string): string {
 
 // componentes da câmera usados pela projeção (mesma decomposição do main).
 function focal(h: number): f64 { return (h * 0.5) / math.tan(FOV * 0.5); }
+// Vista da câmera e ponto de saída, reaproveitados pelos comandos.
+const vista = new Float64Array(VISTA_FLOATS);
+const ponto = new Float64Array(4);
 
 /// drop <path> [sx sy] — "arrasta" o asset pra CENA. Com <sx> <sy> (pixels da
 /// janela) o objeto nasce no ponto do chão sob esse pixel — igual a soltar o
@@ -43,16 +47,15 @@ export function cmdDrop(parts: string[], w: number, h: number): string {
   if (parts.length >= 4) {
     const sx = parseFloat(parts[2]);
     const sy = parseFloat(parts[3]);
-    const cyw = math.cos(S.camYaw); const syw = math.sin(S.camYaw);
-    const cpt = math.cos(S.camPitch); const spt = math.sin(S.camPitch);
-    const g = groundAt(sx, sy, focal(h), w, h, cyw, syw, cpt, spt);
-    wx = g[0]; wy = g[1]; wz = g[2];
+    vistaDaSessao(vista, w, h, focal(h));
+    groundAt(ponto, vista, sx, sy);
+    wx = ponto[0]; wy = ponto[1]; wz = ponto[2];
     placed = 1;
     where = "tela(" + sx + "," + sy + ") -> mundo(" + wx + "," + wy + "," + wz + ")";
   }
 
   const before = scene.objects.length;
-  const idx = instantiateAt(kind, path, wx, wy, wz, placed, S.win);
+  const idx = instantiateAt(kind, path, placed !== 0 ? ponto : null);
   if (idx < 0) {
     if (kind === "scene") return sceneDropResult(path);
     return "[erro] falha ao instanciar: " + path;
@@ -72,7 +75,8 @@ export function cmdDropAt(parts: string[]): string {
   const x = parseFloat(parts[2]);
   const y = parseFloat(parts[3]);
   const z = parseFloat(parts[4]);
-  const idx = instantiateAt(kind, path, x, y, z, 1, S.win);
+  ponto[0] = x; ponto[1] = y; ponto[2] = z;
+  const idx = instantiateAt(kind, path, ponto);
   if (idx < 0) {
     if (kind === "scene") return sceneDropResult(path);
     return "[erro] falha ao instanciar: " + path;
@@ -111,9 +115,8 @@ export function cmdPickAt(parts: string[], w: number, h: number): string {
   if (parts.length < 3) return "[erro] uso: pickat <sx> <sy>";
   const sx = parseFloat(parts[1]);
   const sy = parseFloat(parts[2]);
-  const cyw = math.cos(S.camYaw); const syw = math.sin(S.camYaw);
-  const cpt = math.cos(S.camPitch); const spt = math.sin(S.camPitch);
-  const i = pickAt(sx, sy, focal(h), w, h, cyw, syw, cpt, spt);
+  vistaDaSessao(vista, w, h, focal(h));
+  const i = pickAt(vista, sx, sy);
   if (i < 0) return "[pickat] (" + sx + "," + sy + ") -> nenhum objeto";
   return "[pickat] (" + sx + "," + sy + ") -> #" + i + " " + scene.objects[i].name;
 }
@@ -157,8 +160,7 @@ export function cmdGroundAt(parts: string[], w: number, h: number): string {
   if (parts.length < 3) return "[erro] uso: groundat <sx> <sy>";
   const sx = parseFloat(parts[1]);
   const sy = parseFloat(parts[2]);
-  const cyw = math.cos(S.camYaw); const syw = math.sin(S.camYaw);
-  const cpt = math.cos(S.camPitch); const spt = math.sin(S.camPitch);
-  const g = groundAt(sx, sy, focal(h), w, h, cyw, syw, cpt, spt);
-  return "[groundat] (" + sx + "," + sy + ") -> mundo(" + g[0] + "," + g[1] + "," + g[2] + ")";
+  vistaDaSessao(vista, w, h, focal(h));
+  groundAt(ponto, vista, sx, sy);
+  return "[groundat] (" + sx + "," + sy + ") -> mundo(" + ponto[0] + "," + ponto[1] + "," + ponto[2] + ")";
 }

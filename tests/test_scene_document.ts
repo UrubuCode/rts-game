@@ -6,6 +6,7 @@ import { sceneFromJSON, sceneToJSON } from "@editor/sceneio";
 import { history } from "@editor/undo";
 import { Spinner } from "@scripts/spinner";
 import { setLogEcho } from "@engine/core/logger";
+import { LUZ_DIRECIONAL } from "@engine/core/light";
 
 function check(ok: boolean, message: string): void { if (!ok) throw new Error(message); }
 setLogEcho(0);
@@ -46,6 +47,12 @@ check(restored.name === "Second" && restored.active === 0 && restored.transform.
 check(restored.behaviors[0].enabled === 0 && restored.behaviors[0].collapsed === 1, "component state roundtrip");
 check(!doc.dirty && history.undoDepth() === 0, "open resets dirty and old undo history");
 restored.name = "Save then new"; doc.request("new");
-check(doc.save(path) && doc.complete() && scene.count() === 0 && doc.path === "", "save and continue retains pending transition");
+check(doc.save(path) && doc.complete(), "save and continue retains pending transition");
+// Desde o Task 3, uma cena nova não é vazia: ganha a "Luz Direcional" padrão
+// (única, direcional, com sombra) — critério atualizado, mesma intenção: cena
+// nova é limpa (sem os objetos autorados antigos) e não fica sujo o documento.
+check(scene.count() === 1 && scene.objects[0].name === "Luz Direcional", "new scene starts with only the default directional light");
+check(scene.objects[0].behaviors[0].lightType() === LUZ_DIRECIONAL, "the default object is a directional light");
+check(!doc.dirty && doc.path === "", "new scene is not dirty and has no path yet");
 check(JSON.parse(fs.read_text(path)).objects[0].name === "Save then new", "save before new keeps authored edit");
 io.print("[PASSOU] SceneDocument: dirty, cancel, overwrite, failure, play, validation and roundtrip");

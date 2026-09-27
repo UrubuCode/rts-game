@@ -7,6 +7,8 @@ import { recreateBehavior } from "./sceneio";
 import { history } from "./undo";
 import { stepReset } from "@engine/core/fixedstep";
 import { interpolateReset } from "@engine/core/interpolate";
+import { Ambiente, copiarAmbiente } from "@engine/core/ambiente";
+import { emitEditorEvent } from "./api";
 
 // A cena original nao e serializada/reconstruida ao parar. Conservamos seus
 // GameObjects e componentes; somente copias descartaveis recebem update.
@@ -18,6 +20,7 @@ export class PlayMode {
   selection: number[] = [];
   sceneName: string = "";
   light: number[] = [];
+  ambiente: Ambiente = new Ambiente();
   error: string = "";
 
   play(): boolean {
@@ -56,15 +59,20 @@ export class PlayMode {
     this.originals = scene.objects.slice();
     this.sceneName = scene.name;
     this.selected = S.selected; this.selection = S.selection.slice();
+    // a câmera da aba Jogo é um objeto: passa para a cópia correspondente
+    const camJogo = S.gameCamera !== null ? this.originals.indexOf(S.gameCamera) : 0 - 1;
     this.light = [S.lightX, S.lightY, S.lightZ, S.lightAmb];
+    copiarAmbiente(this.ambiente, scene.ambiente);
     this.undo = history.u; this.redo = history.r;
     history.u = []; history.r = [];
     scene.clear();
     let copyIndex = 0;
     while (copyIndex < copies.length) { scene.add(copies[copyIndex]); copyIndex = copyIndex + 1; }
+    S.gameCamera = camJogo >= 0 ? copies[camJogo] : null;
     scene.computeWorld();
     stepReset(); interpolateReset();
     S.simulating = 1; S.playing = 1;
+    emitEditorEvent("entrarPlay", "");
     return true;
   }
 
@@ -73,6 +81,8 @@ export class PlayMode {
   stop(): void {
     if (S.simulating === 0) return;
     S.playing = 0;
+    // a câmera da aba Jogo volta da cópia para o original de mesma posição
+    const camJogo = S.gameCamera !== null ? scene.objects.indexOf(S.gameCamera) : 0 - 1;
     scene.clear();
     let restoreIndex = 0;
     while (restoreIndex < this.originals.length) {
@@ -82,12 +92,15 @@ export class PlayMode {
     }
     scene.name = this.sceneName;
     S.selected = this.selected; S.selection = this.selection;
+    S.gameCamera = camJogo >= 0 && camJogo < this.originals.length ? this.originals[camJogo] : null;
     S.lightX = this.light[0]; S.lightY = this.light[1]; S.lightZ = this.light[2]; S.lightAmb = this.light[3];
+    copiarAmbiente(scene.ambiente, this.ambiente);
     history.u = this.undo; history.r = this.redo;
     this.originals = []; this.undo = []; this.redo = [];
     scene.computeWorld();
     stepReset(); interpolateReset();
     S.simulating = 0;
+    emitEditorEvent("sairPlay", "");
   }
 }
 
