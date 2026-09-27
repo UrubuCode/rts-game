@@ -29,7 +29,7 @@ function markdown(m) {
   out.push('');
   out.push('<!-- GERADO por `npm run docs:ws` a partir de `doc json` (src/editor/control/builtin_commands.ts + comandos de pacote). Não edite à mão. -->');
   out.push('');
-  out.push('Conexão: `ws://127.0.0.1:7777` (só loopback). Cliente: `python tools/ws_client.py` (ver `docs/skills/rts-engine-control/SKILL.md`).');
+  out.push('Conexão: `ws://127.0.0.1:7777` (só loopback). Cliente: `python tools/ws_client.py` (ver `.claude/skills/rts-engine-control/SKILL.md`).');
   out.push('');
   out.push('Protocolo: ' + m.protocol + '.');
   out.push('');

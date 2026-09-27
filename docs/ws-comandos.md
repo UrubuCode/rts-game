@@ -2,19 +2,23 @@
 
 <!-- GERADO por `npm run docs:ws` a partir de `doc json` (src/editor/control/builtin_commands.ts + comandos de pacote). Não edite à mão. -->
 
-Conexão: `ws://127.0.0.1:7777` (só loopback). Cliente: `python tools/ws_client.py` (ver `docs/skills/rts-engine-control/SKILL.md`).
+Conexão: `ws://127.0.0.1:7777` (só loopback). Cliente: `python tools/ws_client.py` (ver `.claude/skills/rts-engine-control/SKILL.md`).
 
 Protocolo: 1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] ...; <obj> = indice, #indice, nome exato (aspas se tiver espaco) ou caminho Pai/Filho; async = a resposta pode vir depois (a conexao espera por ela antes da linha seguinte).
 
 Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio` (o comando tira só nos subcomandos que mudam a cena) ou `nenhum`; **async** = a resposta vem depois (a conexão espera por ela antes da linha seguinte; não cabe num `batch`).
 
-104 comandos.
+105 comandos.
 
 ## consulta
 
 | Sintaxe | O que faz | Exemplo | Desfazer | async |
 |---|---|---|---|---|
 | `assets errors [clear]` | texturas, modelos, ceu e esqueletos que nao carregaram (tipo, caminho, vezes, motivo) | `assets errors` | nenhum |  |
+| `contexto` | retrato compacto do editor pra uma IA, gerado AGORA do runtime: comandos, componentes (com campos), menus, pacotes, sistemas e cena | `contexto` | nenhum |  |
+| `contexto json` | o mesmo em JSON completo | `contexto json` | nenhum |  |
+| `contexto <secao>` | so uma secao (comandos\|componentes\|menus\|pacotes\|sistemas\|cena) | `contexto componentes` | nenhum |  |
+| `contexto componentes <Nome>` | ficha detalhada de UM componente (campos, tipos, opcoes) | `contexto componentes Spinner` | nenhum |  |
 | `describe <obj>` | TUDO de um objeto em texto: nome, indice, caminho, ativo, transform (pos, rot em graus, escala, mundo), aparencia, filhos e cada componente com todos os campos | `describe Cubo` | nenhum |  |
 | `describe <obj> json` | o mesmo em JSON (depois de '[describe] ') | `describe Pai/Filho json` | nenhum |  |
 | `doc [prefixo]` | esta documentacao (todos ou filtrado pelo inicio da linha) | `doc addcomp` | nenhum |  |
