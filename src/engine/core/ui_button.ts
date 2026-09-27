@@ -9,7 +9,7 @@
 
 import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { anchorX, anchorY, hitRect, ANCHOR_TL } from "@engine/ui/anchor";
-import input from "rts:input";
+import input from "@compat/input";
 
 import { caixa, estiloTexto, pincel, texto } from "@compat/draw2d.ts";
 /// Retângulo do botão para `hitRect`, reaproveitado (um desenho por vez).

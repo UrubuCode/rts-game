@@ -16,6 +16,62 @@ import { WebSocketServer } from "ws";
 
 import { S } from "./session";
 import { execCommand } from "./dispatch";
+import { Adiado, ehRespostaAdiada, tomarAdiado, avancarAdiado } from "@editor/control/adiado";
+import { logInfo, logError } from "@engine/core/logger";
+import { novaConexao, definirConexaoAtual, conexaoFechou } from "@editor/control/conexao";
+import { haTarefasDeFundo, rodarTarefasDeFundo } from "@editor/control/processos";
+
+/// Uma conexão: as linhas que chegaram e ainda não rodaram, e a resposta
+/// adiada que está segurando essas linhas (ver adiado.ts). As linhas de uma
+/// conexão rodam EM ORDEM: `input click` seguido de `shot` só captura depois
+/// que o clique aconteceu.
+class ConexaoControle {
+  ws: any;
+  /// Identidade (conexao.ts): dona da entrada simulada e do lote que abrir.
+  id: number;
+  fila: string[] = [];
+  espera: Adiado | null = null;
+  /// A linha cuja resposta está adiada (para o log da resposta final).
+  linhaEmEspera: string = "";
+  constructor(ws: any) { this.ws = ws; this.id = novaConexao(); }
+}
+/// Conexões com uma resposta adiada pendente (olhadas 1x por quadro só
+/// quando a lista não está vazia).
+const esperando: ConexaoControle[] = [];
+
+/// Roda as linhas enfileiradas da conexão até acabar ou uma adiar a resposta.
+function processarFila(c: ConexaoControle): void {
+  while (c.espera === null && c.fila.length > 0) {
+    const linha = c.fila.shift();
+    definirConexaoAtual(c.id);
+    const out = execCommand(curW, curH, linha);
+    definirConexaoAtual(0);
+    if (ehRespostaAdiada(out)) {
+      const a = tomarAdiado();
+      if (a !== null) { c.espera = a; c.linhaEmEspera = linha; esperando.push(c); return; }
+      c.ws.send("[erro] " + linha.split(" ")[0] + ": resposta adiada sem espera registrada");
+    } else c.ws.send(out);
+  }
+}
+
+/// Conclui as esperas prontas ou vencidas e retoma a fila dessas conexões.
+function retomarEsperas(): void {
+  let i = 0;
+  while (i < esperando.length) {
+    const c = esperando[i];
+    const a = c.espera;
+    if (a === null || avancarAdiado(a)) {
+      esperando.splice(i, 1);
+      c.espera = null;
+      if (a !== null) {
+        if (a.texto.indexOf("[erro]") === 0) logError(c.linhaEmEspera + "  ->  " + a.texto);
+        else logInfo(c.linhaEmEspera + "  ->  " + a.texto);
+        c.ws.send(a.texto);
+      }
+      processarFila(c);
+    } else i = i + 1;
+  }
+}
 
 /// Tamanho lógico do último frame. Antes chegava por parâmetro e era usado na
 /// hora, porque o comando era LIDO dentro do próprio `ctrlPoll`. Com eventos, o
@@ -56,6 +112,14 @@ export function hostDeControleAceito(host: string, port: number): boolean {
 }
 let curW = 0;
 let curH = 0;
+
+/// Porta padrão da porta de controle.
+export const CONTROLE_PORTA_PADRAO: number = 7777;
+/// A porta pedida em RTS_CTRL_PORT ("" ou inválida = a padrão).
+export function portaDeControle(env: string): number {
+  const p = Number(env);
+  return env.length > 0 && p === Math.floor(p) && p >= 1 && p <= 65535 ? p : CONTROLE_PORTA_PADRAO;
+}
 
 /// Abre a porta de controle e registra os handlers.
 ///
@@ -110,22 +174,40 @@ export function ctrlServe(port: number): void {
       return;
     }
     S.wsClient = S.wsClient + 1;
-    ws.send("[engine] editor conectado. envie 'help' (lista) ou 'doc' (detalhes+exemplos p/ IA).");
+    ws.send("[engine] editor conectado. envie 'help' (lista), 'doc' (detalhes+exemplos) ou 'doc json' (manifesto p/ IA).");
 
+    const con = new ConexaoControle(ws);
     ws.on("message", (dados: any) => {
       // `data` pode ser string ou Buffer conforme o frame; `toString()` é o que
       // vale para os dois, e o protocolo daqui é texto em qualquer caso.
       const msg = dados.toString();
       const lines = msg.split("\n");
-      let li = 0;
+      // Uma mensagem que começa com a linha `batch` (ou `txn`) sozinha é um
+      // LOTE inteiro: vira `batch begin` + as linhas + `batch end` (lote.ts).
+      const primeira = lines.length > 1 ? lines[0].split("\r")[0].trim() : "";
+      const loteNaMensagem = primeira === "batch" || primeira === "txn";
+      let li = loteNaMensagem ? 1 : 0;
+      if (loteNaMensagem) con.fila.push(primeira + " begin");
       while (li < lines.length) {
         const l = lines[li].split("\r")[0];
-        if (l.length > 0) ws.send(execCommand(curW, curH, l));
+        if (l.length > 0) con.fila.push(l);
         li = li + 1;
       }
+      if (loteNaMensagem) con.fila.push(primeira + " end");
+      processarFila(con);
     });
 
-    ws.on("close", () => { S.wsClient = S.wsClient - 1; });
+    ws.on("close", () => {
+      S.wsClient = S.wsClient - 1;
+      // quem fechou não recebe mais nada: a espera dele é abandonada
+      con.fila = [];
+      const k = esperando.indexOf(con);
+      if (k >= 0) esperando.splice(k, 1);
+      if (con.espera !== null) con.espera.abandonado = true;
+      con.espera = null;
+      // solta a entrada simulada e desfaz o lote que esta conexão deixou
+      conexaoFechou(con.id);
+    });
     // Sem este handler um erro de socket sobe como exceção não capturada e leva
     // o editor junto — o cliente que caiu não deve derrubar a cena de quem está
     // olhando a tela.
@@ -139,12 +221,15 @@ export function ctrlServe(port: number): void {
 export function ctrlPoll(w: number, h: number): void {
   curW = w;
   curH = h;
+  // processos da porta (testes, captura): prazo e limpeza com ou sem cliente
+  if (haTarefasDeFundo()) rodarTarefasDeFundo();
   // -1 é a ÚNICA saída cedo. Com 0 (bind em voo) é obrigatório bombear: quem
   // entrega o `'listening'` é justamente o `pumpEvents` abaixo, e sair aqui
   // faria o estado nunca sair de 0 — o servidor abriria a porta e o editor
   // nunca ficaria sabendo. Foi o impasse que a correção do estado otimista
   // criou, e é o motivo de haver TRÊS estados em vez de dois.
   if (S.wsServer < 0) return;
+  if (esperando.length > 0) retomarEsperas();
   // O booleano devolvido ("alguém ainda tem trabalho") é para um laço que
   // decide dormir; aqui quem dita o ritmo é o frame, então é ignorado.
   pumpEvents();

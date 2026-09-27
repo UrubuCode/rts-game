@@ -3,7 +3,7 @@ import { logEntries, logClear, logRevision, LOG_INFO, LogEntry } from "@engine/c
 import { EditorUI, EditorControl } from "./ui_controls";
 import { ScriptEditor } from "./script_editor";
 import { UI_CONSOLE as L, UI_C } from "./ui_config";
-import input from "rts:input";
+import input from "@compat/input";
 
 function entryKey(row: LogEntry): string { return JSON.stringify([row.level, row.message, row.source, row.line]); }
 export class ConsolePanel extends Behavior {

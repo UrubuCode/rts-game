@@ -10,6 +10,7 @@ import type { GameObject } from "@engine/core/gameobject";
 import type { Behavior } from "@engine/core/behavior";
 import { logWarn, logError } from "@engine/core/logger";
 import { BUILTIN_COMMANDS } from "./control/builtin_commands";
+import { resolverObjeto } from "@editor/control/object_ref";
 import math from "@compat/math.ts";
 
 // Gizmos: um pacote desenha ajudas visuais do editor para um tipo de
@@ -61,9 +62,9 @@ export function registerCommand(nome: string, ajuda: string, muta: boolean, fn: 
 export function commandIndex(nome: string): number { return estado.nomes.indexOf(nome); }
 export function commandMutates(i: number): boolean { return estado.mutam[i]; }
 export function runCommand(i: number, partes: string[]): string {
-  let out = "";
-  try { out = estado.fns[i](partes); }
-  catch (error) { out = "[erro] " + estado.nomes[i] + ": " + (error instanceof Error ? error.message : String(error)); }
+  // Sem `try` aqui: a exceção sobe até o ponto protegido único do despacho
+  // (dispatch.ts execProtegido), que responde "[erro] <nome>: <mensagem>".
+  let out = estado.fns[i](partes);
   if (out.length === 0 || out.charCodeAt(0) !== COLCHETE) out = "[ok] " + out;
   return out;
 }
@@ -76,22 +77,14 @@ function ajudaComNome(i: number): string {
   if (a.indexOf(n + " ") === 0) return a;
   return n + " " + a;
 }
-export function commandHelpLine(): string {
-  let s = "";
-  let i = 0;
-  while (i < estado.nomes.length) {
-    s = s + (i === 0 ? " || SCRIPTS: " : " | ") + ajudaComNome(i).split(SEPARADOR_AJUDA)[0];
-    i = i + 1;
-  }
-  return s;
-}
-/// Linhas no formato do `doc`: "assinatura :: descrição :: exemplo".
-export function commandDocLines(out: string[]): void {
-  let i = 0;
-  while (i < estado.nomes.length) {
-    out.push(ajudaComNome(i) + SEPARADOR_AJUDA + estado.nomes[i]);
-    i = i + 1;
-  }
+/// Quantos comandos de pacote estão registrados.
+export function commandCount(): number { return estado.nomes.length; }
+export function commandName(i: number): string { return estado.nomes[i]; }
+/// Uso no formato do `doc`: "assinatura :: descrição :: exemplo" (sem exemplo
+/// na ajuda, o exemplo é o próprio nome).
+export function commandUsage(i: number): string {
+  const a = ajudaComNome(i);
+  return a.split(SEPARADOR_AJUDA).length > 2 ? a : a + SEPARADOR_AJUDA + estado.nomes[i];
 }
 export function emitEditorEvent(evento: string, arg: string): void {
   if (!estado.host.ativo) return;
@@ -123,4 +116,13 @@ export class Editor {
     out[0] = out[0] + sy * cp * SPAWN_DISTANCE; out[1] = out[1] + sp * SPAWN_DISTANCE; out[2] = out[2] + cy * cp * SPAWN_DISTANCE;
   }
   static inspect(b: Behavior, titulo: string): void { estado.host.inspect(b, titulo); }
+  /// Objeto da cena editada por índice ("3"/"#3"), nome exato ou caminho
+  /// "Pai/Filho" — o mesmo resolvedor dos comandos embutidos. null se não
+  /// achar, se o nome for ambíguo ou fora do editor.
+  static object(ref: string): GameObject | null {
+    const sc = estado.host.scene();
+    if (sc === null) return null;
+    const i = resolverObjeto(sc, ref);
+    return i >= 0 ? sc.objects[i] : null;
+  }
 }

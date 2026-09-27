@@ -77,10 +77,8 @@ export class CameraMenu {
 }
 
 function objetoComCamera(indice: string): GameObject | null {
-  const sc = Editor.scene(); const i = parseFloat(indice);
-  let o: GameObject | null = null;
-  if (sc !== null && i === Math.floor(i) && i >= 0 && i < sc.objects.length && sc.objects[i].camIdx >= 0) o = sc.objects[i];
-  return o;
+  const o = Editor.object(indice);
+  return o !== null && o.camIdx >= 0 ? o : null;
 }
 function numeroValido(v: number): boolean { return v === v && v > -1e30 && v < 1e30; }
 function xyz(a: number, b: number, c: number): string { return "(" + a.toFixed(CASAS) + ", " + b.toFixed(CASAS) + ", " + c.toFixed(CASAS) + ")"; }
@@ -139,7 +137,7 @@ function cmdCamera(p: string[]): string {
       Editor.snapshot("camera main");
       let i = 0;
       while (i < sc.camObjs.length) { const c = sc.camObjs[i]; (c.behaviors[c.camIdx] as Camera).isMain = c === o ? 1 : 0; i = i + 1; }
-      out = "[ok] principal #" + p[2] + " " + o.name;
+      out = "[ok] principal #" + sc.objects.indexOf(o) + " " + o.name;
     }
   } else if (p.length >= 4 && p[1] === "ray") {
     const x = parseFloat(p[2]); const y = parseFloat(p[3]);
@@ -156,7 +154,7 @@ function cmdCamera(p: string[]): string {
     else {
       Editor.snapshot("camera alinhar");
       Editor.viewPose(pose); definirPoseDeMundo(sc, o, pose);
-      out = "[ok] #" + p[1] + " alinhada com a vista";
+      out = "[ok] #" + sc.objects.indexOf(o) + " alinhada com a vista";
     }
   } else if (p.length >= 5 && p[2] === "set") out = cmdCameraSet(p);
   return out;

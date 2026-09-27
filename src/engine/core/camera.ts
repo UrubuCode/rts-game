@@ -13,7 +13,7 @@
 // "Olhar" alinha uma na outra.
 
 import math from "@compat/math.ts";
-import { Behavior, KIND_CAMERA } from "./behavior";
+import { Behavior, KIND_CAMERA, FIELD_HINT_COLOR, FIELD_HINT_ENUM } from "./behavior";
 import { GameObject, activeInScene } from "./gameobject";
 import { activeScene } from "./active_scene";
 import type { InspectorUI } from "./inspector_ui";
@@ -137,6 +137,14 @@ export class Camera extends Behavior {
     if (ui.button(ROTULO_ALINHAR)) ui.alinharComVista(this.owner);
   }
   camFov(): f64 { return this.fov; }
+  /// A porta de controle aceita #RRGGBB em `corFundo` e só as opções da lista em `fundo`.
+  fieldHint(i: number): string {
+    const n = this.fieldName(i);
+    if (n === "corFundo") return FIELD_HINT_COLOR;
+    if (n === "fundo") return FIELD_HINT_ENUM;
+    return "";
+  }
+  fieldOptions(i: number): string[] { return this.fieldName(i) === "fundo" ? FUNDOS_CAMERA : super.fieldOptions(i); }
   onValidate(field: string): void {
     // `!(v >= min)` também pega NaN (toda comparação com NaN é falsa).
     if (!(this.fov >= CAMERA_FOV_MIN)) this.fov = CAMERA_FOV_MIN;

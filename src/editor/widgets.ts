@@ -5,7 +5,7 @@
 // + o estado do mouse como PRIMITIVOS — nada de passar objetos/classes.
 
 import math from "../compat/math.ts";
-import input from "rts:input";
+import input from "@compat/input";
 import { UI_C, UI_NUMERIC as N } from "./ui_config";
 
 import { caixa, estiloTexto, pincel, texto, janelaAtual2D } from "@compat/draw2d.ts";

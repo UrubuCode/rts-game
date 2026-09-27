@@ -8,7 +8,7 @@ import math from "@compat/math.ts";
 import buffer from "@compat/buffer.ts";
 import render from "@compat/render.ts";
 import { setVsync } from "rts:egui";
-import input from "rts:input";
+import input from "@compat/input";
 import fs from "@compat/fs.ts";
 import process from "@compat/process.ts";
 // `createAppAt` era um GLOBAL do motor antigo. No motor novo nada é global sem
@@ -35,7 +35,7 @@ import { PlayToolbar } from "@editor/play_toolbar";
 import { drawGameUI } from "@engine/ui/game_ui";
 import { playMode } from "@editor/play_mode";
 import { UI_PLAY } from "@editor/ui_config";
-import { UI_WORKSPACE, UI_DOCUMENT } from "@editor/ui_config";
+import { UI_WORKSPACE, UI_DOCUMENT, UI_CONTROLE_IA } from "@editor/ui_config";
 import { UI_GIZMO } from "@editor/ui_config";
 import { gizmosBegin } from "@engine/core/gizmos";
 import { gizmosDoEditor, passeDeGizmosProtegido, pintarGizmos, gizmoIconAt } from "@editor/gizmo_pass";
@@ -44,7 +44,7 @@ import { WorkspaceViews } from "@editor/workspace_views";
 import { sceneDocument } from "@editor/scene_document";
 import { DocumentPanel, saveDocument } from "@editor/document_panel";
 import { chooseSceneFile } from "@editor/scene_dialog";
-import { EditorBuild } from "@editor/editor_build";
+import { editorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetsArea, assetsMouse, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCamBuf, frustumBeginBuf, CAM_FLOATS, FRUSTUM_NEAR_PADRAO, FRUSTUM_FAR_PADRAO, CAM_ORTO_PADRAO, frustumParams, winWidth, winHeight, loadTexture,
          setViewportBuf, setFundoCeu } from "@engine/render/gpu3d";
@@ -60,8 +60,9 @@ import { selectedBoneTarget, boneWorldOriginInto, boneDrag } from "@editor/bone_
 import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, vistaDaSessao } from "@editor/dnd";
 import { history } from "@editor/undo";
-import { rigidStep, rigidBackendName } from "@engine/core/physics_backend";
-import { stepsFor, stepMore, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "@engine/core/fixedstep";
+import { rigidBackendName } from "@engine/core/physics_backend";
+import { stepsFor, stepMore, stepAlpha, stepsLastFrame, stepDiscards, stepTimeScale } from "@engine/core/fixedstep";
+import { simAtiva } from "@compat/input_sim";
 import { snapshotWorld, renderX, renderY, renderZ, interpolateReset, interpolateSync } from "@engine/core/interpolate";
 import { clockTick, clockNow, DOUBLE_CLICK_MS } from "@engine/core/clock";
 import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "@engine/core/profiler";
@@ -87,7 +88,8 @@ const P_UI_PROJ = profSection("  ui:project");
 // O "resto" era 2,11 ms NAO INSTRUMENTADOS — 29% do frame. E sempre no pedaço
 // não medido que mora a surpresa: hoje isso já aconteceu três vezes.
 const P_PRESENT = profSection("present/endFrame");
-import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { ctrlServe, ctrlPoll, portaDeControle } from "@editor/control/server";
+import { passoDaSimulacao, definirAoFalharSimulacao } from "@editor/sim_step";
 import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
 import "@engine/generated/editor_extensions";
@@ -222,7 +224,6 @@ const playToolbar = new PlayToolbar(app);
 const workspaceViews = new WorkspaceViews(app);
 const consolePanel = new ConsolePanel(app);
 const documentPanel = new DocumentPanel(app);
-const editorBuild = new EditorBuild();
 sceneDocument.initialize(fs.exists(sceneFile) ? sceneFile : "");
 let documentPoll = 0;
 
@@ -438,6 +439,7 @@ let hierShownN = 0;
 const rotTitulo = new RotuloPar(UI_ROTULOS.titlePrefix); const rotFps = new RotuloNumero(UI_ROTULOS.fpsPrefix, "");
 const rotObjs = new RotuloNumero("", UI_ROTULOS.objCount); const rotResultados = new RotuloNumero("", UI_ROTULOS.results);
 const rotStatusN = new RotuloNumero(UI_ROTULOS.statusSep, UI_ROTULOS.statusObjects); const rotStatus = new RotuloPar("");
+const rotEscalaTempo = new RotuloNumero(UI_CONTROLE_IA.timeScalePrefix, "");
 const rotLinhas = new RotulosDeLinha(); let rotFilhoNome = ""; let rotFilhoTexto = "";
 let fpsAtualizadoMs: f64 = 0.0 - 1.0e9;
 /// 1 = arrastando o polegar da barra de scroll da hierarquia.
@@ -464,7 +466,7 @@ let previewPay = "";
 
 initMeshes(WIN);
 assetsInit();
-ctrlServe(7777);
+ctrlServe(portaDeControle(process.env("RTS_CTRL_PORT")));   // RTS_CTRL_PORT troca a 7777 (dois editores, testes em paralelo)
 const host = instalarEditorReal();
 // Editor.inspect(b, título) de um pacote abre `b` como janela no Inspector.
 host.janela = (b: Behavior, titulo: string) => { inspector.abrirJanela(b, titulo); };
@@ -493,12 +495,9 @@ if (benchInit() !== 0) {
 }
 
 // `try/catch` fora de `frame()`: no RTS a função que contém `try` aloca a cada
-// chamada, mesmo sem entrar nele (Task 10.5). Os trechos protegidos moram aqui.
-/// Um passo de `scene.update`; 0 se um script lançou (a simulação pausa).
-function atualizarCenaProtegido(): number {
-  try { scene.update(FIXED_DT); return 1; }
-  catch (error) { logError("Erro durante simulacao: " + String(error)); playMode.pause(); workspaceViews.console = true; return 0; }
-}
+// chamada, mesmo sem entrar nele (Task 10.5). Os trechos protegidos moram aqui
+// (o passo protegido da simulação mora em editor/sim_step.ts).
+definirAoFalharSimulacao(() => { workspaceViews.console = true; });
 /// Menu Arquivo → Abrir: diálogo de arquivo e pedido de troca de cena.
 function abrirCenaPeloDialogo(): void {
   try { const path = chooseSceneFile(false); if (path.length > 0) sceneDocument.request("open", path); }
@@ -650,19 +649,8 @@ function frame(): void {
       // velocidades diferentes conforme o frame — o tremor que a interpolação
       // existe para tirar. Custa um `computeWorld` a mais só nesses frames.
       if (p > 0 && p === passos - 1) { scene.computeWorld(); snapshotWorld(scene); }
-      if (atualizarCenaProtegido() === 0) break;
-      // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
-      // passo — e aí a varredura de pares da CPU não roda, porque seriam duas
-      // físicas sobre o mesmo estado, a segunda vendo o que a primeira mexeu.
-      //
-      // A decisão fica AQUI, em quem dirige o frame, e não dentro da `Scene`: o
-      // decisor precisa do tipo `Scene` para varrer os corpos, então a `Scene`
-      // importá-lo de volta seria um ciclo. É a forma que o fluido já usa —
-      // `decide.ts` é chamado pelo jogo, não pelo solver.
-      //
-      // Medido (release, headless, 500 corpos): 12,05 ms na CPU contra 0,35 ms
-      // na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
-      if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
+      // scripts + física (GPU ou CPU) num passo: o mesmo do `step N` (sim_step.ts)
+      if (passoDaSimulacao() === 0) break;
       p = p + 1;
     }
     // O mundo final é derivado UMA vez, logo abaixo, depois de todos os passos.
@@ -959,6 +947,7 @@ function frame(): void {
   // passa a ser o da aba. Sem câmera, ou na aba Cena, a câmera do editor.
   const cenaX = HIER_W; const cenaY = BAR_H + UI_SCENE_HEADER_H;
   const cenaW = W - HIER_W - INSP_W; const cenaH = H - UI_STATUS_H - ASSET_H - cenaY;
+  S.areaVista[0] = cenaX; S.areaVista[1] = cenaY; S.areaVista[2] = cenaW; S.areaVista[3] = cenaH;
   let nJogo = 0; let nPrevia = 0;
   if (workspaceViews.game) {
     areaCena[0] = cenaX; areaCena[1] = cenaY; areaCena[2] = cenaW; areaCena[3] = cenaH;
@@ -1391,10 +1380,24 @@ function frame(): void {
   if (S.simulating !== 0) modeTxt = S.playing !== 0 ? UI_PLAY.running : UI_PLAY.paused;
   if (playMode.error.length > 0) modeTxt = playMode.error;
   texto(vpx + 10, H - 19, rotStatus.de(modeTxt, rotStatusN.de(scene.objects.length)), estiloTexto(UI_C.statusText, 12));
+  // Controle pela porta WS: a entrada simulada ignora o mouse/teclado físicos,
+  // e o humano precisa ver isso; a escala de tempo ≠ 1 também muda o que ele vê.
+  let indicadoresW = 0;
+  if (simAtiva()) {
+    indicadoresW = UI_CONTROLE_IA.simulatedInputW;
+    const sx = vpx + vpw - UI_CONTROLE_IA.simulatedInputW;
+    pincel(UI_C.simulatedInputFill, 0, 0, 3);
+    caixa(sx, H - UI_STATUS_H + UI_CONTROLE_IA.badgeInset, UI_CONTROLE_IA.simulatedInputW - UI_CONTROLE_IA.badgeInset, UI_STATUS_H - UI_CONTROLE_IA.badgeInset * 2);
+    texto(sx + UI_CONTROLE_IA.badgeInset * 2, H - UI_CONTROLE_IA.textInset, UI_CONTROLE_IA.simulatedInput, estiloTexto(UI_C.simulatedInputText, UI_CONTROLE_IA.font));
+  }
+  if (stepTimeScale() !== 1.0) {
+    indicadoresW = indicadoresW + UI_CONTROLE_IA.timeScaleW;
+    texto(vpx + vpw - indicadoresW, H - UI_CONTROLE_IA.textInset, rotEscalaTempo.de(stepTimeScale()), estiloTexto(UI_C.timeScaleText, UI_CONTROLE_IA.font));
+  }
   // O resultado detalhado do build fica no Console, sem cobrir o Inspector.
   if (editorBuild.status.length > 0) {
     if (vpw > 520 && S.simulating === 0) texto(vpx + 185, H - 19, editorBuild.running ? UI_WORKSPACE.buildRunning : UI_WORKSPACE.buildResult, estiloTexto(UI_C.dropMarker, 11));
-  } else if (vpw > 600 && S.simulating === 0 && playMode.error.length === 0) {
+  } else if (vpw > 600 && S.simulating === 0 && playMode.error.length === 0 && indicadoresW === 0) {
     texto(vpx + 185, H - 19, "WASD câmera • F enquadra • arraste assets do Project", estiloTexto(UI_C.hint, 11));
   }
 

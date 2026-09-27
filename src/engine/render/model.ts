@@ -11,6 +11,7 @@
 // (o loadTexture do gpu3d.ts já fazia isso pras imagens; aqui é o análogo.)
 
 import buffer from "@compat/buffer.ts";
+import { registrarFalhaAsset } from "@engine/core/falhas";
 import type { Buf } from "@compat/buffer.ts";
 import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
@@ -764,5 +765,6 @@ export function loadModel(win: i64, path: string): SubMesh[] {
   if (endsWithCI(path, ".obj")) parts = loadObjParts(win, path);
   else if (endsWithCI(path, ".glb") || endsWithCI(path, ".gltf")) parts = loadGltfParts(win, path);
   if (parts.length > 0) modelCache.set(path, parts);
+  else registrarFalhaAsset("modelo", path, "nenhuma malha carregada (arquivo ausente, formato nao suportado ou vazio)");
   return parts;
 }

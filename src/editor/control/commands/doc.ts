@@ -1,8 +1,14 @@
-// Comando `doc` — documentação de CADA comando (assinatura :: descrição ::
-// exemplo), pra uma IA descobrir como usar a porta de controle. `doc` lista tudo;
-// `doc <prefixo>` filtra (ex.: `doc addcomp`).
+// `help`, `doc [prefixo]` e `doc json` — a documentação da porta de controle,
+// GERADA do manifesto dos embutidos (builtin_commands.ts) e do registro dos
+// comandos de pacote (@editor/api registerCommand). Nenhuma lista à mão: um
+// comando novo aparece aqui ao entrar no manifesto ou ser registrado.
+import { BUILTIN_MANIFEST, GRUPOS_COMANDO, MUTA_SIM, MUTA_PROPRIO, COMANDOS_ASSINCRONOS } from "@editor/control/builtin_commands";
+import { commandCount, commandUsage, commandName, commandMutates } from "@editor/api";
 
-import { commandDocLines } from "../../api";
+/// Grupo dos comandos registrados por pacote.
+export const GRUPO_PACOTE: string = "pacote";
+const SEPARADOR_USO: string = " :: ";
+const NL: string = "\n";
 
 // prefixo simples (só charCodeAt — robusto no motor)
 function startsWith(s: string, p: string): boolean {
@@ -12,110 +18,110 @@ function startsWith(s: string, p: string): boolean {
   return true;
 }
 
+/// Todas as linhas "assinatura :: descrição :: exemplo" (embutidos + pacotes).
+function linhasDoc(): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < BUILTIN_MANIFEST.length) {
+    const usos = BUILTIN_MANIFEST[i].usos;
+    let k = 0;
+    while (k < usos.length) { out.push(usos[k]); k = k + 1; }
+    i = i + 1;
+  }
+  let r = 0;
+  while (r < commandCount()) { out.push(commandUsage(r)); r = r + 1; }
+  return out;
+}
+
+/// Um uso em JSON: { syntax, help, example }.
+function usoJson(uso: string, nome: string): any {
+  const p = uso.split(SEPARADOR_USO);
+  return { syntax: p[0], help: p.length > 1 ? p[1] : "", example: p.length > 2 ? p[2] : nome };
+}
+
+/// Um comando em JSON; o primeiro uso dá syntax/help/example.
+function comandoJson(nome: string, usos: string[]): any {
+  const lista: any[] = [];
+  let k = 0;
+  while (k < usos.length) { lista.push(usoJson(usos[k], nome)); k = k + 1; }
+  const primeiro = lista[0];
+  return { name: nome, syntax: primeiro.syntax, help: primeiro.help, example: primeiro.example, usages: lista };
+}
+
+/// O manifesto de TODOS os comandos (a forma do `doc json`).
+export function manifestoComandos(): any {
+  const cmds: any[] = [];
+  let i = 0;
+  while (i < BUILTIN_MANIFEST.length) {
+    const info = BUILTIN_MANIFEST[i];
+    const c = comandoJson(info.nome, info.usos);
+    c.group = info.grupo;
+    c.builtin = true;
+    c.mutating = info.muta === MUTA_SIM || info.muta === MUTA_PROPRIO;
+    c.undo = info.muta === MUTA_SIM ? "dispatch" : (info.muta === MUTA_PROPRIO ? "proprio" : "nenhum");
+    c.objectArgs = info.objs;
+    c.async = COMANDOS_ASSINCRONOS.indexOf(info.nome) >= 0;
+    cmds.push(c);
+    i = i + 1;
+  }
+  let r = 0;
+  while (r < commandCount()) {
+    const usos: string[] = [commandUsage(r)];
+    const c = comandoJson(commandName(r), usos);
+    c.group = GRUPO_PACOTE;
+    c.builtin = false;
+    c.mutating = commandMutates(r);
+    c.undo = commandMutates(r) ? "dispatch" : "nenhum";
+    c.objectArgs = [];
+    c.async = false;
+    cmds.push(c);
+    r = r + 1;
+  }
+  return {
+    protocol: "1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] ...; <obj> = indice, #indice, nome exato (aspas se tiver espaco) ou caminho Pai/Filho; async = a resposta pode vir depois (a conexao espera por ela antes da linha seguinte)",
+    groups: GRUPOS_COMANDO,
+    commands: cmds
+  };
+}
+
+/// doc [prefixo] | doc json
 export function cmdDoc(parts: string[]): string {
-  let q = "";
-  if (parts.length > 1) q = parts[1];
-  const lines: string[] = [
-    "state :: estado da cena+camera (objs, sel, playing, cam, drawn) :: state",
-    "res :: resolucao logica atual da janela :: res",
-    "help :: lista curta de comandos :: help",
-    "doc [prefixo] :: esta documentacao (todos ou filtrado) :: doc addcomp",
-    "dbg :: diagnostico de render (ativos/wouldDraw/drawnLast) :: dbg",
-    "tree :: hierarquia: indice, nome, indice do pai (-1=raiz) :: tree",
-    "undo :: desfaz a ultima operacao mutante (snapshot da cena) :: undo",
-    "redo :: refaz a ultima operacao desfeita :: redo",
-    "spawn <nome> <x> <y> <z> [kind] [escala] :: cria objeto; kind 1=cubo 2=piramide 3=octaedro 4=esfera; nasce estatico :: spawn Cubo 0 2 0 1 1.5",
-    "move <i> <x> <y> <z> :: define a POSICAO do objeto i :: move 0 1 2 3",
-    "scl <i> <sx> <sy> <sz> :: escala NAO-uniforme :: scl 0 1 6 1",
-    "mesh <i> <kind> :: troca a malha (1..4) :: mesh 0 4",
-    "color <i> <r> <g> <b> :: cor 0..255 :: color 0 240 90 60",
-    "spin <i> <spdY> [spdX] :: anexa um Spinner (atalho) :: spin 0 1.2",
-    "select <i> :: seleciona o objeto (fica dourado; limpa a multi-seleção) :: select 3",
-    "selectadd <i> :: adiciona a objeto a MULTI-seleção (o gizmo manipula todos juntos) :: selectadd 2",
-    "selectclear :: volta pra seleção unica (esvazia a multi) :: selectclear",
-    "delsel :: remove TODOS os objetos da multi-selecao (ou o unico) :: delsel",
-    "delete <i> :: remove o objeto :: delete 3",
-    "dup [i] :: duplica o objeto (default=selecionado), deslocado em +1 X; seleciona a copia. Clona transform+aparencia + TODOS os componentes :: dup 3",
-    "dupn <count> <espaco> [i] :: duplica em ARRAY: N copias em linha no X, espacadas :: dupn 5 2 1",
-    "align [i] [step] :: arredonda a POSICAO do objeto pro grid na hora (default step 0.5); undoable :: align 3",
-    "vis [i] :: TOGGLE de visibilidade do objeto (active); o render pula inativos :: vis 3",
-    "iso [i] :: ISOLA o objeto (esconde os outros); chamar de novo mostra todos :: iso 3",
-    "setcustom <objIdx> <meshId> :: DEBUG: forca o customMesh de um objeto (0=primitivo) :: setcustom 1 5",
-    "cam <x> <y> <z> <yaw> <pitch> :: posiciona a camera (radianos) :: cam 0 11 -15 0 -0.5",
-    "focus <i> :: enquadra a camera no objeto (achar/frame selected) :: focus 0",
-    "play :: inicia uma copia temporaria da cena ou retoma a simulacao pausada :: play",
-    "pause :: pausa a simulacao sem descartar suas mudancas temporarias :: pause",
-    "stop :: descarta a simulacao e restaura a cena de edicao e seu historico :: stop",
-    "clear :: esvazia a cena :: clear",
-    "tool [move|rotate|scale|select] :: troca/consulta a ferramenta do gizmo da viewport (a IA dirige o mesmo gizmo do humano) :: tool rotate",
-    "snap [0|1] :: liga/desliga o snap-to-grid do gizmo (move 0.5, rotate 15) :: snap 1",
-    "reset [i] :: zera rotacao e poe escala 1 do objeto (mantem posicao); undoable :: reset 3",
-    "light [x y z ambient] :: posicao da luz pontual + ambiente (0..1); sem args consulta :: light 7 13 5 0.28",
-    "frameall :: enquadra a camera pra ver toda a cena (centro+espalhamento) :: frameall",
-    "view <top|front|side|persp> :: posiciona a camera num preset olhando a origem :: view top",
-    "grid :: TOGGLE de um chao-grade (plano xadrez depth-tested) em y=0 :: grid",
-    "rename <i> <nome> :: renomeia o objeto (nome = resto da linha) :: rename 1 Caixa Vermelha",
-    "makeprefab <path> [i] :: salva o objeto como PREFAB (JSON de 1 objeto) :: makeprefab assets/box.json 1",
-    "instprefab <path> :: instancia um prefab na cena e o seleciona :: instprefab assets/box.json",
-    "loadscene <path> :: carrega uma cena JSON (substitui a atual) :: loadscene scenes/shadowdemo.json",
-    "savescene <path> :: SALVA a cena atual num JSON (fecha o loop com loadscene) :: savescene assets/minhacena.json",
-    "instscene <path> [hostIdx] :: CENA DENTRO DE CENA: instancia uma cena inteira sob um objeto (default=selecionado); mover o host move a sub-cena toda :: instscene assets/subscene.json 0",
-    "loadtex <obj> <path> :: carrega uma imagem (PNG/JPG/BMP) e aplica como textura no Material do objeto :: loadtex 0 assets/textures/images.jpg",
-    "ungroup [i] :: dissolve o grupo (baka a pos de mundo nos filhos e remove o no) :: ungroup 8",
-    "group :: cria um no vazio e aninha os selecionados (multi) sob ele; Ctrl+G da Unity :: group",
-    "parent <filho> <pai> :: REPARENT: aninha filho sob pai (pai=-1 => raiz). Reordena o array; re-consulte tree depois :: parent 5 2",
-    "movetree <drag> <before> <newparent> :: moveSubtree cru (reordenar+reparent por indice) :: movetree 5 3 2",
-    "complist :: nomes dos componentes que da pra adicionar :: complist",
-    "comps <obj> :: componentes do objeto + campos e valores :: comps 1",
-    "addcomp <obj> <nome> :: anexa um componente ao objeto :: addcomp 1 Orbit",
-    "rmcomp <obj> <compIdx> :: remove o componente :: rmcomp 1 0",
-    "setfield <obj> <compIdx> <campoIdx> <valor> :: edita um campo de config do componente :: setfield 1 0 0 2.5",
-    "addskel <obj> <caminho.glb> :: adiciona Skeleton+AnimationPlayer ao objeto (ou troca o modelo do Skeleton existente) :: addskel 0 assets/models/kenney/character-a.glb",
-    "bones <obj> :: lista os ossos do Skeleton do objeto (indice, nome, pai) :: bones 0",
-    "pose <obj> <osso|nome> rot <yawGraus> <pitchGraus> <rollGraus> :: rotacao LOCAL do osso; q = yaw(Y) * pitch(X local) * roll(Z local) :: pose 0 torso rot 90 0 0",
-    "pose <obj> <osso|nome> pos <x> <y> <z> :: posicao LOCAL do osso :: pose 0 arm-right pos 0.1 0 0",
-    "pose <obj> <osso|nome> turn <x|y|z> <graus> :: gira o osso no eixo de MUNDO (como o gizmo) :: pose 0 arm-right turn y 30",
-    "pose <obj> <osso|nome> shift <dx> <dy> <dz> :: desloca o osso em MUNDO (como o gizmo) :: pose 0 arm-right shift 0 0.1 0",
-    "resetpose <obj> :: volta o Skeleton ao repouso, esquecendo a pose manual :: resetpose 0",
-    "selbone <obj> <osso|nome|-1> :: escolhe o osso do gizmo/Inspector (objeto ja selecionado; -1 = volta ao objeto) :: selbone 0 arm-right",
-    "anims <obj> :: lista os clipes do modelo do Skeleton (nome + duracao) :: anims 0",
-    "anim <obj> play <nome> [loop|once] :: toca um clipe do inicio (loop/once trocam this.loop; sem args mantem) :: anim 0 play walk loop",
-    "anim <obj> pause :: pausa o clipe atual sem perder o tempo :: anim 0 pause",
-    "anim <obj> resume :: retoma o clipe pausado :: anim 0 resume",
-    "anim <obj> seek <s> :: pula o clipe atual pro tempo s (segundos) :: anim 0 seek 0.3",
-    "anim <obj> fade <nome> <s> :: crossfade pro clipe nome em s segundos :: anim 0 fade run 0.2",
-    "anim <obj> speed <x> :: multiplicador de velocidade do AnimationPlayer :: anim 0 speed 1.5",
-    "anim <obj> state :: clipe atual, tempo, tocando/pausado, loop, speed :: anim 0 state",
-    "animator <obj> load <arquivo> :: troca o controlador do Animator (.controller.json, relido do disco; entra no undo) :: animator 0 load assets/animators/personagem.controller.json",
-    "animator <obj> set <param> <valor> :: parametro float (numero) ou bool (true/false); estado de execucao, sem undo; fora do Play inicia a previa :: animator 0 set velocidade 2",
-    "animator <obj> trigger <param> :: arma o trigger (fica armado ate uma transicao consumi-lo); fora do Play inicia a previa :: animator 0 trigger tiro",
-    "animator <obj> state :: estado atual e tempo normalizado por camada, fade em andamento, erro do controlador :: animator 0 state",
-    "animator <obj> params :: parametros do controlador (nome, tipo, valor) :: animator 0 params",
-    "ls [path] :: lista uma pasta (/ marca subpastas) :: ls assets/scenes",
-    "mkdir <path> :: cria pasta (+ pais que faltarem) :: mkdir assets/scripts",
-    "rmpath <path> :: deleta arquivo ou pasta (recursivo) :: rmpath assets/tmp",
-    "readfile <path> :: le o conteudo do arquivo :: readfile scenes/shadowdemo.json",
-    "writefile <path> <conteudo> :: escreve (conteudo = resto da linha, 1 linha) :: writefile assets/nota.txt oi mundo",
-    "mv <de> <para> :: renomeia/move :: mv assets/a.txt assets/b.txt",
-    "loadobj <path> [nome] [x] [y] [z] :: carrega um MODELO real (.obj/.glb/.gltf) e cria o(s) objeto(s); multi-material vira raiz + 1 filha por submesh :: loadobj assets/models/torus.obj Torus 0 2 0",
-    "drop <path> [sx sy] :: ARRASTA o asset pra cena (como o mouse): com sx/sy cai no chao sob esse PIXEL; sem, posicao padrao. aceita prefab/.obj/imagem/cena :: drop assets/prefabs/RedCube.prefab.json 700 400",
-    "dropat <path> <x> <y> <z> :: solta o asset direto numa posicao de MUNDO :: dropat assets/models/torus.obj 3 1 -2",
-    "dropon <path> <objIdx> :: solta o asset SOBRE um objeto (imagem vira textura; .obj vira a mesh) :: dropon assets/textures/wood.png 3",
-    "pickat <sx> <sy> :: qual objeto esta sob esse pixel (-1 = nenhum) :: pickat 700 400",
-    "gizmoat <sx> <sy> :: seleciona o dono do ícone de gizmo sob o pixel (a mesma área do clique) :: gizmoat 700 400",
-    "menu [caminho] :: sem argumento lista os itens @menuItem; com caminho executa (Criar/ entra no Desfazer) :: menu Criar/Luz/Pontual",
-    "gameview [jogo|cena|proporcao livre|16:9|4:3|camera todas|<obj>|previa on|off] :: aba Jogo: várias câmeras, proporção com faixas, câmera única e prévia na vista de Cena :: gameview proporcao 16:9",
-    "groundat <sx> <sy> :: ponto do CHAO (Y=0) sob esse pixel — a conversao tela->mundo do drop :: groundat 700 400",
-    "thumb <path> [cols] :: INSPECIONA o thumbnail que o Project mostra pro asset (imagem real, ou render 3D de modelo/prefab/cena): estatisticas de pixel + preview ASCII (| = quebra de linha) :: thumb assets/models/torus.obj 16",
-  ];
-  commandDocLines(lines);
-  let m = "[doc]\n";
+  const q = parts.length > 1 ? parts[1] : "";
+  if (q === "json") return "[doc] " + JSON.stringify(manifestoComandos());
+  const lines = linhasDoc();
+  let m = "[doc]" + NL;
   let hit = 0;
   let i = 0;
   while (i < lines.length) {
-    if (q.length === 0 || startsWith(lines[i], q)) { m = m + lines[i] + "\n"; hit = hit + 1; }
+    if (q.length === 0 || startsWith(lines[i], q)) { m = m + lines[i] + NL; hit = hit + 1; }
     i = i + 1;
   }
   if (hit === 0) return "[doc] nenhum comando com prefixo '" + q + "'";
+  return m;
+}
+
+/// help — as assinaturas de cada comando, por grupo (uma linha por grupo).
+export function cmdHelp(): string {
+  let m = "[help] comandos por grupo (doc <prefixo> = detalhes e exemplos; doc json = manifesto; <obj> = indice, nome ou caminho Pai/Filho)";
+  let g = 0;
+  while (g < GRUPOS_COMANDO.length) {
+    let linha = "";
+    let i = 0;
+    while (i < BUILTIN_MANIFEST.length) {
+      const info = BUILTIN_MANIFEST[i];
+      let u = 0;
+      while (info.grupo === GRUPOS_COMANDO[g] && u < info.usos.length) {
+        linha = linha + (linha.length > 0 ? " | " : "") + info.usos[u].split(SEPARADOR_USO)[0];
+        u = u + 1;
+      }
+      i = i + 1;
+    }
+    if (linha.length > 0) m = m + NL + GRUPOS_COMANDO[g].toUpperCase() + ": " + linha;
+    g = g + 1;
+  }
+  let pacote = "";
+  let r = 0;
+  while (r < commandCount()) { pacote = pacote + (r > 0 ? " | " : "") + commandUsage(r).split(SEPARADOR_USO)[0]; r = r + 1; }
+  if (pacote.length > 0) m = m + NL + GRUPO_PACOTE.toUpperCase() + ": " + pacote;
   return m;
 }

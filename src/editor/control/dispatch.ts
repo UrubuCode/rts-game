@@ -1,21 +1,32 @@
 // Despacho de comandos de controle — um SWITCH que roteia para o handler de cada
 // comando (definidos em commands/*.ts). Devolve a resposta em texto.
-import { cmdState, cmdRes, cmdHelp, cmdVsync } from "./commands/query";
+import { cmdState, cmdRes, cmdVsync } from "./commands/query";
 import { cmdSpawn } from "./commands/spawn";
-import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
+import { cmdMove, cmdScl, cmdRot, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
 import { logInfo, logError } from "@engine/core/logger";
-import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
+import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField, cmdGetField } from "./commands/component";
 import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "./commands/skeleton";
 import { cmdAnimator } from "./commands/animator";
-import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
+import { cmdTree, cmdParent, cmdMoveTree, cmdFind } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
-import { cmdDoc } from "./commands/doc";
+import { cmdDoc, cmdHelp } from "./commands/doc";
+import { cmdDescribe, cmdScene } from "@editor/control/commands/describe";
 import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
+import { cmdShot } from "@editor/control/commands/shot";
+import { cmdInput } from "@editor/control/commands/input";
+import { cmdLote, loteAtivo, loteAbortado, antesNoLote, depoisNoLote, loteDeOutraConexao, ERRO_LOTE_DE_OUTRA, contarVersaoDoLote } from "@editor/control/lote";
+import { ehRespostaAdiada } from "@editor/control/adiado";
+import { registrarExcecao } from "@engine/core/falhas";
+import { cmdErrors, cmdProfFrames, cmdGc, cmdAssets } from "@editor/control/commands/diag";
+import { cmdBuild, cmdRunTests } from "@editor/control/commands/build";
+import { cmdResume, cmdStep, cmdTimescale, cmdSeed } from "@editor/control/commands/tempo";
 import { commandIndex, commandMutates, runCommand } from "../api";
+import { comandoEmbutido, registraNoLog, MUTA_SIM } from "@editor/control/builtin_commands";
+import { resolverArgsObjeto } from "@editor/control/object_ref";
 import { scene, S } from "./session";
 import { history } from "../undo";
 import { cmdStop } from "./commands/scene";
@@ -25,53 +36,90 @@ import { rigidBackendName, rigidBodyCount, rigidSetMode, rigidMode, rigidReport,
 import { profReport, profEnable, profReset, profEnabled } from "@engine/core/profiler";
 import { stepsLastFrame, stepDiscards, stepAlpha } from "@engine/core/fixedstep";
 
-/// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo).
+/// Comandos que MUTAM a cena (o dispatch tira um snapshot antes, pro undo):
+/// os marcados `MUTA_SIM` no manifesto (builtin_commands.ts).
 function isMutating(c: string): boolean {
-  return c === "spawn" || c === "move" || c === "scl" || c === "mesh" || c === "color" ||
-    c === "spin" || c === "delete" || c === "dup" || c === "clear" || c === "loadscene" ||
-    c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
-    c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex" ||
-    c === "rename" || c === "reset" || c === "grid" || c === "instprefab" ||
-    c === "drop" || c === "dropat" || c === "dropon" ||
-    c === "addskel" || c === "pose" || c === "resetpose" || c === "anim";
+  const info = comandoEmbutido(c);
+  return info !== null && info.muta === MUTA_SIM;
 }
 
-/// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`;
-/// esta camada existe só para o registro, porque o `switch` lá dentro tem
-/// `return` em cada caso e capturar em todos seria repetir 60 vezes.
-///
-/// `log` e `state` não são registrados: são consultas, e registrá-las encheria
-/// o histórico com as próprias perguntas — inclusive a consulta ao log.
+const ERRO_PREFIXO: string = "[erro]";
+
+/// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`,
+/// chamado por `execProtegido`; esta camada existe só para o registro, porque
+/// o `switch` lá dentro tem `return` em cada caso e capturar em todos seria
+/// repetir 80 vezes.
 export function execCommand(w: number, h: number, line: string): string {
-  const out = execCommandInner(w, h, line);
   const c = line.split(" ")[0];
-  if (c !== "log" && c !== "state" && c !== "help" && c !== "doc") {
-    // erro do comando vira nível de erro: é o que se procura ao investigar
-    if (out.length > 6 && out.charCodeAt(1) === 101 && out.charCodeAt(2) === 114) {
-      logError(line + "  ->  " + out);
-    } else {
-      logInfo(line + "  ->  " + out);
+  let out = "";
+  // LOTE (lote.ts): dentro de `batch begin`…`end`, um [erro] desfaz tudo
+  if (loteDeOutraConexao()) out = ERRO_LOTE_DE_OUTRA;   // o lote tem dono (lote.ts)
+  else if (loteAtivo() && c !== "batch" && c !== "txn") {
+    const pre = antesNoLote(line);
+    if (pre.length === 0) {
+      const v0 = history.versao;
+      const r = execProtegido(w, h, line);
+      contarVersaoDoLote(history.versao - v0);
+      out = depoisNoLote(line, r);
     }
+    else out = loteAbortado() && pre.indexOf("[erro] batch abortado") === 0 ? pre : depoisNoLote(line, pre);
+  } else out = execProtegido(w, h, line);
+  // resposta adiada: o servidor registra a resposta final quando ela chega
+  if (registraNoLog(c) && !ehRespostaAdiada(out)) {
+    // erro do comando vira nível de erro: é o que se procura ao investigar
+    if (out.indexOf(ERRO_PREFIXO) === 0) logError(line + "  ->  " + out);
+    else logInfo(line + "  ->  " + out);
   }
   return out;
 }
 
-/// Comando registrado por script (@editor/api). Só `muta = true` tira snapshot
-/// de Desfazer; se a resposta for `[erro]`, o snapshot é descartado e a pilha de
-/// Refazer volta como estava (um erro não deixa entrada vazia no Desfazer).
-function runRegistered(i: number, parts: string[]): string {
-  if (!commandMutates(i)) return runCommand(i, parts);
+/// O ÚNICO ponto protegido da porta de controle (embutidos e comandos de
+/// pacote). Um comando que lança responde `[erro] <cmd>: <mensagem>` em vez de
+/// subir pelo `pumpEvents()` até o quadro e derrubar o editor.
+///
+/// Desfazer: se a resposta é `[erro]` (validação ou exceção), o snapshot que o
+/// despacho tirou é descartado e o Refazer volta como estava. Se o comando
+/// lançou DEPOIS de mudar a cena, ela volta ao snapshot.
+///
+/// O `try` fica AQUI, numa função que só roda quando chega um comando: no RTS a
+/// função que contém `try` aloca a cada chamada (CLAUDE.md, "Custo por quadro").
+function execProtegido(w: number, h: number, line: string): string {
   const undoAntes = history.u.slice();
   const redoAntes = history.r;
-  history.snapshot();
-  const out = runCommand(i, parts);
-  if (out.indexOf("[erro]") === 0) { history.u = undoAntes; history.r = redoAntes; }
+  const versaoAntes = history.versao;
+  history.abrirComando();
+  let out = "";
+  let lancou = false;
+  try { out = execCommandInner(w, h, line); }
+  catch (error) {
+    lancou = true;
+    registrarExcecao("comando " + line.split(" ")[0], error);
+    out = ERRO_PREFIXO + " " + line.split(" ")[0] + ": " + (error instanceof Error ? error.message : String(error));
+  }
+  // `versao` sobe a cada snapshot (o tamanho da pilha não: no teto ela empurra e descarta)
+  if (out.indexOf(ERRO_PREFIXO) === 0 && history.versao !== versaoAntes) history.desfazerComando(undoAntes, redoAntes, lancou);
+  history.abrirComando();   // não segura a cena serializada até o próximo comando
   return out;
+}
+
+/// Comando registrado por script (@editor/api). Só `muta = true` tira snapshot
+/// de Desfazer; um `[erro]` (ou exceção) descarta o snapshot em `execProtegido`.
+function runRegistered(i: number, parts: string[]): string {
+  if (commandMutates(i)) history.snapshot();
+  return runCommand(i, parts);
 }
 
 function execCommandInner(w: number, h: number, line: string): string {
   const parts = line.split(" ");
   const cmd = parts[0];
+  // ENDEREÇAMENTO: os argumentos <obj> do manifesto (índice, #índice, nome ou
+  // caminho Pai/Filho, com aspas para espaços) viram índice aqui, uma vez, antes
+  // do comando e do snapshot. Os comandos seguem lendo índices.
+  const info = comandoEmbutido(cmd);
+  if (info !== null && info.objs.length > 0) {
+    const erroRef = resolverArgsObjeto(scene, parts, info.objs);
+    if (erroRef.length > 0) return erroRef;
+  }
   const np = parts.length;
   // UNDO: snapshot da cena ANTES de qualquer operação mutante.
   //
@@ -101,6 +149,8 @@ function execCommandInner(w: number, h: number, line: string): string {
       return "[redo] nada pra refazer";
     }
     case "state": return cmdState();
+    case "describe": return cmdDescribe(parts);
+    case "scene": return cmdScene(parts);
     // A TABELA DE DESEMPENHO — onde o frame foi gasto, por seção.
     //
     // Existe porque adivinhar errou duas vezes nesta engine: primeiro culpando o
@@ -113,6 +163,7 @@ function execCommandInner(w: number, h: number, line: string): string {
       if (alvo === "off") { profEnable(0); return "[prof] desligado"; }
       if (alvo === "on") { profEnable(1); profReset(); return "[prof] ligado (zerado)"; }
       if (alvo === "reset") { profReset(); return "[prof] zerado"; }
+      if (alvo === "frames") return cmdProfFrames(parts);
       if (profEnabled() === 0) return "[prof] desligado — use `prof on`";
       const nl = String.fromCharCode(10);
       return profReport() + nl +
@@ -174,6 +225,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "spawn": return cmdSpawn(parts, np);
     case "move": return cmdMove(parts);
     case "scl": return cmdScl(parts);
+    case "rot": return cmdRot(parts);
     case "tool": return cmdTool(parts);
     case "snap": return cmdSnap(parts);
     case "reset": return cmdReset(parts);
@@ -199,6 +251,10 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "ungroup": return cmdUngroup(parts);
     case "play": return cmdPlay();
     case "pause": return cmdPause();
+    case "resume": return cmdResume();
+    case "step": return cmdStep(parts);
+    case "timescale": return cmdTimescale(parts);
+    case "seed": return cmdSeed(parts);
     case "stop": return cmdStop();
     case "clear": return cmdClear();
     case "loadscene": return cmdLoad(parts);
@@ -211,6 +267,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "addcomp": return cmdAddComp(parts);
     case "rmcomp": return cmdRmComp(parts);
     case "setfield": return cmdSetField(parts);
+    case "getfield": return cmdGetField(parts);
     case "addskel": return cmdAddSkel(parts);
     case "bones": return cmdBones(parts);
     case "pose": return cmdPose(parts);
@@ -220,6 +277,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "anim": return cmdAnim(parts);
     case "animator": return cmdAnimator(parts);
     case "tree": return cmdTree();
+    case "find": return cmdFind(parts);
     case "parent": return cmdParent(parts);
     case "movetree": return cmdMoveTree(parts);
     case "ls": return cmdLs(parts);
@@ -247,6 +305,16 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);
+    case "shot": return cmdShot(parts, w, h);
+    case "input": return cmdInput(parts, w, h, line);
+    case "batch": return cmdLote(parts);
+    case "txn": return cmdLote(parts);
+    case "errors": return cmdErrors(parts);
+    case "gc": return cmdGc(parts);
+    case "assets": return cmdAssets(parts);
+    case "build": return cmdBuild(parts);
+    case "run": return cmdRunTests(parts);
+    case "testes": return cmdRunTests(parts);
     default: return registrado >= 0 ? runRegistered(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

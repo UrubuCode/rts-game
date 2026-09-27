@@ -45,6 +45,19 @@ let frameT0: f64 = 0.0;
 let frameMedia: f64 = 0.0;
 let frames = 0;
 
+// ── HISTÓRICO DOS ÚLTIMOS QUADROS (`prof frames`) ──────────────────────────
+// A média esconde os picos, e um pico é o que o usuário sente como engasgo.
+// Dois anéis fixos (sem alocação): o TRABALHO do quadro (begin→end, a mesma
+// medida do total da tabela) e o INTERVALO entre dois inícios (o que a tela
+// mostra, com vsync e apresentação).
+export const PROF_JANELA_QUADROS: number = 1024;
+const anelTrabalho = new Float64Array(PROF_JANELA_QUADROS);
+const anelIntervalo = new Float64Array(PROF_JANELA_QUADROS);
+let anelN = 0;
+let anelProx = 0;
+let inicioAnterior: f64 = 0.0;
+let intervaloAtual: f64 = 0.0;
+
 /// Liga ou desliga. Desligado, o par begin/end custa um `if`.
 export function profEnable(on: number): void { ligado = on; }
 export function profEnabled(): number { return ligado; }
@@ -67,6 +80,8 @@ export function profSection(nome: string): number {
 export function profFrameBegin(): void {
   if (ligado === 0) return;
   frameT0 = performance.now();
+  intervaloAtual = inicioAnterior > 0.0 ? frameT0 - inicioAnterior : 0.0;
+  inicioAnterior = frameT0;
   let i = 0;
   while (i < nSec) { acum[i] = 0.0; i = i + 1; }
 }
@@ -93,6 +108,25 @@ export function profFrameEnd(): void {
     i = i + 1;
   }
   frames = frames + 1;
+  anelTrabalho[anelProx] = total; anelIntervalo[anelProx] = intervaloAtual;
+  anelProx = (anelProx + 1) % PROF_JANELA_QUADROS;
+  if (anelN < PROF_JANELA_QUADROS) anelN = anelN + 1;
+}
+
+/// Quantos quadros há no histórico (até PROF_JANELA_QUADROS).
+export function profQuadrosGuardados(): number { return anelN; }
+/// Copia os `n` últimos quadros (do mais antigo ao mais novo) para `out`
+/// (tamanho >= n): `intervalo` 0 = trabalho do quadro, 1 = intervalo entre
+/// inícios. Devolve quantos copiou.
+export function profCopiarQuadros(out: Float64Array, n: number, intervalo: number): number {
+  const k = n < anelN ? n : anelN;
+  const anel = intervalo !== 0 ? anelIntervalo : anelTrabalho;
+  let i = 0;
+  while (i < k) {
+    out[i] = anel[(anelProx - k + i + PROF_JANELA_QUADROS) % PROF_JANELA_QUADROS];
+    i = i + 1;
+  }
+  return k;
 }
 
 /// A tabela, pronta para imprimir ou mandar pela porta de controle.
@@ -132,6 +166,7 @@ export function profFrameMs(): f64 { return frameMedia; }
 /// mistura dois regimes e não descreve nenhum.
 export function profReset(): void {
   frames = 0;
+  anelN = 0; anelProx = 0; inicioAnterior = 0.0;
   frameMedia = 0.0;
   let i = 0;
   while (i < nSec) { media[i] = 0.0; acum[i] = 0.0; i = i + 1; }

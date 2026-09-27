@@ -317,10 +317,14 @@ while (rodada < 5) {
   rodada = rodada + 1;
 }
 const ms = minimo(tot);
-io.print("  17 personagens com Animator (2 camadas), update+compose: min " + ms.toFixed(3) + " / mediana " + mediana(tot).toFixed(3) + " ms/frame (portao 0,35 no minimo)");
+io.print("  17 personagens com Animator (2 camadas), update+compose: min " + ms.toFixed(3) + " / mediana " + mediana(tot).toFixed(3) + " ms/frame (portao 0,7 no minimo; meta original 0,35 — ver rts-game#17)");
 io.print("    so update: min " + minimo(upd).toFixed(3) + " / mediana " + mediana(upd).toFixed(3) +
   "; so compose: min " + minimo(cmp).toFixed(3) + " / mediana " + mediana(cmp).toFixed(3));
 io.print("    referencia 17 AnimationPlayers (1 clipe): min " + minimo(ref).toFixed(3) + " / mediana " + mediana(ref).toFixed(3) +
   "; razao dos minimos " + (ms / minimo(ref)).toFixed(2));
-check(ms <= 0.35, "17 Animators <= 0,35 ms/frame (minimo de 5): " + ms);
+// Portão PROVISÓRIO: a meta do spec era 0,35 ms, mas o mínimo real medido é ~0,57 ms
+// (cada leitura de elemento de array custa 25–40 ns no RTS e a mistura amostra 2 clipes
+// por osso). O usuário aceitou 0,7 em 2026-09-27 com a condição de tentar otimizar depois
+// (issue rts-game#17). Não afrouxar além disto sem nova decisão.
+check(ms <= 0.7, "17 Animators <= 0,7 ms/frame (minimo de 5): " + ms);
 io.print("[PASSOU] animator: exemplo, mistura 1D, fade, trigger/saida, mascara, erros, copia, vence o player, custo");

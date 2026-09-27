@@ -29,6 +29,13 @@ import { simularTecla, TECLA_W } from "@engine/core/entrada";
 import { gizmosBegin } from "@engine/core/gizmos";
 import { editorIcon, iconAt, drawEditorIcon } from "@editor/icon_images";
 import { interpolateSync } from "@engine/core/interpolate";
+import input from "@compat/input";
+import { profEnable, profFrameBegin, profFrameEnd } from "@engine/core/profiler";
+import { haTarefasDeFundo, rodarTarefasDeFundo } from "@editor/control/processos";
+import { stepTimeScale, stepSetTimeScale } from "@engine/core/fixedstep";
+import { simAtiva } from "@compat/input_sim";
+import { RotuloNumero } from "@editor/rotulos";
+import { entradaQuadro, simMover, simApertar, simTeclaDesce, simQuebra, simDesligar } from "@compat/input_sim";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
 const nPainel = (n / 20) | 0;
@@ -156,4 +163,42 @@ while (i < nPainel) { if (rigidStep(scene, 0) === 0) scene.resolveCollisions(); 
 io.print("FASE jogo " + nPainel);
 i = 0;
 while (i < nPainel) { quadroJogo(); i = i + 1; }
+// Entrada por @compat/input (lida por quadro pelo editor inteiro): desligada
+// (a nativa + um `if`) e com a simulação ligada (botão e tecla segurados).
+io.print("FASE entrada-real " + n);
+i = 0;
+while (i < n) {
+  entradaQuadro();
+  soma = soma + input.mouseX(0) + (input.mouseDown(0, 0) ? 1 : 0) + (input.key(0, 122, 0) ? 1 : 0) + input.wheel(0);
+  i = i + 1;
+}
+simMover(10.0, 20.0); simApertar(0); simTeclaDesce(122); simQuebra();
+io.print("FASE entrada-simulada " + n);
+i = 0;
+while (i < n) {
+  entradaQuadro();
+  soma = soma + input.mouseX(0) + (input.mouseDown(0, 0) ? 1 : 0) + (input.mousePressed(0, 0) ? 1 : 0) +
+    (input.key(0, 122, 0) ? 1 : 0) + (input.key(0, 122, 1) ? 1 : 0) + input.mouseDeltaX(0) + input.wheel(0) +
+    (input.modCtrl(0) ? 1 : 0) + input.textInput(0).length;
+  i = i + 1;
+}
+simDesligar();
+// Profiler ligado (o padrão do editor): o anel de `prof frames` por quadro.
+profEnable(1); profFrameBegin(); profFrameEnd();
+io.print("FASE prof " + n);
+i = 0;
+while (i < n) { profFrameBegin(); profFrameEnd(); i = i + 1; }
+// Indicadores da barra de status (entrada simulada, escala de tempo) e a
+// vigia de processos do ctrlPoll, vazia.
+const rotEscala = new RotuloNumero("Tempo x", "");
+stepSetTimeScale(0.5);
+io.print("FASE status-ia " + n);
+i = 0;
+while (i < n) {
+  if (haTarefasDeFundo()) rodarTarefasDeFundo();
+  if (simAtiva()) soma = soma + 1;
+  if (stepTimeScale() !== 1.0) soma = soma + rotEscala.de(stepTimeScale()).length;
+  i = i + 1;
+}
+stepSetTimeScale(1.0);
 io.print("FASE fim " + soma);

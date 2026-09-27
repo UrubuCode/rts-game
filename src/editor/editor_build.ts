@@ -6,14 +6,17 @@ import { S } from "./control/session";
 
 const BUILD_POLL_MS = 500;
 const BUILD_START_TIMEOUT_MS = 30000;
-const BUILD_FINISH_TIMEOUT_MS = 600000;
+export const BUILD_FINISH_TIMEOUT_MS = 600000;
 
 export class EditorBuild {
   child: any = null;
   running: boolean = false; status: string = ""; directory: string = ""; lastPoll: number = 0; started: number = 0;
+  /// Resultado do último build: "" (nenhum ou em andamento), "ok", "error" ou "timeout".
+  estado: string = "";
   start(): void {
     if (this.running || S.simulating !== 0) return;
     try {
+      this.estado = "";
       this.directory = "build/editor-build-" + Date.now(); fs.create_dir_all(this.directory);
       saveScene(this.directory + "/scene.json");
       fs.write(this.directory + "/status.json", JSON.stringify({ state: "starting", message: "Iniciando build..." }));
@@ -21,12 +24,12 @@ export class EditorBuild {
       this.child = spawn("node", ["tools/editor-build.mjs", this.directory], { stdio: "ignore" });
       // Missing Node must become a Console error, not an unhandled error event.
       this.child.on("error", (error: any) => {
-        this.running = false; this.status = "Nao foi possivel iniciar Node.js: " + String(error); logError(this.status);
+        this.running = false; this.estado = "error"; this.status = "Nao foi possivel iniciar Node.js: " + String(error); logError(this.status);
       });
       if (typeof this.child.pid !== "number") throw new Error("Node.js nao encontrado no PATH.");
       this.child.unref();
       this.started = Date.now(); this.running = true; this.status = "Compilando jogo..."; logInfo(this.status);
-    } catch (error) { this.running = false; this.status = "Build falhou: " + String(error); logError(this.status); }
+    } catch (error) { this.running = false; this.estado = "error"; this.status = "Build falhou: " + String(error); logError(this.status); }
   }
   /// Chamado todo quadro: só a guarda barata. A leitura do status (com `try`)
   /// fica em `lerStatus`: no RTS a função que contém `try` aloca a cada chamada.
@@ -37,16 +40,16 @@ export class EditorBuild {
   lerStatus(): void {
     this.lastPoll = Date.now();
     if (this.lastPoll - this.started >= BUILD_FINISH_TIMEOUT_MS) {
-      this.running = false; this.status = "Build sem resposta. Consulte " + this.directory; logError(this.status); return;
+      this.running = false; this.estado = "timeout"; this.status = "Build sem resposta. Consulte " + this.directory; logError(this.status); return;
     }
     try {
       const data = JSON.parse(fs.read_text(this.directory + "/status.json"));
       if (data.state === "running" || data.state === "starting") {
         const timeout = data.state === "starting" ? BUILD_START_TIMEOUT_MS : BUILD_FINISH_TIMEOUT_MS;
         if (Date.now() - this.started < timeout) return;
-        this.running = false; this.status = "Build sem resposta. Confira Node.js, RTS_COMPILER e " + this.directory; logError(this.status); return;
+        this.running = false; this.estado = "timeout"; this.status = "Build sem resposta. Confira Node.js, RTS_COMPILER e " + this.directory; logError(this.status); return;
       }
-      this.running = false; this.status = data.message;
+      this.running = false; this.status = data.message; this.estado = data.state === "ok" ? "ok" : "error";
       if (fs.exists(this.directory + "/output.log")) {
         const lines = fs.read_text(this.directory + "/output.log").split("\n");
         let i = 0; while (i < lines.length) { if (lines[i].trim().length > 0) {
@@ -58,3 +61,6 @@ export class EditorBuild {
     } catch {} // Writer publishes status atomically; keep polling a transient miss.
   }
 }
+
+/// O build do editor (botão Build, menu e comando `build` da porta de controle).
+export const editorBuild = new EditorBuild();

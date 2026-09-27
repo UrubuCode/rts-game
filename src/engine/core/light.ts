@@ -4,7 +4,7 @@
 // yaw = wry, pitch = wrx, pitch > 0 olha para cima. O renderer recebe até
 // MAX_LUZES por frame (`Scene.collectLights`), com a direcional principal primeiro.
 import math from "@compat/math.ts";
-import { Behavior, KIND_LIGHT } from "./behavior";
+import { Behavior, KIND_LIGHT, FIELD_HINT_COLOR, FIELD_HINT_ENUM } from "./behavior";
 import { GameObject, activeInScene } from "./gameobject";
 import type { Scene } from "./scene";
 import type { InspectorUI } from "./inspector_ui";
@@ -67,6 +67,14 @@ export class Light extends Behavior {
     else if (this.tipo === "spot") t = LUZ_SPOT;
     return t;
   }
+  /// A porta de controle aceita #RRGGBB em `cor` e só as opções da lista em `tipo`.
+  fieldHint(i: number): string {
+    const n = this.fieldName(i);
+    if (n === "cor") return FIELD_HINT_COLOR;
+    if (n === "tipo") return FIELD_HINT_ENUM;
+    return "";
+  }
+  fieldOptions(i: number): string[] { return this.fieldName(i) === "tipo" ? TIPOS_LUZ : super.fieldOptions(i); }
   onValidate(field: string): void {
     if (field === "tipo" && TIPOS_LUZ.indexOf(this.tipo) < 0) this.tipo = "direcional";
     // `!(v >= min)` também pega NaN.

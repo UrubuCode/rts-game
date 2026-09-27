@@ -1,4 +1,5 @@
 import { Behavior, KIND_UI, FALHA_GUI } from "@engine/core/behavior";
+import { registrarExcecao } from "@engine/core/falhas";
 import { logError } from "@engine/core/logger";
 import { GameObject } from "@engine/core/gameobject";
 import { EditorUI } from "./ui_controls";
@@ -16,7 +17,7 @@ import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
 import { scene, S } from "./control/session";
 import { nfCancel, AXIS_X, AXIS_Y, AXIS_Z } from "./widgets";
-import input from "rts:input";
+import input from "@compat/input";
 import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
   UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K, UI_ANIMATOR as A } from "./ui_config";
 
@@ -637,6 +638,7 @@ export class Inspector extends Behavior {
     if (b === null) throw e;
     b.falhasEditor = b.falhasEditor | FALHA_GUI;
     const dono = b.owner !== null ? b.owner.name : "?";
+    registrarExcecao("onInspectorGUI " + b.typeName() + " em " + dono, e);
     logError("Inspector: onInspectorGUI de " + b.typeName() + " em '" + dono + "' lançou: " + String(e) + " — usando os campos automáticos deste componente.");
     this.ui.end();
   }

@@ -2,6 +2,7 @@
 // nenhum Light, a luz pontual legada (bloco "light" da cena / ws `light`) vale
 // como antes. Sem alocação: buffers do módulo.
 import type { Scene } from "../core/scene";
+import { registrarFalhaAsset } from "@engine/core/falhas";
 import { MAX_LUZES, FLOATS_POR_LUZ, LUZ_DIRECIONAL, direcaoSol } from "../core/light";
 import { setLightsBuf, setLgtBuf, setShadowBuf, setSkyBuf, setFogBuf, loadTexture } from "./gpu3d";
 import { ambienteSync } from "../core/ambiente";
@@ -96,9 +97,9 @@ function carregarTexturaDoCeu(win: number, caminho: string): void {
   try {
     const id = loadTexture(win, caminho);
     if (id > 0) texturaId = id;
-    else logWarn("Céu: textura '" + caminho + "' carregou com id invalido (" + id + "); usando sem textura.");
+    else { logWarn("Céu: textura '" + caminho + "' carregou com id invalido (" + id + "); usando sem textura."); registrarFalhaAsset("ceu", caminho, "id invalido (" + id + ")"); }
   }
-  catch (e) { logWarn("Céu: textura '" + caminho + "' não carregou: " + String(e)); }
+  catch (e) { logWarn("Céu: textura '" + caminho + "' não carregou: " + String(e)); registrarFalhaAsset("ceu", caminho, String(e)); }
 }
 /// Envia setSky/setFog só quando o Ambiente (ou a direção do sol, ou a textura)
 /// mudou. Trocar de cena copia os campos para o MESMO `scene.ambiente`, e a

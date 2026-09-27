@@ -15,6 +15,7 @@
 // (tamanho = número de ossos) e os temporários do `compose` no construtor.
 
 import { Behavior, KIND_RENDERER } from "./behavior";
+import { registrarFalhaAsset } from "@engine/core/falhas";
 import { SkeletonAsset, loadSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
 import { logWarn } from "./logger";
 import { drawGPUMeshQBuf, meshRadius, DRAW_FLOATS, D_X, D_Y, D_Z, D_QX, D_QY, D_QZ, D_QW, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX } from "../render/gpu3d";
@@ -120,7 +121,7 @@ export class Skeleton extends Behavior {
   /// uma função que contém `try/catch` aloca a cada chamada).
   subirPecas(win: number): void {
     try { loadSkeletonAsset(win, this.modelPath); this.updateBound(); }
-    catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); }
+    catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); registrarFalhaAsset("esqueleto", this.modelPath, "upload: " + String(e)); }
   }
   /// Carrega o modelo (cache por caminho) e dimensiona os buffers por osso, uma
   /// vez. `win` = 0 não sobe nada para a GPU (testes sem janela); se o asset
@@ -416,6 +417,7 @@ export class Skeleton extends Behavior {
     } catch (e) {
       this.failedPath = this.modelPath;
       logWarn("Skeleton: nao carregou " + this.modelPath);
+      registrarFalhaAsset("esqueleto", this.modelPath, String(e));
       return null;
     }
   }

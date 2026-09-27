@@ -4,7 +4,7 @@
 // presets, models. Clique seleciona; duplo-clique entra na pasta ou "abre" o
 // asset. Estado em vars de MÓDULO (ok desde o fix de gcell); desenha via render.*.
 
-import input from "rts:input";
+import input from "@compat/input";
 import { clockNow, clockSince, DOUBLE_CLICK_MS } from "../engine/core/clock";
 import fs from "../compat/fs.ts";
 

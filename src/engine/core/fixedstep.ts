@@ -82,6 +82,13 @@ let orcMs: f64 = ORCAMENTO_MS_PADRAO;
 let orcT0: f64 = 0.0;
 let cortes = 0;
 let passosCortados = 0;
+/// Escala de tempo (`timescale`): multiplica o dt real antes de acumular. 1 =
+/// tempo real, 0,5 = metade dos passos por segundo, 0 = parado. Custa uma
+/// multiplicação por quadro.
+let escalaTempo: f64 = 1.0;
+/// Passos EXECUTADOS desde o início da simulação (`stepDone`), para o tempo
+/// simulado: os do laço de quadros e os manuais (`step N`).
+let passosSimulados = 0;
 
 /// Quantos passos de física este frame deve rodar, dado o tempo REAL decorrido.
 ///
@@ -97,7 +104,7 @@ export function stepsFor(dtReal: f64): number {
   // Um dt negativo ou absurdo vem de relógio ajustado, de um breakpoint ou da
   // janela minimizada. Zero passos é a resposta certa: o mundo não avança
   // porque alguém parou o processo.
-  if (dtReal <= 0.0 || dtReal > 10.0) {
+  if (dtReal <= 0.0 || dtReal > 10.0 || escalaTempo <= 0.0) {
     ultimoAlpha = acumulador / FIXED_DT;
     passosNoFrame = 0;
     return 0;
@@ -108,7 +115,7 @@ export function stepsFor(dtReal: f64): number {
   // este ponto e o laço.
   orcT0 = performance.now();
 
-  acumulador = acumulador + dtReal;
+  acumulador = acumulador + dtReal * escalaTempo;
   let n = 0;
   while (acumulador >= FIXED_DT && n < MAX_STEPS) {
     acumulador = acumulador - FIXED_DT;
@@ -202,3 +209,19 @@ export function stepReset(): void {
   ultimoAlpha = 0.0;
   passosNoFrame = 0;
 }
+
+/// Escala de tempo da simulação (>= 0). Ver `escalaTempo`.
+export function stepSetTimeScale(x: f64): void { escalaTempo = x > 0.0 ? x : 0.0; }
+export function stepTimeScale(): f64 { return escalaTempo; }
+
+/// Um passo MANUAL (fora do `stepsFor`, ex.: `step N` com o Play pausado): conta
+/// como planejado para quem acompanha `stepCount` (o backend de física na GPU).
+export function stepManual(): void { passosTotais = passosTotais + 1; }
+
+/// Um passo foi executado (laço de quadros ou manual): avança o tempo simulado.
+export function stepDone(): void { passosSimulados = passosSimulados + 1; }
+/// Passos executados e tempo simulado (s) desde `stepSimReset`.
+export function stepSimSteps(): number { return passosSimulados; }
+export function stepSimTime(): f64 { return passosSimulados * FIXED_DT; }
+/// Zera o tempo simulado (uma sessão de Play nova).
+export function stepSimReset(): void { passosSimulados = 0; }

@@ -2,6 +2,7 @@
 // desenhadores por tipo dos objetos visíveis, pinta linhas e ícones por cima do
 // 3D e responde o clique num ícone com a MESMA área do desenho.
 import type { Scene } from "@engine/core/scene";
+import { registrarExcecao } from "@engine/core/falhas";
 import { Behavior, FALHA_GIZMO } from "@engine/core/behavior";
 import { logError } from "@engine/core/logger";
 import { Gizmos, gizmoDrawerIndex, runGizmoDrawer } from "@engine/core/gizmos";
@@ -74,6 +75,7 @@ function desligarGizmoQueFalhou(e: any): void {
   if (b === null) throw e;
   b.falhasEditor = b.falhasEditor | FALHA_GIZMO;
   const dono = b.owner !== null ? b.owner.name : "?";
+  registrarExcecao("gizmo " + b.typeName() + " em " + dono, e);
   logError("Gizmo de " + b.typeName() + " em '" + dono + "' lançou: " + String(e) + " — gizmo desligado para este componente.");
 }
 export function pintarGizmos(app: any, win: number, g: Gizmos): void {

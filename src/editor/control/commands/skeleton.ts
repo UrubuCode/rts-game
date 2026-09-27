@@ -2,6 +2,7 @@
 // Skeleton, lista/posiciona ossos e toca clipes, igual ao que um humano faria
 // no Inspector, mas em texto. Segue o mesmo padrão de commands/component.ts
 // (objeto por índice, validação, mensagens `[ok]`/`[erro]`).
+import { argObj, erroObj, argNum, numeroEstrito } from "@editor/control/args";
 import { scene, S } from "../session";
 import type { GameObject } from "@engine/core/gameobject";
 import { Skeleton } from "@engine/core/skeleton";
@@ -38,8 +39,8 @@ function findAnimPlayer(o: GameObject): AnimationPlayer | null {
 function resolveBoneArg(sk: Skeleton, arg: string): number {
   const byName = sk.boneIndex(arg);
   if (byName >= 0) return byName;
-  const idx = parseFloat(arg);
-  if (idx === idx) return idx | 0;   // numérico (NaN !== NaN)
+  const idx = numeroEstrito(arg);
+  if (idx === Math.floor(idx)) return idx;   // inteiro (NaN nunca é igual a nada)
   return 0 - 1;
 }
 
@@ -48,9 +49,9 @@ function resolveBoneArg(sk: Skeleton, arg: string): number {
 /// antes de devolver `[ok]`; se falhar, o objeto não fica com componente
 /// quebrado (desfaz a troca / remove o que acabou de criar).
 export function cmdAddSkel(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const path = parts[2];
   if (path === undefined || path === "") return "[erro] caminho do modelo obrigatorio";
   const existing = skeletonOfObject(o);
@@ -85,9 +86,9 @@ export function cmdAddSkel(parts: string[]): string {
 
 /// bones <obj> — lista os ossos do Skeleton, com pai.
 export function cmdBones(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
@@ -111,9 +112,9 @@ export function cmdBones(parts: string[]): string {
 /// a mesma dos campos do Inspector (bone_gizmo.ts). Editar encerra a prévia do
 /// objeto, como no Inspector e no gizmo.
 export function cmdPose(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
@@ -123,7 +124,7 @@ export function cmdPose(parts: string[]): string {
   const mode = parts[3];
   if (mode === undefined || mode === "") return "[erro] falta o modo (rot ou pos)";
   if (mode === "rot") {
-    const yaw = parseFloat(parts[4]); const pitch = parseFloat(parts[5]); const roll = parseFloat(parts[6]);
+    const yaw = argNum(parts, 4); const pitch = argNum(parts, 5); const roll = argNum(parts, 6);
     if (yaw !== yaw || pitch !== pitch || roll !== roll) return "[erro] rot precisa de yaw, pitch e roll numericos";
     beginBoneEdit(sk);
     boneRotationFromDegreesInto(POSE_Q_OUT, yaw, pitch, roll);
@@ -131,14 +132,14 @@ export function cmdPose(parts: string[]): string {
     return "[ok] pose #" + oi + " osso " + bone + " rot " + yaw + " " + pitch + " " + roll;
   }
   if (mode === "pos") {
-    const x = parseFloat(parts[4]); const y = parseFloat(parts[5]); const z = parseFloat(parts[6]);
+    const x = argNum(parts, 4); const y = argNum(parts, 5); const z = argNum(parts, 6);
     if (x !== x || y !== y || z !== z) return "[erro] pos precisa de x, y e z numericos";
     beginBoneEdit(sk);
     sk.setBonePosition(bone, x, y, z);
     return "[ok] pose #" + oi + " osso " + bone + " pos " + x + " " + y + " " + z;
   }
   if (mode === "turn") {
-    const eixo = parts[4]; const graus = parseFloat(parts[5]);
+    const eixo = parts[4]; const graus = argNum(parts, 5);
     if (eixo !== "x" && eixo !== "y" && eixo !== "z") return "[erro] turn precisa do eixo de mundo (x, y ou z)";
     if (graus !== graus) return "[erro] turn precisa do angulo em graus";
     beginBoneEdit(sk);
@@ -146,7 +147,7 @@ export function cmdPose(parts: string[]): string {
     return "[ok] pose #" + oi + " osso " + bone + " turn " + eixo + " " + graus;
   }
   if (mode === "shift") {
-    const dx = parseFloat(parts[4]); const dy = parseFloat(parts[5]); const dz = parseFloat(parts[6]);
+    const dx = argNum(parts, 4); const dy = argNum(parts, 5); const dz = argNum(parts, 6);
     if (dx !== dx || dy !== dy || dz !== dz) return "[erro] shift precisa de dx, dy e dz numericos";
     beginBoneEdit(sk);
     POSE_SHIFT[0] = dx; POSE_SHIFT[1] = dy; POSE_SHIFT[2] = dz;
@@ -158,9 +159,9 @@ export function cmdPose(parts: string[]): string {
 
 /// resetpose <obj> — volta o Skeleton ao repouso e esquece a pose manual.
 export function cmdResetPose(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.resetPose();
@@ -174,9 +175,9 @@ export function cmdResetPose(parts: string[]): string {
 /// editor, sem undo). O objeto precisa já estar selecionado (`select <obj>`):
 /// trocar de objeto limpa o osso escolhido.
 export function cmdSelBone(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   if (S.selected !== oi) return "[erro] selecione o objeto antes (select " + oi + ")";
   if (parts[2] === "-1") { selectBone(null, 0 - 1); return "[ok] selbone #" + oi + " nenhum (gizmo no objeto)"; }
   const sk = skeletonOfObject(o);
@@ -191,9 +192,9 @@ export function cmdSelBone(parts: string[]): string {
 
 /// anims <obj> — lista os clipes do modelo (nome + duração).
 export function cmdAnims(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const sk = skeletonOfObject(o);
   if (sk === null) return "[erro] objeto sem Skeleton";
   sk.ensureAsset(0);
@@ -214,9 +215,9 @@ export function cmdAnims(parts: string[]): string {
 /// (`preview` = a prévia do Inspector fora do Play: sem undo, sem mudar a cena
 /// salva — só trocar o clipe entra no undo)
 export function cmdAnim(parts: string[]): string {
-  const oi = parseFloat(parts[1]) | 0;
+  const oi = argObj(parts, 1);
   const o = objOrError(oi);
-  if (o === null) return "[erro] objeto invalido";
+  if (o === null) return erroObj(parts, 1);
   const ap = findAnimPlayer(o);
   if (ap === null) return "[erro] objeto sem AnimationPlayer";
   const sub = parts[2];
@@ -230,20 +231,20 @@ export function cmdAnim(parts: string[]): string {
   if (sub === "pause") { ap.pause(); return "[ok] anim pause #" + oi; }
   if (sub === "resume") { ap.resume(); return "[ok] anim resume #" + oi; }
   if (sub === "seek") {
-    const t = parseFloat(parts[3]);
+    const t = argNum(parts, 3);
     if (t !== t) return "[erro] seek precisa de um tempo numerico";
     ap.seek(t);
     return "[ok] anim seek " + t.toFixed(2) + " #" + oi;
   }
   if (sub === "fade") {
-    const nome = parts[3]; const secs = parseFloat(parts[4]);
+    const nome = parts[3]; const secs = argNum(parts, 4);
     if (nome === undefined || nome === "") return "[erro] fade precisa do nome do clipe";
     if (secs !== secs) return "[erro] fade precisa da duracao em segundos";
     if (!ap.crossFade(nome, secs)) return "[erro] clipe inexistente: " + nome;
     return "[ok] anim fade " + nome + " " + secs.toFixed(2) + " -> #" + oi;
   }
   if (sub === "speed") {
-    const x = parseFloat(parts[3]);
+    const x = argNum(parts, 3);
     if (x !== x) return "[erro] speed precisa de um numero";
     ap.speed = x;
     return "[ok] anim speed " + x.toFixed(2) + " #" + oi;
@@ -276,7 +277,7 @@ function cmdAnimPreview(oi: number, ap: AnimationPlayer, parts: string[]): strin
   if (acao === "pause") { previewPause(ap); return "[ok] anim preview pause #" + oi; }
   if (acao === "stop") { previewStop(ap); return "[ok] anim preview stop #" + oi; }
   if (acao === "seek") {
-    const t = parseFloat(parts[4]);
+    const t = argNum(parts, 4);
     if (t !== t) return "[erro] preview seek precisa de um tempo numerico";
     previewSeek(ap, t);
     return "[ok] anim preview seek " + ap.time.toFixed(2) + " #" + oi;
