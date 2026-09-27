@@ -460,7 +460,9 @@ quadro atual".
   - `await this.nextFrame()` / `await this.waitForFrames(n)` — espera 1 ou `n`
     quadros simulados (uma "chamada de `Scene.update`" cada).
   - `await this.waitUntil(() => condicao)` — a condição é checada uma vez por
-    quadro.
+    quadro. Se o predicado LANÇAR, a espera é cancelada (mesmo sinal do
+    cancelamento automático) e o erro é logado — nunca derruba o quadro
+    inteiro nem as outras corrotinas pendentes.
   - `this.startCoroutine(async () => { ... })` — começa a rodar NA HORA
     (síncrono até o 1º `await`, como `StartCoroutine` na Unity) e devolve um
     handle numérico.

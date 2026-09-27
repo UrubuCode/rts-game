@@ -279,6 +279,27 @@ function ownerInvalid(b: Behavior | null): number {
   return 0;
 }
 
+/// Chama o predicado de UM `waitUntil` protegido contra exceção: `scene.update`
+/// (que chama `coroutineTick`) não passa por `try/catch` em main.ts/game.ts
+/// (proibido no caminho por quadro — CLAUDE.md § Custo por quadro), então um
+/// predicado de usuário que lança destruiria o quadro inteiro (e o processo:
+/// nenhum handler no laço externo o pegaria). Devolve 1 (pronto), 0 (ainda
+/// não) ou -1 (o predicado lançou — loga e CANCELA só esta espera, como um
+/// erro normal de script; as outras corrotinas pendentes não são afetadas).
+function evalUntilPredicate(slot: number): number {
+  const pred = waitPredicate[slot];
+  if (pred === null) return 1;
+  try {
+    return pred() ? 1 : 0;
+  } catch (err: any) {
+    const owner = waitOwner[slot];
+    const name = owner !== null && owner.owner !== null ? owner.owner.name : "?";
+    const tipo = owner !== null ? owner.typeName() : "?";
+    logError("waitUntil de " + tipo + " (" + name + ") lancou no predicado: " + String(err));
+    return 0 - 1;
+  }
+}
+
 /// Metade SÍNCRONA — chamada por `Scene.update` (uma vez por passo simulado:
 /// respeita pausa por não ser chamada, `step` por ser chamada manualmente,
 /// timescale porque mais/menos passos rodam por segundo real). `dt` é o
@@ -299,7 +320,11 @@ export function coroutineTick(dt: f64): void {
     if (k === KIND_TIME) { waitRemaining[slot] = waitRemaining[slot] - dt; ready = waitRemaining[slot] <= 0.0; }
     else if (k === KIND_REALTIME) { waitRemaining[slot] = waitRemaining[slot] - realDt; ready = waitRemaining[slot] <= 0.0; }
     else if (k === KIND_FRAMES) { waitRemaining[slot] = waitRemaining[slot] - 1.0; ready = waitRemaining[slot] <= 0.0; }
-    else { ready = waitPredicate[slot] !== null ? (waitPredicate[slot] as () => boolean)() : true; }
+    else {
+      const r = evalUntilPredicate(slot);
+      if (r < 0) { markPending(i, 1); continue; }
+      ready = r !== 0;
+    }
     if (ready) { markPending(i, 0); continue; }
     i = i + 1;
   }

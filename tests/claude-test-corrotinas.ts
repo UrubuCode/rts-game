@@ -199,6 +199,118 @@ async function testeMuitas(): Promise<void> {
   ok("custo do tick com 1000 pendentes fica em ordem de milissegundos (< 200ms)", custoMs < 200.0);
 }
 
+// ── reentrancia: uma corrotina que INICIA outra corrotina (currentId nao
+// pode se confundir com a corrotina recem-criada, nem antes nem depois do
+// 1o await de quem chamou startCoroutine) ─────────────────────────────────
+async function testeReentrancia(): Promise<void> {
+  io.print("== reentrancia: corrotina que inicia outra corrotina ==");
+  const { scene, b } = novaCena();
+  b.startCoroutine(async () => {
+    b.marcar("pai-antes");
+    // Inicia a FILHA sincronamente, ainda dentro do corpo da pai (antes do
+    // 1o await dela) — currentId tem que voltar pra "pai" depois desta
+    // chamada, senao o proximo waitFor* da pai seria atribuido a filha.
+    b.startCoroutine(async () => {
+      b.marcar("filho-antes");
+      await b.waitForFrames(1);
+      b.marcar("filho-depois");
+    });
+    await b.waitForFrames(2);
+    b.marcar("pai-depois");
+  });
+  ok("pai e filho rodaram sincrono ate seus 1os awaits", b.marcas.length === 2 &&
+    b.marcas[0] === "pai-antes" && b.marcas[1] === "filho-antes");
+  await passo(scene, FDT);
+  ok("filho (1 quadro) retomou primeiro", b.marcas.indexOf("filho-depois") >= 0 && b.marcas.indexOf("pai-depois") < 0);
+  await passo(scene, FDT);
+  ok("pai (2 quadros) retomou depois, sem se confundir com o filho", b.marcas.indexOf("pai-depois") >= 0);
+  ok("nenhum erro no log", logCountAtLeast(LOG_ERROR) === 0);
+}
+
+// ── duas corrotinas de DONOS DIFERENTES prontas no MESMO quadro: cada uma
+// tem que ver o proprio currentId ao continuar (nao o da outra) ───────────
+async function testeDuasNoMesmoQuadro(): Promise<void> {
+  io.print("== duas corrotinas (donos diferentes) retomando no mesmo quadro ==");
+  const { scene, go, b } = novaCena();
+  const go2 = new GameObject("outro");
+  const b2 = new Marcador();
+  go2.addBehavior(b2);
+  scene.add(go2);
+  b.startCoroutine(async () => {
+    await b.waitForSeconds(0.02);
+    b.marcar("A1");
+    await b.waitForFrames(1); // se currentId vazasse pra B, isto acordaria no quadro errado
+    b.marcar("A2");
+  });
+  b2.startCoroutine(async () => {
+    await b2.waitForSeconds(0.02);
+    b2.marcar("B1");
+    await b2.waitForFrames(1);
+    b2.marcar("B2");
+  });
+  await passo(scene, 0.02); // as duas ficam prontas no MESMO quadro
+  ok("A1 e B1 rodaram no mesmo quadro, sem se confundir", b.marcas.indexOf("A1") >= 0 && b2.marcas.indexOf("B1") >= 0);
+  ok("nenhuma pulou pro 2o estagio cedo demais", b.marcas.indexOf("A2") < 0 && b2.marcas.indexOf("B2") < 0);
+  await passo(scene, FDT);
+  ok("A2 e B2 retomaram cada uma no seu proprio waitForFrames(1)", b.marcas.indexOf("A2") >= 0 && b2.marcas.indexOf("B2") >= 0);
+  ok("nenhum erro no log", logCountAtLeast(LOG_ERROR) === 0);
+  void go;
+}
+
+// ── excecao NORMAL (nao-cancelamento) no corpo: loga, nao trava o
+// escalonador, e outra corrotina independente segue normal ────────────────
+async function testeExcecaoNormal(): Promise<void> {
+  io.print("== excecao normal (nao-cancelamento) no corpo da corrotina ==");
+  const { scene, b } = novaCena();
+  b.startCoroutine(async () => {
+    await b.waitForFrames(1);
+    throw new Error("bug do usuario");
+  });
+  b.startCoroutine(async () => { await b.waitForFrames(1); b.marcar("sobrevivente"); });
+  const antes = logCountAtLeast(LOG_ERROR);
+  await passo(scene, FDT);
+  ok("a corrotina que lancou terminou (nao ficou viva)", coroutineActiveCount() === 0);
+  ok("a outra corrotina do mesmo quadro nao foi afetada", b.marcas.indexOf("sobrevivente") >= 0);
+  ok("o erro FOI logado (nao e cancelamento silencioso)", logCountAtLeast(LOG_ERROR) > antes);
+}
+
+// ── waitUntil com predicado que LANÇA: nao pode derrubar o escalonador nem
+// as outras corrotinas pendentes ──────────────────────────────────────────
+async function testePredicadoLanca(): Promise<void> {
+  io.print("== waitUntil(predicado que lanca) nao mata o escalonador ==");
+  const { scene, b } = novaCena();
+  b.startCoroutine(async () => {
+    await b.waitUntil(() => { throw new Error("predicado explodiu"); });
+    b.marcar("nunca");
+  });
+  b.startCoroutine(async () => { await b.waitForFrames(1); b.marcar("outra-sobreviveu"); });
+  const antes = logCountAtLeast(LOG_ERROR);
+  await passo(scene, FDT);
+  ok("a corrotina do predicado que lanca foi cancelada (nao rodou o corpo)", b.marcas.indexOf("nunca") < 0);
+  ok("a outra corrotina pendente sobreviveu e rodou", b.marcas.indexOf("outra-sobreviveu") >= 0);
+  ok("o erro do predicado foi logado", logCountAtLeast(LOG_ERROR) > antes);
+  ok("contagem voltou a 0 (as duas terminaram)", coroutineActiveCount() === 0);
+}
+
+// ── memoria: 100k ciclos start/finish nao crescem os arrays paralelos do
+// escalonador (slots totalmente liberados, sem vazar handle/owner) ────────
+async function testeMemoria100k(): Promise<void> {
+  io.print("== memoria: 100k ciclos start/finish sem crescimento ==");
+  const { scene, b } = novaCena();
+  const N = 100000;
+  let terminadas = 0;
+  const antes = logCountAtLeast(LOG_ERROR); // testes anteriores ja logaram erro de proposito
+  let i = 0;
+  while (i < N) {
+    b.startCoroutine(async () => { await b.waitForFrames(1); terminadas = terminadas + 1; });
+    await passo(scene, FDT);
+    i = i + 1;
+  }
+  ok("todas as 100k terminaram", terminadas === N);
+  ok("nenhuma corrotina viva sobrou", coroutineActiveCount() === 0);
+  ok("nenhum erro NOVO no log", logCountAtLeast(LOG_ERROR) === antes);
+}
+
 // ── contexto/introspeccao: contagem e donos lidos do escalonador ───────────
 async function testeIntrospeccao(): Promise<void> {
   io.print("== coroutineActiveCount / coroutineActiveByOwner ==");
@@ -224,6 +336,11 @@ async function rodarTudo(): Promise<void> {
   await testeAutoCancelDestroy();
   await testeAutoCancelPlayStop();
   await testeMuitas();
+  await testeReentrancia();
+  await testeDuasNoMesmoQuadro();
+  await testeExcecaoNormal();
+  await testePredicadoLanca();
+  await testeMemoria100k();
   await testeIntrospeccao();
 
   io.print("");
