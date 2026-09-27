@@ -10,12 +10,25 @@ import { playMode } from "@editor/play_mode";
 import { history } from "@editor/undo";
 import { AudioSource } from "@scripts/audiosource";
 import { AudioListener } from "@engine/core/audio_listener";
-import { initAudio, AUDIO_NULO, activeVoices, audioEmJogo } from "@engine/audio/audio";
+import { initAudio, AUDIO_NULO, activeVoices, audioEmJogo, mixarBloco, audioUltimoBloco, audioSairJogo,
+         tocarClipe } from "@engine/audio/audio";
+import { AudioClip } from "@engine/audio/clip";
+import { novoPedido } from "@engine/audio/vozes";
 import { definirPoseEditor, limparPosesAudio, resolverOuvinte, OUVINTE_NENHUM } from "@engine/audio/audio_system";
 import { mixerPadrao } from "@engine/audio/mixer_grupos";
 import { EspecWav, escreverWav } from "./wav_escritor";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
+/// Depois de `pararTodasSuave` (Play→Stop, sem clique — Ruling A6/A8): a
+/// rampa de saída não pode ter degrau. Só o canal esquerdo, como em
+/// `test_audio_grupos.ts` (decaiSemDegrau) — sinal qualquer, magnitude segue
+/// o ganho linear indo a zero.
+function decaiSemDegrau(quadros: number): boolean {
+  const b = audioUltimoBloco();
+  let k = 1;
+  while (k < quadros) { if (Math.abs(b[2 * k]) > Math.abs(b[2 * (k - 1)]) + 1e-6) return false; k = k + 1; }
+  return true;
+}
 
 initAudio(AUDIO_NULO);
 mixerPadrao();
@@ -51,7 +64,9 @@ check(activeVoices() === 2, "as duas fontes playOnAwake tocam na CÓPIA do Play;
 check(srcA.vozPrincipal() === 0 && srcB.vozPrincipal() === 0 && srcC.vozPrincipal() === 0, "os originais da cena de autoria não foram tocados");
 
 playMode.stop();
-check(audioEmJogo() === 0 && activeVoices() === 0 && S.simulating === 0, "Parar cala tudo");
+check(audioEmJogo() === 0 && S.simulating === 0, "Parar desliga o jogo e a simulação na hora");
+mixarBloco(800); // pararTodasSuave rampa (sem clique — Ruling A6/A8): um bloco basta pra esvaziar
+check(activeVoices() === 0, "Parar cala tudo (depois da rampa de saída)");
 check(scene.objects[0] === ouv && scene.objects[1] === a && scene.objects[2] === b && scene.objects[3] === c, "os objetos originais voltam intactos");
 check(srcA.vozPrincipal() === 0 && srcB.vozPrincipal() === 0, "os originais continuam sem voz depois de Parar");
 
@@ -64,7 +79,24 @@ scene.removeAt(0); // destrói o ouvinte NO MEIO do Play
 const origem = resolverOuvinte(scene, 0.016); // não deve lançar
 check(origem === OUVINTE_NENHUM || origem >= 0, "resolverOuvinte não quebra sem ouvinte (cai no fallback)");
 playMode.stop();
-check(S.simulating === 0 && activeVoices() === 0, "Parar segue funcionando mesmo depois do ouvinte ter sido destruído no meio");
+check(S.simulating === 0, "Parar segue funcionando mesmo depois do ouvinte ter sido destruído no meio");
+mixarBloco(800);
+check(activeVoices() === 0, "e cala tudo depois da rampa, mesmo sem ouvinte");
 check(scene.objects[0] === ouv, "o ouvinte ORIGINAL (fora da simulação) não foi afetado pela remoção na cópia");
 
-io.print("[PASSOU] AudioSource: ciclo do Play (playOnAwake cria vozes, Parar cala tudo sem tocar no original, ouvinte destruído no meio não quebra)");
+// ── audioSairJogo (Play→Stop) não estala: pararTodasSuave rampa a zero ──────
+// Sinal DC (como em test_audio_grupos.decaiSemDegrau): a magnitude do canal
+// segue o ganho linear da rampa, então dá pra afirmar "sem degrau" por amostra.
+const dcAmostras = new Float32Array(4800); dcAmostras.fill(0.5);
+const dcClip = AudioClip.fromSamples("dc-stop", dcAmostras, 1);
+const pedidoDc = novoPedido();
+check(tocarClipe(dcClip, pedidoDc) > 0, "voz DC tocando antes do Stop");
+check(activeVoices() === 1, "uma voz ativa");
+audioSairJogo(); // == o que `playMode.stop()` chama pro áudio
+check(activeVoices() === 1, "a rampa ainda não correu: a voz segue ocupando o slot até o próximo bloco mixado");
+mixarBloco(800);
+check(decaiSemDegrau(800), "audioSairJogo: rampa de saída sem degrau (sem clique)");
+check(Math.abs(audioUltimoBloco()[2 * 799]) < 1e-4, "a última amostra do bloco de rampa já está perto de zero");
+check(activeVoices() === 0, "depois do bloco de rampa a voz libera (Ruling A6/A8)");
+
+io.print("[PASSOU] AudioSource: ciclo do Play (playOnAwake cria vozes, Parar cala tudo sem tocar no original, ouvinte destruído no meio não quebra, sem clique no Stop)");

@@ -13,7 +13,7 @@ import { Editor, registerCommand } from "@editor/api";
 import type { GameObject } from "@engine/core/gameobject";
 import { AudioSource } from "@scripts/audiosource";
 import { AudioClip, clipPorId, clipInfo } from "@engine/audio/clip";
-import { audioReady, audioRate, audioCanais, audioNulo, audioNivel, vozesTabela, vozIndice, pararTodas,
+import { audioReady, audioRate, audioCanais, audioNulo, audioNivel, vozesTabela, vozIndice, pararTodasSuave,
          activeVoices, audioPicoGrupo, playTone } from "@engine/audio/audio";
 import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PITCH, V_DIST, V_ALVO_L, V_ALVO_R, V_CORTE, V_GRUPO,
          V_FONTE, V_FLAGS, ESTADO_LIVRE, FLAG_VIRTUAL, FLAG_CONGELADA } from "@engine/audio/vozes";
@@ -92,7 +92,7 @@ function cmdPlay(p: string[]): string {
   return "[ok] " + linhaVoz(vozesTabela(), v);
 }
 function cmdStop(p: string[]): string {
-  if (p.length < 3 || p[2] === "tudo") { const n = activeVoices(); pararTodas(); return "[ok] paradas " + n; }
+  if (p.length < 3 || p[2] === "tudo") { const n = activeVoices(); pararTodasSuave(); return "[ok] paradas " + n; }
   const o = Editor.object(p[2]);
   if (o === null) return "[erro] audio: objeto '" + p[2] + "' não encontrado";
   const s = fonteDe(o);

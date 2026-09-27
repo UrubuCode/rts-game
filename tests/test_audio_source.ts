@@ -40,7 +40,9 @@ check(activeVoices() === 0 && audioEmJogo() === 0, "abrir a cena no editor não 
 check(playMode.play(), "Play");
 check(audioEmJogo() === 1 && activeVoices() === 1, "playOnAwake toca no mount da cópia do Play");
 playMode.stop();
-check(audioEmJogo() === 0 && activeVoices() === 0 && S.simulating === 0, "parar o Play cala tudo");
+check(audioEmJogo() === 0 && S.simulating === 0, "parar o Play desliga a flag e a simulação na hora");
+mixarBloco(800); // pararTodasSuave rampa (sem clique — Ruling A6/A8): um bloco esvazia
+check(activeVoices() === 0, "…e cala tudo depois da rampa de saída");
 
 // ── formato antigo ──────────────────────────────────────────────────────────
 const antigo = recreateBehavior({ type: "audiosource", kind: 1, freq: 220.0, dur: 0.3, gain: 0.4, every: 2.0 }) as AudioSource;

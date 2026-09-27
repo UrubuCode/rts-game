@@ -11,13 +11,25 @@ import { execCommand } from "@editor/control/dispatch";
 import { scene } from "@editor/control/session";
 import { history } from "@editor/undo";
 import { AudioSource } from "@scripts/audiosource";
-import { initAudio, closeAudio, AUDIO_NULO, AUDIO_REAL, mixarBloco, pumpAudio, pararTodas, activeVoices } from "@engine/audio/audio";
+import { initAudio, closeAudio, AUDIO_NULO, AUDIO_REAL, mixarBloco, pumpAudio, pararTodas, activeVoices,
+         audioUltimoBloco, tocarClipe } from "@engine/audio/audio";
+import { AudioClip } from "@engine/audio/clip";
+import { novoPedido } from "@engine/audio/vozes";
 import { resolverOuvinte, definirPoseEditor, limparPosesAudio } from "@engine/audio/audio_system";
 import { mixerPadrao, grupoMudo, grupoVolume, grupoIndex } from "@engine/audio/mixer_grupos";
 import { escutaDisponivel } from "@compat/audio.ts";
 import { EspecWav, escreverWav } from "./wav_escritor";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
+/// Como `test_audio_grupos.ts` (decaiSemDegrau): a magnitude do canal esquerdo
+/// só reflete o ganho da rampa quando o sinal é DC — usado abaixo pra provar
+/// que `audio stop tudo` (pararTodasSuave) não estala (Ruling A6/A8).
+function decaiSemDegrau(quadros: number): boolean {
+  const b = audioUltimoBloco();
+  let k = 1;
+  while (k < quadros) { if (Math.abs(b[2 * k]) > Math.abs(b[2 * (k - 1)]) + 1e-6) return false; k = k + 1; }
+  return true;
+}
 function cmd(l: string): string { return execCommand(800, 600, l); }
 /// Chama `audio escuta resultado` até sair de "pendente" ou estourar o prazo
 /// (a captura roda numa thread de guarda do rts.exe: o polling é o único jeito
@@ -92,7 +104,19 @@ check(cmd("audio play Alto build/test-audio/outro.wav").indexOf("[ok]") === 0 &&
 check(cmd("audio play Ninguem").indexOf("[erro]") === 0, "objeto inexistente");
 check(cmd("audio stop Alto").indexOf("[ok] parada a fonte de 'Alto'") === 0 && !s.isPlaying(), "stop <obj>");
 s.play(); cmd("audio play Alto");
-check(cmd("audio stop tudo").indexOf("[ok] paradas") === 0 && activeVoices() === 0, "stop tudo");
+
+// Voz DC extra: junto com a de "Alto" (sinal oscilante), garante uma
+// magnitude que só o ganho da rampa explica — decaiSemDegrau-style.
+const dcAmostrasStop = new Float32Array(4800); dcAmostrasStop.fill(0.5);
+const dcClipStop = AudioClip.fromSamples("dc-stop-tudo", dcAmostrasStop, 1);
+check(tocarClipe(dcClipStop, novoPedido()) > 0, "voz DC extra antes de 'stop tudo'");
+const nAntesStop = activeVoices();
+const rStopTudo = cmd("audio stop tudo");
+check(rStopTudo.indexOf("[ok] paradas " + nAntesStop) === 0, "stop tudo: " + rStopTudo);
+check(activeVoices() === nAntesStop, "pararTodasSuave não libera na hora: a rampa (sem clique) ainda não correu");
+mixarBloco(800);
+check(decaiSemDegrau(800), "stop tudo: rampa de saída sem degrau (sem clique — Ruling A6/A8)");
+check(activeVoices() === 0, "stop tudo: depois do bloco de rampa, todas as vozes liberam");
 pararTodas();
 
 // ── escuta (Ruling A7): a IA confere sozinha se o som saiu, por número ──────

@@ -248,6 +248,25 @@ export function pararTodas(): void {
   while (v < MAX_VOZES) { auVozes[v * VOZ_FLOATS + V_ESTADO] = ESTADO_LIVRE; v = v + 1; }
   auPreviaId = 0;
 }
+/// Como `pararTodas`, mas sem clique (Ruling A6/A8): cada voz ativa pede o fim
+/// pela MESMA regra de `pararVoz` (tocando/pausando → PARANDO, rampa em
+/// `mixInto`; pausada, já em ganho zero, → livre na hora). Vozes já
+/// VIRTUAL/CONGELADA (silenciosas) seguem essa mesma regra e caem livres já no
+/// primeiro `mixInto` seguinte, sem precisar de tratamento à parte — inclui a
+/// voz de prévia, que é só mais uma voz nesta tabela. Use para os caminhos do
+/// jogador (Play→Stop, `audio stop tudo`); `pararTodas` (imediata) continua
+/// só para `closeAudio`/teardown do dispositivo.
+export function pararTodasSuave(): void {
+  let v = 0;
+  while (v < MAX_VOZES) {
+    const b = v * VOZ_FLOATS;
+    const estado = auVozes[b + V_ESTADO];
+    if (estado === ESTADO_TOCANDO || estado === ESTADO_PAUSANDO) auVozes[b + V_ESTADO] = ESTADO_PARANDO;
+    else if (estado === ESTADO_PAUSADA) auVozes[b + V_ESTADO] = ESTADO_LIVRE;
+    v = v + 1;
+  }
+  auPreviaId = 0;
+}
 export function activeVoices(): number {
   let n = 0; let v = 0;
   while (v < MAX_VOZES) { if (auVozes[v * VOZ_FLOATS + V_ESTADO] !== ESTADO_LIVRE) n = n + 1; v = v + 1; }
@@ -258,7 +277,7 @@ export function activeVoices(): number {
 /// O Play (ou o jogo) começou: `playOnAwake` vale a partir daqui. A prévia do editor para.
 export function audioEntrarJogo(): void { pararPrevia(); auEmJogoFlag = 1; }
 /// O Play parou: tudo o que tocava para (spec §3.6, "Ciclo do Play").
-export function audioSairJogo(): void { pararTodas(); auEmJogoFlag = 0; }
+export function audioSairJogo(): void { pararTodasSuave(); auEmJogoFlag = 0; }
 export function audioEmJogo(): number { return auEmJogoFlag; }
 
 /// Prévia 2D do Inspector: uma por vez, ignora o laço, sem mexer na cena.

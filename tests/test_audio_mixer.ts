@@ -178,7 +178,10 @@ check(vz[base(idTom) + 16] === 4.0, "moveVoice move a voz posicional");
 audioEntrarJogo();
 check(audioEmJogo() === 1, "em jogo");
 audioSairJogo();
-check(audioEmJogo() === 0 && activeVoices() === 0, "sair do jogo para todas as vozes");
+check(audioEmJogo() === 0, "sair do jogo desliga a flag na hora");
+check(activeVoices() === 2, "sair do jogo rampa (sem clique — A6/A8): as vozes ainda ocupam o slot até mixar");
+mixarBloco(4800); // maior que a duração dos dois tons: a rampa de saída esvazia tudo
+check(activeVoices() === 0, "…e depois da rampa, todas liberam");
 check(tocarPrevia(dc, 1.0, 1.0) > 0 && previaTocando() === 1, "prévia toca fora do jogo");
 audioEntrarJogo();
 check(previaTocando() === 0, "entrar no jogo para a prévia");
