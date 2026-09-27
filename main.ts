@@ -87,7 +87,7 @@ const P_UI_PROJ = profSection("  ui:project");
 // O "resto" era 2,11 ms NAO INSTRUMENTADOS — 29% do frame. E sempre no pedaço
 // não medido que mora a surpresa: hoje isso já aconteceu três vezes.
 const P_PRESENT = profSection("present/endFrame");
-import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { ctrlServe, ctrlPoll, portaDeControle } from "@editor/control/server";
 import { passoDaSimulacao, definirAoFalharSimulacao } from "@editor/sim_step";
 import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
@@ -464,7 +464,7 @@ let previewPay = "";
 
 initMeshes(WIN);
 assetsInit();
-ctrlServe(7777);
+ctrlServe(portaDeControle(process.env("RTS_CTRL_PORT")));   // RTS_CTRL_PORT troca a 7777 (dois editores, testes em paralelo)
 const host = instalarEditorReal();
 // Editor.inspect(b, título) de um pacote abre `b` como janela no Inspector.
 host.janela = (b: Behavior, titulo: string) => { inspector.abrirJanela(b, titulo); };

@@ -105,6 +105,14 @@ export function hostDeControleAceito(host: string, port: number): boolean {
 let curW = 0;
 let curH = 0;
 
+/// Porta padrão da porta de controle.
+export const CONTROLE_PORTA_PADRAO: number = 7777;
+/// A porta pedida em RTS_CTRL_PORT ("" ou inválida = a padrão).
+export function portaDeControle(env: string): number {
+  const p = Number(env);
+  return env.length > 0 && p === Math.floor(p) && p >= 1 && p <= 65535 ? p : CONTROLE_PORTA_PADRAO;
+}
+
 /// Abre a porta de controle e registra os handlers.
 ///
 /// Vários clientes são aceitos, ao contrário da versão de poll — que só podia

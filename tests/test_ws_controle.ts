@@ -4,8 +4,10 @@
 import io from "@compat/io.ts";
 import { WebSocket } from "ws";
 import net from "node:net";
-import { ctrlServe, ctrlPoll, hostDeControleAceito, CONTROLE_HOST } from "@editor/control/server";
+import { ctrlServe, ctrlPoll, hostDeControleAceito, CONTROLE_HOST, portaDeControle, CONTROLE_PORTA_PADRAO } from "@editor/control/server";
 import { S } from "@editor/control/session";
+import { entradaQuadro } from "@compat/input_sim";
+import { instalarEditorReal } from "@editor/editor_host";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 const PORTA = 39277;
@@ -47,6 +49,24 @@ while (!recusado() && volta < 400000) { ctrlPoll(800, 600); volta = volta + 1; }
 check(recusado(), "Host externo: o servidor fecha a conexão");
 cru.destroy();
 check(resposta.indexOf("editor conectado") < 0 && S.wsClient === 1, "Host externo: sem saudação e sem contar cliente");
+// ORDEM com resposta adiada: `input click` segura as linhas seguintes da
+// conexão até o clique terminar; o lote numa mensagem vira begin + linhas + end.
+instalarEditorReal();
+const respostas: string[] = [];
+local.on("message", (d: any) => { respostas.push(String(d)); });
+local.send("input click 10 10\nres\ninput off");
+volta = 0;
+while (respostas.length < 3 && volta < 400000) { entradaQuadro(); ctrlPoll(800, 600); volta = volta + 1; }
+check(respostas.length === 3 && respostas[0].indexOf("[ok] input click 10 10") === 0 && respostas[1].indexOf("[res]") === 0 &&
+  respostas[2].indexOf("[ok] input off") === 0, "adiada segura a fila, em ordem: " + respostas.join(" || "));
+respostas.length = 0;
+local.send("batch\nspawn LoteWs 0 0 0\nmove LoteWs 1 2 3");
+volta = 0;
+while (respostas.length < 4 && volta < 400000) { ctrlPoll(800, 600); volta = volta + 1; }
+check(respostas.length === 4 && respostas[0].indexOf("[ok] batch aberto") === 0 && respostas[3] === "[ok] batch: 2 comandos, 1 entrada de Desfazer",
+  "lote numa mensagem: " + respostas.join(" || "));
+check(portaDeControle("") === CONTROLE_PORTA_PADRAO && portaDeControle("7790") === 7790 && portaDeControle("x") === CONTROLE_PORTA_PADRAO &&
+  portaDeControle("70000") === CONTROLE_PORTA_PADRAO, "RTS_CTRL_PORT");
 local.close();
-io.print("[PASSOU] ws controle: loopback, Host local aceito, Host externo recusado");
+io.print("[PASSOU] ws controle: loopback, Host local aceito, Host externo recusado, resposta adiada em ordem, lote numa mensagem, RTS_CTRL_PORT");
 process.exit(0);
