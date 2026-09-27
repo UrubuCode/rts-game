@@ -8,6 +8,13 @@ export class InspectorUI {
   usos: number;
   constructor() { this.usos = 0; }
   field(nome: string): void { this.usos = this.usos + 1; }
+  /// Campo de asset estilo Unity (ObjectField): caixa com ícone + "<nome>
+  /// (<tipo>)", botão ⊙ que abre "Selecionar <tipo>" (lista `exts` sob
+  /// assets/), ping no Project ao clicar e soltar um tile compatível do
+  /// Project no campo. `nome` é o campo string do componente (ex.: "clip");
+  /// `icon` é o nome do ícone do editor (ex.: "audio-fonte"). Reusável: hoje só
+  /// o AudioSource usa, com tipo "AudioClip" e exts [".wav",".ogg"].
+  objectField(nome: string, tipo: string, exts: string[], icon: string): void { this.usos = this.usos + 1; }
   label(texto: string): void { this.usos = this.usos + 1; }
   button(rotulo: string): boolean { this.usos = this.usos + 1; return false; }
   toggle(rotulo: string, valor: boolean): boolean { this.usos = this.usos + 1; return valor; }

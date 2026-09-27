@@ -36,8 +36,23 @@ export const UI_COMPONENT_PICKER = {
   categoryHint: "Escolha uma categoria ou busque.",
   resultsOpen: "Resultados (", resultsClose: ")", backMark: "< ",
 };
-// Codigos do backend de input usados pelo navegador de componentes.
-export const UI_PICKER_KEYS = { enter: 1, escape: 2, up: 5, down: 6, left: 7, right: 8 };
+// Codigos do backend de input usados pelo navegador de componentes (e pelo
+// ObjectField: backspace/del compartilham a mesma fase 1 = borda de pressão).
+export const UI_PICKER_KEYS = { enter: 1, escape: 2, up: 5, down: 6, left: 7, right: 8, backspace: 4, del: 10 };
+// Seletor "Selecionar <Tipo>" do ObjectField (item 2 do brief de áudio-arquivos):
+// lista plana (sem categorias) com "Nenhum" no topo e busca por texto.
+export const UI_OBJECT_PICKER = {
+  margin: 14, padding: 10, gap: 6, titleH: 30, searchH: 20,
+  listGap: 8, rowH: 26, maxRows: 8,
+  buttonH: 24, font: 13, smallFont: 11, charW: 7,
+  textY: 7, border: 1, radius: 4, scrollbarW: 3,
+  searchId: 952,
+  titlePrefix: "Selecionar ", searchHint: "Buscar por nome...",
+  none: "Nenhum", empty: "Nenhum arquivo encontrado",
+  emptyHint: "Importe um arquivo para assets/ primeiro.",
+  help: "Enter seleciona • Esc fecha",
+  root: "assets",
+};
 export const UI_INSPECTOR_SCROLL_STEP = 52;
 export const UI_INSPECTOR = {
   padding: 12, gap: 6, rowH: 26, headerH: 24, objectH: 62,
@@ -57,6 +72,11 @@ export const UI_INSPECTOR = {
   headerKey: "/Header", removeKey: "/Remove", enabledKey: "/Enabled", expandedMark: "v  ", collapsedMark: ">  ",
   /// Sufixos das chaves de campo automático ("<comp>/Field/<i>") e do rótulo de vetor ("<chave>/Label").
   fieldKey: "/Field/", labelKey: "/Label",
+  /// ObjectField (item 2 do brief de áudio-arquivos): sufixo da chave do botão
+  /// seletor ("<campo>/Pick"), o glifo dele, o texto "Nenhum (<Tipo>)" e o
+  /// respiro do ícone dentro da caixa.
+  objectPickKey: "/Pick", objectPickGlyph: "…", objectFieldNone: "Nenhum",
+  objectFieldOpen: " (", objectFieldClose: ")", objectIconInset: 3,
 };
 // onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
 // "rótulo: valor", casas do valor do slider e aviso de campo que não existe.

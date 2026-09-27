@@ -117,6 +117,30 @@ export class EditorControl extends Behavior {
       if (!this.inputEnabled) this.hot = 0;
       return;
     }
+    if (this.mode === "object") {
+      // ObjectField estilo Unity (item 2 do brief de áudio-arquivos): caixa com
+      // ícone + "<nome> (<Tipo>)"; `value` no quadro = estado de arraste (0
+      // nenhum, 1 compatível, 2 incompatível). `clicked` (hot===3) = ping no
+      // Project + foco (Delete/Backspace limpa, tratado pelo Inspector).
+      app.at(x, y, w, h);
+      this.hot = this.inputEnabled ? app.clickableAt(this.id) : 0;
+      this.clicked = this.hot === 3;
+      const focused = this.inputEnabled && app.isFocused(this.id);
+      let fill = UI_C.scrollbarTrack; let brd = UI_C.border;
+      if (this.value === 1) {
+        brd = UI_C.componentEnabled;
+        if (this.hot !== 0) { fill = UI_C.rowDropTarget; brd = UI_C.dropMarker; }
+      } else if (this.value === 2 && this.hot !== 0) { fill = UI_C.assetDeleteArmed; brd = UI_C.destructiveText; }
+      else if (focused) brd = UI_C.numberEditorBorder;
+      else if (this.hot === 1 || this.hot === 2) fill = UI_C.controlHover;
+      pincel(fill, L.border, brd, L.radius); caixa(x, y, w, h);
+      const iconSize = Math.max(0, h - L.objectIconInset * 2);
+      iconAt(x + L.objectIconInset, y + L.objectIconInset, iconSize); drawEditorIcon(this.icon);
+      const textX = x + iconSize + L.objectIconInset * 2;
+      const available = Math.max(1, Math.floor((x + w - L.gap - textX) / L.charWidth));
+      texto(textX, y + L.textY, this.legenda(available, 1), estiloTexto(this.color, L.font));
+      return;
+    }
     if (this.mode === "toggle") {
       if (this.inputEnabled) this.value = app.checkbox(x, y + L.textY, this.value, this.label);
       else texto(x, y + L.textY, this.legenda(0, this.value !== 0 ? 3 : 2), estiloTexto(UI_C.disabledText, L.font));
