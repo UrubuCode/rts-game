@@ -64,6 +64,13 @@ export const COMPONENT_CATALOG = [
     "source": "assets/scripts/VitrineHud.ts"
   },
   {
+    "name": "ParticleSystem",
+    "category": "Efeitos",
+    "description": "Emissor de partículas no modelo da Unity (Shuriken): forma, taxa/burst, curvas sobre o tempo de vida.",
+    "keywords": "particula particle fogo fumaca faisca chuva efeito vfx",
+    "source": "src/scripts/particlesystem.ts"
+  },
+  {
     "name": "Collider",
     "category": "Física",
     "description": "Define a forma usada na colisão.",

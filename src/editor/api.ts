@@ -100,6 +100,14 @@ export function emitEditorEvent(evento: string, arg: string): void {
 export class Editor {
   static scene(): Scene | null { return estado.host.scene(); }
   static selection(): GameObject | null { return estado.host.selection(); }
+  /// 1 = `id` (GameObject.id) é o objeto selecionado agora. Existe pra um
+  /// componente ligar sua própria prévia de edição à seleção sem guardar a
+  /// referência do `GameObject` (que muda a cada Play/Stop — a cópia da cena
+  /// tem outra instância, embora preserve o `id`).
+  static selecionado(id: number): boolean {
+    const o = estado.host.selection();
+    return o !== null && o.id === id;
+  }
   static select(o: GameObject | null): void { estado.host.select(o); }
   static snapshot(rotulo: string): void { estado.host.snapshot(rotulo); }
   static log(msg: string): void { estado.host.log(msg); }

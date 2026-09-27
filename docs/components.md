@@ -224,6 +224,89 @@ O motor toca WAV (PCM 8/16/24/32 bits e float 32, mono ou estéreo, decodificado
 - **Verificar sem ouvir** (WS): `audio list` (uma linha por voz: fonte, clipe, grupo, posição, pitch, distância, `gL`/`gR`, corte, estado), `audio nivel` (pico e RMS L/R do último bloco), `audio mixer`, `audio listener` (origem do ouvinte e o dispositivo `real`/`nulo`/`mudo`), `audio clip <caminho>`, `audio play <obj> [clip]`, `audio stop`, `audio escuta [ms] [sonda]` + `audio escuta resultado` (loopback pela saída real da placa, não bloqueia a janela; a sonda de 997 Hz separa o som do motor do de outros programas rodando na máquina). Nos testes sem janela, `initAudio(AUDIO_NULO)` abre um dispositivo que consome em tempo real e descarta; `mixarBloco(n)` mixa um bloco sem esperar o relógio.
 - **Build**: tudo em `assets/` vai junto (`tools/editor-build.mjs:20`), inclusive os clipes e o `mixer.json`.
 
+## Partículas
+
+`ParticleSystem` (`src/scripts/particlesystem.ts`) é o emissor de partículas
+no modelo da Unity (Shuriken): forma, taxa/burst, curvas de cor e tamanho
+sobre o tempo de vida, back-to-front opcional. Desenha-se sozinho
+(`kind() → KIND_RENDERER`, `drawsSelf() → 1`), sem `KIND` nem cache novos —
+o mesmo caminho que `Skeleton` já usa.
+
+- **Main**: `duration`, `loop`, `playOnAwake`, `prewarm` (simula `duration`
+  segundos ANTES do primeiro quadro visível), `maxParticles`,
+  `gravityModifier`, `simulationSpace` (`"world"` soma a posição do dono a
+  cada quadro; `"local"` não), `rateOverTime`, `startLifetimeMin/Max`,
+  `startSpeedMin/Max`, `startSizeMin/Max`, `startRotation`,
+  `startColorR/G/B`.
+- **Emission**: além de `rateOverTime`, até 4 bursts (tempo desde o início do
+  ciclo + quantidade) por `setBurst(indice, tempo, quantidade)`; cada burst
+  dispara no máximo uma vez por volta do loop.
+- **Shape**: `forma` (0 ponto, 1 esfera, 2 cone, 3 caixa — constantes
+  `FORMA_*` em `@engine/particles/desc`), `raio`, `anguloCone` (cone),
+  `caixaX/Y/Z` (caixa).
+- **Over lifetime**: `ventoX/Y/Z` (vento constante) e `arrasto` (arrasto
+  exponencial, estável mesmo com `dt` grande); gradiente de cor (RGBA) e
+  curva de tamanho, cada um com 2–4 chaves sobre o tempo de vida normalizado,
+  editados por `setChaveGradiente(indice, [tempo,r,g,b,a])` e
+  `setChaveTamanho(indice, [tempo,valor])` (reordenam por tempo sozinhos).
+- **Renderer**: `modo` (0 alfa, 1 aditivo), `sort` (1 = back-to-front, só faz
+  sentido em modo alfa — o aditivo é comutativo), `textura` (id de textura
+  resolvido por `resolveMaterialTexture`, já cacheado; 0 = disco procedural
+  sem textura).
+- **Métodos**: `play()`, `stop(clear)`, `pause()`, `unPause()`, `isPlaying()`,
+  `emit(n)` (emite `n` partículas na hora, ignorando `rateOverTime`),
+  `clear()` (zera o pool na hora), `particleCount` (getter), `time`
+  (segundos dentro do ciclo atual), `bboxAtual()` (bbox local das
+  partículas vivas, `Float64Array(6)` reaproveitado — sem somar a posição
+  do dono). `time`/`particleCount`/o estado de tocando/pausado **nunca**
+  são gravados na cena (`@nonSerialized` ou privados): são estado de
+  simulação, não configuração.
+- **`playOnAwake`** só dispara dentro do Play/jogo — carregar a cena no
+  editor ou arrastar o componente num objeto nunca começa a simular
+  sozinho. Fora do Play, o objeto SELECIONADO simula como prévia de edição
+  (o Inspector aberto avança o relógio a cada quadro do editor); desselecionar
+  pausa a prévia sem limpar o pool.
+- **Gizmos**: ícone sempre; com o objeto selecionado, a forma do emissor
+  (esfera/cone/caixa) por cima, na mesma leitura que a simulação usa para
+  nascer as partículas.
+- **Presets do menu Criar**: `Fogo`, `Fumaça`, `Faíscas` e `Chuva` ficam em
+  `src/editor/object_presets.ts` (campo opcional `componentes: () =>
+  Behavior[]` de `ObjectPreset`), cada um com uma fábrica que devolve
+  instâncias NOVAS a cada criação — nunca uma instância compartilhada entre
+  dois objetos (cada `ParticleSystem` tem seu próprio pool). Um item genérico
+  (`Criar/Efeitos/Partículas`, sem preset) também existe, para começar do
+  zero.
+- **Verificar sem a janela** (WS): `particulas <obj> play|stop|emit <n>|clear|info`
+  (pacote `assets/pacotes/particulas/particulas_comandos.ts`, comando separado
+  do resto do pacote de editor, no molde de `audio_comandos.ts`). `info`
+  devolve `vivas=<n> max=<m> tocando=<0|1> t=<s> bbox=(minx,miny,minz)-(maxx,maxy,maxz)`.
+  Testes sem janela rodam a simulação pura (`update`/`drawSelf`), sem
+  depender de `drawParticles` nativo — o fallback avisa uma vez em
+  `logWarn` e a simulação continua normalmente.
+- **Serialização**: `bursts`/gradiente/curva de tamanho são arrays privados,
+  fora da reflexão automática — `ParticleSystem.toData()`/`fromData()`
+  fazem o round-trip deles; os campos escalares automáticos continuam pelo
+  caminho comum (`componentToData`/`legacyFields`).
+- **Portão de performance** (Task 11): a sonda de alocação
+  (`tests/claude-test-particulas-componente-10k-gc.ts`, 10 000 partículas
+  vivas em regime, `update`+`drawSelf` por quadro) dá 0 coletas de GC — os
+  buffers do caminho por quadro são todos reaproveitados (pool SoA,
+  `saidaBuf`, e agora também os baldes do bucket sort). O bench
+  (`bench/claude-bench-particulas.ts`) mede `update`+`drawSelf` (sem GPU) a
+  1 000/5 000/10 000 partículas e também `sort=1` (modo alfa) a 1 000/10 000:
+  a meta do plano era ≤ 1 ms a 10 000 partículas, mas medido neste runtime
+  (interpretado, sem JIT — o mesmo padrão que o `KERNEL_TS` de
+  `claude-bench-audio.ts` mostra) o caminho **sem** `sort` já custa
+  ~27 ms/quadro a 10 000 partículas vivas; a Task 11 substituiu a ordenação
+  original de `sort=1` (inserção O(n²), ~3,25 s/quadro a 10 000 — ~3250x o
+  orçamento) por um bucket sort O(n + 256 baldes) sem alocar, que soma só
+  mais ~5 ms sobre o caminho base. O gargalo que falta pra chegar em 1 ms é
+  o preenchimento do buffer de instância em si (`update`/`drawSelf` sem
+  `sort`), não a ordenação — reduzir isso exigiria um caminho nativo de
+  simulação (como `mix_add` faz para áudio), fora do escopo desta entrega.
+  `10 000` partículas vivas simultâneas continua um valor de referência para
+  medir, não uma garantia de 60 fps neste runtime interpretado.
+
 ## Estender o editor por script
 
 Tudo vem de `@editor/api`. No jogo exportado não há editor, e as chamadas viram

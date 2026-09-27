@@ -47,3 +47,10 @@
 - A IA não ouve pelo ouvido, mas verifica sozinha: por número — `audio list`, `audio nivel`, `audio mixer` — e pela saída real da placa com `audio escuta [ms] [sonda]` + `audio escuta resultado` (loopback, não bloqueia a janela; a sonda de 997 Hz separa o som do motor do de outros programas). Testes sem janela rodam no dispositivo nulo (`initAudio(AUDIO_NULO)` + `mixarBloco`). Não dependa do humano para saber se há som.
 - Caminhos por quadro do áudio (`pumpAudio`, `mixarBloco`, `audioQuadro`, `audioSincronizar`) seguem "Custo por quadro": estado de voz na tabela `Float64Array`, pedidos de voz reaproveitados, nada de `AudioClip.load` por quadro sem cache.
 - Clipes em `assets/audio/`; o mixer do projeto em `assets/audio/mixer.json`, fora do Desfazer da cena.
+
+## Partículas
+
+- A IA verifica o efeito sem olhar a janela: `particulas <obj> info` (vivas, max, tocando, t, bbox). Testes sem janela rodam a simulação pura, sem depender de `drawParticles` nativo (fallback registrado em `logWarn` uma vez).
+- Caminhos por quadro (`ParticleSystem.update`, `drawSelf`, `emitirN`, `atualizarVidas`, `aplicarVelocidade`) seguem "Custo por quadro": pool em `Float64Array` (SoA), buffer de saída para o nativo reaproveitado, reciclagem de partícula morta por lista de livres (sem compactar), nada de `AudioClip.load`-like sem cache (aqui, a textura via `resolveMaterialTexture`, já cacheada). A ordenação `sort=1` (back-to-front, só modo alfa) é um bucket sort O(n + baldes), não a inserção O(n²) original — a inserção estourava o orçamento por ~3250x a 10 000 partículas.
+- Presets do menu Criar (`Fogo`, `Fumaça`, `Faíscas`, `Chuva`) ficam em `src/editor/object_presets.ts`, com uma fábrica `componentes()` que devolve instâncias NOVAS a cada criação (nunca a mesma instância reaproveitada entre dois objetos).
+- Fora do Play, só o objeto SELECIONADO simula (prévia de edição no Inspector); `playOnAwake` só dispara dentro do Play/jogo. Neste runtime interpretado, mesmo sem `sort`, 10 000 partículas vivas já custam bem mais que 1 ms de CPU por quadro (`bench/claude-bench-particulas.ts`) — trate `maxParticles` alto como algo a medir, não como algo garantido barato.
