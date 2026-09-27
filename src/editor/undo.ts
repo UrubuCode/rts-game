@@ -8,6 +8,36 @@
 // do gizmo NÃO faz snapshot por frame — só as operações discretas (via dispatch).
 
 import { sceneToJSON, sceneFromJSON } from "./sceneio";
+import { scene, S } from "./control/session";
+import { skeletonOfObject } from "./skeleton_preview";
+
+// Modelo do Skeleton dono do osso escolhido ("" = nenhum), lido antes de
+// restaurar a cena.
+function selectedBoneModel(): string {
+  let path = "";
+  const owner = S.selectedBoneOwner;
+  if (S.selectedBone >= 0 && owner !== null) {
+    const sk = skeletonOfObject(owner);
+    if (sk !== null) path = sk.modelPath;
+  }
+  return path;
+}
+
+// Desfazer/Refazer recriam os objetos: o osso escolhido continua valendo se o
+// objeto selecionado restaurado tem um Skeleton do MESMO modelo com esse osso
+// (o dono passa a ser o objeto novo); senão a escolha é zerada.
+function rebindSelectedBone(previousPath: string): void {
+  let kept = false;
+  if (S.selectedBone >= 0 && previousPath !== "" && S.selected >= 0 && S.selected < scene.objects.length) {
+    const o = scene.objects[S.selected];
+    const sk = skeletonOfObject(o);
+    if (sk !== null && sk.modelPath === previousPath) {
+      sk.ensureAsset(S.win);
+      if (sk.asset !== null && S.selectedBone < sk.boneCount()) { S.selectedBoneOwner = o; kept = true; }
+    }
+  }
+  if (!kept) { S.selectedBone = 0 - 1; S.selectedBoneOwner = null; }
+}
 
 const CAP: number = 40;   // teto de estados guardados
 
@@ -32,7 +62,9 @@ export class History {
     if (this.u.length === 0) return 0;
     this.r.push(sceneToJSON());
     const s = this.u.pop();
+    const bonePath = selectedBoneModel();
     sceneFromJSON(s);
+    rebindSelectedBone(bonePath);
     return 1;
   }
 
@@ -41,7 +73,9 @@ export class History {
     if (this.r.length === 0) return 0;
     this.u.push(sceneToJSON());
     const s = this.r.pop();
+    const bonePath = selectedBoneModel();
     sceneFromJSON(s);
+    rebindSelectedBone(bonePath);
     return 1;
   }
 

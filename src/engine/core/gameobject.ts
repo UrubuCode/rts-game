@@ -109,6 +109,9 @@ export class GameObject {
   /// (que roda quando a composição muda) e zerado (-1) em `removeAt`. Quem lê
   /// confere `objects[i] === o` antes de confiar. Ver contact_events.ts.
   sceneIndex: number;
+  /// Raio envolvente do renderer que se desenha sozinho (Skeleton), em
+  /// unidades do objeto; 0 = usar o da malha. Cache O(1) pro culling do render.
+  boundRadius: f64;
 
   constructor(name: string) {
     this.id = nextGameObjectId;
@@ -140,6 +143,7 @@ export class GameObject {
     this.spatialSlot = 0 - 1;
     this.spatialDynSlot = 0 - 1;
     this.sceneIndex = 0 - 1;
+    this.boundRadius = 0.0;
   }
 
   /// Primitivo do modelo uniforme: índice do PRIMEIRO component de tipo `kind`
@@ -159,16 +163,34 @@ export class GameObject {
   /// MUTAÇÕES (add/remove), não por frame. Novos componentes render-hot entram aqui.
   refreshComponentCache(): void {
     this.matIdx = this.componentIdx(KIND_MATERIAL);
-    this.rendIdx = this.componentIdx(KIND_RENDERER);
+    this.rendIdx = this.rendererIdx();
+    this.boundRadius = this.rendIdx >= 0 ? this.behaviors[this.rendIdx].rBoundRadius() : 0.0;
     this.colIdx = this.componentIdx(KIND_COLLIDER);
     const hadUI = this.uiIdx;
     this.uiIdx = this.componentIdx(KIND_UI);
     if (this.uiOwner !== null && (hadUI >= 0) !== (this.uiIdx >= 0)) this.uiOwner.uiChanged(this);
   }
 
+  /// Renderer do objeto: um que se desenha sozinho (Skeleton) tem prioridade
+  /// sobre os demais (um preset já traz MeshRenderer); senão o primeiro.
+  rendererIdx(): number {
+    let first = 0 - 1;
+    let i = 0;
+    while (i < this.behaviors.length) {
+      const b = this.behaviors[i];
+      if (b.kind() === KIND_RENDERER) {
+        if (b.drawsSelf() !== 0) return i;
+        if (first < 0) first = i;
+      }
+      i = i + 1;
+    }
+    return first;
+  }
+
   /// Anexa um script e liga-o ao transform deste objeto.
   addBehavior(b: Behavior): GameObject {
     b.attach(this.transform);
+    b.owner = this;
     this.behaviors.push(b);
     this.refreshComponentCache();   // atualiza matIdx/rendIdx se o novo for render-hot
     return this;
@@ -196,6 +218,7 @@ export class GameObject {
     let i = 0;
     while (i < this.behaviors.length) {
       if (i !== idx) next.push(this.behaviors[i]);
+      else this.behaviors[i].owner = null;   // não pertence mais a este objeto — quem cacheou (ex.: AnimationPlayer.skeleton) re-resolve
       i = i + 1;
     }
     this.behaviors = next;

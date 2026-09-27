@@ -9,6 +9,9 @@
 import type { ContactInfo } from "./contact_events";
 import { Transform } from "./transform";
 import { componentMetadata } from "./component_metadata";
+// só de TIPO: GameObject importa Behavior por valor, então isto teria que
+// ser ciclo se não fosse `import type` (apagado na compilação).
+import type { GameObject } from "./gameobject";
 
 // TIPOS de component (tag numérica) — o primitivo do modelo uniforme "tudo é
 // GameObject + componentes". Systems e o render acham um component por kind()
@@ -28,12 +31,19 @@ export class Behavior {
   enabled: number;
   collapsed: number; // foldout do inspector: 1 = recolhido (esconde os campos)
   bodyType: number;  // 0 = unassigned, 1 = static, 2 = kinematic, 3 = dynamic
+  /// GameObject dono (setado por `GameObject.addBehavior`, null antes de
+  /// anexado). Um Behavior que precisa de um COMPONENT IRMÃO do mesmo objeto
+  /// (ex.: AnimationPlayer -> Skeleton) lê `owner.behaviors` por aqui, uma vez
+  /// (cache), em vez de varrer a cena — não é herdado por Transform, que é
+  /// compartilhado por todos os behaviors do objeto mas não sabe quem os tem.
+  owner: GameObject | null;
 
   constructor() {
     this.host = new Transform();
     this.enabled = 1;
     this.collapsed = 0;
     this.bodyType = 0;
+    this.owner = null;
   }
 
   /// Liga o script ao transform do GameObject dono.
@@ -160,6 +170,20 @@ export class Behavior {
   rMeshKind(): number { return 0; }
   /// Id de mesh carregada (.obj) — tem prioridade sobre rMeshKind (0 = nenhuma).
   rCustomMesh(): number { return 0; }
+  /// Um renderer que se desenha sozinho (ex.: Skeleton, várias peças por
+  /// objeto) devolve 1 depois de desenhar; o laço de render então pula o
+  /// desenho por meshKind/customMesh. 0 = seguir o caminho normal.
+  /// `x/y/z` = posição de RENDER do objeto (interpolada, a mesma que o laço
+  /// usa para os demais); `tint` = cor 0xRRGGBB que substitui a das peças
+  /// (destaque de seleção do editor) ou -1 para as cores do modelo.
+  drawSelf(win: number, x: f64, y: f64, z: f64, tint: number): number { return 0; }
+  /// 1 = este renderer se desenha sozinho (`drawSelf`) e tem prioridade sobre
+  /// os demais renderers do objeto. Lido só em `refreshComponentCache`.
+  drawsSelf(): number { return 0; }
+  /// Raio envolvente do renderer em unidades do objeto, centrado na origem
+  /// dele (0 = sem raio próprio: o culling usa o da malha). Lido só em
+  /// `refreshComponentCache` e cacheado em `GameObject.boundRadius`.
+  rBoundRadius(): f64 { return 0.0; }
 
   // ── SURFACE DE UI (chamada pelo pass de UI-scene, dispatch virtual) ──────────
   // Um component de UI (kind UI) desenha a si mesmo em tela 2D. É o seam da visão

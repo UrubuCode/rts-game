@@ -11,6 +11,12 @@ export const TOOL_MOVE: number = 1;
 export const TOOL_ROTATE: number = 2;
 export const TOOL_SCALE: number = 3;
 
+/// Radianos de rotação por unidade de mundo arrastada ao longo do eixo (objeto e osso).
+export const GIZMO_ROTATE_PER_UNIT: f64 = 0.5;
+/// Passos do snap (S.snap): movimento em unidades de mundo, rotação em radianos (15°).
+export const SNAP_MOVE_STEP: f64 = 0.5;
+export const SNAP_ROTATE_STEP: f64 = 0.2618;
+
 // Projeta um ponto de MUNDO → TELA. Retorna [sx, sy, ok] (ok=0 se atrás da
 // câmera). Puro — o main.ts liga os pontos com app.line (rings do gizmo rotate).
 export function projPt(wx: f64, wy: f64, wz: f64, camX: f64, camY: f64, camZ: f64,

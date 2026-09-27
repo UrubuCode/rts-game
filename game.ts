@@ -162,6 +162,8 @@ function frame(): void {
   const objsN = objs.length;
   while (oi < objsN) {
     const o = objs[oi];
+    // renderer que se desenha sozinho (Skeleton): pula o desenho por meshKind
+    if (o.active !== 0 && o.rendIdx >= 0 && o.behaviors[o.rendIdx].drawSelf(WIN) !== 0) { drawnN = drawnN + 1; oi = oi + 1; continue; }
     let meshKind = o.meshKind;
     let customMesh = o.customMesh;
     if (o.rendIdx >= 0) {

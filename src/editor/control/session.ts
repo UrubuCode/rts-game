@@ -1,4 +1,6 @@
 // Estado mutável COMPARTILHADO do editor — um singleton que main + comandos usam.
+import type { AnimationPlayer } from "@engine/core/animation_player";
+import type { Animator } from "@engine/core/animator";
 export class Session {
   camX: f64; camY: f64; camZ: f64; camYaw: f64; camPitch: f64;
   selected: number; playing: number;
@@ -15,6 +17,17 @@ export class Session {
   tool: number;       // ferramenta de manipulação: 0=seleção, 1=Move, 2=Rotate, 3=Scale
   snap: number;       // 1 = snap to grid no gizmo (move 0.5, rotate 15°)
   lightX: f64; lightY: f64; lightZ: f64; lightAmb: f64;   // luz PONTUAL (posição) + ambiente
+  selectedBone: number;   // osso selecionado no Inspector do Skeleton (-1 = nenhum)
+  /// Objeto dono de `selectedBone` (GameObject): se o selecionado deixa de ser
+  /// ele, o osso não vale mais (ver bone_gizmo.selectedBoneTarget).
+  selectedBoneOwner: any;
+  /// PRÉVIA de animação do Inspector fora do Play (estado do editor: não vai
+  /// para a cena salva nem para o undo). Ver skeleton_preview.ts.
+  previewPlayers: AnimationPlayer[];   // tocando agora
+  previewTouched: AnimationPlayer[];   // pose de trabalho mexida pela prévia (inclui os tocando)
+  /// Animators em prévia fora do Play (parâmetro mexido pelo Inspector/WS):
+  /// avançam a cada frame até a prévia ser encerrada. Ver skeleton_preview.ts.
+  previewAnimators: Animator[];
   constructor() {
     this.camX = 0.0; this.camY = 11.0; this.camZ = -15.0;
     this.camYaw = 0.0; this.camPitch = 0 - 0.5;
@@ -28,6 +41,11 @@ export class Session {
     this.tool = 1;   // Move por padrão
     this.snap = 0;
     this.lightX = 7.0; this.lightY = 13.0; this.lightZ = 5.0; this.lightAmb = 0.28;
+    this.selectedBone = 0 - 1;
+    this.selectedBoneOwner = null;
+    this.previewPlayers = [];
+    this.previewTouched = [];
+    this.previewAnimators = [];
   }
 }
 export const S = new Session();

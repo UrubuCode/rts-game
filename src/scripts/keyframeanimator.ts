@@ -4,9 +4,13 @@
 // com um movimento fixo em código. Animação de verdade é outra coisa: uma curva
 // que o usuário desenha no tempo — "sobe até 3 em meio segundo, espera, desce".
 //
-// Um Animator guarda keyframes `(tempo, valor)` para UM canal do transform e os
+// Um KeyframeAnimator guarda keyframes `(tempo, valor)` para UM canal do transform e os
 // interpola. Vários Animators no mesmo objeto animam canais diferentes — é assim
 // que se monta uma porta que abre girando enquanto sobe.
+//
+// Chamava-se `Animator`; o nome passou ao componente de estados de animação
+// de esqueleto (engine/core/animator.ts, estilo Mecanim). A cena continua
+// salvando o tipo legado "animator" (toData), então cenas antigas abrem igual.
 //
 // Não há import de .anim ainda: os keyframes são montados por código ou pelo
 // inspector. O que existe aqui é o RUNTIME de animação, que é a parte que o
@@ -40,7 +44,7 @@ export const EASE_STEP = 2;
  * @componentKeywords animacao keyframe
  * @componentFactory createDefault
  */
-export class Animator extends Behavior {
+export class KeyframeAnimator extends Behavior {
   channel: f64;      // qual campo do transform (CH_*)
   ease: f64;         // EASE_*
   loop: f64;         // 0 = para no fim, 1 = repete, 2 = vai-e-volta (ping-pong)
@@ -67,8 +71,8 @@ export class Animator extends Behavior {
   }
 
   /// Preset do seletor, definido junto da classe em vez de uma fabrica no editor.
-  static createDefault(): Animator {
-    const animator = new Animator();
+  static createDefault(): KeyframeAnimator {
+    const animator = new KeyframeAnimator();
     animator.loop = 2.0;
     animator.key(0.0, 1.0); animator.key(1.0, 3.0);
     return animator;
@@ -76,7 +80,7 @@ export class Animator extends Behavior {
 
   /// Acrescenta um keyframe. Mantém a lista ORDENADA por tempo: a interpolação
   /// varre em ordem, e um key fora de lugar faria o valor saltar.
-  key(time: f64, value: f64): Animator {
+  key(time: f64, value: f64): KeyframeAnimator {
     let i = this.kt.length;
     this.kt.push(time);
     this.kv.push(value);
@@ -151,7 +155,7 @@ export class Animator extends Behavior {
              loop: this.loop, speed: this.speed, kt: this.kt, kv: this.kv };
   }
 
-  typeName(): string { return "Animator"; }
+  typeName(): string { return "KeyframeAnimator"; }
   fieldCount(): number { return 4; }
   fieldLabel(i: number): string {
     if (i === 0) return "Canal";

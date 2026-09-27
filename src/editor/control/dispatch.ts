@@ -6,6 +6,8 @@ import { cmdMove, cmdScl, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
 import { logInfo, logError } from "@engine/core/logger";
 import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField } from "./commands/component";
+import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "./commands/skeleton";
+import { cmdAnimator } from "./commands/animator";
 import { cmdTree, cmdParent, cmdMoveTree } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
@@ -26,7 +28,8 @@ function isMutating(c: string): boolean {
     c === "instscene" || c === "parent" || c === "movetree" || c === "addcomp" ||
     c === "rmcomp" || c === "setfield" || c === "loadobj" || c === "loadtex" ||
     c === "rename" || c === "reset" || c === "grid" || c === "instprefab" ||
-    c === "drop" || c === "dropat" || c === "dropon";
+    c === "drop" || c === "dropat" || c === "dropon" ||
+    c === "addskel" || c === "pose" || c === "resetpose" || c === "anim";
 }
 
 /// Executa um comando e REGISTRA no log. O corpo real é `execCommandInner`;
@@ -54,8 +57,22 @@ function execCommandInner(w: number, h: number, line: string): string {
   const cmd = parts[0];
   const np = parts.length;
   // UNDO: snapshot da cena ANTES de qualquer operação mutante.
+  //
+  // `anim ... state` é uma CONSULTA (não muda a pose/clipe/tempo — só lê e
+  // formata), mas `cmd` sozinho é só a palavra "anim", igual a `anim ... play`.
+  // Sem o `parts[2] !== "state"` abaixo, uma IA que faz polling de
+  // `anim N state` empilharia um snapshot por chamada (sem NENHUMA mudança
+  // real) e limparia a pilha de redo (history.snapshot() zera `this.r`) a
+  // cada leitura — undo/redo ficam inúteis para quem também está editando a
+  // pose ao mesmo tempo.
   if (cmd === "clear" || cmd === "loadscene") playMode.stop();
-  if (isMutating(cmd)) history.snapshot();
+  // `anim ... preview` também não: a prévia é estado do editor (só trocar o
+  // clipe entra no undo, e o próprio subcomando faz esse snapshot).
+  if (isMutating(cmd) && !(cmd === "anim" && (parts[2] === "state" || parts[2] === "preview"))) history.snapshot();
+  // `animator` fica FORA do snapshot genérico: `set`/`trigger` mexem em
+  // parâmetros (estado de execução), `state`/`params` são consultas (polling
+  // não pode zerar o redo, como no `anim ... state`), e `load` tira o próprio
+  // snapshot só depois de validar o arquivo (commands/animator.ts).
   switch (cmd) {
     case "undo": {
       if (history.undo() !== 0) return "[ok] undo (estado restaurado)";
@@ -176,6 +193,14 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "addcomp": return cmdAddComp(parts);
     case "rmcomp": return cmdRmComp(parts);
     case "setfield": return cmdSetField(parts);
+    case "addskel": return cmdAddSkel(parts);
+    case "bones": return cmdBones(parts);
+    case "pose": return cmdPose(parts);
+    case "resetpose": return cmdResetPose(parts);
+    case "selbone": return cmdSelBone(parts);
+    case "anims": return cmdAnims(parts);
+    case "anim": return cmdAnim(parts);
+    case "animator": return cmdAnimator(parts);
     case "tree": return cmdTree();
     case "parent": return cmdParent(parts);
     case "movetree": return cmdMoveTree(parts);

@@ -11,6 +11,7 @@ import { GameObject, getNextGameObjectId, setNextGameObjectId } from "../engine/
 import { Behavior } from "../engine/core/behavior";
 import { Material } from "../engine/core/material";
 import { MeshRenderer } from "../engine/core/meshrenderer";
+import { Skeleton } from "../engine/core/skeleton";
 import { Camera } from "../engine/core/camera";
 import { SceneRef } from "../engine/core/sceneref";
 import { Spinner } from "../scripts/spinner";
@@ -20,7 +21,7 @@ import { Mover } from "../scripts/mover";
 import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { Patrol } from "../scripts/patrol";
-import { Animator } from "../scripts/animator";
+import { KeyframeAnimator } from "../scripts/keyframeanimator";
 import { AudioSource } from "../scripts/audiosource";
 import { PhysicsMaterial } from "../scripts/physicsmaterial";
 import { Collider, SHAPE_BOX } from "../engine/core/collider";
@@ -65,7 +66,7 @@ function recreateBehaviorInner(sd: any): Behavior {
   if (t === "orbit") return new Orbit(sd.radius, sd.speed, sd.cx, sd.cz);
   if (t === "patrol") return new Patrol(sd.range, sd.speed);
   if (t === "animator") {
-    const animator = new Animator(sd.channel, sd.ease);
+    const animator = new KeyframeAnimator(sd.channel, sd.ease);
     animator.loop = sd.loop; animator.speed = sd.speed;
     let keyIndex = 0;
     while (keyIndex < sd.kt.length) { animator.key(sd.kt[keyIndex], sd.kv[keyIndex]); keyIndex = keyIndex + 1; }
@@ -131,6 +132,9 @@ function recreateBehaviorInner(sd: any): Behavior {
     r.customMesh = sd.customMesh;
     return r;
   }
+  // Caminho do modelo + pose manual (só ossos com override); o modelo carrega
+  // no primeiro desenho.
+  if (t === "skeleton") return Skeleton.fromData(sd);
   return new MissingScript(sd);
 }
 

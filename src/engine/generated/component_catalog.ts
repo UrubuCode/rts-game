@@ -1,11 +1,25 @@
 // GERADO por tools/generate-components.mjs. Edite as classes .ts, nao este arquivo.
 export const COMPONENT_CATALOG = [
   {
+    "name": "AnimationPlayer",
+    "category": "Animação",
+    "description": "Toca um clipe glTF do Skeleton do mesmo objeto: laço, seek, crossfade.",
+    "keywords": "animacao clipe gltf esqueleto pose laco crossfade",
+    "source": "src/engine/core/animation_player.ts"
+  },
+  {
     "name": "Animator",
+    "category": "Animação",
+    "description": "Máquina de estados de animação (estilo Mecanim): parâmetros, transições, mistura 1D e camadas com máscara.",
+    "keywords": "animator animacao estados transicao mistura blend camada mascara mecanim controlador",
+    "source": "src/engine/core/animator.ts"
+  },
+  {
+    "name": "KeyframeAnimator",
     "category": "Animação",
     "description": "Anima propriedades com keyframes.",
     "keywords": "animacao keyframe",
-    "source": "src/scripts/animator.ts"
+    "source": "src/scripts/keyframeanimator.ts"
   },
   {
     "name": "VitrineContador",
@@ -62,6 +76,13 @@ export const COMPONENT_CATALOG = [
     "description": "Desenha a malha do objeto.",
     "keywords": "malha modelo mesh",
     "source": "src/engine/core/meshrenderer.ts"
+  },
+  {
+    "name": "Skeleton",
+    "category": "Renderização",
+    "description": "Desenha um modelo glTF de ossos rígidos e guarda a pose posicionada à mão.",
+    "keywords": "ossos esqueleto personagem glb gltf pose animação",
+    "source": "src/engine/core/skeleton.ts"
   },
   {
     "name": "Bobber",

@@ -2,16 +2,28 @@ import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { GameObject } from "@engine/core/gameobject";
 import { EditorUI } from "./ui_controls";
 import { MeshRenderer } from "@engine/core/meshrenderer";
+import { Skeleton } from "@engine/core/skeleton";
+import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, previewSeek, previewChooseClip,
+  timelineTarget, animationPlayerOf, skeletonOfObject, animatorOfObject, animatorPreviewTouch, animatorPreviewIsActive,
+  animatorPreviewStop } from "./skeleton_preview";
+import type { Animator } from "@engine/core/animator";
+import { PARAM_FLOAT, PARAM_BOOL } from "@engine/core/animator_controller";
 import { ComponentPicker } from "./component_picker";
+import { beginBoneEdit, boneDegreesInto, boneRotationFromDegreesInto, selectBone } from "./bone_gizmo";
 import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
 import { scene, S } from "./control/session";
 import { nfCancel, AXIS_X, AXIS_Y, AXIS_Z } from "./widgets";
 import input from "rts:input";
 import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
-  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP } from "./ui_config";
+  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K, UI_ANIMATOR as A } from "./ui_config";
 
 const DEGREES_PER_RADIAN = 180 / Math.PI;
+/// Progresso do fade (0..1) mostrado em porcentagem na seção Animator.
+const FADE_PERCENT = 100;
+/// Escala do tempo mostrado (10^casas): o rótulo da camada só é refeito
+/// quando o valor ARREDONDADO muda.
+const ANIMATOR_TIME_SCALE = Math.pow(10, A.timeDigits);
 
 // Painel do editor: GameObject raiz + controles filhos em uma UIScene propria.
 // Nenhum desses objetos entra na cena editada ou no arquivo do jogo.
@@ -25,6 +37,41 @@ export class Inspector extends Behavior {
   opened: number = 0;
   transformOpen: boolean = true;
   appearanceOpen: boolean = true;
+  skeletonOpen: boolean = true;
+  // Rótulos da seção "Esqueleto", refeitos só quando o modelo (asset) muda ou,
+  // na barra de tempo, quando tempo/duração mudam — não a cada frame.
+  skeletonLabelsAsset: any = null;
+  bonesTitle: string = "";
+  clipLabels: string[] = [];
+  timelineLabel: string = "";
+  timelineTime: f64 = 0 - 1;
+  timelineDuration: f64 = 0 - 1;
+  // Rótulo "Osso: <nome>" refeito só quando o osso/modelo muda; graus e
+  // quaternion do osso em buffers fixos (sem alocar por frame).
+  boneLabel: string = "";
+  boneLabelBone: number = 0 - 1;
+  boneLabelAsset: any = null;
+  boneQuat: Float64Array = new Float64Array(4);
+  // Graus mostrados nos campos de rotação do osso. Enquanto o quaternion do
+  // osso é o que estes graus produziram (`boneShownQ`, mesmo osso/Skeleton),
+  // os campos mostram os graus DIGITADOS em vez de decompor de novo — perto de
+  // pitch ±90° a decomposição salta de ramo e o valor pularia sob o cursor.
+  boneDegrees: Float64Array = new Float64Array(3);
+  boneShownQ: Float64Array = new Float64Array(4);
+  boneShownSkeleton: any = null;
+  boneShownBone: number = 0 - 1;
+  // Valores passados aos campos (reaproveitados: sem array novo por frame).
+  boneRotationValues: number[] = [0, 0, 0];
+  bonePositionValues: number[] = [0, 0, 0];
+  // Seção "Animator": rótulos refeitos só quando o que mostram muda (caminho
+  // do controlador; estado/tempo/fade de cada camada).
+  animatorOpen: boolean = true;
+  animatorControllerShown: string = "";
+  animatorControllerLabel: string = "";
+  animatorLayerLabels: string[] = [];
+  animatorLayerStates: string[] = [];
+  animatorLayerTimes: number[] = [];
+  animatorLayerFades: number[] = [];
   meshHot: number = 0;
   textureHot: number = 0;
   top: number = 0; bottom: number = 0;
@@ -58,23 +105,301 @@ export class Inspector extends Behavior {
     this.ui.draw(header);
     return header.clicked ? !expanded : expanded;
   }
-  vector(key: string, y: number, label: string, values: number[]): number[] {
+  vector(key: string, y: number, label: string, values: number[], namesArg?: string[]): number[] {
+    const names = namesArg !== undefined ? namesArg : UI_AXIS_NAMES;
     if (!this.visible(y, L.rowH)) return values;
     this.label(key + "/Label", y, label);
     const colors = [AXIS_X, AXIS_Y, AXIS_Z];
     const valueX = this.x + L.padding + L.labelW;
     const fieldWidth = (this.width - L.padding * 2 - L.labelW - L.axisGap * 2) / 3;
     let axisIndex = 0;
-    while (axisIndex < UI_AXIS_NAMES.length) {
-      const axis = this.ui.control(key + "/" + UI_AXIS_NAMES[axisIndex], "axis",
+    while (axisIndex < names.length) {
+      const axis = this.ui.control(key + "/" + names[axisIndex], "axis",
         valueX + axisIndex * (fieldWidth + L.axisGap), y, fieldWidth, L.rowH,
-        UI_AXIS_NAMES[axisIndex], this.enabledInput);
+        names[axisIndex], this.enabledInput);
       axis.color = colors[axisIndex]; axis.value = values[axisIndex];
       this.ui.draw(axis);
       if (axis.value !== values[axisIndex]) { this.snapshot(); values[axisIndex] = axis.value; }
       axisIndex = axisIndex + 1;
     }
     return values;
+  }
+  /// Seção "Esqueleto": árvore de ossos (clique = S.selectedBone), clipes,
+  /// tocar/pausar/parar, barra de tempo (arrastar = seek) e "Resetar pose".
+  /// Fora do Play, tocar/pausar/tempo são PRÉVIA (skeleton_preview.ts): sem
+  /// undo e sem mudar a cena salva. Escolher o clipe (campo salvo `clip`) e
+  /// resetar a pose (pose manual) passam pelo undo como as outras edições.
+  skeletonSection(app: any, skeleton: Skeleton, startY: number): number {
+    let rowY = startY;
+    this.skeletonOpen = this.header("Skeleton/Header", rowY, K.title, this.skeletonOpen);
+    rowY = rowY + L.headerH + L.gap;
+    if (!this.skeletonOpen) return rowY;
+    skeleton.ensureAsset(app._win);
+    const asset = skeleton.asset;
+    if (asset === null) { this.label("Skeleton/NoModel", rowY, K.noModel); return rowY + L.rowH + L.gap; }
+    const innerX = this.x + L.padding + L.gap;
+    const innerW = this.width - L.padding * 2 - L.gap;
+    const boneCount = asset.boneNames.length;
+    if (this.skeletonLabelsAsset !== asset) {
+      this.skeletonLabelsAsset = asset;
+      this.bonesTitle = K.bones + K.countOpen + boneCount + K.countClose;
+      const labels: string[] = [];
+      let labelIndex = 0;
+      while (labelIndex < asset.clips.length) {
+        const labelClip = asset.clips[labelIndex];
+        labels.push(labelClip.name + K.clipDurationOpen + labelClip.duration.toFixed(K.timeDigits) + K.timeUnit + K.clipDurationClose);
+        labelIndex = labelIndex + 1;
+      }
+      this.clipLabels = labels;
+    }
+    this.label("Skeleton/BonesTitle", rowY, this.bonesTitle);
+    rowY = rowY + L.rowH;
+    let bone = 0;
+    while (bone < boneCount) {
+      if (this.visible(rowY, K.boneRowH)) {
+        let depth = 0;
+        let parent = asset.boneParent[bone];
+        while (parent >= 0 && depth < K.maxIndentDepth) { depth = depth + 1; parent = asset.boneParent[parent]; }
+        const indent = depth * K.boneIndent;
+        const row = this.ui.control("Skeleton/Bone/" + bone, "row", innerX + indent, rowY, innerW - indent,
+          K.boneRowH, asset.boneNames[bone], this.enabledInput);
+        row.fill = bone === S.selectedBone ? UI_C.boneSelected : UI_C.boneRow;
+        this.ui.draw(row);
+        // clicar no osso já selecionado devolve o gizmo ao objeto
+        if (row.clicked) selectBone(skeleton.owner, S.selectedBone === bone ? 0 - 1 : bone);
+      }
+      rowY = rowY + K.boneRowH;
+      bone = bone + 1;
+    }
+    rowY = rowY + L.gap;
+    if (S.selectedBone >= 0 && S.selectedBone < boneCount) rowY = this.boneFields(skeleton, S.selectedBone, rowY);
+    const player = animationPlayerOf(skeleton);
+    if (player === null) {
+      this.label("Skeleton/NoPlayer", rowY, K.noPlayer);
+      this.label("Skeleton/NoPlayerHint", rowY + L.rowH, K.noPlayerHint);
+      return rowY + L.rowH * 2 + L.gap;
+    }
+    // Animator ligado no mesmo objeto: o player fica inerte, então os
+    // controles de tocar/parar não fariam nada — mostra só o aviso
+    if (player.drivenByAnimator(skeleton)) {
+      this.label("Skeleton/DrivenByAnimator", rowY, K.drivenByAnimator);
+      this.label("Skeleton/DrivenByAnimatorHint", rowY + L.rowH, K.drivenByAnimatorHint);
+      return rowY + L.rowH * 2 + L.gap;
+    }
+    const simulating = S.simulating !== 0;
+    this.label("Skeleton/ClipsTitle", rowY, K.clips);
+    rowY = rowY + L.rowH;
+    if (asset.clips.length === 0) { this.label("Skeleton/NoClips", rowY, K.noClips); rowY = rowY + L.rowH; }
+    let clipIndex = 0;
+    while (clipIndex < asset.clips.length) {
+      const clip = asset.clips[clipIndex];
+      if (this.visible(rowY, K.clipRowH)) {
+        const button = this.ui.control("Skeleton/Clip/" + clipIndex, "button", innerX, rowY, innerW, K.clipRowH,
+          this.clipLabels[clipIndex], this.enabledInput);
+        if (clip.name === player.clip) button.fill = UI_C.clipActive;
+        this.ui.draw(button);
+        if (button.clicked && clip.name !== player.clip) {
+          this.snapshot();
+          if (simulating) player.play(clip.name);
+          else previewChooseClip(player, clip.name);
+        }
+      }
+      rowY = rowY + K.clipRowH;
+      clipIndex = clipIndex + 1;
+    }
+    rowY = rowY + L.gap;
+    const duration = player.duration();
+    const canPlay = this.enabledInput && duration > 0.0;
+    if (this.visible(rowY, L.rowH)) {
+      const playing = simulating ? player.playing : previewIsPlaying(player);
+      const halfW = (innerW - K.buttonGap) / 2;
+      const toggle = this.ui.control("Skeleton/Play", "button", innerX, rowY, halfW, L.rowH,
+        playing ? K.pause : K.play, canPlay);
+      this.ui.draw(toggle);
+      if (toggle.clicked) {
+        if (simulating) { if (playing) player.pause(); else player.resume(); }
+        else if (playing) previewPause(player);
+        else previewStart(player);
+      }
+      const stop = this.ui.control("Skeleton/Stop", "button", innerX + halfW + K.buttonGap, rowY, halfW, L.rowH, K.stop, canPlay);
+      this.ui.draw(stop);
+      if (stop.clicked) {
+        if (simulating) { player.pause(); player.seek(0.0); }
+        else previewStop(player);
+      }
+    }
+    rowY = rowY + L.rowH + L.gap;
+    if (this.visible(rowY, K.timelineH)) {
+      if (player.time !== this.timelineTime || duration !== this.timelineDuration) {
+        this.timelineTime = player.time; this.timelineDuration = duration;
+        this.timelineLabel = player.time.toFixed(K.timeDigits) + K.timeSeparator + duration.toFixed(K.timeDigits) + K.timeUnit;
+      }
+      const timeline = this.ui.control("Skeleton/Time", "timeline", innerX, rowY, innerW, K.timelineH, this.timelineLabel, canPlay);
+      timeline.value = duration > 0.0 ? player.time / duration : 0;
+      this.ui.draw(timeline);
+      if (timeline.hot !== 0) {
+        const target = timelineTarget(player, timeline.value, duration);
+        if (simulating) player.seek(target); else previewSeek(player, target);
+      }
+    }
+    rowY = rowY + K.timelineH + L.gap;
+    if (this.visible(rowY, L.rowH)) {
+      const reset = this.ui.control("Skeleton/Reset", "button", innerX, rowY, innerW, L.rowH, K.resetPose, this.enabledInput);
+      this.ui.draw(reset);
+      // repouso + fim da prévia deste player (senão o clipe continuaria por cima)
+      if (reset.clicked) { this.snapshot(); skeleton.resetPose(); previewStop(player); }
+    }
+    return rowY + L.rowH + L.gap;
+  }
+  /// Seção "Animator": caminho do controlador (ou o erro que o deixa inerte),
+  /// parâmetros editáveis ao vivo (float = campo arrastável, bool = caixa,
+  /// trigger = botão) e o estado atual + tempo normalizado de cada camada.
+  /// Parâmetros são estado de EXECUÇÃO: sem undo e fora da cena salva. Fora
+  /// do Play, mexer num parâmetro inicia a prévia do Animator
+  /// (skeleton_preview.ts), que acaba ao trocar de objeto, entrar no Play ou
+  /// no botão "Parar prévia" — parâmetros, estados e pose voltam ao início.
+  animatorSection(animator: Animator, startY: number): number {
+    let rowY = startY;
+    this.animatorOpen = this.header("Animator/Header", rowY, A.title, this.animatorOpen);
+    rowY = rowY + L.headerH + L.gap;
+    if (!this.animatorOpen) return rowY;
+    const innerX = this.x + L.padding + L.gap;
+    const innerW = this.width - L.padding * 2 - L.gap;
+    if (this.animatorControllerShown !== animator.controller || this.animatorControllerLabel === "") {
+      this.animatorControllerShown = animator.controller;
+      this.animatorControllerLabel = A.controller + (animator.controller === "" ? A.none : animator.controller);
+    }
+    this.label("Animator/Controller", rowY, this.animatorControllerLabel);
+    rowY = rowY + L.rowH;
+    const error = animator.errorText();
+    if (error !== "") {
+      if (this.visible(rowY, L.rowH)) {
+        const label = this.ui.control("Animator/Error", "label", innerX, rowY, innerW, L.rowH, A.error + error, false);
+        label.color = UI_C.animatorError; this.ui.draw(label);
+      }
+      return rowY + L.rowH + L.gap;
+    }
+    this.label("Animator/ParamsTitle", rowY, A.params);
+    rowY = rowY + L.rowH;
+    const paramCount = animator.paramCount();
+    if (paramCount === 0) { this.label("Animator/NoParams", rowY, A.noParams); rowY = rowY + L.rowH; }
+    let param = 0;
+    while (param < paramCount) {
+      const type = animator.paramType(param);
+      const value = animator.paramValue(param);
+      const rowH = type === PARAM_FLOAT || type === PARAM_BOOL ? L.rowH : A.triggerRowH;
+      if (this.visible(rowY, rowH)) {
+        const key = "Animator/Param/" + param;
+        const name = animator.paramName(param);
+        if (type === PARAM_FLOAT) {
+          const field = this.ui.control(key, "number", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          field.value = value; this.ui.draw(field);
+          if (field.value !== value) { animator.setFloatAt(param, field.value); animatorPreviewTouch(animator); }
+        } else if (type === PARAM_BOOL) {
+          const box = this.ui.control(key, "toggle", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          box.value = value !== 0.0 ? 1 : 0; this.ui.draw(box);
+          if ((box.value !== 0) !== (value !== 0.0)) { animator.setBoolAt(param, box.value !== 0); animatorPreviewTouch(animator); }
+        } else {
+          const button = this.ui.control(key, "button", innerX, rowY, innerW, rowH, name, this.enabledInput);
+          button.fill = value !== 0.0 ? UI_C.triggerArmed : UI_C.controlIdle;
+          this.ui.draw(button);
+          if (button.clicked) { animator.setTriggerAt(param); animatorPreviewTouch(animator); }
+        }
+      }
+      rowY = rowY + rowH;
+      param = param + 1;
+    }
+    rowY = rowY + L.gap;
+    this.label("Animator/LayersTitle", rowY, A.layers);
+    rowY = rowY + L.rowH;
+    const layerCount = animator.layerCount();
+    let layer = 0;
+    while (layer < layerCount) {
+      this.refreshAnimatorLayerLabel(animator, layer);
+      this.label("Animator/Layer/" + layer, rowY, this.animatorLayerLabels[layer]);
+      rowY = rowY + L.rowH;
+      layer = layer + 1;
+    }
+    if (S.simulating === 0 && animatorPreviewIsActive(animator)) {
+      if (this.visible(rowY, L.rowH)) {
+        const stop = this.ui.control("Animator/StopPreview", "button", innerX, rowY, innerW, L.rowH, A.stopPreview, this.enabledInput);
+        this.ui.draw(stop);
+        if (stop.clicked) animatorPreviewStop(animator);
+      }
+      rowY = rowY + L.rowH;
+    }
+    return rowY + L.gap;
+  }
+  // "Camada: Estado  t=0.42  (fade de X 30%)" — refeito só quando estado,
+  // tempo ou progresso do fade mudam.
+  refreshAnimatorLayerLabel(animator: Animator, layer: number): void {
+    while (this.animatorLayerLabels.length <= layer) {
+      this.animatorLayerLabels.push(""); this.animatorLayerStates.push("");
+      this.animatorLayerTimes.push(0 - 1); this.animatorLayerFades.push(0 - 1);
+    }
+    const state = animator.stateName(layer);
+    // compara o que o rótulo MOSTRA (arredondado), não o valor cru
+    const time = Math.round(animator.stateTime(layer) * ANIMATOR_TIME_SCALE);
+    const fade = animator.fadingFrom(layer) !== "" ? Math.round(animator.fadeProgress(layer) * FADE_PERCENT) : 0 - 1;
+    if (this.animatorLayerLabels[layer] !== "" && this.animatorLayerStates[layer] === state &&
+      this.animatorLayerTimes[layer] === time && this.animatorLayerFades[layer] === fade) return;
+    this.animatorLayerStates[layer] = state; this.animatorLayerTimes[layer] = time; this.animatorLayerFades[layer] = fade;
+    let text = animator.layerName(layer) + A.layerSeparator + state + A.timeOpen + (time / ANIMATOR_TIME_SCALE).toFixed(A.timeDigits);
+    if (fade >= 0) text = text + A.fadeOpen + animator.fadingFrom(layer) + A.fadeStateGap + fade + A.fadeClose;
+    this.animatorLayerLabels[layer] = text;
+  }
+  /// Campos do osso selecionado: rotação local em graus (yaw/pitch/roll, a
+  /// convenção do `pose rot` do WebSocket) e posição local. Editar encerra a
+  /// prévia do objeto e grava a pose MANUAL (salva na cena, com undo).
+  boneFields(skeleton: Skeleton, bone: number, startY: number): number {
+    const asset = skeleton.asset;
+    if (asset === null) return startY;
+    let rowY = startY;
+    if (this.boneLabelBone !== bone || this.boneLabelAsset !== asset) {
+      this.boneLabelBone = bone; this.boneLabelAsset = asset;
+      this.boneLabel = K.boneSelected + asset.boneNames[bone];
+    }
+    this.label("Skeleton/BoneName", rowY, this.boneLabel);
+    rowY = rowY + L.rowH;
+    const degrees = this.boneDegrees;
+    const shown = this.boneShownQ;
+    const o = bone * 4;
+    const same = this.boneShownSkeleton === skeleton && this.boneShownBone === bone &&
+      skeleton.manualR[o] === shown[0] && skeleton.manualR[o + 1] === shown[1] &&
+      skeleton.manualR[o + 2] === shown[2] && skeleton.manualR[o + 3] === shown[3];
+    if (!same) {
+      // o osso mudou por outro caminho (gizmo, WS, undo, outro osso): decompõe
+      boneDegreesInto(degrees, skeleton.manualR, o);
+      this.rememberBoneRotation(skeleton, bone);
+    }
+    const yaw = degrees[0]; const pitch = degrees[1]; const roll = degrees[2];
+    const rotationValues = this.boneRotationValues;
+    rotationValues[0] = yaw; rotationValues[1] = pitch; rotationValues[2] = roll;
+    const rotation = this.vector("Skeleton/BoneRotation", rowY, K.boneRotation, rotationValues, K.rotationAxes);
+    if (rotation[0] !== yaw || rotation[1] !== pitch || rotation[2] !== roll) {
+      beginBoneEdit(skeleton);
+      boneRotationFromDegreesInto(this.boneQuat, rotation[0], rotation[1], rotation[2]);
+      skeleton.setBoneRotation(bone, this.boneQuat);
+      degrees[0] = rotation[0]; degrees[1] = rotation[1]; degrees[2] = rotation[2];
+      this.rememberBoneRotation(skeleton, bone);
+    }
+    rowY = rowY + L.rowH;
+    const tx = skeleton.manualT[bone * 3]; const ty = skeleton.manualT[bone * 3 + 1]; const tz = skeleton.manualT[bone * 3 + 2];
+    const positionValues = this.bonePositionValues;
+    positionValues[0] = tx; positionValues[1] = ty; positionValues[2] = tz;
+    const position = this.vector("Skeleton/BonePosition", rowY, K.bonePosition, positionValues);
+    if (position[0] !== tx || position[1] !== ty || position[2] !== tz) {
+      beginBoneEdit(skeleton);
+      skeleton.setBonePosition(bone, position[0], position[1], position[2]);
+    }
+    return rowY + L.rowH + L.gap;
+  }
+  // Guarda o quaternion atual do osso como "o que os graus mostrados produzem".
+  rememberBoneRotation(skeleton: Skeleton, bone: number): void {
+    const o = bone * 4;
+    this.boneShownSkeleton = skeleton; this.boneShownBone = bone;
+    this.boneShownQ[0] = skeleton.manualR[o]; this.boneShownQ[1] = skeleton.manualR[o + 1];
+    this.boneShownQ[2] = skeleton.manualR[o + 2]; this.boneShownQ[3] = skeleton.manualR[o + 3];
   }
   render(app: any, x: number, y: number, width: number, height: number,
          mx: number, my: number, down: number, pressed: number, blocked: boolean,
@@ -87,6 +412,11 @@ export class Inspector extends Behavior {
       this.scroll = 0; this.contentHeight = 0; this.opened = 0;
       this.selectedObject = selected; this.selection = S.selected;
       nfCancel(); app.setFocus(0 - 1);
+      // outro objeto: o osso escolhido não vale mais (salvo Desfazer/Refazer,
+      // que re-liga o osso ao objeto restaurado — ver undo.ts) e a prévia de
+      // animação (estado do editor) termina, com a pose de trabalho de volta à manual.
+      if (S.selectedBoneOwner !== selected) selectBone(null, 0 - 1);
+      previewStopAll();
     }
     if (blocked) { this.opened = 0; nfCancel(); }
     this.enabledInput = !blocked && this.opened === 0;
@@ -192,6 +522,10 @@ export class Inspector extends Behavior {
         rowY = rowY + L.rowH + L.gap;
       }
     }
+    const skeleton = skeletonOfObject(object);
+    if (skeleton !== null) rowY = this.skeletonSection(app, skeleton, rowY);
+    const animator = animatorOfObject(object);
+    if (animator !== null) rowY = this.animatorSection(animator, rowY);
     let componentIndex = 0;
     let removeIndex = 0 - 1;
     while (componentIndex < object.behaviors.length) {
@@ -274,3 +608,4 @@ export class Inspector extends Behavior {
     this.ui.end();
   }
 }
+

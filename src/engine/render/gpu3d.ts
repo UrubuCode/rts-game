@@ -322,6 +322,19 @@ export function drawGPUMesh(win: number, meshId: number, px: number, py: number,
   });
 }
 
+/// Como `drawGPUMesh`, com a rotação dada por um QUATERNION `q` = [x, y, z, w]
+/// (glTF) em vez de pitch/yaw: é como o Skeleton desenha cada osso. Com
+/// qualquer componente de `q` ≠ 0 o runtime ignora rx/ry. Sem tiling.
+export function drawGPUMeshQ(win: number, meshId: number, px: number, py: number, pz: number,
+                             q: Float64Array, sx: number, sy: number, sz: number,
+                             color: number, emissive: number, tex: number): void {
+  drawMesh(win, {
+    mesh: meshId, x: px, y: py, z: pz, rx: 0.0, ry: 0.0,
+    qx: q[0], qy: q[1], qz: q[2], qw: q[3],
+    sx: sx, sy: sy, sz: sz, color: color, emissive: emissive, tex: tex, tile: 0.0,
+  });
+}
+
 /// Liga/desliga o VSYNC da janela (1 = Fifo, o padrão; 0 = sem espera).
 ///
 /// Com vsync o FPS fica preso ao refresh do monitor (~60 Hz), o que é o certo

@@ -7,7 +7,9 @@ import io from "@compat/io.ts";
 import math from "@compat/math.ts";
 import { scene } from "@editor/control/session";
 import { GameObject } from "@engine/core/gameobject";
-import { Animator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "@scripts/animator";
+import { KeyframeAnimator, CH_PY, EASE_LINEAR, EASE_SMOOTH } from "@scripts/keyframeanimator";
+import { recreateBehavior } from "@editor/sceneio";
+import { componentToData } from "@engine/components";
 import { Rigidbody } from "@scripts/rigidbody";
 import { PhysicsMaterial, MAT_RUBBER, MAT_ICE, MAT_STONE, MAT_WOOD } from "@scripts/physicsmaterial";
 
@@ -529,7 +531,7 @@ io.print("== ANIMATOR: keyframes interpolados ==");
 {
   scene.clear();
   const o = new GameObject("A"); o.setMesh(1,1,1,1); scene.add(o);
-  const a = new Animator(CH_PY * 1.0, EASE_LINEAR * 1.0);
+  const a = new KeyframeAnimator(CH_PY * 1.0, EASE_LINEAR * 1.0);
   a.loop = 0.0;
   a.key(0.0, 0.0); a.key(1.0, 10.0);
   o.addBehavior(a);
@@ -539,10 +541,10 @@ io.print("== ANIMATOR: keyframes interpolados ==");
   ok("  depois do ultimo devolve o ultimo", a.sample(99.0) === 10.0 ? 1 : 0);
   // keys fora de ordem: a interpolacao varre em ordem, um key fora de lugar
   // faria o valor SALTAR no meio da animacao
-  const b = new Animator(CH_PY * 1.0, EASE_LINEAR * 1.0);
+  const b = new KeyframeAnimator(CH_PY * 1.0, EASE_LINEAR * 1.0);
   b.key(1.0, 10.0); b.key(0.0, 0.0); b.key(0.5, 5.0);
   ok("  keys fora de ordem sao ordenados", (b.kt[0] === 0.0 && b.kt[1] === 0.5 && b.kt[2] === 1.0) ? 1 : 0);
-  const c = new Animator(CH_PY * 1.0, EASE_SMOOTH * 1.0);
+  const c = new KeyframeAnimator(CH_PY * 1.0, EASE_SMOOTH * 1.0);
   c.key(0.0, 0.0); c.key(1.0, 10.0);
   ok("  smooth: meio igual ao linear", c.sample(0.5) === 5.0 ? 1 : 0);
   ok("  smooth: acelera devagar (0.25 < 2.5)", c.sample(0.25) < 2.5 ? 1 : 0);
@@ -552,11 +554,27 @@ io.print("== ANIMATOR: keyframes interpolados ==");
   ok("  animou pela cena", o.transform.py > 3.0 && o.transform.py < 6.0 ? 1 : 0);
 }
 
+io.print("== KEYFRAMEANIMATOR: cena antiga (tipo \"animator\") ==");
+{
+  // A classe se chamava Animator; o nome passou ao Animator de esqueleto.
+  // Cenas salvas antes gravaram type "animator" e precisam abrir igual.
+  const antigo: any = { type: "animator", channel: CH_PY * 1.0, ease: EASE_LINEAR * 1.0,
+                        loop: 1.0, speed: 2.0, kt: [0.0, 1.0], kv: [0.0, 4.0] };
+  const b = recreateBehavior(antigo);
+  ok("  tipo legado vira KeyframeAnimator", b instanceof KeyframeAnimator ? 1 : 0);
+  const k = b as KeyframeAnimator;
+  ok("  keys e velocidade preservados", (k.kt.length === 2 && k.kv[1] === 4.0 && k.speed === 2.0) ? 1 : 0);
+  const d = componentToData(b);
+  ok("  salvar de novo mantem o tipo legado", d !== null && d.type === "animator" ? 1 : 0);
+  const b2 = recreateBehavior(d);
+  ok("  ida e volta devolve KeyframeAnimator", b2 instanceof KeyframeAnimator ? 1 : 0);
+}
+
 io.print("== ANIMATOR: modos de loop ==");
 {
   scene.clear();
   const o = new GameObject("A"); o.setMesh(1,1,1,1); scene.add(o);
-  const a = new Animator(CH_PY * 1.0, EASE_LINEAR * 1.0);
+  const a = new KeyframeAnimator(CH_PY * 1.0, EASE_LINEAR * 1.0);
   a.loop = 0.0;                      // para no fim
   a.key(0.0, 0.0); a.key(0.2, 10.0);
   o.addBehavior(a);
