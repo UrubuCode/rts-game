@@ -5,11 +5,15 @@
 // por bloco (espacial e grupos), a voz virtual e a mixagem do bloco.
 //
 // O modelo continua "o jogo enche, a thread de áudio drena": a cada quadro
-// `pumpAudio()` mixa o que falta para manter ~100 ms enfileirados.
+// `pumpAudio()` mixa o que falta para manter o alvo enfileirado. O alvo é
+// ADAPTATIVO (100..250 ms): um quadro lento (contenção de CPU, GC, janela
+// minimizada) drena o anel além dos 100 ms de partida e falta no
+// dispositivo — a falta some no `stats` nativo (audível como chiado), sobe o
+// alvo pra absorver o próximo quadro lento, e desce devagar quando some.
 //
 // Os tons de antes (`playTone`...) viram clipes gerados uma vez (`toneClip`) e
 // passam pelo mesmo caminho: há UM mixer.
-import audio, { AUDIO_REAL, AUDIO_NULO } from "@compat/audio.ts";
+import audio, { AUDIO_REAL, AUDIO_NULO, STATS_FLOATS } from "@compat/audio.ts";
 import { AudioClip, toneClip, definirTaxaDosClipes, clipPorId, FORMA_SENO, FORMA_QUADRADA, FORMA_RUIDO } from "./clip";
 import { rolloffRef, rolloffMax, espGanhosVoz, ESP_GL, ESP_GR, ESP_LP, ESP_DIST, ESP_CORTE, ESP_FLOATS } from "./spatial";
 import { ganhoGrupo, grupoPausado } from "./mixer_grupos";
@@ -27,11 +31,36 @@ import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PASSO, V_LACO, V_GL,
 export { AUDIO_REAL, AUDIO_NULO };
 export const KERNEL_NATIVO: number = 0;
 export const KERNEL_TS: number = 1;
-/// ~100 ms a 48 kHz: folga para um quadro lento sem picotar, curto o bastante
-/// para um som disparado agora não atrasar de forma audível.
-const AU_ALVO_QUADROS: number = 4800;
-/// Teto de quadros mixados numa chamada (o primeiro quadro não gera 100 ms de uma vez).
+/// ~100 ms a 48 kHz: o alvo de partida — curto o bastante para um som
+/// disparado agora não atrasar de forma audível. Um quadro lento (contenção de
+/// CPU, GC, janela minimizada) drena o anel além disso e falta no
+/// dispositivo (chiado/silêncio); ver `AU_ALVO_QUADROS_MAX`.
+const AU_ALVO_QUADROS_MIN: number = 4800;
+/// ~250 ms: teto do alvo ADAPTATIVO depois de uma falta — mais folga para
+/// absorver o próximo quadro lento sem faltar de novo, à custa de latência.
+const AU_ALVO_QUADROS_MAX: number = 12000;
+/// Quanto o alvo sobe de uma vez ao detectar falta desde o último `pumpAudio`
+/// (dobra o mínimo — recupera rápido, sem ficar tentando aos pouquinhos
+/// enquanto o quadro lento pode se repetir).
+const AU_ALVO_PASSO_SOBE: number = 4800;
+/// Quanto o alvo desce por quadro depois de ficar estável (devagar: 10 ms por
+/// quadro a 48 kHz — encolhe sem sacrificar a folga que acabou de justificar
+/// a subida).
+const AU_ALVO_PASSO_DESCE: number = 480;
+/// Quadros SEM falta nova antes de começar a encolher o alvo de volta ao
+/// mínimo (2 s a 60 fps) — não desfaz a folga assim que a maré aperta.
+const AU_ALVO_JANELA_ESTAVEL: number = 120;
+/// Teto de quadros mixados NUMA chamada de `mixarBloco` (o primeiro quadro não
+/// gera 250 ms de uma vez). `pumpAudio` chama `mixarBloco` várias vezes
+/// (nunca mais que `AU_ALVO_QUADROS_MAX / AU_MAX_BOMBA` por quadro) para
+/// cobrir a lacuna inteira depois de um quadro lento, em vez de recuperar 1
+/// bloco por quadro e arriscar faltar de novo antes de reencher.
 const AU_MAX_BOMBA: number = 2400;
+/// Duração do fade-in (rampa linear 0→1) aplicado ao primeiro bloco mixado
+/// depois de uma falta detectada: o nativo já sai do silêncio com zeros
+/// (Ruling A8 no d0 do anel), então o degrau duro fica na volta — 5 ms aqui
+/// suaviza essa borda sem atraso perceptível.
+const AU_RAMPA_QUADROS: number = 240;
 const AU_TAXA_PADRAO: f64 = 48000.0;
 const AU_CANAIS_PADRAO: number = 2;
 const AU_PITCH_MIN: f64 = 0.05;
@@ -44,6 +73,17 @@ let auNulo: number = 0;
 let auEmJogoFlag: number = 0;
 let auKernel: number = KERNEL_NATIVO;
 let auPreviaId: number = 0;
+/// Alvo ADAPTATIVO de quadros enfileirados (ver `AU_ALVO_QUADROS_MIN/MAX`);
+/// começa no mínimo e só sobe quando `pumpAudio` observa falta nova.
+let auAlvoQuadros: number = AU_ALVO_QUADROS_MIN;
+/// Quadros seguidos sem falta nova, para encolher `auAlvoQuadros` devagar.
+let auQuadrosSemFalta: number = 0;
+/// Última contagem de `faltas` lida do nativo (detecta falta NOVA por diferença).
+let auFaltasAntes: f64 = 0.0;
+/// Quadros restantes do fade-in em curso no próximo bloco escrito (ver `AU_RAMPA_QUADROS`).
+let auRampaRestante: number = 0;
+/// Buffer reaproveitado por `pumpAudio` pra ler `audio.stats` sem alocar por quadro.
+const auStats = new Float64Array(STATS_FLOATS);
 let auMix = new Float32Array(AU_MAX_BOMBA * AU_CANAIS_PADRAO);
 const auVozes = new Float64Array(MAX_VOZES * VOZ_FLOATS);
 const auVazio = new Float32Array(0);
@@ -79,6 +119,7 @@ export function initAudio(modoArg?: number): number {
   auMix = new Float32Array(AU_MAX_BOMBA * auCanais);
   auDesc[D_CANAIS_DST] = auCanais;
   definirTaxaDosClipes(auTaxa);
+  auAlvoQuadros = AU_ALVO_QUADROS_MIN; auQuadrosSemFalta = 0; auFaltasAntes = 0.0; auRampaRestante = 0;
   return 1;
 }
 
@@ -98,11 +139,24 @@ export function definirKernelMix(k: number): void { auKernel = k === KERNEL_TS ?
 export function vozesTabela(): Float64Array { return auVozes; }
 export function audioUltimoBloco(): Float32Array { return auMix; }
 export function audioNivel(out: Float64Array): void { let i = 0; while (i < NIVEL_FLOATS) { out[i] = auNivel[i]; i = i + 1; } }
+/// `stats(dev, out)` do dispositivo nativo (consumidos, faltas, enfileirados,
+/// taxa, canais, nulo) — para a IA/WS conferir chiado por número (faltas) sem
+/// escuta. 0 sem dispositivo (out não tocado).
+export function audioStats(out: Float64Array): number { return auDev !== 0 ? audio.stats(auDev, out) : 0; }
 /// Quantas vezes `mix_add`/`mixAddTs` rodou de fato desde o último
 /// `audioZerarContadorMix` — prova (em teste) que uma voz virtual/congelada
 /// usa o caminho barato e não mixa mais enquanto a causa do silêncio persiste.
 export function audioContadorMix(): number { return auContadorMix; }
 export function audioZerarContadorMix(): void { auContadorMix = 0; }
+/// Só teste/instrumentação: o alvo adaptativo atual (prova que uma falta o
+/// sobe e que ele encolhe devagar depois de ficar estável — ver `auAtualizarAlvo`).
+export function audioAlvoQuadros(): number { return auAlvoQuadros; }
+/// Só teste/instrumentação: força quantos quadros de fade-in restam, sem
+/// esperar uma falta de verdade — prova que `pumpAudio` consome a rampa
+/// certo (ver `auRampaEntrada`) num bloco determinístico.
+export function audioForcarRampaTeste(q: number): void { auRampaRestante = q; }
+/// Só teste/instrumentação: quantos quadros de fade-in ainda faltam consumir.
+export function audioRampaRestanteTeste(): number { return auRampaRestante; }
 
 // ── ids de voz ───────────────────────────────────────────────────────────────
 // id = geração × MAX_VOZES + slot + 1. Um objeto que guardou o id de uma voz
@@ -444,16 +498,75 @@ export function mixarBloco(quadros: number): number {
   return ativas;
 }
 
-/// Mixa e envia o que falta para ~100 ms enfileirados. Uma vez por quadro.
+/// Lê `faltas` do nativo e ajusta `auAlvoQuadros`: uma falta NOVA desde o
+/// último quadro (o dispositivo achou o anel curto) sobe o alvo de uma vez
+/// (`AU_ALVO_PASSO_SOBE`) e agenda o fade-in do próximo bloco; sem falta nova
+/// por `AU_ALVO_JANELA_ESTAVEL` quadros seguidos, encolhe devagar de volta ao
+/// mínimo. Ruling A8 estendido: a folga cresce pela EVIDÊNCIA de que o quadro
+/// está lento (não um palpite fixo), e desce devagar pra não reabrir a mesma
+/// falta na primeira oscilação seguinte.
+function auAtualizarAlvo(): void {
+  if (audio.stats(auDev, auStats) === 0) return;
+  const faltasAgora = auStats[1];
+  if (faltasAgora !== auFaltasAntes) {
+    auFaltasAntes = faltasAgora;
+    auQuadrosSemFalta = 0;
+    auAlvoQuadros = auAlvoQuadros + AU_ALVO_PASSO_SOBE;
+    if (auAlvoQuadros > AU_ALVO_QUADROS_MAX) auAlvoQuadros = AU_ALVO_QUADROS_MAX;
+    auRampaRestante = AU_RAMPA_QUADROS;
+  } else {
+    auQuadrosSemFalta = auQuadrosSemFalta + 1;
+    if (auQuadrosSemFalta >= AU_ALVO_JANELA_ESTAVEL && auAlvoQuadros > AU_ALVO_QUADROS_MIN) {
+      auQuadrosSemFalta = 0;
+      auAlvoQuadros = auAlvoQuadros - AU_ALVO_PASSO_DESCE;
+      if (auAlvoQuadros < AU_ALVO_QUADROS_MIN) auAlvoQuadros = AU_ALVO_QUADROS_MIN;
+    }
+  }
+}
+
+/// Fade-in linear (0→1) dos primeiros `auRampaRestante` quadros de `buf`,
+/// consumindo a rampa conforme os quadros passam (pode terminar no meio de um
+/// bloco, ou continuar no próximo `write` do mesmo `pumpAudio`). Só corre
+/// depois de uma falta nova (ver `auAtualizarAlvo`) — o resto do tempo
+/// `auRampaRestante` é 0 e a função não toca o buffer.
+function auRampaEntrada(buf: Float32Array, quadros: number): void {
+  if (auRampaRestante <= 0) return;
+  const canais = auCanais;
+  let f = 0;
+  while (f < quadros && auRampaRestante > 0) {
+    const t: f64 = 1.0 - auRampaRestante / AU_RAMPA_QUADROS;
+    let c = 0;
+    while (c < canais) { buf[f * canais + c] = buf[f * canais + c] * t; c = c + 1; }
+    auRampaRestante = auRampaRestante - 1;
+    f = f + 1;
+  }
+}
+
+/// Mixa e envia o que falta para o alvo ENFILEIRADO (adaptativo, ver
+/// `auAtualizarAlvo`). Uma vez por quadro. Depois de um quadro lento (o anel
+/// drenou abaixo do alvo mínimo) cobre a lacuna INTEIRA aqui — várias
+/// chamadas de `mixarBloco`/`write`, cada uma até `AU_MAX_BOMBA` — em vez de
+/// só 1 bloco por quadro, que levaria vários quadros pra reencher e arriscava
+/// faltar de novo antes de completar.
 export function pumpAudio(): number {
   if (auDev === 0) return 0;
   const q = audio.queued_frames(auDev);
   if (q < 0) return 0;
-  let need = AU_ALVO_QUADROS - q;
+  auAtualizarAlvo();
+  let need = auAlvoQuadros - q;
   if (need <= 0) return 0;
-  if (need > AU_MAX_BOMBA) need = AU_MAX_BOMBA;
-  mixarBloco(need);
-  return audio.write(auDev, auMix, need * auCanais);
+  let escritos = 0;
+  while (need > 0) {
+    let n = need;
+    if (n > AU_MAX_BOMBA) n = AU_MAX_BOMBA;
+    mixarBloco(n);
+    auRampaEntrada(auMix, n);
+    const w = audio.write(auDev, auMix, n * auCanais);
+    escritos = escritos + w;
+    if (w < n * auCanais) break; // anel cheio (não deveria com o alvo ≤ AU_ALVO_QUADROS_MAX): para sem laço infinito
+    need = need - n;
+  }
+  return escritos;
 }
 
 // ── a API de tons de antes ───────────────────────────────────────────────────

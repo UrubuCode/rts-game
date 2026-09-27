@@ -85,6 +85,11 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("clear", "objetos", MUTA_SIM, ["clear :: esvazia a cena (para o Play) :: clear"]),
   c("color", "transform", MUTA_SIM, ["color <obj> <r> <g> <b> :: cor do objeto, 0..255 :: color 0 240 90 60"]),
   c("complist", "componentes", MUTA_NAO, ["complist :: nomes dos componentes que da pra adicionar :: complist"]),
+  c("contexto", "consulta", MUTA_NAO, [
+    "contexto :: retrato compacto do editor pra uma IA, gerado AGORA do runtime: comandos, componentes (com campos), menus, pacotes, sistemas e cena :: contexto",
+    "contexto json :: o mesmo em JSON completo :: contexto json",
+    "contexto <secao> :: so uma secao (comandos|componentes|menus|pacotes|sistemas|cena) :: contexto componentes",
+    "contexto componentes <Nome> :: ficha detalhada de UM componente (campos, tipos, opcoes) :: contexto componentes Spinner"]),
   c("comps", "componentes", MUTA_NAO, ["comps <obj> :: componentes do objeto + campos e valores :: comps 1"]),
   c("dbg", "sistema", MUTA_NAO, ["dbg :: diagnostico: fisica, corpos, fps, ativos, wouldDraw, drawnLast :: dbg"]),
   c("delete", "objetos", MUTA_SIM, ["delete <obj> :: remove o objeto :: delete 3"]),

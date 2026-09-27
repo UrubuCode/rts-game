@@ -14,7 +14,9 @@ import type { GameObject } from "@engine/core/gameobject";
 import { AudioSource } from "@scripts/audiosource";
 import { AudioClip, clipPorId, clipInfo } from "@engine/audio/clip";
 import { audioReady, audioRate, audioCanais, audioNulo, audioNivel, vozesTabela, vozIndice, pararTodasSuave,
-         activeVoices, audioPicoGrupo, playTone } from "@engine/audio/audio";
+         activeVoices, audioPicoGrupo, playTone, audioStats } from "@engine/audio/audio";
+import { STATS_FLOATS } from "@compat/audio.ts";
+import time from "@compat/time.ts";
 import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PITCH, V_DIST, V_ALVO_L, V_ALVO_R, V_CORTE, V_GRUPO,
          V_FONTE, V_FLAGS, ESTADO_LIVRE, FLAG_VIRTUAL, FLAG_CONGELADA } from "@engine/audio/vozes";
 import { mixerNGrupos, grupoNome, grupoVolume, grupoMudo, grupoPausa, grupoIndex, ganhoGrupo, mixerSetVolume,
@@ -29,6 +31,12 @@ const ESTADOS_VOZ: string[] = ["livre", "tocando", "pausada"];
 const TIPOS_DISPOSITIVO: string[] = ["real", "nulo"];
 const nivelCmd = new Float64Array(NIVEL_FLOATS);
 const poseCmd = new Float64Array(8);
+const statsCmd = new Float64Array(STATS_FLOATS);
+/// Última leitura de `faltas` (underruns totais do nativo) e quando, pra
+/// estimar a taxa "no último segundo" em `cmdNivel` sem guardar uma janela
+/// deslizante — a IA confere chiado por número sem escutar (CLAUDE.md, Áudio).
+let nivelFaltasAntes: f64 = 0.0 - 1.0; // -1: ainda não leu (primeira chamada não estima taxa)
+let nivelFaltasAntesTs: number = 0;
 
 /// Frequência da sonda (Ruling A7): 997 Hz, longe de harmônicos comuns de
 /// zumbido de rede elétrica (50/60 Hz e múltiplos), mesma escolha do teste
@@ -143,10 +151,23 @@ function cmdClip(p: string[]): string {
   const rms: f64 = c.amostras.length > 0 ? Math.sqrt(s / c.amostras.length) : 0.0;
   return "[audio] clip " + c.nome + ": " + clipInfo(c) + " pico=" + n3(c.pico) + " rms=" + n3(rms);
 }
+/// Taxa de faltas (underruns) por segundo desde a última chamada a `nivel`
+/// (aproxima "no último segundo" sem guardar uma janela deslizante).
+function faltasPorSegundo(faltasAgora: f64, agoraMs: number): f64 {
+  if (nivelFaltasAntes < 0.0 || agoraMs <= nivelFaltasAntesTs) return 0.0;
+  const dt = agoraMs - nivelFaltasAntesTs;
+  return (faltasAgora - nivelFaltasAntes) * 1000.0 / dt;
+}
 function cmdNivel(): string {
   audioNivel(nivelCmd);
+  const temStats = audioStats(statsCmd) !== 0;
+  const faltasAgora: f64 = temStats ? statsCmd[1] : 0.0;
+  const agoraMs = time.now_ms();
+  const faltasSeg = temStats ? faltasPorSegundo(faltasAgora, agoraMs) : 0.0;
+  nivelFaltasAntes = faltasAgora; nivelFaltasAntesTs = agoraMs;
   return "[audio] nivel picoL=" + n3(nivelCmd[N_PICO_L]) + " picoR=" + n3(nivelCmd[N_PICO_R]) + " rmsL=" + n3(nivelCmd[N_RMS_L]) +
-         " rmsR=" + n3(nivelCmd[N_RMS_R]) + " cortadas=" + nivelCmd[N_CORTADAS] + " vozes=" + activeVoices();
+         " rmsR=" + n3(nivelCmd[N_RMS_R]) + " cortadas=" + nivelCmd[N_CORTADAS] + " vozes=" + activeVoices() +
+         " faltas=" + (temStats ? faltasAgora : "-") + " faltas1s=" + (temStats ? n2(faltasSeg) : "-");
 }
 
 // ── escuta (Ruling A7): loopback não bloqueante + sonda opcional ───────────
