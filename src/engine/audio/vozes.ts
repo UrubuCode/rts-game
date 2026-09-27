@@ -36,6 +36,11 @@ export const V_GERACAO: number = 27;  // conta alocações do slot; faz o id ant
 export const ESTADO_LIVRE: number = 0;
 export const ESTADO_TOCANDO: number = 1;
 export const ESTADO_PAUSADA: number = 2;
+/// Fase A6: `pararVoz`/`pausarVoz` não cortam na hora — pedem ganho-alvo zero e
+/// deixam a rampa por amostra do bloco (já existente) levar `V_GL/V_GR` a zero
+/// antes de liberar ou congelar o slot. Sem isso o corte é instantâneo e estala.
+export const ESTADO_PARANDO: number = 3;
+export const ESTADO_PAUSANDO: number = 4;
 
 export const FLAG_VIRTUAL: number = 1;
 export const FLAG_ONESHOT: number = 2;

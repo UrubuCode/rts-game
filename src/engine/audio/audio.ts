@@ -18,6 +18,7 @@ import { mixAddTs } from "./mix_ts";
 import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PASSO, V_LACO, V_GL, V_GR, V_ALVO_L, V_ALVO_R,
          V_LP_COEF, V_LP_L, V_LP_R, V_GRUPO, V_FONTE, V_FLAGS, V_VOLUME, V_X, V_Y, V_Z, V_BLEND, V_MIN, V_MAX,
          V_ROLLOFF, V_PITCH, V_CANAIS, V_CORTE, V_GERACAO, ESTADO_LIVRE, ESTADO_TOCANDO, ESTADO_PAUSADA,
+         ESTADO_PARANDO, ESTADO_PAUSANDO,
          FLAG_VIRTUAL, FLAG_PREVIA, FLAG_3D, FLAG_CONGELADA, CORTE_ABERTO, PEDIDO_VOLUME, PEDIDO_PITCH,
          PEDIDO_LACO, PEDIDO_GRUPO, PEDIDO_FONTE, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_Y, PEDIDO_Z, PEDIDO_BLEND,
          PEDIDO_MIN, PEDIDO_MAX, PEDIDO_ROLLOFF, PEDIDO_FLOATS, ROLLOFF_LOG, pedidoPadrao } from "./vozes";
@@ -155,10 +156,28 @@ export function tocarClipe(clip: AudioClip, pedido: Float64Array): number {
   return geracao * MAX_VOZES + v + 1;
 }
 
-export function pararVoz(id: number): void { const b = auBase(id); if (b >= 0) auVozes[b + V_ESTADO] = ESTADO_LIVRE; }
+/// Pede o fim da voz sem clique: o ganho-alvo vira zero e a rampa por amostra
+/// do bloco (já existente) leva `V_GL/V_GR` a zero antes do slot ser liberado
+/// (fase A6). Paranda a meio de outra rampa: só troca o destino final.
+export function pararVoz(id: number): void {
+  const b = auBase(id);
+  if (b < 0) return;
+  const estado = auVozes[b + V_ESTADO];
+  if (estado === ESTADO_TOCANDO || estado === ESTADO_PAUSANDO) auVozes[b + V_ESTADO] = ESTADO_PARANDO;
+  else if (estado === ESTADO_PAUSADA) auVozes[b + V_ESTADO] = ESTADO_LIVRE; // já em ganho zero: sem clique
+}
+/// Pausar: mesma rampa a zero, depois o slot CONGELA (não libera). Despausar
+/// retoma de onde a rampa parou — se o ganho ainda não chegou a zero, o alvo
+/// normal do próximo bloco rampa de volta, também sem clique.
 export function pausarVoz(id: number, pausa: number): void {
   const b = auBase(id);
-  if (b >= 0) auVozes[b + V_ESTADO] = pausa !== 0 ? ESTADO_PAUSADA : ESTADO_TOCANDO;
+  if (b < 0) return;
+  const estado = auVozes[b + V_ESTADO];
+  if (pausa !== 0) {
+    if (estado === ESTADO_TOCANDO) auVozes[b + V_ESTADO] = ESTADO_PAUSANDO;
+  } else if (estado === ESTADO_PAUSADA || estado === ESTADO_PAUSANDO) {
+    auVozes[b + V_ESTADO] = ESTADO_TOCANDO;
+  }
 }
 export function vozTocando(id: number): number { const b = auBase(id); return b >= 0 && auVozes[b + V_ESTADO] === ESTADO_TOCANDO ? 1 : 0; }
 export function vozSegundos(id: number): f64 { const b = auBase(id); return b >= 0 ? auVozes[b + V_POS] / auTaxa : 0.0; }
@@ -207,6 +226,9 @@ export function previaTocando(): number { return auPreviaId !== 0 ? vozTocando(a
 /// Ganho-alvo L/R de uma voz para o próximo bloco. 3D: `panGains` (atenuação e
 /// panorâmica); 2D: 1/1. Alvo zero (fora do alcance, volume 0) → voz VIRTUAL.
 function atualizarAlvoVoz(vz: Float64Array, b: number): void {
+  // Parando/pausando (fase A6): alvo zero, sem recalcular 3D/volume — é só a
+  // rampa de saída; o estado transiciona em `mixInto` quando ela chegar a zero.
+  if (vz[b + V_ESTADO] !== ESTADO_TOCANDO) { vz[b + V_ALVO_L] = 0.0; vz[b + V_ALVO_R] = 0.0; return; }
   let gl: f64 = 1.0; let gr: f64 = 1.0;
   const flags = vz[b + V_FLAGS] | 0;
   if ((flags & FLAG_3D) !== 0) {
@@ -225,7 +247,8 @@ function atualizarAlvos(vz: Float64Array): void {
   let v = 0;
   while (v < MAX_VOZES) {
     const b = v * VOZ_FLOATS;
-    if (vz[b + V_ESTADO] === ESTADO_TOCANDO) atualizarAlvoVoz(vz, b);
+    const estado = vz[b + V_ESTADO];
+    if (estado === ESTADO_TOCANDO || estado === ESTADO_PARANDO || estado === ESTADO_PAUSANDO) atualizarAlvoVoz(vz, b);
     v = v + 1;
   }
 }
@@ -251,13 +274,20 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
   let v = 0;
   while (v < MAX_VOZES) {
     const b = v * VOZ_FLOATS;
-    if (vozes[b + V_ESTADO] === ESTADO_TOCANDO) {
+    const estado = vozes[b + V_ESTADO];
+    if (estado === ESTADO_TOCANDO || estado === ESTADO_PARANDO || estado === ESTADO_PAUSANDO) {
       ativas = ativas + 1;
       const src = amostras[v];
       const canais = vozes[b + V_CANAIS];
       const flags = vozes[b + V_FLAGS] | 0;
       if ((flags & FLAG_CONGELADA) !== 0) { v = v + 1; continue; }
-      if ((flags & FLAG_VIRTUAL) !== 0) { avancarVirtual(vozes, b, quadros, src.length / canais); v = v + 1; continue; }
+      if ((flags & FLAG_VIRTUAL) !== 0) {
+        // Já silenciosa (fora de alcance): parar/pausar não precisa de rampa.
+        avancarVirtual(vozes, b, quadros, src.length / canais);
+        if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
+        else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
+        v = v + 1; continue;
+      }
       d[D_POS] = vozes[b + V_POS]; d[D_PASSO] = vozes[b + V_PASSO]; d[D_CANAIS_SRC] = canais; d[D_QUADROS] = quadros;
       d[D_GL0] = vozes[b + V_GL]; d[D_GR0] = vozes[b + V_GR]; d[D_GL1] = vozes[b + V_ALVO_L]; d[D_GR1] = vozes[b + V_ALVO_R];
       d[D_LP_COEF] = vozes[b + V_LP_COEF]; d[D_LP_L] = vozes[b + V_LP_L]; d[D_LP_R] = vozes[b + V_LP_R];
@@ -267,6 +297,8 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
       vozes[b + V_POS] = d[D_POS]; vozes[b + V_LP_L] = d[D_LP_L]; vozes[b + V_LP_R] = d[D_LP_R];
       vozes[b + V_GL] = vozes[b + V_ALVO_L]; vozes[b + V_GR] = vozes[b + V_ALVO_R];
       if (d[D_FIM] !== 0.0) vozes[b + V_ESTADO] = ESTADO_LIVRE;
+      else if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
+      else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
     }
     v = v + 1;
   }

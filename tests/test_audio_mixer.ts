@@ -48,7 +48,17 @@ let rampaOk = true; let k = 2;
 while (k < 800) { if (!perto(bl[2 * k] - bl[2 * (k - 1)], passo0, 1e-6)) rampaOk = false; k = k + 1; }
 check(rampaOk, "rampa linear, sem degrau");
 pararVoz(id);
-check(activeVoices() === 0 && vozTocando(id) === 0, "parar libera");
+check(vozTocando(id) === 0, "pararVoz já não conta como tocando, mesmo antes do bloco de rampa");
+check(activeVoices() === 1, "mas o slot segue ocupado até a rampa de saída terminar");
+mixarBloco(800); // bloco de rampa (fase A6): ganho vai de 0,5 a 0 em vez de cortar na hora
+check(perto(bl[2 * 799], 0.0, 1e-4), "rampa de parar termina em zero, sem clique");
+{
+  const passoParar = bl[2] - bl[0];
+  let rampaPararOk = true; let kk = 2;
+  while (kk < 800) { if (!perto(bl[2 * kk] - bl[2 * (kk - 1)], passoParar, 1e-4)) rampaPararOk = false; kk = kk + 1; }
+  check(rampaPararOk, "rampa de parar é linear, sem salto");
+}
+check(activeVoices() === 0 && vozTocando(id) === 0, "parar libera, agora que a rampa terminou");
 
 // ── laço sem descontinuidade ────────────────────────────────────────────────
 const ciclo = seno(480.0, 100);
@@ -109,15 +119,17 @@ const novo = tocarClipe(dc, p);
 check(novo > 0 && vozIndice(novo) === 5 && vozTocando(ids[5]) === 0, "a voz virtual cede o lugar; o id antigo fica inválido");
 pararTodas();
 
-// ── pausa ───────────────────────────────────────────────────────────────────
+// ── pausa (fase A6: rampa a zero antes de congelar, sem clique) ─────────────
 const idPausa = tocarClipe(dc, p);
 mixarBloco(100);
 pausarVoz(idPausa, 1);
+mixarBloco(100); // bloco de rampa: o ganho desce a zero; a posição ainda anda aqui
+check(vz[base(idPausa) + V_POS] === 200.0, "durante o bloco de rampa, a posição ainda anda");
 mixarBloco(100);
-check(vz[base(idPausa) + V_POS] === 100.0, "pausada não anda");
+check(vz[base(idPausa) + V_POS] === 200.0, "pausada (depois da rampa) não anda mais");
 pausarVoz(idPausa, 0);
 mixarBloco(100);
-check(vz[base(idPausa) + V_POS] === 200.0, "despausada anda");
+check(vz[base(idPausa) + V_POS] === 300.0, "despausada anda");
 pararTodas();
 
 // ── API de tons de antes ────────────────────────────────────────────────────
