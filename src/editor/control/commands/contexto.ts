@@ -21,6 +21,7 @@ import { audioReady, audioNulo, audioRate, audioCanais, audioStats } from "@engi
 import { escutaDisponivel, STATS_FLOATS } from "@compat/audio.ts";
 import * as rtsEguiSonda from "rts:egui";
 import * as rtsInputSonda from "rts:input";
+import { coroutineActiveCount, coroutineActiveByOwner } from "@engine/core/coroutine_scheduler";
 
 const NL: string = "\n";
 /// Alvo aproximado do texto padrão (CLAUDE.md/spec: ~6-8k chars) — acima disto
@@ -162,19 +163,33 @@ function sistemaAudio(): any {
     taxa: pronto ? audioRate() : 0, canais: pronto ? audioCanais() : 0, escutaDisponivel: escutaDisponivel(),
     faltas: faltasAudio(pronto) };
 }
+/// Corrotinas vivas AGORA, lidas direto do escalonador (engine/core/
+/// coroutine_scheduler.ts) — nunca um número hardcoded.
+function sistemaCorrotinas(): any {
+  return { ativas: coroutineActiveCount(), donos: coroutineActiveByOwner() };
+}
 function sistemas(): any {
   return {
     audio: sistemaAudio(),
     particulas: { drawParticlesDisponivel: temFuncao(rtsEguiSonda, "drawParticles") },
     input: { droppedCountDisponivel: temFuncao(rtsInputSonda, "droppedCount") },
+    corrotinas: sistemaCorrotinas(),
   };
+}
+function textoDonosCorrotinas(donos: any[]): string {
+  if (donos.length === 0) return "(nenhuma)";
+  const partes: string[] = [];
+  let i = 0;
+  while (i < donos.length) { partes.push(donos[i].name + "x" + donos[i].count); i = i + 1; }
+  return partes.join(", ");
 }
 function textoSistemas(sis: any): string {
   const a = sis.audio;
   return "[contexto:sistemas] audio: " + (a.pronto ? a.tipo + " " + a.taxa + "hz " + a.canais + "ch" : "mudo") +
     " escuta=" + (a.escutaDisponivel ? "sim" : "nao") + " faltas=" + (a.faltas >= 0.0 ? a.faltas : "-") + NL +
     "particulas: drawParticles=" + (sis.particulas.drawParticlesDisponivel ? "sim" : "nao (nao esta nesta branch/binario)") + NL +
-    "input: droppedCount=" + (sis.input.droppedCountDisponivel ? "sim" : "nao (nao esta nesta branch/binario)");
+    "input: droppedCount=" + (sis.input.droppedCountDisponivel ? "sim" : "nao (nao esta nesta branch/binario)") + NL +
+    "corrotinas: " + sis.corrotinas.ativas + " ativas | donos: " + textoDonosCorrotinas(sis.corrotinas.donos);
 }
 
 // ── cena ────────────────────────────────────────────────────────────────────

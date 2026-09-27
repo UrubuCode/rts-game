@@ -6,6 +6,10 @@
 - Comentários, documentação (`docs/`), mensagens de commit e a conversa continuam em português.
 - Código existente em português é migrado aos poucos, começando pela API pública usada em scripts; ao renomear algo público, mantenha o nome antigo como apelido marcado `@deprecated` até a migração das cenas e scripts, e cubra os dois nomes com teste.
 
+## Corrotinas
+
+- `Behavior` tem um "StartCoroutine" estilo Unity sobre `async`/`await` (`src/engine/core/coroutine_scheduler.ts`, doc completa em `docs/components.md` § Corrotinas): `this.startCoroutine(fn)`/`stopCoroutine(h)`/`stopAllCoroutines()`, `await this.waitForSeconds(s)` (tempo de jogo — pausa/step/timescale), `waitForSecondsRealtime(s)`, `nextFrame()`/`waitForFrames(n)`, `waitUntil(cond)`. Cancelamento automático no disable/destroy/saída do Play (semântica Unity: PARA, não pausa) — nunca resume tocando um objeto restaurado. O runtime é cooperativo (fila por região, thread principal): uma corrotina retoma no PRÓXIMO quadro do laço principal, nunca no meio do mesmo `scene.update` que a programou — o motor só drena continuações pendentes num `await` de verdade, nunca dentro de um laço síncrono.
+
 ## Interface do editor
 
 - Centralize medidas de layout, limites de painéis, espaçamentos, rótulos de menus e cores em `src/editor/ui_config.ts`. Não espalhe esses valores por `main.ts` ou por widgets novos.

@@ -50,6 +50,13 @@ export const COMPONENT_CATALOG = [
     "source": "assets/pacotes/camera/camera_seguir.ts"
   },
   {
+    "name": "AutomaticDoor",
+    "category": "Demo",
+    "description": "Porta que abre ao receber um gatilho, espera e fecha sozinha (exemplo de startCoroutine/waitForSeconds).",
+    "keywords": "demo corrotina porta gatilho startCoroutine waitForSeconds coroutine",
+    "source": "assets/scripts/AutomaticDoor.ts"
+  },
+  {
     "name": "VitrineContador",
     "category": "Demo",
     "description": "Conta os contatos e gatilhos que este objeto recebe (cena vitrine).",

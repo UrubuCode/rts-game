@@ -45,6 +45,7 @@ import { initAudio, audioEntrarJogo } from "@engine/audio/audio";
 import { audioQuadro, definirPoseEditor, Audio } from "@engine/audio/audio_system";
 import { carregarMixer, MIXER_ARQUIVO } from "@engine/audio/mixer_grupos";
 import { configUsuario } from "@engine/core/config_usuario";
+import { coroutineResume, coroutineHasReady } from "@engine/core/coroutine_scheduler";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
@@ -136,6 +137,15 @@ function frame(): void {
 
   // ── GAMEPLAY: no jogo os scripts rodam SEMPRE (não há botão Play/Pause) ────
   scene.update(dts);
+  // Corrotinas: `coroutineTick` (dentro de `scene.update`) já deixou prontas
+  // as continuações deste quadro; o CHECKPOINT assíncrono de verdade
+  // (`coroutineResume`) fica pro laço externo, que só o chama quando
+  // `coroutineHasReady()` (flag barata, sem alocar) diz que há alguma
+  // continuação pronta — `frame()` fica síncrona porque `await` só pode
+  // aparecer numa função async ou no topo do módulo, e chamar/`await`ar uma
+  // `async function` todo quadro aloca neste runtime mesmo sem nenhum `await`
+  // interno (ver CLAUDE.md § Custo por quadro; sonda em
+  // tests/claude-test-frame-async-gc.ts vs. tests/claude-test-frame-async-fix-gc.ts).
   // Mesmo decisor do editor (main.ts): Rust/GPU quando servem, CPU quando o
   // backend recusa (casca, offset, eventos de contato, caixa girada).
   if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
@@ -233,6 +243,10 @@ function frame(): void {
 while (app.running()) {
   if (!app.beginFrame()) break;
   frame();
+  // Retoma as corrotinas prontas deste quadro (DEPOIS do Update dentro de
+  // `frame()`, como a Unity: "yield return null" retoma antes do próximo
+  // Update) — só paga o `await` de verdade quando há algo pronto.
+  if (coroutineHasReady()) await coroutineResume();
   if (benchFrameEnd() !== 0) break;
 }
 io.print("[jogo] encerrado apos " + frames + " frames");

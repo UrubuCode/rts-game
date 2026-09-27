@@ -441,6 +441,93 @@ o mesmo caminho que `Skeleton` já usa.
   simultâneas continua um valor de referência pra medir, e com o nativo já
   é uma meta alcançável (~20% de ajuste fino), não mais ~27x fora de escala.
 
+## Corrotinas
+
+`Behavior` traz um "StartCoroutine" estilo Unity sobre `async`/`await` de
+verdade (`src/engine/core/coroutine_scheduler.ts`). O runtime deste motor é
+cooperativo no thread principal — parked frames numa fila por região (ver
+`crates/rts-cranelift/src/sched/mod.rs` no repo `rts-particulas`) — então uma
+corrotina serve pra SEQUENCIAR lógica ao longo de vários quadros, não pra
+paralelismo: nada roda "ao mesmo tempo", só "mais tarde, sem bloquear o
+quadro atual".
+
+- **API em qualquer `Behavior`:**
+  - `await this.waitForSeconds(s)` — espera `s` segundos de TEMPO DE JOGO:
+    respeita pausa do Play, `step N` e `timescale` (o mesmo dt que `update(dt)`
+    recebe).
+  - `await this.waitForSecondsRealtime(s)` — espera `s` segundos de tempo REAL
+    (relógio de parede), sem escala.
+  - `await this.nextFrame()` / `await this.waitForFrames(n)` — espera 1 ou `n`
+    quadros simulados (uma "chamada de `Scene.update`" cada).
+  - `await this.waitUntil(() => condicao)` — a condição é checada uma vez por
+    quadro. Se o predicado LANÇAR, a espera é cancelada (mesmo sinal do
+    cancelamento automático) e o erro é logado — nunca derruba o quadro
+    inteiro nem as outras corrotinas pendentes.
+  - `this.startCoroutine(async () => { ... })` — começa a rodar NA HORA
+    (síncrono até o 1º `await`, como `StartCoroutine` na Unity) e devolve um
+    handle numérico.
+  - `this.stopCoroutine(handle)` — cancela UMA corrotina pelo handle.
+  - `this.stopAllCoroutines()` — cancela todas as corrotinas vivas deste
+    `Behavior`.
+
+  Exemplo (`assets/scripts/AutomaticDoor.ts`): uma porta que sobe ao receber um
+  gatilho, espera alguns segundos e desce sozinha.
+
+  ```ts
+  onTriggerEnter(c: ContactInfo): void {
+    if (this.routine >= 0) this.stopCoroutine(this.routine);
+    this.host.py = this.closedY + this.openOffsetY;
+    this.routine = this.startCoroutine(async () => {
+      await this.waitForSeconds(this.openSeconds);
+      this.host.py = this.closedY;
+      this.routine = -1;
+    });
+  }
+  ```
+
+- **Cancelamento automático** (a Unity PARA a corrotina ao desligar/destruir o
+  dono, nunca pausa-e-retoma — este motor segue a mesma semântica):
+  - `Behavior.enabled = 0` ou o `GameObject` dono ficando inativo cancela as
+    esperas pendentes deste `Behavior` — checado a cada quadro simulado, então
+    até 1 quadro de atraso depois de desligar (documentado, não instantâneo).
+  - Destruir o objeto (`Scene.removeAt`) cancela na hora, síncrono.
+  - Sair do Play (`Scene.clear`, que descarta as cópias simuladas e restaura
+    os originais) cancela TUDO na hora: uma corrotina pendente nunca retoma
+    tocando o objeto original restaurado.
+  - O cancelamento é um `await` que LANÇA um sinal interno específico — o
+    corpo da corrotina se desenrola sem rodar mais nada, e `startCoroutine`
+    engole esse sinal sem logar (não é erro). Qualquer OUTRO erro lançado pelo
+    corpo é logado normalmente, como uma exceção de script.
+
+- **Granularidade de quadro, não de sub-quadro**: o motor só drena
+  continuações pendentes num `await` de verdade (checkpoint), nunca no meio de
+  um laço síncrono — por isso uma corrotina retoma no PRÓXIMO quadro do laço
+  principal (editor/jogo) depois de `scene.update`, nunca no mesmo quadro em
+  que a espera terminou de contar. Um `step N` da porta de controle roda os N
+  passos sem checkpoint entre eles: os temporizadores descontam certo a cada
+  passo, mas os corpos só retomam no quadro seguinte do editor.
+
+- **Custo por quadro do laço principal**: `main.ts`/`game.ts` mantêm `frame()`
+  SÍNCRONA e só pagam o checkpoint (`await coroutineResume()`) quando
+  `coroutineHasReady()` (flag barata, sem alocar) diz que há alguma
+  continuação pronta neste quadro — chamar/`await`ar uma `async function`
+  incondicionalmente todo quadro aloca neste runtime mesmo sem nenhum `await`
+  interno (jogo/editor sem nenhuma corrotina ativa é o caso comum). Ver
+  `tests/claude-test-frame-async-gc.ts`/`-fix-gc.ts`/`-timing.ts`.
+
+- **Verificar sem olhar a janela** (WS `contexto` / `contexto sistemas`): o
+  número de corrotinas ativas e os objetos donos (lidos do escalonador, nunca
+  hardcoded) aparecem na seção `sistemas` — `corrotinas: N ativas | donos:
+  Objeto1x2, Objeto2x1`.
+
+- **Custo por quadro**: a metade síncrona do escalonador (`coroutineTick`,
+  chamada por `Scene.update`) não aloca quando não há corrotina pendente, e
+  com N pendentes só decrementa arrays preallocados e move índices entre
+  listas *dense* reaproveitadas — sem `push`/`splice` por quadro (sonda:
+  `tests/claude-test-corrotinas-gc.ts`, 0 coletas em 200k quadros com até 500
+  corrotinas pendentes). Criar uma corrotina (`startCoroutine`) ALOCA — é uma
+  `Promise` — e está OK: só o *tick* precisa ser zero-alocação.
+
 ## Estender o editor por script
 
 Tudo vem de `@editor/api`. No jogo exportado não há editor, e as chamadas viram

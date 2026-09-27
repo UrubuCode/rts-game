@@ -93,6 +93,7 @@ const P_UI_PROJ = profSection("  ui:project");
 const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll, portaDeControle } from "@editor/control/server";
 import { passoDaSimulacao, definirAoFalharSimulacao } from "@editor/sim_step";
+import { coroutineResume, coroutineHasReady } from "@engine/core/coroutine_scheduler";
 import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
 import "@engine/generated/editor_extensions";
@@ -732,6 +733,16 @@ function frame(): void {
     // incondicional lá embaixo: a mesma visita O(n) duas vezes por frame.
   }
   secEnd(P_FISICA);
+  // Corrotinas: `coroutineTick` (dentro de `scene.update`, rodando ou não o
+  // Play — cancelamentos por destroy/Play-stop precisam desenrolar mesmo
+  // parado) já deixou prontas as continuações deste quadro; o CHECKPOINT
+  // assíncrono de verdade (`coroutineResume`) fica pro laço externo, que só o
+  // chama quando `coroutineHasReady()` (flag barata, sem alocar) diz que há
+  // alguma continuação pronta — `frame()` fica síncrona porque `await` só
+  // pode aparecer numa função async ou no topo do módulo, e chamar/`await`ar
+  // uma `async function` todo quadro aloca neste runtime mesmo sem nenhum
+  // `await` interno (ver CLAUDE.md § Custo por quadro; sonda em
+  // tests/claude-test-frame-async-gc.ts vs. tests/claude-test-frame-async-fix-gc.ts).
   // PRÉVIA de animação do Inspector: fora do Play só avançam os players cuja
   // prévia está tocando (escrevem só a pose de trabalho; a cena salva não
   // muda). No Play, o `scene.update` acima já roda o AnimationPlayer normal, e
@@ -1836,6 +1847,9 @@ function frame(): void {
 while (app.running()) {
   if (!app.beginFrame()) break;
   frame();
+  // Retoma as corrotinas prontas deste quadro — só paga o `await` de verdade
+  // quando há algo pronto (ver o comentário em `frame()`).
+  if (coroutineHasReady()) await coroutineResume();
   if (benchFrameEnd() !== 0) break;
 }
 
