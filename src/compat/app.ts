@@ -29,7 +29,10 @@
 //
 // `delta`/`fps` idem: são `Date.now()` e uma média, não uma capacidade.
 import { drawRect, drawText, openWindow, setNextWindowPos, isOpen, pump, beginFrame, endFrame, close } from "rts:egui";
-import { mouseX, mouseY, mouseDown, mousePressed, mouseReleased, mouseClicked, key, textInput, modCtrl } from "rts:input";
+// A entrada passa por `@compat/input` (rts:input + a simulação da porta de
+// controle): um clique injetado chega aos widgets daqui como um clique real.
+import input from "./input.ts";
+import { entradaQuadro } from "./input_sim.ts";
 import { dcReset } from "./drawcount.ts";
 import { janela2D } from "./draw2d.ts";
 
@@ -172,12 +175,13 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
 
       dcReset();   // as travessias contam por FRAME (ver compat/drawcount.ts)
 
-      curMx = mouseX(win);
-      curMy = mouseY(win);
-      curDown = mouseDown(win, 0) ? 1 : 0;
-      curPressed = mousePressed(win, 0) ? 1 : 0;
-      curReleased = mouseReleased(win, 0) ? 1 : 0;
-      curClicked = mouseClicked(win, 0) ? 1 : 0;
+      entradaQuadro();   // aplica os eventos simulados deste quadro (input_sim.ts)
+      curMx = input.mouseX(win);
+      curMy = input.mouseY(win);
+      curDown = input.mouseDown(win, 0) ? 1 : 0;
+      curPressed = input.mousePressed(win, 0) ? 1 : 0;
+      curReleased = input.mouseReleased(win, 0) ? 1 : 0;
+      curClicked = input.mouseClicked(win, 0) ? 1 : 0;
       if (curPressed !== 0) { pressX = curMx; pressY = curMy; }
 
       return alive;
@@ -261,15 +265,15 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       const focused = enabled && focusId === id;
       let out = value;
       if (focused) {
-        const ctrl = modCtrl(win);
-        if (ctrl && key(win, 100, PHASE_PRESSED)) focusSelectAll = 1;
-        const typed = ctrl ? "" : textInput(win);
+        const ctrl = input.modCtrl(win);
+        if (ctrl && input.key(win, 100, PHASE_PRESSED)) focusSelectAll = 1;
+        const typed = ctrl ? "" : input.textInput(win);
         if (typed.length > 0) { out = focusSelectAll !== 0 ? typed : out + typed; focusSelectAll = 0; }
-        if (key(win, 4, PHASE_PRESSED) || key(win, 10, PHASE_PRESSED)) {
+        if (input.key(win, 4, PHASE_PRESSED) || input.key(win, 10, PHASE_PRESSED)) {
           out = focusSelectAll !== 0 ? "" : out.substring(0, out.length - 1);
           focusSelectAll = 0;
         }
-        if (key(win, 1, PHASE_PRESSED) || key(win, 2, PHASE_PRESSED)) { focusId = 0 - 1; focusSelectAll = 0; }
+        if (input.key(win, 1, PHASE_PRESSED) || input.key(win, 2, PHASE_PRESSED)) { focusId = 0 - 1; focusSelectAll = 0; }
       }
       oRect.x = tx; oRect.y = ty; oRect.w = tw; oRect.h = h2;
       oRect.fill = 0x2A2A2AFF; oRect.strokeW = 1; oRect.stroke = focused ? 0x5A7FB0FF : 0x232323FF; oRect.radius = 3;
@@ -296,8 +300,8 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
     // o mesmo crate dos dois motores (o `rts-egui` nunca foi do motor antigo —
     // o que morreu foi a feature `old-engine` dele). Então `keyDown(122)`
     // continua sendo o mesmo W de antes.
-    keyDown(code: number): number { return key(win, code, PHASE_DOWN) ? 1 : 0; },
-    keyPressed(code: number): number { return key(win, code, PHASE_PRESSED) ? 1 : 0; },
+    keyDown(code: number): number { return input.key(win, code, PHASE_DOWN) ? 1 : 0; },
+    keyPressed(code: number): number { return input.key(win, code, PHASE_PRESSED) ? 1 : 0; },
   };
 }
 

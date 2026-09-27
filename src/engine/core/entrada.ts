@@ -1,7 +1,7 @@
 // Entrada para scripts de jogo (controles de câmera etc.): teclado e mouse da
 // janela do jogo. Sem janela (testes, sem definirJanelaEntrada) ou com a entrada
 // desligada pelo editor (definirEntradaAtiva) tudo responde 0.
-import input from "rts:input";
+import input from "@compat/input";
 export const TECLA_W: number = 122; export const TECLA_S: number = 118;
 export const TECLA_A: number = 100; export const TECLA_D: number = 103;
 export const TECLA_ESPACO: number = 3;

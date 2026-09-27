@@ -107,6 +107,15 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("group", "hierarquia", MUTA_SIM, ["group :: cria um no vazio e aninha os selecionados sob ele (Ctrl+G) :: group"]),
   c("help", "consulta", MUTA_NAO, ["help :: lista curta de comandos por grupo :: help"]),
   c("hier", "sistema", MUTA_NAO, ["hier [linha] :: scroll da Hierarquia (le ou rola ate a linha) :: hier 10"]),
+  c("input", "entrada", MUTA_NAO, [
+    "input :: estado da entrada simulada (ligada?, fila, mouse, quadro) :: input",
+    "input mouse <x> <y> [down|up] [left|right|middle] :: move o mouse ate o pixel (x,y da janela) e, se pedido, aperta/solta o botao (fica apertado ate o up) :: input mouse 700 400 down",
+    "input click <x> <y> [left|right|middle] :: clique completo: move, aperta, solta (3 quadros) :: input click 700 400",
+    "input drag <x0> <y0> <x1> <y1> [quadros] :: arrasta com o botao esquerdo de (x0,y0) a (x1,y1) em N quadros (padrao 10) :: input drag 600 400 700 400 20",
+    "input key <tecla> [down|up|press] :: tecla (a-z, 0-9, f1-f12, enter, esc, space, backspace, tab, delete, setas up/down/left/right, ctrl, shift, alt); press = desce e sobe; down fica segurada ate o up :: input key w down",
+    "input text <texto...> :: digita o texto (resto da linha) no campo com foco :: input text #FF0000",
+    "input wheel <d> :: gira a roda do mouse (positivo = para cima) :: input wheel -3",
+    "input off :: solta tudo e volta a entrada real (a simulada ignora mouse/teclado fisicos enquanto ligada; desliga sozinha apos 30 s ociosa) :: input off"]),
   c("instprefab", "arquivos", MUTA_SIM, ["instprefab <path> :: instancia um prefab na cena e o seleciona :: instprefab assets/box.json"]),
   c("instscene", "cena", MUTA_SIM, ["instscene <path> [hostObj] :: CENA DENTRO DE CENA: instancia uma cena inteira sob um objeto (padrao: selecionado) :: instscene assets/subscene.json 0"]),
   c("iso", "objetos", MUTA_SIM, ["iso [obj] :: ISOLA o objeto (esconde os outros); de novo mostra todos :: iso 3"]),
@@ -179,7 +188,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
 
 /// Comandos cuja resposta pode vir DEPOIS (adiado.ts): a conexão espera por
 /// ela antes de rodar a linha seguinte; não cabem num `batch`.
-export const COMANDOS_ASSINCRONOS: string[] = ["shot"];
+export const COMANDOS_ASSINCRONOS: string[] = ["input", "shot"];
 
 function nomesDoManifesto(): string[] {
   const out: string[] = [];

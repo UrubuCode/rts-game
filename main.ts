@@ -8,7 +8,7 @@ import math from "@compat/math.ts";
 import buffer from "@compat/buffer.ts";
 import render from "@compat/render.ts";
 import { setVsync } from "rts:egui";
-import input from "rts:input";
+import input from "@compat/input";
 import fs from "@compat/fs.ts";
 import process from "@compat/process.ts";
 // `createAppAt` era um GLOBAL do motor antigo. No motor novo nada é global sem

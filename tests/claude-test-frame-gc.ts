@@ -29,6 +29,8 @@ import { simularTecla, TECLA_W } from "@engine/core/entrada";
 import { gizmosBegin } from "@engine/core/gizmos";
 import { editorIcon, iconAt, drawEditorIcon } from "@editor/icon_images";
 import { interpolateSync } from "@engine/core/interpolate";
+import input from "@compat/input";
+import { entradaQuadro, simMover, simApertar, simTeclaDesce, simQuebra, simDesligar } from "@compat/input_sim";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
 const nPainel = (n / 20) | 0;
@@ -156,4 +158,24 @@ while (i < nPainel) { if (rigidStep(scene, 0) === 0) scene.resolveCollisions(); 
 io.print("FASE jogo " + nPainel);
 i = 0;
 while (i < nPainel) { quadroJogo(); i = i + 1; }
+// Entrada por @compat/input (lida por quadro pelo editor inteiro): desligada
+// (a nativa + um `if`) e com a simulação ligada (botão e tecla segurados).
+io.print("FASE entrada-real " + n);
+i = 0;
+while (i < n) {
+  entradaQuadro();
+  soma = soma + input.mouseX(0) + (input.mouseDown(0, 0) ? 1 : 0) + (input.key(0, 122, 0) ? 1 : 0) + input.wheel(0);
+  i = i + 1;
+}
+simMover(10.0, 20.0); simApertar(0); simTeclaDesce(122); simQuebra();
+io.print("FASE entrada-simulada " + n);
+i = 0;
+while (i < n) {
+  entradaQuadro();
+  soma = soma + input.mouseX(0) + (input.mouseDown(0, 0) ? 1 : 0) + (input.mousePressed(0, 0) ? 1 : 0) +
+    (input.key(0, 122, 0) ? 1 : 0) + (input.key(0, 122, 1) ? 1 : 0) + input.mouseDeltaX(0) + input.wheel(0) +
+    (input.modCtrl(0) ? 1 : 0) + input.textInput(0).length;
+  i = i + 1;
+}
+simDesligar();
 io.print("FASE fim " + soma);

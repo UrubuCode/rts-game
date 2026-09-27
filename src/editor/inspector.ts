@@ -16,7 +16,7 @@ import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
 import { scene, S } from "./control/session";
 import { nfCancel, AXIS_X, AXIS_Y, AXIS_Z } from "./widgets";
-import input from "rts:input";
+import input from "@compat/input";
 import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
   UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K, UI_ANIMATOR as A } from "./ui_config";
 
