@@ -103,6 +103,11 @@ export class ParticleSystem extends Behavior {
   private ordemBuf: Int32Array = new Int32Array(0);
   private saidaOrdenadaBuf: Float32Array = new Float32Array(0);
   private camBuf: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  /// Saída reaproveitada de `bboxAtual()` (Task 10): [minx,miny,minz,maxx,maxy,maxz].
+  /// Não é caminho por quadro (só o comando WS `particulas <obj> info` chama),
+  /// então tem sua própria passada leve sobre o pool em vez de acumular durante
+  /// `drawSelf` (que pode nunca ter rodado no quadro, fora do frustum ou win=0).
+  private bboxBuf: Float64Array = new Float64Array(6);
   private acumulado: number = 0.0;
   private tocando: number = 0;
   private pausado: number = 0;
@@ -114,6 +119,34 @@ export class ParticleSystem extends Behavior {
   /** @nonSerialized */
   time: number = 0.0;
   get particleCount(): number { return this.pool === null ? 0 : this.pool.vivas; }
+
+  /// Bbox local (sem somar a posição do dono) das partículas vivas — usado
+  /// pelo comando WS `particulas <obj> info` (Task 10) para a IA verificar o
+  /// efeito sem a janela. Sem partícula viva, devolve tudo 0. Buffer
+  /// reaproveitado (`bboxBuf`), sem alocar por chamada.
+  bboxAtual(): Float64Array {
+    const b = this.bboxBuf;
+    const pool = this.pool;
+    if (pool === null || pool.vivas === 0) {
+      b[0] = 0.0; b[1] = 0.0; b[2] = 0.0; b[3] = 0.0; b[4] = 0.0; b[5] = 0.0;
+      return b;
+    }
+    let minX: f64 = 1e30; let minY: f64 = 1e30; let minZ: f64 = 1e30;
+    let maxX: f64 = -1e30; let maxY: f64 = -1e30; let maxZ: f64 = -1e30;
+    let slot = 0;
+    while (slot < pool.max) {
+      const k = slot * P_FLOATS;
+      if (pool.dados[k + P_VIDA] >= 0.0) {
+        const x = pool.dados[k + P_X]; const y = pool.dados[k + P_Y]; const z = pool.dados[k + P_Z];
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+        if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      }
+      slot = slot + 1;
+    }
+    b[0] = minX; b[1] = minY; b[2] = minZ; b[3] = maxX; b[4] = maxY; b[5] = maxZ;
+    return b;
+  }
 
   typeName(): string { return "ParticleSystem"; }
   kind(): number { return KIND_RENDERER; }
