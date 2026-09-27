@@ -10,8 +10,9 @@
 // Os tons de antes (`playTone`...) viram clipes gerados uma vez (`toneClip`) e
 // passam pelo mesmo caminho: há UM mixer.
 import audio, { AUDIO_REAL, AUDIO_NULO } from "@compat/audio.ts";
-import { AudioClip, toneClip, definirTaxaDosClipes, FORMA_SENO, FORMA_QUADRADA, FORMA_RUIDO } from "./clip";
+import { AudioClip, toneClip, definirTaxaDosClipes, clipPorId, FORMA_SENO, FORMA_QUADRADA, FORMA_RUIDO } from "./clip";
 import { rolloffRef, rolloffMax, espGanhosVoz, ESP_GL, ESP_GR, ESP_LP, ESP_DIST, ESP_CORTE, ESP_FLOATS } from "./spatial";
+import { ganhoGrupo, grupoPausado } from "./mixer_grupos";
 import { D_POS, D_PASSO, D_CANAIS_SRC, D_CANAIS_DST, D_QUADROS, D_GL0, D_GR0, D_GL1, D_GR1, D_LP_COEF,
          D_LP_L, D_LP_R, D_LACO_INI, D_LACO_FIM, D_FIM, DESC_FLOATS, N_CANAIS, N_QUADROS, NIVEL_FLOATS } from "./mix_desc";
 import { mixAddTs } from "./mix_ts";
@@ -187,6 +188,25 @@ export function moverVoz(id: number, pos: Float64Array): void {
   auVozes[b + V_X] = pos[0]; auVozes[b + V_Y] = pos[1]; auVozes[b + V_Z] = pos[2];
 }
 export function definirVolumeVoz(id: number, v: f64): void { const b = auBase(id); if (b >= 0) auVozes[b + V_VOLUME] = v; }
+export function definirGrupoVoz(id: number, grupo: number): void { const b = auBase(id); if (b >= 0) auVozes[b + V_GRUPO] = grupo; }
+
+/// Pico ESTIMADO de um grupo no último bloco: max(ganho-alvo × pico do clipe)
+/// das vozes do grupo que tocam e não são virtuais. Barato e sem mixar por
+/// grupo; `audioNivel` mede o bloco real (a soma de todos os grupos).
+export function audioPicoGrupo(i: number): f64 {
+  let pico: f64 = 0.0; let v = 0;
+  while (v < MAX_VOZES) {
+    const b = v * VOZ_FLOATS;
+    if (auVozes[b + V_ESTADO] === ESTADO_TOCANDO && (auVozes[b + V_GRUPO] | 0) === i && ((auVozes[b + V_FLAGS] | 0) & FLAG_VIRTUAL) === 0) {
+      const c = clipPorId(auVozes[b + V_CLIPE] | 0);
+      const g: f64 = auVozes[b + V_ALVO_L] > auVozes[b + V_ALVO_R] ? auVozes[b + V_ALVO_L] : auVozes[b + V_ALVO_R];
+      const p: f64 = c !== null ? g * c.pico : 0.0;
+      if (p > pico) pico = p;
+    }
+    v = v + 1;
+  }
+  return pico;
+}
 export function definirPitchVoz(id: number, p: f64): void {
   const b = auBase(id);
   if (b < 0) return;
@@ -236,10 +256,12 @@ function atualizarAlvoVoz(vz: Float64Array, b: number): void {
     gl = auEsp[ESP_GL]; gr = auEsp[ESP_GR];
     vz[b + V_LP_COEF] = auEsp[ESP_LP]; vz[b + V_DIST] = auEsp[ESP_DIST]; vz[b + V_CORTE] = auEsp[ESP_CORTE];
   }
-  const vol = vz[b + V_VOLUME];
+  const grupo = vz[b + V_GRUPO] | 0;
+  const vol = vz[b + V_VOLUME] * ganhoGrupo(grupo);
   gl = gl * vol; gr = gr * vol;
   vz[b + V_ALVO_L] = gl; vz[b + V_ALVO_R] = gr;
-  let f = flags & (0 - 1 - FLAG_VIRTUAL);
+  let f = flags & (0 - 1 - FLAG_VIRTUAL - FLAG_CONGELADA);
+  if (grupoPausado(grupo) !== 0) f = f | FLAG_CONGELADA;
   if (gl <= 0.0 && gr <= 0.0 && (flags & FLAG_PREVIA) === 0) f = f | FLAG_VIRTUAL;
   vz[b + V_FLAGS] = f;
 }

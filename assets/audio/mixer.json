@@ -1,0 +1,8 @@
+{
+  "grupos": [
+    { "nome": "Master", "pai": "", "volume": 1, "mudo": false, "pausa": false },
+    { "nome": "Música", "pai": "Master", "volume": 1, "mudo": false, "pausa": false },
+    { "nome": "Efeitos", "pai": "Master", "volume": 1, "mudo": false, "pausa": false },
+    { "nome": "Voz", "pai": "Master", "volume": 1, "mudo": false, "pausa": false }
+  ]
+}

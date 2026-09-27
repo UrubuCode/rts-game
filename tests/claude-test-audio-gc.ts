@@ -10,8 +10,9 @@ import io from "@compat/io.ts";
 import process from "@compat/process.ts";
 import { initAudio, AUDIO_NULO, mixarBloco, pumpAudio, tocarClipe, moverVoz } from "@engine/audio/audio";
 import { AudioClip } from "@engine/audio/clip";
-import { novoPedido, PEDIDO_LACO, PEDIDO_PITCH, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_BLEND, PEDIDO_MIN, PEDIDO_MAX, FLAG_3D } from "@engine/audio/vozes";
+import { novoPedido, PEDIDO_LACO, PEDIDO_PITCH, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_BLEND, PEDIDO_MIN, PEDIDO_MAX, PEDIDO_GRUPO, FLAG_3D } from "@engine/audio/vozes";
 import { setListener, setRolloff } from "@engine/audio/spatial";
+import { mixerSetVolume } from "@engine/audio/mixer_grupos";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
 initAudio(AUDIO_NULO);
@@ -29,6 +30,7 @@ while (k < 32) {
   p[PEDIDO_LACO] = 1.0; p[PEDIDO_PITCH] = k >= 8 && k < 16 ? 1.3 : 1.0;
   p[PEDIDO_FLAGS] = k >= 16 ? FLAG_3D : 0; p[PEDIDO_BLEND] = k >= 16 ? 1.0 : 0.0;
   p[PEDIDO_MIN] = 1.0; p[PEDIDO_MAX] = 60.0; p[PEDIDO_X] = k >= 24 ? 500.0 : 3.0;
+  p[PEDIDO_GRUPO] = k % 4;
   ids.push(tocarClipe(k >= 8 && k < 16 ? ce : cm, p));
   k = k + 1;
 }
@@ -40,6 +42,7 @@ f = 0;
 while (f < n) {
   pos[0] = (f % 100) * 0.5 - 25.0;
   moverVoz(ids[16 + (f & 7)], pos);
+  if ((f % 1000) === 0) mixerSetVolume(1, (f % 10000) * 0.0001);
   mixarBloco(64);
   f = f + 1;
 }
