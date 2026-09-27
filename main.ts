@@ -31,6 +31,8 @@ import { dropScriptOnObject, scriptDropError } from "@editor/script_drop";
 import { ScriptEditor } from "@editor/script_editor";
 import { UI_SCRIPT_DROP, UI_CODE_EDITOR, UI_EXPLORER_DROP } from "@editor/ui_config";
 import { PreferencesPanel } from "@editor/preferences_panel";
+import { CalibrarLatenciaPanel } from "@editor/calibrar_latencia_panel";
+import { editorPreferences } from "@editor/preferences";
 import { PlayToolbar } from "@editor/play_toolbar";
 import { drawGameUI } from "@engine/ui/game_ui";
 import { playMode } from "@editor/play_mode";
@@ -95,7 +97,7 @@ import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
 import "@engine/generated/editor_extensions";
 import { initAudio } from "@engine/audio/audio";
-import { audioQuadro, definirPoseEditor } from "@engine/audio/audio_system";
+import { audioQuadro, definirPoseEditor, Audio } from "@engine/audio/audio_system";
 import { carregarMixer, MIXER_ARQUIVO } from "@engine/audio/mixer_grupos";
 import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
@@ -118,7 +120,7 @@ import { caixa, estiloTexto, linha, pincel, texto, traco } from "@compat/draw2d.
 const menuCriar = menuDoCatalogo(MENU_CRIAR, OBJECT_PRESET_LABELS);
 const menuConfig: string[] = ["", "", UI_SETTINGS.resetLayout, UI_CODE_EDITOR.title];
 // Menu Janela: a prévia da câmera (rótulo com o estado) + itens @menuItem "Janela/…".
-const menuJanela = menuDoCatalogo(MENU_JANELA, [UI_WINDOW.previewOff]);
+const menuJanela = menuDoCatalogo(MENU_JANELA, [UI_WINDOW.previewOff, UI_WINDOW.calibrarLatencia]);
 // Aba Jogo e prévia da câmera: vistas reaproveitadas (sem alocação por frame).
 const vistasJogo = new VistasDeCamera(); const vistasPrevia = new VistasDeCamera();
 const areaCena = new Float64Array(4);
@@ -221,6 +223,7 @@ const inspector = new Inspector(app);
 const scriptDropUI = new EditorUI(app, "Editor/ScriptDrop");
 const scriptEditor = new ScriptEditor();
 const preferencesPanel = new PreferencesPanel(app);
+const calibrarLatenciaPanel = new CalibrarLatenciaPanel(app);
 let scriptNotice = "";
 let scriptNoticeFrames = 0;
 const playToolbar = new PlayToolbar(app);
@@ -545,6 +548,8 @@ S.win = WIN;
 definirJanelaEntrada(WIN);
 // áudio: se a máquina não tiver saída, `initAudio` devolve 0 e o editor segue mudo
 initAudio();
+// Calibração de latência (preferência local, não a cena — ver preferences.ts): aplica o que já foi medido.
+Audio.latenciaCalibrada = editorPreferences.audioLatenciaMs;
 const erroMixer = carregarMixer(MIXER_ARQUIVO);
 if (erroMixer !== "") logError(erroMixer);
 /// Pose da vista do editor para o áudio (último recurso do ouvinte), reaproveitada.
@@ -1768,6 +1773,7 @@ function frame(): void {
         else executarItemDeMenu(menuCriar.itens[chosen - menuCriar.fixos], 0 - 1);
       } else if (activeMenu === 4) {
         if (chosen === 0) S.cameraPreview = S.cameraPreview !== 0 ? 0 : 1;
+        else if (chosen === 1) { helpOpen = 4; calibrarLatenciaPanel.open(); assetDragClear(); }
         else executarItemDeMenu(menuJanela.itens[chosen - menuJanela.fixos], 0 - 1);
       } else if (activeMenu === 5) {
         if (chosen === 0) S.snap = S.snap !== 0 ? 0 : 1;
@@ -1781,6 +1787,7 @@ function frame(): void {
   }
 
   if (helpOpen === 2) { preferencesPanel.mouse(mx, my, mDownNow, mPressed); if (preferencesPanel.render(W, H)) helpOpen = 0; }
+  if (helpOpen === 4) { calibrarLatenciaPanel.mouse(mx, my, mDownNow, mPressed); if (calibrarLatenciaPanel.render(W, H)) helpOpen = 0; }
   if (helpOpen === 1) {
     const hw = math.min(370, W - HIER_W - INSP_W - 30);
     const hx = HIER_W + (W - HIER_W - INSP_W - hw) / 2;
