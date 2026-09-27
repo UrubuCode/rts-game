@@ -215,7 +215,7 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component29) {
-      return 15;
+      return 16;
     }
     return 0;
   }
@@ -389,21 +389,22 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component29) {
-      if (index === 0) return "Clip";
-      if (index === 1) return "Volume";
-      if (index === 2) return "Pitch";
-      if (index === 3) return "Loop";
-      if (index === 4) return "Tocar ao iniciar";
-      if (index === 5) return "Mudo";
-      if (index === 6) return "Mistura espacial";
-      if (index === 7) return "Rolloff";
-      if (index === 8) return "Min Distance";
-      if (index === 9) return "Max Distance";
-      if (index === 10) return "Grupo";
-      if (index === 11) return "Forma";
-      if (index === 12) return "Freq";
-      if (index === 13) return "Dur";
-      if (index === 14) return "Every";
+      if (index === 0) return "Modo";
+      if (index === 1) return "Clip";
+      if (index === 2) return "Volume";
+      if (index === 3) return "Pitch";
+      if (index === 4) return "Loop";
+      if (index === 5) return "Tocar ao iniciar";
+      if (index === 6) return "Mudo";
+      if (index === 7) return "Mistura espacial";
+      if (index === 8) return "Rolloff";
+      if (index === 9) return "Min Distance";
+      if (index === 10) return "Max Distance";
+      if (index === 11) return "Grupo";
+      if (index === 12) return "Forma";
+      if (index === 13) return "Freq";
+      if (index === 14) return "Dur";
+      if (index === 15) return "Every";
       return "";
     }
     return "";
@@ -578,21 +579,22 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component29) {
-      if (index === 0) return "clip";
-      if (index === 1) return "volume";
-      if (index === 2) return "pitch";
-      if (index === 3) return "loop";
-      if (index === 4) return "playOnAwake";
-      if (index === 5) return "mudo";
-      if (index === 6) return "spatialBlend";
-      if (index === 7) return "rolloff";
-      if (index === 8) return "minDistance";
-      if (index === 9) return "maxDistance";
-      if (index === 10) return "grupo";
-      if (index === 11) return "forma";
-      if (index === 12) return "freq";
-      if (index === 13) return "dur";
-      if (index === 14) return "every";
+      if (index === 0) return "modo";
+      if (index === 1) return "clip";
+      if (index === 2) return "volume";
+      if (index === 3) return "pitch";
+      if (index === 4) return "loop";
+      if (index === 5) return "playOnAwake";
+      if (index === 6) return "mudo";
+      if (index === 7) return "spatialBlend";
+      if (index === 8) return "rolloff";
+      if (index === 9) return "minDistance";
+      if (index === 10) return "maxDistance";
+      if (index === 11) return "grupo";
+      if (index === 12) return "forma";
+      if (index === 13) return "freq";
+      if (index === 14) return "dur";
+      if (index === 15) return "every";
       return "";
     }
     return "";
@@ -768,20 +770,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component29) {
       if (index === 0) return "string";
-      if (index === 1) return "number";
+      if (index === 1) return "string";
       if (index === 2) return "number";
-      if (index === 3) return "boolean";
+      if (index === 3) return "number";
       if (index === 4) return "boolean";
       if (index === 5) return "boolean";
-      if (index === 6) return "number";
-      if (index === 7) return "string";
-      if (index === 8) return "number";
+      if (index === 6) return "boolean";
+      if (index === 7) return "number";
+      if (index === 8) return "string";
       if (index === 9) return "number";
-      if (index === 10) return "string";
+      if (index === 10) return "number";
       if (index === 11) return "string";
-      if (index === 12) return "number";
+      if (index === 12) return "string";
       if (index === 13) return "number";
       if (index === 14) return "number";
+      if (index === 15) return "number";
       return "number";
     }
     return "number";
@@ -957,20 +960,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component29) {
       if (index === 0) return 0;
-      if (index === 1) return component["volume"];
-      if (index === 2) return component["pitch"];
-      if (index === 3) return (component["loop"] ? 1 : 0);
-      if (index === 4) return (component["playOnAwake"] ? 1 : 0);
-      if (index === 5) return (component["mudo"] ? 1 : 0);
-      if (index === 6) return component["spatialBlend"];
-      if (index === 7) return 0;
-      if (index === 8) return component["minDistance"];
-      if (index === 9) return component["maxDistance"];
-      if (index === 10) return 0;
+      if (index === 1) return 0;
+      if (index === 2) return component["volume"];
+      if (index === 3) return component["pitch"];
+      if (index === 4) return (component["loop"] ? 1 : 0);
+      if (index === 5) return (component["playOnAwake"] ? 1 : 0);
+      if (index === 6) return (component["mudo"] ? 1 : 0);
+      if (index === 7) return component["spatialBlend"];
+      if (index === 8) return 0;
+      if (index === 9) return component["minDistance"];
+      if (index === 10) return component["maxDistance"];
       if (index === 11) return 0;
-      if (index === 12) return component["freq"];
-      if (index === 13) return component["dur"];
-      if (index === 14) return component["every"];
+      if (index === 12) return 0;
+      if (index === 13) return component["freq"];
+      if (index === 14) return component["dur"];
+      if (index === 15) return component["every"];
       return 0;
     }
     return 0;
@@ -1145,21 +1149,22 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component29) {
-      if (index === 0) return component["clip"];
-      if (index === 1) return "";
+      if (index === 0) return component["modo"];
+      if (index === 1) return component["clip"];
       if (index === 2) return "";
       if (index === 3) return "";
       if (index === 4) return "";
       if (index === 5) return "";
       if (index === 6) return "";
-      if (index === 7) return component["rolloff"];
-      if (index === 8) return "";
+      if (index === 7) return "";
+      if (index === 8) return component["rolloff"];
       if (index === 9) return "";
-      if (index === 10) return component["grupo"];
-      if (index === 11) return component["forma"];
-      if (index === 12) return "";
+      if (index === 10) return "";
+      if (index === 11) return component["grupo"];
+      if (index === 12) return component["forma"];
       if (index === 13) return "";
       if (index === 14) return "";
+      if (index === 15) return "";
       return "";
     }
     return "";
@@ -1335,20 +1340,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component29) {
 
-      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["volume"] = Math.max(0, Math.min(1, value)); component.onValidate("volume"); return; }
-      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["pitch"] = Math.max(0.1, Math.min(3, value)); component.onValidate("pitch"); return; }
-      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["loop"] = value !== 0; component.onValidate("loop"); return; }
-      if (index === 4) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["playOnAwake"] = value !== 0; component.onValidate("playOnAwake"); return; }
-      if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["mudo"] = value !== 0; component.onValidate("mudo"); return; }
-      if (index === 6) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["spatialBlend"] = Math.max(0, Math.min(1, value)); component.onValidate("spatialBlend"); return; }
 
-      if (index === 8) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["minDistance"] = Math.max(0.01, Math.min(10000, value)); component.onValidate("minDistance"); return; }
-      if (index === 9) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["maxDistance"] = Math.max(0.01, Math.min(10000, value)); component.onValidate("maxDistance"); return; }
+      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["volume"] = Math.max(0, Math.min(1, value)); component.onValidate("volume"); return; }
+      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["pitch"] = Math.max(0.1, Math.min(3, value)); component.onValidate("pitch"); return; }
+      if (index === 4) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["loop"] = value !== 0; component.onValidate("loop"); return; }
+      if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["playOnAwake"] = value !== 0; component.onValidate("playOnAwake"); return; }
+      if (index === 6) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["mudo"] = value !== 0; component.onValidate("mudo"); return; }
+      if (index === 7) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["spatialBlend"] = Math.max(0, Math.min(1, value)); component.onValidate("spatialBlend"); return; }
+
+      if (index === 9) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["minDistance"] = Math.max(0.01, Math.min(10000, value)); component.onValidate("minDistance"); return; }
+      if (index === 10) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["maxDistance"] = Math.max(0.01, Math.min(10000, value)); component.onValidate("maxDistance"); return; }
 
 
-      if (index === 12) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["freq"] = Math.max(20, Math.min(20000, value)); component.onValidate("freq"); return; }
-      if (index === 13) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["dur"] = Math.max(0.01, Math.min(10, value)); component.onValidate("dur"); return; }
-      if (index === 14) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["every"] = value; component.onValidate("every"); return; }
+      if (index === 13) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["freq"] = Math.max(20, Math.min(20000, value)); component.onValidate("freq"); return; }
+      if (index === 14) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["dur"] = Math.max(0.01, Math.min(10, value)); component.onValidate("dur"); return; }
+      if (index === 15) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["every"] = value; component.onValidate("every"); return; }
       return;
     }
   }
@@ -1522,18 +1528,19 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component29) {
-      if (index === 0) { component["clip"] = value; component.onValidate("clip"); return; }
+      if (index === 0) { component["modo"] = value; component.onValidate("modo"); return; }
+      if (index === 1) { component["clip"] = value; component.onValidate("clip"); return; }
 
 
 
 
 
 
-      if (index === 7) { component["rolloff"] = value; component.onValidate("rolloff"); return; }
+      if (index === 8) { component["rolloff"] = value; component.onValidate("rolloff"); return; }
 
 
-      if (index === 10) { component["grupo"] = value; component.onValidate("grupo"); return; }
-      if (index === 11) { component["forma"] = value; component.onValidate("forma"); return; }
+      if (index === 11) { component["grupo"] = value; component.onValidate("grupo"); return; }
+      if (index === 12) { component["forma"] = value; component.onValidate("forma"); return; }
 
 
 
@@ -1629,7 +1636,7 @@ class GeneratedReflection extends ComponentReflection {
       return { type: "script:src/engine/core/audio_listener.ts#AudioListener", fields: {  } };
     }
     if (component instanceof Component29) {
-      return { type: "script:src/scripts/audiosource.ts#AudioSource", fields: { "clip": component["clip"], "volume": component["volume"], "pitch": component["pitch"], "loop": component["loop"], "playOnAwake": component["playOnAwake"], "mudo": component["mudo"], "spatialBlend": component["spatialBlend"], "rolloff": component["rolloff"], "minDistance": component["minDistance"], "maxDistance": component["maxDistance"], "grupo": component["grupo"], "forma": component["forma"], "freq": component["freq"], "dur": component["dur"], "every": component["every"] } };
+      return { type: "script:src/scripts/audiosource.ts#AudioSource", fields: { "modo": component["modo"], "clip": component["clip"], "volume": component["volume"], "pitch": component["pitch"], "loop": component["loop"], "playOnAwake": component["playOnAwake"], "mudo": component["mudo"], "spatialBlend": component["spatialBlend"], "rolloff": component["rolloff"], "minDistance": component["minDistance"], "maxDistance": component["maxDistance"], "grupo": component["grupo"], "forma": component["forma"], "freq": component["freq"], "dur": component["dur"], "every": component["every"] } };
     }
     return null;
   }
@@ -2096,6 +2103,7 @@ export function restoreRegisteredComponent(data: any): any {
   if (data.type === "script:src/scripts/audiosource.ts#AudioSource") {
     const component = new Component29();
     if (data.fields === undefined || data.fields === null) return component;
+      if (typeof data.fields["modo"] === "string" && true) component["modo"] = data.fields["modo"];
       if (typeof data.fields["clip"] === "string" && true) component["clip"] = data.fields["clip"];
       if (typeof data.fields["volume"] === "number" && data.fields["volume"] === data.fields["volume"] && data.fields["volume"] > -1e30 && data.fields["volume"] < 1e30) component["volume"] = Math.max(0, Math.min(1, data.fields["volume"]));
       if (typeof data.fields["pitch"] === "number" && data.fields["pitch"] === data.fields["pitch"] && data.fields["pitch"] > -1e30 && data.fields["pitch"] < 1e30) component["pitch"] = Math.max(0.1, Math.min(3, data.fields["pitch"]));
