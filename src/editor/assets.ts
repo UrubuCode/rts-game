@@ -13,6 +13,7 @@ import { drawThumb, thumbAt } from "./thumbs";
 import { ProjectTree } from "./project_tree";
 import { AudioClip, clipInfo } from "../engine/audio/clip";
 import { tocarPrevia, pararPrevia, vozTocando } from "../engine/audio/audio";
+import { bumpAssetIndex } from "./asset_index";
 import { UI_C, UI_WORKSPACE, UI_PROJECT_HEADER_H, UI_PROJECT_PATH_Y, UI_PROJECT_PATH_H,
          UI_PROJECT_TOOL_W, UI_PROJECT_GRID_Y, UI_PROJECT_TILE_W, UI_PROJECT_TILE_H,
          UI_PROJECT_ICON_SIZE, UI_PROJECT_TILE_GAP, UI_PROJECT_DRAG_DISTANCE_SQ,
@@ -46,6 +47,11 @@ let selIdx = 0 - 1;
 let deleteArmed = 0;
 let assetScroll = 0;
 let scanned = 0;
+/// 1 no quadro em que `drawAssets` deve rolar/selecionar o tile de `assetsPing`
+/// (o ObjectField do Inspector pediu — item 2 do brief de áudio-arquivos).
+/// Precisa do `cols` calculado dentro de `drawAssets` (depende da largura do
+/// painel), por isso o pedido só é CONSUMIDO lá, não aqui.
+let pingReveal = 0;
 let lastClickIdx = 0 - 1;
 /// Quando o último clique aconteceu, em MILISSEGUNDOS de relógio.
 ///
@@ -164,6 +170,7 @@ function togglePreviewAudio(path: string): void {
 // ── varredura do diretório atual ─────────────────────────────────────────────
 function rescan(): void {
   treeDirty = 1;
+  bumpAssetIndex();
   assetDragClear();
   if (previewPath !== "") { pararPrevia(); previewPath = ""; previewVoz = 0; }
   lastClickIdx = 0 - 1;
@@ -255,6 +262,27 @@ export function assetsCurrentDir(): string {
 export function assetSelectedName(): string {
   if (selIdx < 0 || selIdx >= count) return "";
   return names[selIdx] + " [" + typeTag(types[selIdx]) + "]";
+}
+
+/// "Ping" estilo Unity (clique no ObjectField do Inspector — item 2 do brief de
+/// áudio-arquivos): abre a pasta de `path` no Project e seleciona o tile,
+/// rolando a grade até ele ficar visível. Não roda por quadro (só ao clicar).
+export function assetsPing(path: string): void {
+  const norm = path.replace(/\\/g, "/");
+  let cut = 0 - 1;
+  let i = 0;
+  while (i < norm.length) { if (norm.charCodeAt(i) === 47) cut = i; i = i + 1; }
+  const dir = cut >= 0 ? norm.substring(0, cut) : root;
+  const name = cut >= 0 ? norm.substring(cut + 1, norm.length) : norm;
+  if (dir !== curDir) navigateTo(dir);
+  else if (scanned === 0) rescan();
+  let idx = 0 - 1;
+  i = 0;
+  while (i < count) { if (names[i] === name) idx = i; i = i + 1; }
+  if (idx < 0) return;
+  selIdx = idx;
+  deleteArmed = 0;
+  pingReveal = 1;
 }
 
 // ── API DE DRAG & DROP (consumida pelo main: viewport, hierarquia, inspector) ──
@@ -512,6 +540,19 @@ export function drawAssets(win: i64): string {
   }
   if (assetScroll > maxScroll) assetScroll = maxScroll;
   if (assetScroll < 0) assetScroll = 0;
+  // Pedido de `assetsPing`: rola até o tile selecionado ficar visível (precisa
+  // de `cols`/`visRows`, só conhecidos aqui — por isso o pingReveal é consumido
+  // dentro do draw, não em assetsPing).
+  if (pingReveal !== 0) {
+    pingReveal = 0;
+    if (selIdx >= 0 && selIdx < count) {
+      const rr = (selIdx - (selIdx % cols)) / cols;
+      if (rr < assetScroll) assetScroll = rr;
+      else if (rr >= assetScroll + visRows) assetScroll = rr - visRows + 1;
+      if (assetScroll > maxScroll) assetScroll = maxScroll;
+      if (assetScroll < 0) assetScroll = 0;
+    }
+  }
   let i = 0;
   while (i < count) {
     const cc = i % cols;

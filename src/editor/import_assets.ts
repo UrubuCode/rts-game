@@ -8,6 +8,7 @@
 // faltar. Nada aqui roda por quadro — é sempre um clique/comando, então
 // try/catch aqui não viola a regra de custo por quadro do CLAUDE.md.
 import fs from "@compat/fs.ts";
+import { bumpAssetIndex } from "./asset_index";
 
 export const ASSETS_ROOT: string = "assets";
 export const ASSETS_AUDIO_DIR: string = "assets/audio";
@@ -76,6 +77,7 @@ export function importFileToAssets(srcPath: string, destDir: string): string {
   } catch (e) {
     throw new Error("falha ao copiar para '" + dest + "' (verifique a escrita): " + String(e));
   }
+  bumpAssetIndex();
   return dest;
 }
 

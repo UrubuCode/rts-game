@@ -460,6 +460,9 @@ let lastMy: f64 = 0.0;
 // lidos no handler de drop (que roda depois, no fim do frame).
 let slotTexHot = 0;
 let slotMeshHot = 0;
+// Idem para o ObjectField do Inspector (item 2 do brief de áudio-arquivos):
+// 1 quando um tile de áudio arrastado do Project está sobre o campo de clipe.
+let slotAudioHot = 0;
 // PREVIEW VIVO do drag: o asset arrastado já é instanciado na cena e segue o
 // cursor pelo chão (como na Unity). previewIdx = índice do objeto-preview na
 // cena (-1 = nenhum); previewPay = payload que o gerou, pra não recriar por frame.
@@ -722,6 +725,7 @@ function frame(): void {
   const scriptPath = dndScript ? subStr(dndPay, dndPay.indexOf(":") + 1, dndPay.length) : "";
   const dndTex = dndOn !== 0 && dndPay.charCodeAt(0) === 116 ? 1 : 0;      // "tex:"
   const dndModel = dndOn !== 0 && dndPay.charCodeAt(0) === 109 ? 1 : 0;    // "model:"
+  const dndAudio = dndOn !== 0 && dndPay.charCodeAt(0) === 97 ? 1 : 0;     // "audio:"
   const cpt2 = math.cos(S.camPitch); const spt2 = math.sin(S.camPitch);
   vistaDaSessao(vistaEditor, W, H, focalW);
   let scriptTarget = 0 - 1;
@@ -1372,10 +1376,15 @@ function frame(): void {
   // Inspector: raiz e controles sao GameObjects de uma UIScene do editor.
   inspector.area(W - INSP_W, BAR_H, INSP_W, H - BAR_H);
   inspector.mouse(mx, my, mDownNow, mPressed);
+  inspector.drag(dndOn, dndAudio);
   inspector.renderProtegido(app, menuOpen !== 0 || helpOpen !== 0, dndModel, dndTex);
-  addMenuOpen = inspector.opened;
+  addMenuOpen = inspector.opened !== 0 || inspector.objOpened !== 0 ? 1 : 0;
   slotMeshHot = inspector.meshHot;
   slotTexHot = inspector.textureHot;
+  slotAudioHot = inspector.objectHot();
+  // ObjectField pingado (clique no campo): mostra o Project (não o Console)
+  // pra revelar o tile, como a Unity troca de painel ao pingar um asset.
+  if (inspector.pinged) workspaceViews.console = false;
   secEnd(P_UI_INSP);
   // ── barra inferior (status bar estilo Unity) sobre a área do viewport ───────
   const vpx = HIER_W;
@@ -1496,6 +1505,7 @@ function frame(): void {
       // sobre o inspector: só os slots aceitam (hit-test guardado no draw)
       if (kind === "tex" && slotTexHot !== 0) applyTexToObject(S.selected, dpath, WIN);
       else if (kind === "model" && slotMeshHot !== 0) applyMeshToObject(S.selected, dpath, WIN);
+      else if (kind === "audio" && slotAudioHot !== 0) inspector.dropObjectField(dpath);
     }
     // Soltar de VOLTA no Project (ou em qualquer área não tratada) = CANCELAR:
     // nenhum ramo acima rodou, então o preview é descartado e a cena fica intacta.
