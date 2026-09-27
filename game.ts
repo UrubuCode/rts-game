@@ -45,6 +45,7 @@ import { initAudio, audioEntrarJogo } from "@engine/audio/audio";
 import { audioQuadro, definirPoseEditor, Audio } from "@engine/audio/audio_system";
 import { carregarMixer, MIXER_ARQUIVO } from "@engine/audio/mixer_grupos";
 import { configUsuario } from "@engine/core/config_usuario";
+import { coroutineResume } from "@engine/core/coroutine_scheduler";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
@@ -103,7 +104,7 @@ const drawBuf = new Float64Array(DRAW_FLOATS);
 const posSelf = new Float64Array(3);
 const poseSessao = new Float64Array(VOO_POSE_FLOATS);
 
-function frame(): void {
+async function frame(): Promise<void> {
   logTick();
   benchFrameBegin();
   const nw = winWidth(WIN);
@@ -136,6 +137,11 @@ function frame(): void {
 
   // ── GAMEPLAY: no jogo os scripts rodam SEMPRE (não há botão Play/Pause) ────
   scene.update(dts);
+  // Retoma as corrotinas prontas deste quadro (engine/core/coroutine_scheduler.ts) —
+  // DEPOIS do Update, como a Unity ("yield return null" retoma antes do
+  // próximo Update). Precisa de um `await` de verdade aqui: o motor só drena
+  // continuações pendentes num checkpoint real (ver o cabeçalho do módulo).
+  await coroutineResume();
   // Mesmo decisor do editor (main.ts): Rust/GPU quando servem, CPU quando o
   // backend recusa (casca, offset, eventos de contato, caixa girada).
   if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
@@ -232,7 +238,7 @@ function frame(): void {
 
 while (app.running()) {
   if (!app.beginFrame()) break;
-  frame();
+  await frame();
   if (benchFrameEnd() !== 0) break;
 }
 io.print("[jogo] encerrado apos " + frames + " frames");

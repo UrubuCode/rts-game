@@ -14,6 +14,7 @@ import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, M
 import math from "@compat/math.ts";
 import { coletarLuzes, LUZ_DIST_INICIAL } from "./light";
 import { Ambiente } from "./ambiente";
+import { coroutineTick, coroutineStopAllOf, coroutineStopEverywhere } from "./coroutine_scheduler";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
 /// MÓDULO e não um contador por cena: quem compara versões (o backend de
@@ -286,6 +287,13 @@ export class Scene {
 
   update(dt: f64): void {
     updateAll(this.objects, dt);   // função livre tipada (ver computeWorldInto)
+    // Metade SÍNCRONA do escalonador de corrotinas (engine/core/coroutine_scheduler.ts):
+    // desconta tempo/quadros das esperas pendentes com o MESMO dt que os
+    // behaviors acabaram de receber — pausa/step/timescale de graça, porque
+    // `update` só roda quando (e com o dt que) o chamador decidir. A metade
+    // assíncrona (`coroutineResume`, que de fato resume os corpos) é chamada
+    // pelo laço de fora (main.ts/game.ts), uma vez por quadro.
+    coroutineTick(dt);
   }
 
   count(): number {
@@ -294,6 +302,10 @@ export class Scene {
 
   /// Esvazia a cena (pra carregar outra por cima).
   clear(): void {
+    // Cancela TODA corrotina viva antes de descartar os objetos — cobre a
+    // saída do Play (as cópias descartadas nunca retomam tocando o original
+    // restaurado, ver coroutine_scheduler.ts) e qualquer outra troca de cena.
+    coroutineStopEverywhere();
     let i = 0;
     while (i < this.objects.length) { this.objects[i].uiOwner = null; i = i + 1; }
     this.objects = [];
@@ -435,6 +447,10 @@ export class Scene {
     }
     this.objects.length = w;
     this.trs.length = w;
+    // Destruir o objeto PARA as corrotinas de todos os seus behaviors (Unity:
+    // destroy nunca deixa uma corrotina retomando um objeto que já era).
+    let bi = 0;
+    while (bi < removedObj.behaviors.length) { coroutineStopAllOf(removedObj.behaviors[bi]); bi = bi + 1; }
     removedObj.sceneIndex = 0 - 1;
     removedObj.uiOwner = null;
     if (removedObj.uiIdx >= 0) this.uiForget(removedObj);

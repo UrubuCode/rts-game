@@ -1,5 +1,13 @@
 # Convenções deste projeto
 
+## Idioma dos identificadores
+
+- Identificadores de código (funções, métodos, classes, campos, constantes, nomes de comando WS) em INGLÊS. Comentários e documentação continuam em português.
+
+## Corrotinas
+
+- `Behavior` tem um "StartCoroutine" estilo Unity sobre `async`/`await` (`src/engine/core/coroutine_scheduler.ts`, doc completa em `docs/components.md` § Corrotinas): `this.startCoroutine(fn)`/`stopCoroutine(h)`/`stopAllCoroutines()`, `await this.waitForSeconds(s)` (tempo de jogo — pausa/step/timescale), `waitForSecondsRealtime(s)`, `nextFrame()`/`waitForFrames(n)`, `waitUntil(cond)`. Cancelamento automático no disable/destroy/saída do Play (semântica Unity: PARA, não pausa) — nunca resume tocando um objeto restaurado. O runtime é cooperativo (fila por região, thread principal): uma corrotina retoma no PRÓXIMO quadro do laço principal, nunca no meio do mesmo `scene.update` que a programou — o motor só drena continuações pendentes num `await` de verdade, nunca dentro de um laço síncrono.
+
 ## Interface do editor
 
 - Centralize medidas de layout, limites de painéis, espaçamentos, rótulos de menus e cores em `src/editor/ui_config.ts`. Não espalhe esses valores por `main.ts` ou por widgets novos.

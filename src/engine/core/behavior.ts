@@ -9,6 +9,8 @@
 import type { ContactInfo } from "./contact_events";
 import { Transform } from "./transform";
 import { componentMetadata } from "./component_metadata";
+import { coroutineWaitForSeconds, coroutineWaitForSecondsRealtime, coroutineWaitForFrames, coroutineWaitUntil,
+         coroutineStart, coroutineStop, coroutineStopAllOf } from "./coroutine_scheduler";
 
 /// `fieldHint`: o campo number é uma cor 0xRRGGBB.
 export const FIELD_HINT_COLOR: string = "color";
@@ -82,6 +84,42 @@ export class Behavior {
   mount(): void {}
   /// Chamado todo frame com o delta em SEGUNDOS.
   update(dt: f64): void {}
+
+  // ── CORROTINAS (engine/core/coroutine_scheduler.ts) — StartCoroutine da Unity ──
+  //
+  // `this.startCoroutine(async () => { ...; await this.waitForSeconds(2); ... })`
+  // começa a rodar NA HORA (síncrono até o 1º await, como a Unity). O handle
+  // devolvido serve pra `stopCoroutine`. Todas as esperas abaixo respeitam
+  // pausa/step do Play automaticamente: são contadas dentro de `Scene.update`,
+  // que só roda quando o Play está rodando (ou manualmente via `step`).
+  //
+  // Cancelamento automático (Unity: disable/destroy PARAM a corrotina, nunca
+  // pausam-e-retomam): um Behavior desligado ou um objeto destruído/inativo
+  // tem suas esperas pendentes REJEITADAS (o `await` lança e a função async se
+  // desenrola sem tocar em mais nada) — ver o cabeçalho de coroutine_scheduler.ts
+  // pros detalhes de tempo (até 1 quadro de atraso pra disable; destroy/Play-stop
+  // são imediatos).
+
+  /// Espera `seconds` de TEMPO DE JOGO (respeita pausa, `step` e timescale do
+  /// Play — o mesmo dt que `update(dt)` recebe).
+  waitForSeconds(seconds: f64): Promise<void> { return coroutineWaitForSeconds(this, seconds); }
+  /// Espera `seconds` de tempo REAL (relógio de parede, ignora pausa/timescale
+  /// — só não avança se a própria corrotina não puder ser retomada).
+  waitForSecondsRealtime(seconds: f64): Promise<void> { return coroutineWaitForSecondsRealtime(this, seconds); }
+  /// Espera 1 quadro simulado (uma chamada de `Scene.update`).
+  nextFrame(): Promise<void> { return coroutineWaitForFrames(this, 1); }
+  /// Espera `n` quadros simulados.
+  waitForFrames(n: number): Promise<void> { return coroutineWaitForFrames(this, n); }
+  /// Espera até `cond()` devolver `true`; `cond` é checada uma vez por quadro.
+  waitUntil(cond: () => boolean): Promise<void> { return coroutineWaitUntil(this, cond); }
+  /// Começa uma corrotina (uma função async) dona deste Behavior. Devolve um
+  /// handle pra `stopCoroutine`.
+  startCoroutine(fn: () => Promise<void>): number { return coroutineStart(this, fn); }
+  /// Cancela UMA corrotina pelo handle de `startCoroutine` (sem efeito se já
+  /// terminou).
+  stopCoroutine(handle: number): void { coroutineStop(handle); }
+  /// Cancela TODAS as corrotinas vivas deste Behavior.
+  stopAllCoroutines(): void { coroutineStopAllOf(this); }
 
   // ── eventos de contato (Lote B2) ─────────────────────────────────────────
   // Entregues DEPOIS do passo de física por `Scene.resolveCollisions`, só a

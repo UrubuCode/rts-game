@@ -93,6 +93,7 @@ const P_UI_PROJ = profSection("  ui:project");
 const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll, portaDeControle } from "@editor/control/server";
 import { passoDaSimulacao, definirAoFalharSimulacao } from "@editor/sim_step";
+import { coroutineResume } from "@engine/core/coroutine_scheduler";
 import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
 import "@engine/generated/editor_extensions";
@@ -576,7 +577,7 @@ function abrirCenaPeloDialogo(): void {
 
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
 // (scene/S) despacham corretamente em função, não no top-level do while.
-function frame(): void {
+async function frame(): Promise<void> {
   // ── layout RESPONSIVO: lê o tamanho lógico atual da janela (segue o resize) ──
   logTick();   // avança o contador de frames do log
   // A aba vem da sessão: o clique na aba e o ws `gameview` escrevem S.gameView.
@@ -732,6 +733,11 @@ function frame(): void {
     // incondicional lá embaixo: a mesma visita O(n) duas vezes por frame.
   }
   secEnd(P_FISICA);
+  // Retoma as corrotinas prontas deste quadro (engine/core/coroutine_scheduler.ts),
+  // rodando ou não o Play: cancelamentos por destroy/Play-stop precisam
+  // desenrolar mesmo parado. Precisa de um `await` de verdade aqui — o motor
+  // só drena continuações pendentes num checkpoint real (cabeçalho do módulo).
+  await coroutineResume();
   // PRÉVIA de animação do Inspector: fora do Play só avançam os players cuja
   // prévia está tocando (escrevem só a pose de trabalho; a cena salva não
   // muda). No Play, o `scene.update` acima já roda o AnimationPlayer normal, e
@@ -1835,7 +1841,7 @@ function frame(): void {
 
 while (app.running()) {
   if (!app.beginFrame()) break;
-  frame();
+  await frame();
   if (benchFrameEnd() !== 0) break;
 }
 
