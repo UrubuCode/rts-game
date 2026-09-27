@@ -197,10 +197,17 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/ui_text.ts"
   },
   {
+    "name": "AudioListener",
+    "category": "Áudio",
+    "description": "O ouvido da cena: o som é ouvido da pose deste objeto. Só um fica ativo por cena.",
+    "keywords": "ouvinte listener ouvido escuta som",
+    "source": "src/engine/core/audio_listener.ts"
+  },
+  {
     "name": "AudioSource",
     "category": "Áudio",
-    "description": "Emite som a partir do objeto.",
-    "keywords": "audio som beep",
+    "description": "Toca um clipe (WAV/OGG) ou um tom a partir do objeto, em 2D ou 3D.",
+    "keywords": "audio som fonte musica efeito wav ogg beep",
     "source": "src/scripts/audiosource.ts"
   }
 ];

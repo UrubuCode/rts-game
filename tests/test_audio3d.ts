@@ -10,7 +10,11 @@
 import io from "@compat/io.ts";
 import math from "@compat/math.ts";
 import { setListener, setRolloff, attenuation, panOf, panGains, distanceTo,
-         rolloffRef, rolloffMax } from "@engine/audio/spatial";
+         rolloffRef, rolloffMax, atenuacaoFonte, corteParaCoef, espGanhosVoz, listenerVX, listenerVY, listenerVZ,
+         ESP_GL, ESP_GR, ESP_LP, ESP_DIST, ESP_CORTE, ESP_FLOATS } from "@engine/audio/spatial";
+import { VOZ_FLOATS, V_X, V_Y, V_Z, V_BLEND, V_MIN, V_MAX, V_ROLLOFF, ROLLOFF_LOG, ROLLOFF_LINEAR } from "@engine/audio/vozes";
+import { mixAddTs } from "@engine/audio/mix_ts";
+import { D_PASSO, D_CANAIS_SRC, D_CANAIS_DST, D_QUADROS, D_GL0, D_GR0, D_GL1, D_GR1, D_LP_COEF, D_LACO_FIM, DESC_FLOATS } from "@engine/audio/mix_desc";
 const poseOuvinte = new Float64Array(5);
 function ouvinte(x: number, y: number, z: number, yaw: number, pitch: number): void {
   poseOuvinte[0] = x; poseOuvinte[1] = y; poseOuvinte[2] = z; poseOuvinte[3] = yaw; poseOuvinte[4] = pitch; setListener(poseOuvinte);
@@ -123,6 +127,87 @@ ok("fonte MUITO perto colapsa para o centro em vez de pan duro",
     i = i + 1;
   }
   ok("100 posicoes: sem NaN e sem ganho negativo", semNaN);
+}
+
+// ── F. ROLLOFF POR FONTE ────────────────────────────────────────────────────
+ok("log: min/d", perto(atenuacaoFonte(2.0, 1.0, 60.0, ROLLOFF_LOG), 0.5));
+ok("log: dentro do min, cheio", perto(atenuacaoFonte(0.5, 1.0, 60.0, ROLLOFF_LOG), 1.0));
+ok("log: além do max, zero", perto(atenuacaoFonte(61.0, 1.0, 60.0, ROLLOFF_LOG), 0.0));
+ok("linear: no meio, 0,5", perto(atenuacaoFonte(6.0, 1.0, 11.0, ROLLOFF_LINEAR), 0.5));
+ok("linear: no max, zero", perto(atenuacaoFonte(11.0, 1.0, 11.0, ROLLOFF_LINEAR), 0.0));
+{
+  const a = atenuacaoFonte(1.0, 0.0, 0.0, ROLLOFF_LOG);
+  ok("min e max degenerados não viram NaN", a === a && a >= 0.0 && a <= 1.0 ? 1 : 0);
+}
+
+// ── G. MISTURA 2D/3D ────────────────────────────────────────────────────────
+const vz = new Float64Array(VOZ_FLOATS);
+const esp = new Float64Array(ESP_FLOATS);
+ouvinte(0.0, 0.0, 0.0, 0.0, 0.0);
+vz[V_X] = 5.0; vz[V_Y] = 0.0; vz[V_Z] = 0.0; vz[V_MIN] = 1.0; vz[V_MAX] = 60.0; vz[V_ROLLOFF] = ROLLOFF_LOG;
+vz[V_BLEND] = 0.0; espGanhosVoz(vz, 0, 48000.0, esp);
+ok("blend 0: 2D, (1, 1) e sem filtro", perto(esp[ESP_GL], 1.0) !== 0 && perto(esp[ESP_GR], 1.0) !== 0 && esp[ESP_LP] === 1.0 ? 1 : 0);
+vz[V_BLEND] = 1.0; espGanhosVoz(vz, 0, 48000.0, esp);
+ok("blend 1, fonte à direita a 5: (0, 0,2)", perto(esp[ESP_GL], 0.0) !== 0 && perto(esp[ESP_GR], 0.2) !== 0 && perto(esp[ESP_DIST], 5.0) !== 0 ? 1 : 0);
+vz[V_BLEND] = 0.5; espGanhosVoz(vz, 0, 48000.0, esp);
+ok("blend 0,5: L = 0,5·1 + 0,5·0 e R = 0,5·1 + 0,5·0,2", perto(esp[ESP_GL], 0.5) !== 0 && perto(esp[ESP_GR], 0.6) !== 0 ? 1 : 0);
+
+// ── H. PASSA-BAIXA: ATRÁS SOA DIFERENTE DE FRENTE ───────────────────────────
+vz[V_BLEND] = 1.0; vz[V_X] = 0.0; vz[V_Z] = 2.0;
+espGanhosVoz(vz, 0, 48000.0, esp);
+const lpFrente: f64 = esp[ESP_LP];
+ok("frente e perto: filtro desligado", lpFrente === 1.0 && esp[ESP_CORTE] >= 20000.0 ? 1 : 0);
+vz[V_Z] = 0.0 - 2.0;
+espGanhosVoz(vz, 0, 48000.0, esp);
+const lpAtras: f64 = esp[ESP_LP];
+ok("atrás: corte perto de 5 kHz", esp[ESP_CORTE] < 6000.0 && esp[ESP_CORTE] > 4000.0 && lpAtras < 0.6 ? 1 : 0);
+ok("corteParaCoef: 20 kHz ou mais desliga", corteParaCoef(20000.0, 48000.0) === 1.0 && corteParaCoef(1000.0, 48000.0) < 0.2 ? 1 : 0);
+{
+  // RMS de um seno de 10 kHz filtrado com o coeficiente de frente e o de trás
+  const src = new Float32Array(4800);
+  let i = 0;
+  while (i < src.length) { src[i] = Math.sin(2.0 * Math.PI * 10000.0 * i / 48000.0); i = i + 1; }
+  const d = new Float64Array(DESC_FLOATS);
+  function rmsCom(coef: f64): f64 {
+    const dst = new Float32Array(4800);
+    let k = 0;
+    while (k < DESC_FLOATS) { d[k] = 0.0; k = k + 1; }
+    d[D_PASSO] = 1.0; d[D_CANAIS_SRC] = 1.0; d[D_CANAIS_DST] = 1.0; d[D_QUADROS] = 4800.0;
+    d[D_GL0] = 1.0; d[D_GR0] = 1.0; d[D_GL1] = 1.0; d[D_GR1] = 1.0; d[D_LP_COEF] = coef; d[D_LACO_FIM] = 0.0 - 1.0;
+    mixAddTs(dst, src, d);
+    let s = 0.0; k = 480;
+    while (k < 4800) { s = s + dst[k] * dst[k]; k = k + 1; }
+    return Math.sqrt(s / 4320.0);
+  }
+  const rF = rmsCom(lpFrente); const rA = rmsCom(lpAtras);
+  ok("10 kHz: RMS atrás < 0,7 × RMS à frente (" + rA + " x " + rF + ")", rA < 0.7 * rF ? 1 : 0);
+}
+{
+  vz[V_Z] = 2.0; espGanhosVoz(vz, 0, 48000.0, esp);
+  const perto2: f64 = esp[ESP_CORTE];
+  vz[V_Z] = 50.0; espGanhosVoz(vz, 0, 48000.0, esp);
+  ok("à frente, mais longe corta mais baixo", esp[ESP_CORTE] < perto2 ? 1 : 0);
+}
+
+// ── I. ELEVAÇÃO: O PITCH DO OUVINTE CONTA ───────────────────────────────────
+vz[V_X] = 0.0; vz[V_Y] = 5.0; vz[V_Z] = 0.0;
+ouvinte(0.0, 0.0, 0.0, 0.0, 0.0);
+espGanhosVoz(vz, 0, 48000.0, esp);
+const corteHorizontal: f64 = esp[ESP_CORTE];
+ok("fonte acima, ouvinte olhando reto: centrada", perto(esp[ESP_GL], esp[ESP_GR]));
+ouvinte(0.0, 0.0, 0.0, 0.0, 1.5707963267948966);
+espGanhosVoz(vz, 0, 48000.0, esp);
+ok("olhando para cima, a fonte acima está À FRENTE: corte maior e filtro desligado",
+   esp[ESP_CORTE] > corteHorizontal && esp[ESP_LP] === 1.0 ? 1 : 0);
+
+// ── J. VELOCIDADE DO OUVINTE ────────────────────────────────────────────────
+{
+  const p8 = new Float64Array(8);
+  p8[5] = 1.0; p8[6] = 2.0; p8[7] = 3.0;
+  setListener(p8);
+  ok("pose de 8 floats traz a velocidade", listenerVX() === 1.0 && listenerVY() === 2.0 && listenerVZ() === 3.0 ? 1 : 0);
+  ouvinte(0.0, 0.0, 0.0, 0.0, 0.0);
+  ok("pose de 5 floats zera a velocidade", listenerVX() === 0.0 && listenerVZ() === 0.0 ? 1 : 0);
 }
 
 io.print("");

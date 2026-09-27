@@ -10,6 +10,7 @@ import { reaplicarSementeFixada } from "@engine/core/aleatorio";
 import { interpolateReset } from "@engine/core/interpolate";
 import { Ambiente, copiarAmbiente } from "@engine/core/ambiente";
 import { emitEditorEvent } from "./api";
+import { audioEntrarJogo, audioSairJogo } from "@engine/audio/audio";
 
 // A cena original nao e serializada/reconstruida ao parar. Conservamos seus
 // GameObjects e componentes; somente copias descartaveis recebem update.
@@ -66,6 +67,7 @@ export class PlayMode {
     copiarAmbiente(this.ambiente, scene.ambiente);
     this.undo = history.u; this.redo = history.r;
     history.u = []; history.r = [];
+    audioEntrarJogo();   // playOnAwake das cópias toca no mount logo abaixo; a prévia do editor para
     scene.clear();
     let copyIndex = 0;
     while (copyIndex < copies.length) { scene.add(copies[copyIndex]); copyIndex = copyIndex + 1; }
@@ -83,6 +85,7 @@ export class PlayMode {
   stop(): void {
     if (S.simulating === 0) return;
     S.playing = 0;
+    audioSairJogo();   // parar o Play interrompe todo som (spec §3.6)
     // a câmera da aba Jogo volta da cópia para o original de mesma posição
     const camJogo = S.gameCamera !== null ? scene.objects.indexOf(S.gameCamera) : 0 - 1;
     scene.clear();

@@ -23,7 +23,7 @@ import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { Patrol } from "../scripts/patrol";
 import { KeyframeAnimator } from "../scripts/keyframeanimator";
-import { AudioSource } from "../scripts/audiosource";
+import { audioSourceLegado } from "../scripts/audiosource";
 import { PhysicsMaterial } from "../scripts/physicsmaterial";
 import { Collider, SHAPE_BOX } from "../engine/core/collider";
 import { UIText } from "../engine/core/ui_text";
@@ -76,11 +76,7 @@ function recreateBehaviorInner(sd: any): Behavior {
     while (keyIndex < sd.kt.length) { animator.key(sd.kt[keyIndex], sd.kv[keyIndex]); keyIndex = keyIndex + 1; }
     return animator;
   }
-  if (t === "audiosource") {
-    const audio = new AudioSource(sd.kind, sd.freq, sd.dur, sd.gain);
-    audio.every = sd.every;
-    return audio;
-  }
+  if (t === "audiosource") return audioSourceLegado(sd);
   if (t === "physicsmaterial") {
     const physical = new PhysicsMaterial(sd.preset);
     physical.density = sd.density; physical.restitution = sd.restitution; physical.friction = sd.friction;

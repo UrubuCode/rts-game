@@ -93,7 +93,9 @@ import { passoDaSimulacao, definirAoFalharSimulacao } from "@editor/sim_step";
 import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
 import "@engine/generated/editor_extensions";
-import { initAudio, pumpAudio } from "@engine/audio/audio";
+import { initAudio } from "@engine/audio/audio";
+import { audioQuadro, definirPoseEditor } from "@engine/audio/audio_system";
+import { carregarMixer, MIXER_ARQUIVO } from "@engine/audio/mixer_grupos";
 import { logInfo, logTick, logError } from "@engine/core/logger";
 import { OBJECT_PRESETS, OBJECT_PRESET_LABELS } from "@editor/object_presets";
 import { RotuloNumero, RotuloPar, RotulosDeLinha } from "@editor/rotulos";
@@ -484,6 +486,10 @@ S.win = WIN;
 definirJanelaEntrada(WIN);
 // áudio: se a máquina não tiver saída, `initAudio` devolve 0 e o editor segue mudo
 initAudio();
+const erroMixer = carregarMixer(MIXER_ARQUIVO);
+if (erroMixer !== "") logError(erroMixer);
+/// Pose da vista do editor para o áudio (último recurso do ouvinte), reaproveitada.
+const poseAudioEditor = new Float64Array(5);
 
 
 io.print("[engine] cena '" + scene.name + "' com " + scene.count() + " objetos");
@@ -1614,7 +1620,6 @@ function frame(): void {
     if ((mPressed !== 0 || mRight !== 0) && !overMenu) ctxOn = 0;
   }
 
-  // mantém o ring de áudio cheio (ver engine/audio/audio.ts)
   // Menus globais: comandos de projeto ficam separados das ferramentas da Cena.
   if (menuOpen !== 0) {
     const entries = menuEntries(menuOpen);
@@ -1696,7 +1701,10 @@ function frame(): void {
   if (Date.now() - documentPoll > UI_DOCUMENT.pollMs) { sceneDocument.refresh(); documentPoll = Date.now(); }
   editorBuild.poll();
 
-  pumpAudio();
+  poseAudioEditor[0] = workspaceViews.x; poseAudioEditor[1] = workspaceViews.y; poseAudioEditor[2] = workspaceViews.z;
+  poseAudioEditor[3] = workspaceViews.yaw; poseAudioEditor[4] = workspaceViews.pitch;
+  definirPoseEditor(poseAudioEditor);
+  audioQuadro(scene, dts);   // ouvinte da cena, fontes e o ring de áudio cheio
 
   secEnd(P_UI);
   benchCpuEnd();

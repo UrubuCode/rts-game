@@ -212,6 +212,18 @@ Os controles de câmera leem teclado e mouse por `@engine/core/entrada`. No
 editor, essa entrada só fica ligada com a aba **Jogo** ativa e sem campo de
 texto ou de número em edição. No jogo exportado, fica sempre ligada.
 
+## Áudio
+
+O motor toca WAV (PCM 8/16/24/32 bits e float 32, mono ou estéreo, decodificado em TypeScript) e OGG/Vorbis (decodificado pelo runtime), com 32 vozes, mixagem nativa (`rts:audio`, `mix_add`) e espacialização por fonte. Os clipes são reamostrados na carga para a taxa do dispositivo; limites: WAV até 256 MB, OGG até 10 minutos estéreo, mais de 2 canais é recusado com mensagem no Console.
+
+- **`AudioListener`** (categoria Áudio): o ouvido, na pose do objeto. Só o primeiro ativo vale (o Console avisa uma vez se houver dois). Sem ele, vale `Camera.main`; sem câmera, a pose que o jogo empurra com `Audio.setListenerPose(pose)` (`[x, y, z, yaw, pitch]`); por último, a vista do editor.
+- **`AudioSource`**: `clip` (caminho `.wav`/`.ogg`; vazio = tom gerado por `forma`/`freq`/`dur`), `volume`, `pitch`, `loop`, `playOnAwake`, `mudo`, `spatialBlend` (0 = 2D, 1 = 3D), `rolloff` (`log` = `min/d`, `linear`), `minDistance`, `maxDistance`, `grupo` (vazio = Master), `every` (repete a cada N s). Métodos: `play()`, `stop()`, `pause()`, `unPause()`, `isPlaying()`, `time`, `playOneShot(clip, escala)`, `AudioSource.playClipAtPoint(clip, pos, volume)`. Fora do Play nada toca sozinho; no Play e no jogo, `playOnAwake` toca ao entrar na cena, e parar o Play cala tudo.
+- **3D**: pan de potência constante, atenuação por fonte, passa-baixa que cai de 22 kHz (frente) a 5 kHz (atrás) e com a distância (frente e trás soam diferentes), o pitch do ouvinte conta (fonte acima de quem olha para cima está à frente). Além de `maxDistance`, ou num grupo mudo, a voz fica **virtual**: a posição anda sem mixar e retoma no ponto certo.
+- **Mixer**: `assets/audio/mixer.json` (arquivo de projeto, vale para todas as cenas; não entra no Desfazer da cena). Grupos com nome livre em árvore (padrão Master → Música, Efeitos, Voz), cada um com volume, mudo e pausa. `Janela/Mixer` edita e tem Salvar/Reverter; por script, `Mixer.setVolume("Música", 0.5)`, `Mixer.mute`, `Mixer.pause`, `Mixer.grupoIndex` (resolva o índice uma vez).
+- **Sem componente**: `Audio.play(clip, pedido)` com um pedido de `novoPedido()` (`@engine/audio/vozes`), e `Audio.playClipAtPoint(clip, pos, volume)`.
+- **Verificar sem ouvir** (WS): `audio list` (uma linha por voz: fonte, clipe, grupo, posição, pitch, distância, `gL`/`gR`, corte, estado), `audio nivel` (pico e RMS L/R do último bloco), `audio mixer`, `audio listener` (origem do ouvinte e o dispositivo `real`/`nulo`/`mudo`), `audio clip <caminho>`, `audio play <obj> [clip]`, `audio stop`, `audio escuta [ms] [sonda]` + `audio escuta resultado` (loopback pela saída real da placa, não bloqueia a janela; a sonda de 997 Hz separa o som do motor do de outros programas rodando na máquina). Nos testes sem janela, `initAudio(AUDIO_NULO)` abre um dispositivo que consome em tempo real e descarta; `mixarBloco(n)` mixa um bloco sem esperar o relógio.
+- **Build**: tudo em `assets/` vai junto (`tools/editor-build.mjs:20`), inclusive os clipes e o `mixer.json`.
+
 ## Estender o editor por script
 
 Tudo vem de `@editor/api`. No jogo exportado não há editor, e as chamadas viram
@@ -366,6 +378,8 @@ Spinner, Bobber, Mover, Pulse, Orbit e Patrol usam campos gerados, preservando s
 formatos de cena antigos. Componentes com campos especiais (por exemplo, FOV da
 Camera em graus, Material e Rigidbody) conservam os inspectores personalizados
 `fieldCount/fieldGet/fieldSet`. Esses overrides são opcionais para scripts novos.
+
+- **`AudioSource` antigo** (`{ "type": "audiosource", "kind": 0|1|2, "freq", "dur", "gain", "every" }`): carrega como o componente novo com `forma` = seno/quadrada/ruído, `volume = gain`, `clip` vazio e `playOnAwake` desligado (o antigo só tocava por `play()` ou `every`). Ao salvar, vai no formato gerado. `playTone`/`playSquare`/`playNoise` e os `*At` continuam, agora como clipes gerados uma vez.
 
 O Inspector continua usando controles GameObject. O catálogo é apenas metadado;
 o runtime instala um provider de reflexão gerado, inclusive para instâncias

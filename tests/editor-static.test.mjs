@@ -41,3 +41,13 @@ test('CI builds the game through the swapped registry and checks it', () => {
   assert.match(ci, /npm run check:game-build/);
   assert.match(read('package.json'), /"check:game-build": "node tools\/rts-run\.mjs tools\/game-build\/check-registro\.ts"/);
 });
+test('a documentação de áudio cobre componentes, mixer, verificação e migração', () => {
+  const doc = read('docs/components.md');
+  const secao = doc.slice(doc.indexOf('## Áudio'));
+  assert.ok(doc.includes('## Áudio'), 'seção de áudio');
+  for (const termo of ['AudioListener', 'AudioSource', 'spatialBlend', 'assets/audio/mixer.json', 'audio nivel', 'audio list', 'AUDIO_NULO', '.ogg', 'playClipAtPoint', 'Audio.setListenerPose'])
+    assert.ok(secao.includes(termo), 'a seção de áudio cita ' + termo);
+  assert.ok(doc.includes('"type": "audiosource"') || doc.includes('{type:"audiosource"'), 'migração do formato antigo');
+  const regras = read('CLAUDE.md');
+  assert.ok(regras.includes('## Áudio') && regras.includes('audio nivel'), 'regra do CLAUDE.md');
+});

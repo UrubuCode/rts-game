@@ -3,7 +3,7 @@
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
 import { Transform } from "./transform";
-import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI, KIND_LIGHT, KIND_CAMERA } from "./behavior";
+import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI, KIND_LIGHT, KIND_CAMERA, KIND_AUDIO } from "./behavior";
 import { Material } from "./material";
 import { componentMetadata } from "./component_metadata";
 // gizmos.ts só importa TIPOS do núcleo: sem ciclo.
@@ -33,6 +33,7 @@ export interface UIOwner {
   uiChanged(go: GameObject): void;
   lightChanged(go: GameObject): void;
   cameraChanged(go: GameObject): void;
+  audioChanged(go: GameObject): void;
 }
 
 export class GameObject {
@@ -110,6 +111,9 @@ export class GameObject {
   /// Índice do component Camera (KIND_CAMERA) em behaviors, -1 se nenhum. Cache
   /// para `Scene.camObjs` saber quem tem câmera sem varrer behaviors.
   camIdx: number;
+  /// Índice do primeiro component KIND_AUDIO (AudioListener/AudioSource), −1 se
+  /// nenhum. Cache para `Scene.audioObjs`.
+  audioIdx: number;
   /// A cena que registra este objeto na lista de UI (null fora de cena).
   uiOwner: UIOwner | null;
   /// Índice deste objeto nas tabelas paralelas do índice espacial (sObjs), ou -1 se não indexado.
@@ -155,6 +159,7 @@ export class GameObject {
     this.uiIdx = 0 - 1;
     this.lightIdx = 0 - 1;
     this.camIdx = 0 - 1;
+    this.audioIdx = 0 - 1;
     this.uiOwner = null;
     this.spatialSlot = 0 - 1;
     this.spatialDynSlot = 0 - 1;
@@ -192,6 +197,9 @@ export class GameObject {
     const hadCam = this.camIdx;
     this.camIdx = this.componentIdx(KIND_CAMERA);
     if (this.uiOwner !== null && (hadCam >= 0) !== (this.camIdx >= 0)) this.uiOwner.cameraChanged(this);
+    const hadAudio = this.audioIdx;
+    this.audioIdx = this.componentIdx(KIND_AUDIO);
+    if (this.uiOwner !== null && (hadAudio >= 0) !== (this.audioIdx >= 0)) this.uiOwner.audioChanged(this);
     let gz = 0;
     let bi = 0;
     while (bi < this.behaviors.length) {

@@ -4,6 +4,7 @@ import { logError } from "@engine/core/logger";
 import { GameObject } from "@engine/core/gameobject";
 import { EditorUI } from "./ui_controls";
 import { MeshRenderer } from "@engine/core/meshrenderer";
+import { pararPrevia } from "@engine/audio/audio";
 import { Skeleton } from "@engine/core/skeleton";
 import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopAll, previewSeek, previewChooseClip,
   timelineTarget, animationPlayerOf, skeletonOfObject, animatorOfObject, animatorPreviewTouch, animatorPreviewIsActive,
@@ -656,8 +657,10 @@ export class Inspector extends Behavior {
       // outro objeto: o osso escolhido não vale mais (salvo Desfazer/Refazer,
       // que re-liga o osso ao objeto restaurado — ver undo.ts) e a prévia de
       // animação (estado do editor) termina, com a pose de trabalho de volta à manual.
+      // A prévia de áudio do AudioSource também para (rampa, sem clique).
       if (S.selectedBoneOwner !== selected) selectBone(null, 0 - 1);
       previewStopAll();
+      pararPrevia();
     }
     if (this.janela !== null && S.selected !== this.janelaSel) this.janela = null;
     if (blocked) { this.opened = 0; nfCancel(); }

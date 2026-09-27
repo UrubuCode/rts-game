@@ -37,10 +37,10 @@ aposentado em favor de `rts:egui`/`gpu3d`.
 `rts:time` e `rts:audio` viraram arquivo. `rts:net` e `rts:ws` **não**, e a
 ausência é a decisão, não uma pendência.
 
-Os dois primeiros cabem num shim porque a pergunta que o chamador faz continua
-tendo resposta: `time.sleep_ms` só mudou de endereço, e `audio.open_output`
-responde 0 — "não há dispositivo" — que é verdade e é um caminho que o mixer do
-jogo já sabia percorrer.
+`rts:time` cabe num shim porque a pergunta que o chamador faz continua tendo
+resposta: `time.sleep_ms` só mudou de endereço. `rts:audio` agora existe no
+motor (crate `rts-audio`: saída cpal ou nula, `mix_add`, OGG); `compat/audio.ts`
+só repassa o namespace e embrulha `decode_ogg`.
 
 Os dois últimos não cabem, e pelo mesmo motivo nos dois casos: **a API antiga
 BLOQUEIA e a nova não.** `net.tcp_accept` parava o programa até um cliente

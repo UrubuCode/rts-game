@@ -41,6 +41,9 @@ import { definirJanelaEntrada } from "@engine/core/entrada";
 import { vooDoJogo, VOO_POSE_FLOATS } from "@engine/core/voo_livre";
 import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
          posicaoDaVista } from "@engine/render/camera_views";
+import { initAudio, audioEntrarJogo } from "@engine/audio/audio";
+import { audioQuadro, definirPoseEditor } from "@engine/audio/audio_system";
+import { carregarMixer, MIXER_ARQUIVO } from "@engine/audio/mixer_grupos";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
@@ -65,6 +68,12 @@ definirJanelaEntrada(WIN);
 if (process.env("RTS_VSYNC") === "0") setVsync(WIN, 0);
 benchInit();
 initMeshes(WIN);
+// Áudio antes da cena: no jogo não há botão Play, então `playOnAwake` toca no
+// mount da carga. Sem placa de som, `initAudio` devolve 0 e o jogo segue mudo.
+initAudio();
+const erroMixer = carregarMixer(MIXER_ARQUIVO);
+if (erroMixer !== "") io.print("[jogo] " + erroMixer);
+audioEntrarJogo();
 if (fs.exists(sceneFile)) {
   loadSceneFrom(sceneFile);
   io.print("[jogo] cena '" + sceneFile + "' com " + scene.count() + " objetos");
@@ -124,6 +133,11 @@ function frame(): void {
   // backend recusa (casca, offset, eventos de contato, caixa girada).
   if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
   scene.computeWorld();
+
+  // Sem câmera na cena, o ouvido é a câmera livre da sessão (o último recurso;
+  // um script que chame Audio.setListenerPose vence).
+  if (camGo === null) definirPoseEditor(poseSessao);
+  audioQuadro(scene, dts);
 
   // ── RENDER pelas câmeras da cena ─────────────────────────────────────────
   // Depois do computeWorld: se a câmera for FILHA de outro objeto, a pose de
