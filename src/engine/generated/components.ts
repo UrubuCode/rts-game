@@ -26,9 +26,10 @@ import { Orbit as Component21 } from "../../scripts/orbit";
 import { Patrol as Component22 } from "../../scripts/patrol";
 import { Pulse as Component23 } from "../../scripts/pulse";
 import { Spinner as Component24 } from "../../scripts/spinner";
-import { UIButton as Component25 } from "../core/ui_button";
-import { UIText as Component26 } from "../core/ui_text";
-import { AudioSource as Component27 } from "../../scripts/audiosource";
+import { Vagar as Component25 } from "../../scripts/vagar";
+import { UIButton as Component26 } from "../core/ui_button";
+import { UIText as Component27 } from "../core/ui_text";
+import { AudioSource as Component28 } from "../../scripts/audiosource";
 class GeneratedReflection extends ComponentReflection {
   create(name: string): any { return createRegisteredComponent(name); }
   name(component: any): string {
@@ -108,12 +109,15 @@ class GeneratedReflection extends ComponentReflection {
       return "Spinner";
     }
     if (component instanceof Component25) {
-      return "UIButton";
+      return "Vagar";
     }
     if (component instanceof Component26) {
-      return "UIText";
+      return "UIButton";
     }
     if (component instanceof Component27) {
+      return "UIText";
+    }
+    if (component instanceof Component28) {
       return "AudioSource";
     }
     return "Script";
@@ -195,12 +199,15 @@ class GeneratedReflection extends ComponentReflection {
       return 2;
     }
     if (component instanceof Component25) {
-      return 0;
+      return 2;
     }
     if (component instanceof Component26) {
       return 0;
     }
     if (component instanceof Component27) {
+      return 0;
+    }
+    if (component instanceof Component28) {
       return 0;
     }
     return 0;
@@ -358,7 +365,8 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component25) {
-
+      if (index === 0) return "Raio";
+      if (index === 1) return "Velocidade";
       return "";
     }
     if (component instanceof Component26) {
@@ -366,6 +374,10 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component27) {
+
+      return "";
+    }
+    if (component instanceof Component28) {
 
       return "";
     }
@@ -524,7 +536,8 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component25) {
-
+      if (index === 0) return "raio";
+      if (index === 1) return "velocidade";
       return "";
     }
     if (component instanceof Component26) {
@@ -532,6 +545,10 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component27) {
+
+      return "";
+    }
+    if (component instanceof Component28) {
 
       return "";
     }
@@ -690,7 +707,8 @@ class GeneratedReflection extends ComponentReflection {
       return "number";
     }
     if (component instanceof Component25) {
-
+      if (index === 0) return "number";
+      if (index === 1) return "number";
       return "number";
     }
     if (component instanceof Component26) {
@@ -698,6 +716,10 @@ class GeneratedReflection extends ComponentReflection {
       return "number";
     }
     if (component instanceof Component27) {
+
+      return "number";
+    }
+    if (component instanceof Component28) {
 
       return "number";
     }
@@ -856,7 +878,8 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component25) {
-
+      if (index === 0) return component["raio"];
+      if (index === 1) return component["velocidade"];
       return 0;
     }
     if (component instanceof Component26) {
@@ -864,6 +887,10 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component27) {
+
+      return 0;
+    }
+    if (component instanceof Component28) {
 
       return 0;
     }
@@ -1022,7 +1049,8 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component25) {
-
+      if (index === 0) return "";
+      if (index === 1) return "";
       return "";
     }
     if (component instanceof Component26) {
@@ -1030,6 +1058,10 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component27) {
+
+      return "";
+    }
+    if (component instanceof Component28) {
 
       return "";
     }
@@ -1188,7 +1220,8 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component25) {
-
+      if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["raio"] = value; component.onValidate("raio"); return; }
+      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["velocidade"] = value; component.onValidate("velocidade"); return; }
       return;
     }
     if (component instanceof Component26) {
@@ -1196,6 +1229,10 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component27) {
+
+      return;
+    }
+    if (component instanceof Component28) {
 
       return;
     }
@@ -1354,6 +1391,7 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component25) {
 
+
       return;
     }
     if (component instanceof Component26) {
@@ -1361,6 +1399,10 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component27) {
+
+      return;
+    }
+    if (component instanceof Component28) {
 
       return;
     }
@@ -1442,12 +1484,15 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component25) {
-      return null;
+      return { type: "script:src/scripts/vagar.ts#Vagar", fields: { "raio": component["raio"], "velocidade": component["velocidade"] } };
     }
     if (component instanceof Component26) {
       return null;
     }
     if (component instanceof Component27) {
+      return null;
+    }
+    if (component instanceof Component28) {
       return null;
     }
     return null;
@@ -1535,6 +1580,9 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component27) {
+      return null;
+    }
+    if (component instanceof Component28) {
       return null;
     }
     return null;
@@ -1663,6 +1711,9 @@ class GeneratedReflection extends ComponentReflection {
     if (component instanceof Component27) {
       return;
     }
+    if (component instanceof Component28) {
+      return;
+    }
   }
   drawsGizmos(component: any): boolean {
     if (component instanceof Component0) {
@@ -1749,6 +1800,9 @@ class GeneratedReflection extends ComponentReflection {
     if (component instanceof Component27) {
       return false;
     }
+    if (component instanceof Component28) {
+      return false;
+    }
     return false;
   }
 }
@@ -1779,9 +1833,10 @@ export function createRegisteredComponent(name: string): Behavior {
   if (name === "Patrol") return new Component22();
   if (name === "Pulse") return new Component23();
   if (name === "Spinner") return new Component24();
-  if (name === "UIButton") return new Component25();
-  if (name === "UIText") return new Component26();
-  if (name === "AudioSource") return new Component27();
+  if (name === "Vagar") return new Component25();
+  if (name === "UIButton") return new Component26();
+  if (name === "UIText") return new Component27();
+  if (name === "AudioSource") return new Component28();
   throw new Error("Componente nao registrado: " + name);
 }
 export function restoreRegisteredComponent(data: any): any {
@@ -1877,6 +1932,13 @@ export function restoreRegisteredComponent(data: any): any {
       if (typeof data.fields["speed"] === "number" && data.fields["speed"] === data.fields["speed"] && data.fields["speed"] > -1e30 && data.fields["speed"] < 1e30) component["speed"] = Math.max(0, Math.min(20, data.fields["speed"]));
       if (typeof data.fields["moving"] === "boolean" && true) component["moving"] = data.fields["moving"];
       if (typeof data.fields["label"] === "string" && true) component["label"] = data.fields["label"];
+    return component;
+  }
+  if (data.type === "script:src/scripts/vagar.ts#Vagar") {
+    const component = new Component25();
+    if (data.fields === undefined || data.fields === null) return component;
+      if (typeof data.fields["raio"] === "number" && data.fields["raio"] === data.fields["raio"] && data.fields["raio"] > -1e30 && data.fields["raio"] < 1e30) component["raio"] = data.fields["raio"];
+      if (typeof data.fields["velocidade"] === "number" && data.fields["velocidade"] === data.fields["velocidade"] && data.fields["velocidade"] > -1e30 && data.fields["velocidade"] < 1e30) component["velocidade"] = data.fields["velocidade"];
     return component;
   }
   return null;

@@ -176,6 +176,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/spinner.ts"
   },
   {
+    "name": "Vagar",
+    "category": "Scripts",
+    "description": "Anda entre pontos sorteados em volta da posição inicial.",
+    "keywords": "vagar aleatorio passear ocioso",
+    "source": "src/scripts/vagar.ts"
+  },
+  {
     "name": "UIButton",
     "category": "UI",
     "description": "Botão na tela do jogo; o clique chega em onUIClick(label) dos scripts do mesmo objeto.",

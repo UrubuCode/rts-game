@@ -5,7 +5,7 @@ import { KIND_MATERIAL } from "@engine/core/behavior";
 import { scene, S } from "./control/session";
 import { recreateBehavior } from "./sceneio";
 import { history } from "./undo";
-import { stepReset } from "@engine/core/fixedstep";
+import { stepReset, stepSimReset } from "@engine/core/fixedstep";
 import { interpolateReset } from "@engine/core/interpolate";
 import { Ambiente, copiarAmbiente } from "@engine/core/ambiente";
 import { emitEditorEvent } from "./api";
@@ -70,7 +70,7 @@ export class PlayMode {
     while (copyIndex < copies.length) { scene.add(copies[copyIndex]); copyIndex = copyIndex + 1; }
     S.gameCamera = camJogo >= 0 ? copies[camJogo] : null;
     scene.computeWorld();
-    stepReset(); interpolateReset();
+    stepReset(); stepSimReset(); interpolateReset();
     S.simulating = 1; S.playing = 1;
     emitEditorEvent("entrarPlay", "");
     return true;

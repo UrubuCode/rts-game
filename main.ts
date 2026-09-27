@@ -60,8 +60,8 @@ import { selectedBoneTarget, boneWorldOriginInto, boneDrag } from "@editor/bone_
 import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, vistaDaSessao } from "@editor/dnd";
 import { history } from "@editor/undo";
-import { rigidStep, rigidBackendName } from "@engine/core/physics_backend";
-import { stepsFor, stepMore, FIXED_DT, stepAlpha, stepsLastFrame, stepDiscards } from "@engine/core/fixedstep";
+import { rigidBackendName } from "@engine/core/physics_backend";
+import { stepsFor, stepMore, stepAlpha, stepsLastFrame, stepDiscards } from "@engine/core/fixedstep";
 import { snapshotWorld, renderX, renderY, renderZ, interpolateReset, interpolateSync } from "@engine/core/interpolate";
 import { clockTick, clockNow, DOUBLE_CLICK_MS } from "@engine/core/clock";
 import { profEnable, profSection, profFrameBegin, profFrameEnd, secBegin, secEnd, profReport } from "@engine/core/profiler";
@@ -88,6 +88,7 @@ const P_UI_PROJ = profSection("  ui:project");
 // não medido que mora a surpresa: hoje isso já aconteceu três vezes.
 const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll } from "@editor/control/server";
+import { passoDaSimulacao, definirAoFalharSimulacao } from "@editor/sim_step";
 import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
 import "@engine/generated/editor_extensions";
@@ -493,12 +494,9 @@ if (benchInit() !== 0) {
 }
 
 // `try/catch` fora de `frame()`: no RTS a função que contém `try` aloca a cada
-// chamada, mesmo sem entrar nele (Task 10.5). Os trechos protegidos moram aqui.
-/// Um passo de `scene.update`; 0 se um script lançou (a simulação pausa).
-function atualizarCenaProtegido(): number {
-  try { scene.update(FIXED_DT); return 1; }
-  catch (error) { logError("Erro durante simulacao: " + String(error)); playMode.pause(); workspaceViews.console = true; return 0; }
-}
+// chamada, mesmo sem entrar nele (Task 10.5). Os trechos protegidos moram aqui
+// (o passo protegido da simulação mora em editor/sim_step.ts).
+definirAoFalharSimulacao(() => { workspaceViews.console = true; });
 /// Menu Arquivo → Abrir: diálogo de arquivo e pedido de troca de cena.
 function abrirCenaPeloDialogo(): void {
   try { const path = chooseSceneFile(false); if (path.length > 0) sceneDocument.request("open", path); }
@@ -650,19 +648,8 @@ function frame(): void {
       // velocidades diferentes conforme o frame — o tremor que a interpolação
       // existe para tirar. Custa um `computeWorld` a mais só nesses frames.
       if (p > 0 && p === passos - 1) { scene.computeWorld(); snapshotWorld(scene); }
-      if (atualizarCenaProtegido() === 0) break;
-      // A COLISÃO pode rodar na GPU. `rigidStep` responde 1 quando assumiu o
-      // passo — e aí a varredura de pares da CPU não roda, porque seriam duas
-      // físicas sobre o mesmo estado, a segunda vendo o que a primeira mexeu.
-      //
-      // A decisão fica AQUI, em quem dirige o frame, e não dentro da `Scene`: o
-      // decisor precisa do tipo `Scene` para varrer os corpos, então a `Scene`
-      // importá-lo de volta seria um ciclo. É a forma que o fluido já usa —
-      // `decide.ts` é chamado pelo jogo, não pelo solver.
-      //
-      // Medido (release, headless, 500 corpos): 12,05 ms na CPU contra 0,35 ms
-      // na GPU. Ver tools/claude-bench-gpu-vs-cpu.ts.
-      if (rigidStep(scene, 0) === 0) scene.resolveCollisions();
+      // scripts + física (GPU ou CPU) num passo: o mesmo do `step N` (sim_step.ts)
+      if (passoDaSimulacao() === 0) break;
       p = p + 1;
     }
     // O mundo final é derivado UMA vez, logo abaixo, depois de todos os passos.

@@ -17,6 +17,7 @@ import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
 import { cmdShot } from "@editor/control/commands/shot";
+import { cmdResume, cmdStep, cmdTimescale, cmdSeed } from "@editor/control/commands/tempo";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { comandoEmbutido, registraNoLog, MUTA_SIM } from "@editor/control/builtin_commands";
 import { resolverArgsObjeto } from "@editor/control/object_ref";
@@ -229,6 +230,10 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "ungroup": return cmdUngroup(parts);
     case "play": return cmdPlay();
     case "pause": return cmdPause();
+    case "resume": return cmdResume();
+    case "step": return cmdStep(parts);
+    case "timescale": return cmdTimescale(parts);
+    case "seed": return cmdSeed(parts);
     case "stop": return cmdStop();
     case "clear": return cmdClear();
     case "loadscene": return cmdLoad(parts);
