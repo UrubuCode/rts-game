@@ -28,6 +28,7 @@ import { scene, S } from "@editor/control/session";
 import { Transform } from "@engine/core/transform";
 import { loadSceneFrom } from "@editor/sceneio";
 import { drawGameUI } from "@engine/ui/game_ui";
+import { domHostPump } from "@engine/ui/dom_host";
 import { rigidStep } from "@engine/core/physics_backend";
 import { resolveMaterialTexture } from "@engine/render/material_tex";
 import { GameObject } from "@engine/core/gameobject";
@@ -58,6 +59,8 @@ let sceneFile = "assets/scene.json";
 if (!fs.exists(sceneFile)) sceneFile = "scenes/vitrine.json";
 if (!fs.exists(sceneFile)) sceneFile = "scenes/shadowdemo.json";
 if (!fs.exists(sceneFile)) sceneFile = "scenes/solar.json";
+const cenaEnv = process.env("RTS_SCENE");
+if (cenaEnv.length > 0) sceneFile = cenaEnv;   // bench/claude-frame-bench.mjs
 
 S.win = WIN;
 definirJanelaEntrada(WIN);
@@ -207,6 +210,7 @@ function frame(): void {
   drawGameUI(scene, WIN, W, H);
   benchCpuEnd();
   app.endFrame();
+  domHostPump();
 }
 
 while (app.running()) {

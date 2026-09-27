@@ -41,6 +41,10 @@ const CENARIOS = [
   { tag: 'ed-vitrine', file: 'main.ts', env: { RTS_SCENE: 'scenes/vitrine.json', RTS_BENCH_SELECT: '-1' } },
   { tag: 'ed-vitrine-sel', file: 'main.ts', env: { RTS_SCENE: 'scenes/vitrine.json', RTS_BENCH_SELECT: '0' } },
   { tag: 'jogo-vitrine', file: 'game.ts', env: {} },
+  { tag: 'jogo-hud-sem', file: 'game.ts', env: { RTS_SCENE: 'scenes/claude-bench-hud-sem.json' } },
+  { tag: 'jogo-hud-2d', file: 'game.ts', env: { RTS_SCENE: 'scenes/claude-bench-hud-2d.json' } },
+  { tag: 'jogo-hud-dom', file: 'game.ts', env: { RTS_SCENE: 'scenes/claude-bench-hud-dom.json' } },
+  { tag: 'jogo-hud-dom-texto', file: 'game.ts', env: { RTS_SCENE: 'scenes/claude-bench-hud-dom-texto.json' } },
 ].filter(c => ONLY === '' || ONLY.split(',').includes(c.tag));
 
 const CPU_COUNTER = process.env.RTS_CPU_COUNTER || '\\Processador(_Total)\\% Tempo de Processador';
@@ -98,11 +102,43 @@ fs.writeFileSync(path.resolve(root, OUT), JSON.stringify(todos, null, 1));
 
 console.log(`\n| cenário (${LABEL}) | parede média ms (min/med) | CPU TS ms (min/med) | GC/1000 (min/med) | obj/quadro (min/med) | pior quadro ms (med) | >10 ms (med) | CPU máquina % (med) |`);
 console.log('|---|---|---|---|---|---|---|---|');
+const porCenario = {};
 for (const c of CENARIOS) {
   const rs = todos.filter(r => r.tag === c.tag && !r.erro);
   if (rs.length === 0) { console.log(`| ${c.tag} | erro | | | | | | |`); continue; }
   const p = stat(rs.map(r => r.parede_media)); const q = stat(rs.map(r => r.cpu_media));
   const g = stat(rs.map(r => r.gc1000)); const o = stat(rs.map(r => r.objQuadro));
   const m = stat(rs.map(r => r.parede_max)); const pk = stat(rs.map(r => r.picos_10ms)); const u = stat(rs.map(r => r.cpuMaquina));
+  porCenario[c.tag] = { p, q };
   console.log(`| ${c.tag} | ${f2(p.min)} / ${f2(p.med)} | ${f2(q.min)} / ${f2(q.med)} | ${f2(g.min)} / ${f2(g.med)} | ${f2(o.min)} / ${f2(o.med)} | ${f2(m.med)} | ${pk.med} | ${f2(u.med)} |`);
 }
+
+// Portões do DomCanvas (Task 4): o custo do MEU código é o CPU TS (a janela entre
+// benchFrameBegin/benchCpuEnd, fora do present/vsync) — é o que estas duas
+// comparações fecham. A parede (tempo de relógio) fica só IMPRESSA, informativa,
+// porque inclui o present/vsync e a carga concorrente da máquina, então é ruidosa
+// demais pra travar o build por ela (Step 4/5 da Task 4 mediu isso na mesma sessão:
+// CPU TS estável, parede variando 2x com a máquina mais ou menos ocupada).
+//
+// `jogo-hud-dom-texto` (setNumero em #l0 a cada quadro) tem um custo de PAREDE bem
+// maior que o de CPU TS: o DomHost nativo faz um RELAYOUT DO DOCUMENTO INTEIRO a
+// cada mutação (não incremental), pago no present/render nativo, fora da janela de
+// CPU TS. É uma limitação conhecida do spike (rts, item de fase 2: layout
+// incremental / renderIn) e não algo que o wiring desta task introduz ou resolve —
+// só o CPU TS entra no portão até esse item avançar.
+const GATES = [
+  { a: 'jogo-hud-dom', b: 'jogo-hud-2d', limiteCpuMs: 0.15 },
+  { a: 'jogo-hud-dom-texto', b: 'jogo-hud-sem', limiteCpuMs: 0.5 },
+];
+let falhou = false;
+for (const g of GATES) {
+  const A = porCenario[g.a]; const B = porCenario[g.b];
+  if (!A || !B) continue;   // cenário fora do --only desta rodada: nada a checar
+  const deltaCpu = A.q.med - B.q.med;
+  const deltaParede = A.p.med - B.p.med;
+  const ok = deltaCpu <= g.limiteCpuMs;
+  if (!ok) falhou = true;
+  console.log(`[portao] ${g.a} - ${g.b}: CPU TS ${f2(deltaCpu)} ms (limite ${g.limiteCpuMs}) ${ok ? 'OK' : 'FALHOU'}` +
+    ` | parede ${f2(deltaParede)} ms (informativo, não travado — rts fase 2: relayout incremental)`);
+}
+if (falhou) { console.error('[portao] pelo menos um portao de CPU TS falhou'); process.exit(1); }

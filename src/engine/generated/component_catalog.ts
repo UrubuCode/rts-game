@@ -50,6 +50,13 @@ export const COMPONENT_CATALOG = [
     "source": "assets/pacotes/camera/camera_seguir.ts"
   },
   {
+    "name": "BenchHudDom",
+    "category": "Demo",
+    "description": "Bench do DomCanvas: modo 1 troca o texto de #l0 a cada quadro (bench/claude-frame-bench.mjs).",
+    "keywords": "bench dom hud html",
+    "source": "assets/scripts/BenchHudDom.ts"
+  },
+  {
     "name": "VitrineContador",
     "category": "Demo",
     "description": "Conta os contatos e gatilhos que este objeto recebe (cena vitrine).",

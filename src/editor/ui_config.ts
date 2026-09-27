@@ -218,6 +218,20 @@ export const UI_ROTULOS = {
 /// Textos do host de @editor/api (editor_host.ts).
 export const UI_EDITOR_API = { undoPrefix: "Desfazer: " };
 
+/// DomCanvas no editor: prévia da aba Jogo e o pacote assets/pacotes/dom/.
+export const UI_DOM = {
+  /// Contorno CSS do canvas selecionado na prévia (a cor de UI_C.previewBorder).
+  contornoSelecao: "2px dashed #6A9DD2", semContorno: "none",
+  /// Intervalo do vigia de recarga de .html/.css (Editor.every).
+  recargaMs: 500,
+  icone: "ui-html", nomeObjeto: "DomCanvas",
+  modeloHtml: "assets/ui/exemplo.html", modeloCss: "assets/ui/exemplo.css",
+  recarregar: "Recarregar", abrir: "Abrir no editor",
+  estadoNos: "Nós: ", estadoErro: "  erro: ", estadoOk: "  sem erro",
+  /// Máximo de nós listados por `dom <obj> query`.
+  queryMax: 16,
+};
+
 export const UI_C = {
   previewBorder: 0x6A9DD2FF,
   consoleBackground: 0x26282CFF, consoleToolbar: 0x303237FF,

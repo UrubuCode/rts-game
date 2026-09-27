@@ -56,6 +56,11 @@ function lerArquivoDom(caminho: string): boolean {
  * - Com `bloqueiaCliques`, um descendente de bloco sem largura (um <div> ou <p>
  *   solto) ocupa a largura inteira da raiz e bloqueia o clique no mundo na
  *   faixa toda: dê largura (ou `display:inline-block`) aos elementos do HUD.
+ * - Trocar um texto/número a cada quadro custa hoje ~1 ms de relayout NATIVO do
+ *   documento inteiro por mutação (o DomHost do rts ainda não tem layout
+ *   incremental — item de fase 2, `renderIn`). `setText`/`setNumero` já pulam a
+ *   escrita quando o valor não mudou; prefira atualizar só quando o valor muda
+ *   de fato, ou a uma taxa menor que por quadro (ex.: a cada N quadros).
  * @componentCategory UI
  * @componentDescription Interface em HTML/CSS desenhada sobre o jogo; scripts do objeto acessam `documento`.
  * @componentKeywords ui html css hud menu dom documento

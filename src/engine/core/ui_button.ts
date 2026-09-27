@@ -9,6 +9,7 @@
 
 import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { anchorX, anchorY, hitRect, ANCHOR_TL } from "@engine/ui/anchor";
+import { domHostSobreUI } from "@engine/ui/dom_host";
 import input from "@compat/input";
 
 import { caixa, estiloTexto, pincel, texto } from "@compat/draw2d.ts";
@@ -55,7 +56,8 @@ export class UIButton extends Behavior {
     const my: f64 = input.mouseY(win);
     retBotao[0] = x; retBotao[1] = y; retBotao[2] = this.w; retBotao[3] = this.h;
     this.hot = hitRect(retBotao, mx, my);
-    this.clicked = (this.hot !== 0 && input.mousePressed(win, 0)) ? 1 : 0;
+    // HTML sob o ponteiro com bloqueiaCliques consome o clique (fase 1: :hover do quadro anterior)
+    this.clicked = (this.hot !== 0 && input.mousePressed(win, 0) && !domHostSobreUI()) ? 1 : 0;
     pincel(this.hot !== 0 ? this.hoverColor : this.color, 1, 0x00000088, 5); caixa(x, y, this.w, this.h);
     const size: f64 = 14;
     const tw: f64 = this.label.length * size * 0.6;

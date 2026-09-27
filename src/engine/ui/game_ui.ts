@@ -16,15 +16,28 @@ import { Scene } from "@engine/core/scene";
 import { GameObject } from "@engine/core/gameobject";
 import { Behavior, KIND_UI } from "@engine/core/behavior";
 import { dispatchUIClick } from "@engine/ui/ui_click";
+import { domHostRender } from "./dom_host";
 
 /// Quantos objetos com UI a cena tem (a lista é mantida pela própria Scene).
 export function collectGameUI(sc: Scene): number {
   return sc.uiObjs.length;
 }
 
+/// Área padrão: a janela inteira (reescrita por quadro, sem alocar).
+const areaJanela = new Float64Array(4);
+class AreaUI { externa: Float64Array | null; constructor() { this.externa = null; } }
+const areaUI = new AreaUI();
+/// O editor desenha a UI do jogo na aba Jogo: passa a área (x, y, w, h) antes
+/// de drawGameUI; null = janela inteira (o jogo exportado).
+export function definirAreaUI(a: Float64Array | null): void { areaUI.externa = a; }
+
 /// Desenha a UI do jogo e entrega os cliques. Chamar DENTRO do frame, depois do
-/// 3D. `w`/`h` = tamanho atual da janela (âncoras seguem o resize).
+/// 3D, no máximo UMA vez por quadro (o HTML de todos os DomCanvas é um render só).
 export function drawGameUI(sc: Scene, win: i64, w: f64, h: f64): void {
+  // 3D -> HTML -> 2D: o render do DOM entra na fila antes dos UIText/UIButton.
+  const ext = areaUI.externa;
+  if (ext !== null) domHostRender(win, ext);
+  else { areaJanela[0] = 0.0; areaJanela[1] = 0.0; areaJanela[2] = w; areaJanela[3] = h; domHostRender(win, areaJanela); }
   const objs: GameObject[] = sc.uiObjs;
   const n = objs.length;
   let k = 0;

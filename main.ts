@@ -32,7 +32,8 @@ import { ScriptEditor } from "@editor/script_editor";
 import { UI_SCRIPT_DROP, UI_CODE_EDITOR } from "@editor/ui_config";
 import { PreferencesPanel } from "@editor/preferences_panel";
 import { PlayToolbar } from "@editor/play_toolbar";
-import { drawGameUI } from "@engine/ui/game_ui";
+import { uiDoJogoNoEditor } from "@editor/game_ui_editor";
+import { domHostPump } from "@engine/ui/dom_host";
 import { playMode } from "@editor/play_mode";
 import { UI_PLAY } from "@editor/ui_config";
 import { UI_WORKSPACE, UI_DOCUMENT, UI_CONTROLE_IA } from "@editor/ui_config";
@@ -1023,8 +1024,8 @@ function frame(): void {
   secBegin(P_UI);
   secBegin(P_UI_GIZ);
   S.drawnLast = drawnN;   // nº de objetos desenhados neste frame (diagnóstico via ws 'dbg')
-  // UI do JOGO (UIText/UIButton da cena) aparece no Play, como na build.
-  if (S.simulating !== 0) drawGameUI(scene, WIN, W, H);
+  // UI do JOGO: no Play como na build; fora dele, prévia do HTML na aba Jogo
+  uiDoJogoNoEditor(WIN, workspaceViews.game ? vistasJogo.area : S.areaVista, W, H);
 
   // ── GIZMO 2D: eixos X/Y/Z coloridos sobre a viewport (over o 3D, sob a UI). O
   // eixo pego fica destacado (branco). Move/Rotate/Scale usam os mesmos eixos. ──
@@ -1705,6 +1706,7 @@ function frame(): void {
   // seções de propósito: contá-lo como "UI" faria a tabela dizer que a UI custa
   // 16 ms quando o que ela faz é esperar o monitor. Ele aparece no "resto".
   app.endFrame();
+  domHostPump();   // cliques do HTML viram callbacks (1 quadro depois)
   secEnd(P_PRESENT);
   profFrameEnd();
   // A tabela vai para um ARQUIVO a cada ~5 s, porque o stdout do editor não

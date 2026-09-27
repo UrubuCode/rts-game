@@ -55,3 +55,10 @@ test('only dom_host.ts names the DOM facade entry points (every file that names 
   for (const f of Object.keys(conhecidos)) assert.match(read(f), conhecidos[f], f + ': caso conhecido sumiu, tire-o da lista');
   assert.match(read('src/engine/ui/dom_host.ts'), /parseDocument\(/);
 });
+test('HTML is rendered once by drawGameUI and pumped right after endFrame', () => {
+  assert.match(read('game.ts'), /app\.endFrame\(\);\s*\n\s*domHostPump\(\);/);
+  assert.match(read('main.ts'), /app\.endFrame\(\);\s*\n\s*domHostPump\(\);/);
+  assert.match(read('main.ts'), /uiDoJogoNoEditor\(WIN, /);
+  assert.doesNotMatch(read('main.ts'), /drawGameUI\(/);
+  assert.match(read('src/engine/ui/game_ui.ts'), /domHostRender\(win, /);
+});
