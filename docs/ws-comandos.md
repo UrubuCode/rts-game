@@ -8,7 +8,7 @@ Protocolo: 1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] .
 
 Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio` (o comando tira só nos subcomandos que mudam a cena) ou `nenhum`; **async** = a resposta vem depois (a conexão espera por ela antes da linha seguinte; não cabe num `batch`).
 
-105 comandos.
+106 comandos.
 
 ## consulta
 
