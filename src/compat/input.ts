@@ -15,6 +15,46 @@ import {
   setCursor as nSetCursor, key as nKey, modCtrl as nModCtrl, modShift as nModShift, modAlt as nModAlt,
   textInput as nTextInput,
 } from "rts:input";
+import * as rtsInput from "rts:input";
+
+// Soltura/arrasto do Explorer (item 3 do brief de arquivos universais — PR
+// paralelo do rts, `rts:input`): um runtime ANTIGO não tem essas funções, daí
+// o mesmo padrão de fallback de `compat/rigid.ts`/`compat/gpu.ts`
+// (`typeof fn === "function"`) — sem suporte, o editor funciona igual, só sem
+// a soltura do sistema de arquivos (0 arquivos soltos/pairando sempre).
+//   droppedCount(win)  -> quantos arquivos foram soltos NESTE quadro
+//   droppedPath(win,i) -> caminho absoluto do i-ésimo (vazio fora da faixa)
+//   droppedX/Y(win)    -> cursor (pontos lógicos) na soltura
+//   hoveredFiles(win)  -> quantos arquivos estão pairando (arrasto do SO, antes de soltar)
+//   hoveredX/Y(win)    -> cursor (pontos lógicos) enquanto pairando
+function nDroppedCount(win: number): number {
+  const fn = (rtsInput as any).droppedCount;
+  return typeof fn === "function" ? fn(win) : 0;
+}
+function nDroppedPath(win: number, i: number): string {
+  const fn = (rtsInput as any).droppedPath;
+  return typeof fn === "function" ? fn(win, i) : "";
+}
+function nDroppedX(win: number): f64 {
+  const fn = (rtsInput as any).droppedX;
+  return typeof fn === "function" ? fn(win) : 0.0;
+}
+function nDroppedY(win: number): f64 {
+  const fn = (rtsInput as any).droppedY;
+  return typeof fn === "function" ? fn(win) : 0.0;
+}
+function nHoveredFiles(win: number): number {
+  const fn = (rtsInput as any).hoveredFiles;
+  return typeof fn === "function" ? fn(win) : 0;
+}
+function nHoveredX(win: number): f64 {
+  const fn = (rtsInput as any).hoveredX;
+  return typeof fn === "function" ? fn(win) : 0.0;
+}
+function nHoveredY(win: number): f64 {
+  const fn = (rtsInput as any).hoveredY;
+  return typeof fn === "function" ? fn(win) : 0.0;
+}
 import {
   simAtiva, simMouseX, simMouseY, simMouseDown, simMousePressed, simMouseReleased, simMouseClicked,
   simMouseDeltaX, simMouseDeltaY, simArrastando, simRodaQuadro, simTecla, simCtrl, simShift, simAlt, simTextoQuadro,
@@ -38,4 +78,11 @@ export default {
   modShift(win: number): boolean { return simAtiva() ? simShift() : nModShift(win); },
   modAlt(win: number): boolean { return simAtiva() ? simAlt() : nModAlt(win); },
   textInput(win: number): string { return simAtiva() ? simTextoQuadro() : nTextInput(win); },
+  droppedCount(win: number): number { return nDroppedCount(win); },
+  droppedPath(win: number, i: number): string { return nDroppedPath(win, i); },
+  droppedX(win: number): f64 { return nDroppedX(win); },
+  droppedY(win: number): f64 { return nDroppedY(win); },
+  hoveredFiles(win: number): number { return nHoveredFiles(win); },
+  hoveredX(win: number): f64 { return nHoveredX(win); },
+  hoveredY(win: number): f64 { return nHoveredY(win); },
 };
