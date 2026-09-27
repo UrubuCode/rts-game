@@ -11,6 +11,9 @@
 // `update`, e `playOnAwake` só vale com a bandeira de jogo ligada); no Play e no
 // jogo, `playOnAwake` toca no `mount`.
 import { Behavior, KIND_AUDIO, AUDIO_PAPEL_FONTE, FIELD_HINT_ENUM } from "@engine/core/behavior";
+// clip: agora um ObjectField automático via `@asset audio` (tools/generate-
+// components.mjs) — item 1 do brief de arquivos-universais. O tipo/extensões/
+// ícone somem daqui: ficam centralizados em UI_ASSET_KINDS (ui_config.ts).
 import type { InspectorUI } from "@engine/core/inspector_ui";
 import { AudioClip, toneClip, clipInfo, FORMAS_TOM } from "@engine/audio/clip";
 import { tocarClipe, pararVoz, pausarVoz, vozTocando, vozSegundos, moverVoz, definirVolumeVoz, definirPitchVoz,
@@ -21,16 +24,22 @@ import { pedidoPadrao, PEDIDO_VOLUME, PEDIDO_PITCH, PEDIDO_LACO, PEDIDO_GRUPO, P
 import { grupoIndex, mixerVersao, GRUPO_MASTER } from "@engine/audio/mixer_grupos";
 
 export const ROLLOFFS: string[] = ["log", "linear"];
+/// Modos do AudioSource (item 1 do brief de áudio-arquivos): "arquivo" toca
+/// `clip`; "gerador" é o tom antigo (forma/freq/dur).
+export const AS_MODO_ARQUIVO: string = "arquivo";
+export const AS_MODO_GERADOR: string = "gerador";
+export const MODOS: string[] = [AS_MODO_ARQUIVO, AS_MODO_GERADOR];
+const MODOS_ROTULOS: string[] = ["Arquivo", "Gerador (ondas)"];
 const AS_DIST_MIN: f64 = 0.01;
 const AS_PITCH_MIN: f64 = 0.1;
 const AS_PITCH_MAX: f64 = 3.0;
+const AS_ROTULO_MODO: string = "Modo";
 const AS_ROTULO_ROLLOFF: string = "Rolloff";
 const AS_ROTULO_FORMA: string = "Forma do tom";
 const AS_ROTULO_TOCAR: string = "Tocar";
 const AS_ROTULO_PARAR: string = "Parar";
 const AS_SEM_CLIPE: string = "Sem clipe: toca o tom gerado.";
 const AS_CLIPE_FALHOU: string = "O clipe não carregou (ver o Console).";
-
 /// Rascunhos de módulo: nenhuma fonte aloca por quadro nem por disparo.
 const asPedido = new Float64Array(PEDIDO_FLOATS);
 const asPos = new Float64Array(3);
@@ -41,7 +50,18 @@ const asPos = new Float64Array(3);
  * @componentKeywords audio som fonte musica efeito wav ogg beep
  */
 export class AudioSource extends Behavior {
-  /** Caminho do .wav/.ogg; vazio = o tom gerado (forma, freq, dur). */
+  /**
+   * "arquivo" (toca `clip`) ou "gerador" (toca o tom: forma/freq/dur).
+   * Padrão "arquivo": atribuir `clip` direto no código (sem passar pelo
+   * Inspector) continua tocando esse clipe, como sempre tocou. Quem quer o
+   * tom gerado sem um clipe (menu Criar/Áudio/Fonte, os testes do gerador)
+   * marca `modo = "gerador"` explicitamente.
+   */
+  modo: string = AS_MODO_ARQUIVO;
+  /**
+   * Caminho do .wav/.ogg; vazio = o tom gerado (forma, freq, dur).
+   * @asset audio
+   */
   clip: string = "";
   /** @range 0 1 */
   volume: number = 1.0;
@@ -96,12 +116,14 @@ export class AudioSource extends Behavior {
   audioPapel(): number { return AUDIO_PAPEL_FONTE; }
   fieldHint(i: number): string {
     const n = this.fieldName(i);
-    return n === "rolloff" || n === "forma" ? FIELD_HINT_ENUM : "";
+    if (n === "rolloff" || n === "forma" || n === "modo") return FIELD_HINT_ENUM;
+    return super.fieldHint(i);   // "clip" -> "asset:audio" (gerado a partir de @asset)
   }
   fieldOptions(i: number): string[] {
     const n = this.fieldName(i);
     if (n === "rolloff") return ROLLOFFS;
     if (n === "forma") return FORMAS_TOM;
+    if (n === "modo") return MODOS;
     return super.fieldOptions(i);
   }
   onValidate(field: string): void {
@@ -115,11 +137,25 @@ export class AudioSource extends Behavior {
     if (!(this.maxDistance > this.minDistance)) this.maxDistance = this.minDistance + 1.0;
     if (ROLLOFFS.indexOf(this.rolloff) < 0) this.rolloff = "log";
     if (FORMAS_TOM.indexOf(this.forma) < 0) this.forma = "seno";
+    if (MODOS.indexOf(this.modo) < 0) this.modo = this.clip !== "" ? AS_MODO_ARQUIVO : AS_MODO_GERADOR;
+    // ObjectField/soltura (item 2 do brief de áudio-arquivos): escolher um
+    // clipe (seletor, arraste de um tile do Project ou atribuição direta)
+    // sempre liga o modo Arquivo — como a Unity, escolher o clipe é o que
+    // importa; ninguém espera continuar ouvindo o tom gerado depois disso.
+    if (field === "clip" && this.clip !== "") this.modo = AS_MODO_ARQUIVO;
   }
 
-  /// O clipe a tocar: o arquivo (da cache) ou o tom gerado (da cache).
+  /// Cenas salvas sem `modo` (antes do item 1 do brief de áudio-arquivos):
+  /// arquivo se `clip` não vazio, senão gerador. Só entra quando o JSON não
+  /// trazia `modo` — não sobrescreve o que já foi restaurado/gravado.
+  migrarModo(sd: any): void {
+    if (sd.modo !== undefined) return;
+    this.modo = this.clip !== "" ? AS_MODO_ARQUIVO : AS_MODO_GERADOR;
+  }
+
+  /// O clipe a tocar: o arquivo (da cache) ou o tom gerado (da cache), conforme `modo`.
   private clipAtual(): AudioClip | null {
-    if (this.clip !== "") return AudioClip.load(this.clip);
+    if (this.modo === AS_MODO_ARQUIVO) return this.clip !== "" ? AudioClip.load(this.clip) : null;
     const f = FORMAS_TOM.indexOf(this.forma);
     return toneClip(this.freq, this.dur, f >= 0 ? f : 0);
   }
@@ -201,7 +237,12 @@ export class AudioSource extends Behavior {
 
   /// Campos, o dropdown do rolloff/forma, Tocar/Parar e a linha do clipe.
   onInspectorGUI(ui: InspectorUI): void {
-    ui.field("clip");
+    const m = Math.max(0, MODOS.indexOf(this.modo));
+    const nm = ui.dropdown(AS_ROTULO_MODO, MODOS_ROTULOS, m);
+    if (nm !== m) this.modo = MODOS[nm];
+    const arquivo = this.modo === AS_MODO_ARQUIVO;
+    if (arquivo) ui.field("clip");
+    ui.label(this.rotuloInfo());
     ui.field("volume"); ui.field("pitch"); ui.field("loop"); ui.field("playOnAwake"); ui.field("mudo");
     ui.field("spatialBlend");
     if (this.spatialBlend > 0.0) {
@@ -211,7 +252,7 @@ export class AudioSource extends Behavior {
       ui.field("minDistance"); ui.field("maxDistance");
     }
     ui.field("grupo");
-    if (this.clip === "") {
+    if (!arquivo) {
       const f = Math.max(0, FORMAS_TOM.indexOf(this.forma));
       const nf = ui.dropdown(AS_ROTULO_FORMA, FORMAS_TOM, f);
       if (nf !== f) this.forma = FORMAS_TOM[nf];
@@ -220,13 +261,15 @@ export class AudioSource extends Behavior {
     ui.field("every");
     if (ui.button(AS_ROTULO_TOCAR)) this.previa();
     if (ui.button(AS_ROTULO_PARAR)) { pararPrevia(); if (audioEmJogo() !== 0) this.stop(); }
-    ui.label(this.rotuloInfo());
   }
-  /// "48000 Hz, estéreo, 1,00 s, 375 KB", refeito só quando `clip` muda.
+  /// "48000 Hz, estéreo, 1,00 s, 375 KB" em modo arquivo (refeito só quando
+  /// `clip` muda); em modo gerador é sempre a mensagem do tom, mesmo com um
+  /// `clip` guardado (ele fica salvo, mas não tocando — item 1 do brief).
   private rotuloInfo(): string {
-    if (this.infoDe !== this.clip) {
-      this.infoDe = this.clip;
-      if (this.clip === "") this.infoRotulo = AS_SEM_CLIPE;
+    const chave = this.modo === AS_MODO_ARQUIVO ? this.clip : "\u0001";
+    if (this.infoDe !== chave) {
+      this.infoDe = chave;
+      if (this.modo !== AS_MODO_ARQUIVO || this.clip === "") this.infoRotulo = AS_SEM_CLIPE;
       else { const c = AudioClip.load(this.clip); this.infoRotulo = c !== null ? clipInfo(c) : AS_CLIPE_FALHOU; }
     }
     return this.infoRotulo;
@@ -245,6 +288,7 @@ export function audioSourceLegado(sd: any): AudioSource {
   if (sd.gain !== undefined) a.volume = sd.gain;
   if (sd.every !== undefined) a.every = sd.every;
   a.playOnAwake = false;
+  a.modo = AS_MODO_GERADOR;
   a.onValidate("");
   return a;
 }

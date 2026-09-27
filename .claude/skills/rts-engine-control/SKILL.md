@@ -139,6 +139,10 @@ arquivo.
 - **Áudio**: a IA não ouve pelo ar. Quando a sonda de escuta por loopback
   estiver disponível (o `contexto`/`sistemas` diz), confirme o som por ela em
   vez de perguntar ao humano; sem ela, verifique por número (níveis, mixer).
+- **Arquivos e campos de asset**: um caminho de fora do projeto é copiado pra
+  dentro de assets/ antes de ser gravado num campo — o campo nunca aponta pra
+  fora da pasta de assets. O `contexto`/`doc` traz os comandos e os tipos de
+  campo aceitos, sem precisar hardcodar aqui.
 - Salvar e build ficam bloqueados durante o Play; um segundo editor na mesma
   porta sobe sem controle.
 - **Partículas**: `playOnAwake` só dispara dentro do Play; fora dele, só o

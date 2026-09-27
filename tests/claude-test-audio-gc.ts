@@ -74,7 +74,7 @@ while (fi < 8) {
   const go = sc.createGameObject("Fonte" + fi);
   go.transform.setPosition(fi * 2.0 - 8.0, 0.0, 3.0);
   const fonte = new AudioSource();
-  fonte.clip = ""; fonte.forma = fi % 2 === 0 ? "seno" : "quadrada"; fonte.dur = 5.0; fonte.loop = true;
+  fonte.modo = "gerador"; fonte.clip = ""; fonte.forma = fi % 2 === 0 ? "seno" : "quadrada"; fonte.dur = 5.0; fonte.loop = true;
   fonte.spatialBlend = fi >= 4 ? 1.0 : 0.0; fonte.minDistance = 1.0; fonte.maxDistance = 60.0;
   go.addBehavior(fonte);
   fonte.play();

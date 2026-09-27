@@ -13,13 +13,14 @@ import { AudioListener } from "@engine/core/audio_listener";
 import { mixerNGrupos, grupoNome, grupoVolume, grupoMudo, grupoPausa, mixerSetVolume, mixerSetMudo, mixerSetPausa,
          mixerVersao, mixerAlterado, salvarMixer, carregarMixer, MIXER_ARQUIVO, MAX_GRUPOS } from "@engine/audio/mixer_grupos";
 import { audioPicoGrupo } from "@engine/audio/audio";
+import { AUDIO_PRESET_NOME_FONTE } from "@editor/object_presets";
 
 const ICONE_FONTE: string = "audio-fonte";
 const ICONE_OUVINTE: string = "audio-ouvinte";
 /// Cores dos gizmos (0xRRGGBB, como o `cor` da Light): mínimo mais forte que o máximo.
 const COR_GIZMO_MIN: number = 0x8FD19E;
 const COR_GIZMO_MAX: number = 0x4E7F59;
-const NOME_FONTE: string = "Fonte de áudio";
+const NOME_FONTE: string = AUDIO_PRESET_NOME_FONTE;
 const NOME_OUVINTE: string = "Ouvinte de áudio";
 export const AVISO_OUVINTE_EXISTE: string = "Áudio: a cena já tem um AudioListener ativo; só o primeiro vale (desligue um deles).";
 const TITULO_MIXER: string = "Mixer";
@@ -76,7 +77,13 @@ function criarAudio(ouvinte: boolean): void {
   const o = sc.createGameObject(ouvinte ? NOME_OUVINTE : NOME_FONTE);
   Editor.spawnPoint(menuPonto);
   o.transform.setPosition(menuPonto[0], menuPonto[1], menuPonto[2]);
-  if (ouvinte) o.addBehavior(new AudioListener()); else o.addBehavior(new AudioSource());
+  if (ouvinte) {
+    o.addBehavior(new AudioListener());
+  } else {
+    const fonte = new AudioSource();
+    fonte.modo = "gerador"; // o beep de demonstração do menu, como sempre foi
+    o.addBehavior(fonte);
+  }
   if (avisar) Editor.log(AVISO_OUVINTE_EXISTE);
 }
 export class AudioMenu {

@@ -15,6 +15,8 @@ import { loadTexture } from "../engine/render/gpu3d";
 import { loadModel, isModelPath, SubMesh } from "../engine/render/model";
 import { screenToGround, screenToForward, snapv, SNAP_MOVE_STEP } from "./gizmo";
 import { subStr } from "./widgets";
+import { AudioSource } from "@scripts/audiosource";
+import { AUDIO_PRESET_NOME_FONTE as AUDIO_NOME_FONTE } from "./object_presets";
 
 /// Classifica um path em `kind` de drop pela EXTENSÃO — espelha o classify() do
 /// asset browser, pra `drop <path>` pelo WS aceitar o mesmo que o mouse aceita.
@@ -24,6 +26,28 @@ export function kindOfPath(path: string): string {
   if (endsW(path, ".png") || endsW(path, ".jpg") || endsW(path, ".jpeg") || endsW(path, ".bmp")) return "tex";
   if (isModelPath(path)) return "model";   // .obj / .glb / .gltf
   return "other";
+}
+/// `kindOfPath` + áudio (`.wav`/`.ogg`) e script (`.ts`/`.js`) — a soltura do
+/// Explorer (item 3 do brief de arquivos universais) precisa classificar
+/// TODOS os tipos que o arraste do Project já trata, não só os que viram
+/// objeto sozinhos.
+export function kindOfPathAll(path: string): string {
+  const k = kindOfPath(path);
+  if (k !== "other") return k;
+  if (endsW(path, ".wav") || endsW(path, ".ogg")) return "audio";
+  if (endsW(path, ".ts") || endsW(path, ".js")) return "script";
+  return "other";
+}
+/// `kind` do payload de drag ("tex"/"model"/"scene"/"prefab"/"script"/"audio",
+/// ver `assets.ts`) -> chave de `@asset`/`UI_ASSET_KINDS` ("imagem"/"modelo"/
+/// "cena"/"prefab"/"script"/"audio"). Usado nos dois lados do arraste pro
+/// Project (mouse) e pra soltura do Explorer (item 3), pra comparar com o tipo
+/// do campo ObjectField sob o cursor sem duplicar o mapa em cada callsite.
+export function assetMarkerKind(payloadKind: string): string {
+  if (payloadKind === "tex") return "imagem";
+  if (payloadKind === "model") return "modelo";
+  if (payloadKind === "scene") return "cena";
+  return payloadKind;   // "prefab"/"script"/"audio" já batem com a chave do marcador
 }
 function endsW(s: string, suf: string): boolean {
   const n = s.length; const m = suf.length;
@@ -175,6 +199,19 @@ export function instantiateAt(kind: string, path: string, pos: Float64Array | nu
       S.selected = scene.objects.length - 1;
       return S.selected;
     }
+  } else if (kind === "audio") {
+    // áudio solto no VAZIO (viewport/hierarquia): cria "Fonte de áudio" (mesmo
+    // preset do menu Criar/Áudio/Fonte) já em modo Arquivo com o clipe solto
+    // (item 2/4 do brief de arquivos universais). Aplicar num objeto EXISTENTE
+    // é o outro caminho (Hierarquia sobre uma linha) — ver `applyAudioToObject`.
+    const go = scene.createGameObject(AUDIO_NOME_FONTE);
+    if (placed !== 0) go.transform.setPosition(wx, wy, wz);
+    const fonte = new AudioSource();
+    fonte.clip = path;
+    fonte.onValidate("clip");   // liga modo "arquivo" (mesma regra do ObjectField)
+    go.addBehavior(fonte);
+    S.selected = scene.objects.indexOf(go);
+    return S.selected;
   } else if (kind === "scene") {
     // cena arrastada = abrir (mesma semântica do duplo-clique no Project)
     sceneDocument.request("open", path);
@@ -191,6 +228,26 @@ export function applyTexToObject(idx: number, path: string, win: number): number
   if (tid <= 0) return 0;
   scene.objects[idx].applyTexture(tid, path);
   return tid;
+}
+
+/// Aplica um áudio num objeto EXISTENTE (tile de áudio solto sobre uma linha
+/// da Hierarquia — item 2/4 do brief de arquivos universais): troca o `clip`
+/// do primeiro `AudioSource` que já existir (ligando modo Arquivo), ou
+/// adiciona um novo com esse clipe. Devolve 1 se aplicou, 0 (índice inválido).
+export function applyAudioToObject(idx: number, path: string): number {
+  if (idx < 0 || idx >= scene.objects.length) return 0;
+  const o = scene.objects[idx];
+  let i = 0;
+  while (i < o.behaviors.length) {
+    const b = o.behaviors[i];
+    if (b instanceof AudioSource) { b.clip = path; b.onValidate("clip"); return 1; }
+    i = i + 1;
+  }
+  const fonte = new AudioSource();
+  fonte.clip = path;
+  fonte.onValidate("clip");
+  o.addBehavior(fonte);
+  return 1;
 }
 
 /// Troca a MESH de um objeto existente por um modelo do disco (.obj/.glb/.gltf —

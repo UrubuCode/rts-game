@@ -12,15 +12,17 @@ import { previewIsPlaying, previewStart, previewPause, previewStop, previewStopA
 import type { Animator } from "@engine/core/animator";
 import { PARAM_FLOAT, PARAM_BOOL } from "@engine/core/animator_controller";
 import { ComponentPicker } from "./component_picker";
+import { ObjectFieldPicker, OBJECT_FIELD_NONE } from "./object_field_picker";
 import { InspectorGUIEditor } from "./inspector_gui";
 import { beginBoneEdit, boneDegreesInto, boneRotationFromDegreesInto, selectBone } from "./bone_gizmo";
 import { attachEditorComponent } from "./script_drop";
 import { history } from "./undo";
 import { scene, S } from "./control/session";
 import { nfCancel, AXIS_X, AXIS_Y, AXIS_Z } from "./widgets";
+import { assetsPing } from "./assets";
 import input from "@compat/input";
-import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_AXIS_NAMES,
-  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K, UI_ANIMATOR as A } from "./ui_config";
+import { UI_C, UI_INSPECTOR as L, UI_COMPONENT_PICKER as P, UI_PICKER_KEYS as PK, UI_AXIS_NAMES,
+  UI_MESH_NAMES, UI_INSPECTOR_SCROLL_STEP, UI_SKELETON as K, UI_ANIMATOR as A, UI_ASSET_KINDS } from "./ui_config";
 
 const DEGREES_PER_RADIAN = 180 / Math.PI;
 /// Progresso do fade (0..1) mostrado em porcentagem na seção Animator.
@@ -83,6 +85,44 @@ export class Inspector extends Behavior {
   animatorLayerFades: number[] = [];
   meshHot: number = 0;
   textureHot: number = 0;
+  // ── ObjectField (item 2 do brief de áudio-arquivos) ─────────────────────────
+  /// Seletor "Selecionar <Tipo>" (⊙): mesmo padrão do ComponentPicker.
+  objPicker: ObjectFieldPicker = new ObjectFieldPicker();
+  objOpened: number = 0;
+  /// Componente/índice do campo do ObjectField cujo seletor está aberto agora.
+  objPickerComp: Behavior | null = null;
+  objPickerIndex: number = 0 - 1;
+  /// Estilo do próximo objectFieldRow (setter — Task 10.5: ≤4 parâmetros).
+  /// `objKind` é a chave crua de `UI_ASSET_KINDS` ("audio"/"imagem"/...),
+  /// usada só pra comparar com o tipo do tile arrastado (`objDragKind`); tipo/
+  /// exts/ícone continuam vindo do mapa central.
+  objTipo: string = ""; objExts: string[] = []; objIcon: string = ""; objKind: string = "";
+  /// Componente/índice do campo SOB O CURSOR neste quadro (0 = nenhum), para o
+  /// drop de um tile do Project (o main lê `objectHot()`/chama `dropObjectField`).
+  objHotComp: Behavior | null = null;
+  objHotIndex: number = 0 - 1;
+  /// `objKind` do campo hot NO MOMENTO em que ficou hot (não o último desenhado
+  /// — `objKind` muda a cada `objectFieldRow` da lista).
+  objHotKind: string = "";
+  /// Campo com FOCO (último clique): Delete/Backspace o limpa (Nenhum).
+  objFocusComp: Behavior | null = null;
+  objFocusIndex: number = 0 - 1;
+  objFocusId: number = 0 - 1;
+  /// Estado de arraste do quadro (setter `drag`): 0 nada arrastando; senão
+  /// `objDragKind` (a chave "audio"/"imagem"/... do tile arrastado) comparada
+  /// com `objKind` do campo sob o cursor distingue um tile COMPATÍVEL (realce
+  /// verde) de outro tipo (realce de recusa) — qualquer @asset, não só áudio.
+  objDragOn: number = 0; objDragKind: string = "";
+  /// "<nome sem extensão> (<Tipo>)"/"Nenhum (<Tipo>)" por chave de controle,
+  /// refeito só quando o valor do campo muda (Task 10.5: sem concatenar por quadro).
+  objLabelValor: Map<string, string> = new Map<string, string>();
+  objLabelTexto: Map<string, string> = new Map<string, string>();
+  /// Chave do botão ⊙ ("<campo>/Pick"), criada uma vez por chave de campo —
+  /// Task 10.5: nada de concatenar string por quadro.
+  objPickKeyCache: Map<string, string> = new Map<string, string>();
+  /// 1 no quadro em que um clique no campo pediu um ping no Project (o main
+  /// troca a aba do painel de Console pra Project quando isto acontece).
+  pinged: boolean = false;
   top: number = 0; bottom: number = 0;
   areaX: number = 0; areaY: number = 0; areaW: number = 0; areaH: number = 0;
   inMx: number = 0; inMy: number = 0; inDown: number = 0; inPressed: number = 0;
@@ -128,6 +168,9 @@ export class Inspector extends Behavior {
     const browser = this.ui.scene.createGameObject("Editor/Inspector/ComponentPicker", 0);
     browser.addBehavior(this.picker);
     this.picker.sceneIndex = this.ui.scene.count() - 1;
+    const objBrowser = this.ui.scene.createGameObject("Editor/Inspector/ObjectFieldPicker", 0);
+    objBrowser.addBehavior(this.objPicker);
+    this.objPicker.sceneIndex = this.ui.scene.count() - 1;
   }
   kind(): number { return KIND_UI; }
   typeName(): string { return "Inspector"; }
@@ -182,7 +225,20 @@ export class Inspector extends Behavior {
   }
   /// Linha automática do campo `fieldIndex` (número, caixa ou texto), chave
   /// `key + "/Field/" + fieldIndex`. Usada pela lista automática e por `ui.field(nome)`.
+  /// Campo string marcado `@asset <kind>` (tools/generate-components.mjs) vira
+  /// um ObjectField (item 1 do brief de arquivos-universais), com tipo/exts/
+  /// ícone de `UI_ASSET_KINDS` — nenhum componente precisa chamar `objectField`
+  /// nem repetir esse estilo.
   fieldRow(component: Behavior, key: string, fieldIndex: number, rowY: number): void {
+    const kind = component.fieldAssetKind(fieldIndex);
+    if (kind.length > 0) {
+      const info = UI_ASSET_KINDS.get(kind);
+      if (info !== undefined) {
+        this.objectFieldStyle(info.label, info.exts, info.icon, kind);
+        this.objectFieldRow(component, this.chaveCampo(key, fieldIndex), fieldIndex, rowY);
+        return;
+      }
+    }
     const fieldType = component.fieldType(fieldIndex);
     this.ui.at(this.x + L.padding + L.gap, rowY, this.width - L.padding * 2 - L.gap, L.rowH);
     const field = this.ui.control(this.chaveCampo(key, fieldIndex), fieldType === "boolean" ? "toggle" : fieldType === "string" ? "propertyText" : "number", component.fieldLabel(fieldIndex), this.enabledInput);
@@ -194,6 +250,88 @@ export class Inspector extends Behavior {
       const before = component.fieldGet(fieldIndex);
       field.value = before; this.ui.draw(field);
       if (field.value !== before) { this.snapshot(); component.fieldSet(fieldIndex, field.value); scene.markCollidersDirty(); }
+    }
+  }
+  /// Estado de arraste do quadro pro ObjectField — chamar antes de `render`
+  /// (setter, como `area`/`mouse`: Task 10.5, ≤4 parâmetros por chamada).
+  /// `on` = algum tile do Project está sendo arrastado; `ok` = é do tipo aceito
+  /// pelo campo que estiver sob o cursor (hoje só "audio:" — o AudioSource é o
+  /// único ObjectField).
+  drag(on: number, kind: string): void { this.objDragOn = on; this.objDragKind = kind; }
+  /// Estilo do próximo `objectFieldRow` (setter chamado por InspectorGUIEditor.objectField
+  /// ou pela detecção automática de `@asset` em `fieldRow`).
+  objectFieldStyle(tipo: string, exts: string[], icon: string, kind: string): void {
+    this.objTipo = tipo; this.objExts = exts; this.objIcon = icon; this.objKind = kind;
+  }
+  /// Nome do arquivo, sem pasta nem extensão ("explosao" de "assets/audio/explosao.wav").
+  private nomeSemExtensao(path: string): string {
+    let start = 0; let end = path.length; let i = 0;
+    while (i < path.length) {
+      const c = path.charCodeAt(i);
+      if (c === 47) start = i + 1;
+      i = i + 1;
+    }
+    i = path.length - 1;
+    while (i > start) { if (path.charCodeAt(i) === 46) { end = i; break; } i = i - 1; }
+    return path.substring(start, end);
+  }
+  /// "<nome> (<Tipo>)"/"Nenhum (<Tipo>)" da chave `key`, refeito só quando `value` muda.
+  rotuloObjectField(key: string, value: string, tipo: string): string {
+    const cached = this.objLabelValor.get(key);
+    if (cached === value) return this.objLabelTexto.get(key) as string;
+    this.objLabelValor.set(key, value);
+    const nome = value.length === 0 ? L.objectFieldNone : this.nomeSemExtensao(value);
+    const texto = nome + L.objectFieldOpen + tipo + L.objectFieldClose;
+    this.objLabelTexto.set(key, texto);
+    return texto;
+  }
+  /// Chave "<key>/Pick" do botão seletor, criada uma vez por `key`.
+  private chavePick(key: string): string {
+    const achada = this.objPickKeyCache.get(key);
+    if (achada !== undefined) return achada;
+    const k = key + L.objectPickKey;
+    this.objPickKeyCache.set(key, k);
+    return k;
+  }
+  /// 1 se o ObjectField sob o cursor neste quadro aceita o drop de um tile do
+  /// Project (o main testa isto antes de chamar `dropObjectField`).
+  objectHot(): number { return this.objHotComp !== null ? 1 : 0; }
+  /// Chave `@asset` ("audio"/"imagem"/...) do ObjectField sob o cursor neste
+  /// quadro, ou "" se nenhum — o main compara com o tipo do tile arrastado
+  /// antes de aplicar (qualquer tipo, não só áudio).
+  objectHotKind(): string { return this.objHotComp !== null ? this.objHotKind : ""; }
+  /// Aplica `path` no campo sob o cursor (drop de um tile do Project), com
+  /// Desfazer. Chamado pelo main no frame em que o botão é solto.
+  dropObjectField(path: string): void {
+    if (this.objHotComp === null) return;
+    this.snapshot();
+    this.objHotComp.fieldStringSet(this.objHotIndex, path);
+  }
+  /// Caixa + botão ⊙ do ObjectField (chave/componente/índice/y — ≤4 parâmetros,
+  /// como `fieldRow`). Estilo (tipo/exts/ícone) vem de `objectFieldStyle`.
+  objectFieldRow(component: Behavior, key: string, fieldIndex: number, rowY: number): void {
+    const value = component.fieldStringGet(fieldIndex);
+    const label = this.rotuloObjectField(key, value, this.objTipo);
+    const boxX = this.x + L.padding + L.gap;
+    const boxW = this.width - L.padding * 2 - L.gap - L.iconW - L.gap;
+    this.ui.at(boxX, rowY, boxW, L.rowH);
+    const field = this.ui.control(key, "object", label, this.enabledInput);
+    field.icon = this.objIcon;
+    field.value = this.objDragOn === 0 ? 0 : (this.objDragKind === this.objKind && this.objKind.length > 0 ? 1 : 2);
+    this.ui.draw(field);
+    if (field.hot !== 0) { this.objHotComp = component; this.objHotIndex = fieldIndex; this.objHotKind = this.objKind; }
+    if (field.clicked) {
+      this.objFocusComp = component; this.objFocusIndex = fieldIndex; this.objFocusId = field.id;
+      this.ui.app.setFocus(field.id);
+      if (value.length > 0) { assetsPing(value); this.pinged = true; }
+    }
+    this.ui.at(this.x + this.width - L.padding - L.iconW, rowY, L.iconW, L.rowH);
+    const pick = this.ui.control(this.chavePick(key), "button", L.objectPickGlyph, this.enabledInput);
+    this.ui.draw(pick);
+    if (pick.clicked) {
+      this.objPickerComp = component; this.objPickerIndex = fieldIndex;
+      this.objOpened = 1;
+      this.objPicker.begin(this.ui.app, this.objExts, this.objTipo);
     }
   }
   /// Nomes dos eixos do próximo `vector` (volta a UI_AXIS_NAMES depois dele).
@@ -649,9 +787,12 @@ export class Inspector extends Behavior {
     this.ui.begin(mx, my, down, pressed);
     this.x = x; this.width = width; this.changed = false;
     this.meshHot = 0; this.textureHot = 0;
+    this.objHotComp = null; this.objHotIndex = 0 - 1; this.objHotKind = ""; this.pinged = false;
     const selected = S.selected >= 0 && S.selected < scene.objects.length ? scene.objects[S.selected] : null;
     if (selected !== this.selectedObject || S.selected !== this.selection) {
       this.scroll = 0; this.contentHeight = 0; this.opened = 0;
+      this.objOpened = 0; this.objPickerComp = null;
+      this.objFocusComp = null; this.objFocusIndex = 0 - 1; this.objFocusId = 0 - 1;
       this.selectedObject = selected; this.selection = S.selected;
       nfCancel(); app.setFocus(0 - 1);
       // outro objeto: o osso escolhido não vale mais (salvo Desfazer/Refazer,
@@ -663,8 +804,17 @@ export class Inspector extends Behavior {
       pararPrevia();
     }
     if (this.janela !== null && S.selected !== this.janelaSel) this.janela = null;
-    if (blocked) { this.opened = 0; nfCancel(); }
-    this.enabledInput = !blocked && this.opened === 0;
+    if (blocked) { this.opened = 0; this.objOpened = 0; nfCancel(); }
+    this.enabledInput = !blocked && this.opened === 0 && this.objOpened === 0;
+    // Delete/Backspace com o ObjectField focado (clicado por último) → Nenhum,
+    // com Desfazer (item 2 do brief de áudio-arquivos). `isFocused` sobrevive à
+    // troca de seleção só se o mesmo id for reusado — a checagem acima já
+    // limpa objFocusComp quando o objeto muda.
+    if (this.objFocusComp !== null && this.enabledInput && app.isFocused(this.objFocusId) &&
+        (app.keyPressed(PK.backspace) !== 0 || app.keyPressed(PK.del) !== 0)) {
+      this.snapshot();
+      this.objFocusComp.fieldStringSet(this.objFocusIndex, "");
+    }
     this.ui.at(x, y, width, height);
     const background = this.ui.control("Background", "panel", "", false);
     background.fill = UI_C.panel; this.ui.draw(background);
@@ -800,7 +950,7 @@ export class Inspector extends Behavior {
     const footer = this.ui.control("Footer", "panel", "", false);
     footer.fill = UI_C.panelHeader; this.ui.draw(footer);
     this.ui.at(x + L.padding, this.bottom + L.gap, width - L.padding * 2, L.rowH);
-    const add = this.ui.control("AddComponent", "button", this.addRotulo, !blocked);
+    const add = this.ui.control("AddComponent", "button", this.addRotulo, !blocked && this.objOpened === 0);
     this.ui.draw(add);
     if (add.clicked) { this.opened = this.opened === 0 ? 1 : 0; nfCancel(); if (this.opened !== 0) this.picker.begin(app); else app.setFocus(0 - 1); }
     if (this.opened !== 0) {
@@ -813,6 +963,18 @@ export class Inspector extends Behavior {
         this.scroll = Math.max(0, this.contentHeight + L.headerH + (added.fieldCount() + 1) * L.rowH + L.gap * 2 - available);
       }
       if (chosen.length > 0 || this.picker.closed) { this.opened = 0; app.setFocus(0 - 1); }
+    }
+    // Seletor "Selecionar <Tipo>" do ObjectField (⊙): mesmo padrão do AddComponent
+    // acima, num flag separado (objOpened) pra não abrir os dois ao mesmo tempo.
+    if (this.objOpened !== 0) {
+      this.objPicker.place(x + L.padding, this.bottom - L.gap, width - L.padding * 2, y + L.headerH);
+      this.objPicker.mouse(mx, my, mx >= x && my >= this.bottom ? 0 : pressed, input.wheel(app._win));
+      const chosenObj = this.objPicker.render(this.ui.scene, app);
+      if (chosenObj.length > 0 && this.objPickerComp !== null) {
+        this.snapshot();
+        this.objPickerComp.fieldStringSet(this.objPickerIndex, chosenObj === OBJECT_FIELD_NONE ? "" : chosenObj);
+      }
+      if (chosenObj.length > 0 || this.objPicker.closed) { this.objOpened = 0; this.objPickerComp = null; app.setFocus(0 - 1); }
     }
     this.ui.end();
   }

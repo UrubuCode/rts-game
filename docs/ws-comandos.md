@@ -8,7 +8,7 @@ Protocolo: 1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] .
 
 Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio` (o comando tira só nos subcomandos que mudam a cena) ou `nenhum`; **async** = a resposta vem depois (a conexão espera por ela antes da linha seguinte; não cabe num `batch`).
 
-105 comandos.
+106 comandos.
 
 ## consulta
 
@@ -178,6 +178,7 @@ Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio
 | Sintaxe | O que faz | Exemplo | Desfazer | async |
 |---|---|---|---|---|
 | `instprefab <path>` | instancia um prefab na cena e o seleciona | `instprefab assets/box.json` | dispatch |  |
+| `importar <caminho> [pasta]` | copia um arquivo de fora de assets/ pra dentro (como a Unity); sem pasta, audio vai pra assets/audio e o resto pra pasta aberta do Project | `importar C:/sons/tiro.wav assets/audio` | nenhum |  |
 | `loadobj <path> [nome] [x] [y] [z]` | carrega um MODELO (.obj/.glb/.gltf) e cria o(s) objeto(s); multi-material vira raiz + 1 filha por submesh | `loadobj assets/models/torus.obj Torus 0 2 0` | dispatch |  |
 | `loadtex <obj> <path>` | carrega uma imagem (PNG/JPG/BMP) e aplica como textura no Material do objeto | `loadtex 0 assets/textures/images.jpg` | dispatch |  |
 | `ls [path]` | lista uma pasta (/ marca subpastas) | `ls assets/scenes` | nenhum |  |

@@ -23,7 +23,7 @@ import { Pulse } from "../scripts/pulse";
 import { Orbit } from "../scripts/orbit";
 import { Patrol } from "../scripts/patrol";
 import { KeyframeAnimator } from "../scripts/keyframeanimator";
-import { audioSourceLegado } from "../scripts/audiosource";
+import { audioSourceLegado, AudioSource } from "../scripts/audiosource";
 import { ParticleSystem } from "../scripts/particlesystem";
 import { PhysicsMaterial } from "../scripts/physicsmaterial";
 import { Collider, SHAPE_BOX } from "../engine/core/collider";
@@ -47,6 +47,7 @@ export function recreateBehavior(sd: any): Behavior {
   // A restauração gerada copia os números como vieram do arquivo; a Camera
   // divide pela lente, então passa pela mesma validação do Inspector.
   if (component instanceof Camera) component.onValidate("");
+  if (component instanceof AudioSource) component.migrarModo(sd.fields !== undefined && sd.fields !== null ? sd.fields : sd);
   if (sd._enabled !== undefined) component.enabled = sd._enabled !== 0 ? 1 : 0;
   if (sd._collapsed !== undefined) component.collapsed = sd._collapsed !== 0 ? 1 : 0;
   return component;

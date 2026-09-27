@@ -93,7 +93,7 @@ function cmdPlay(p: string[]): string {
   if (o === null) return "[erro] audio: objeto '" + p[2] + "' não encontrado";
   const s = fonteDe(o);
   if (s === null) return "[erro] audio: '" + o.name + "' não tem AudioSource";
-  if (p.length > 3) { Editor.snapshot("audio clip"); s.clip = p[3]; }
+  if (p.length > 3) { Editor.snapshot("audio clip"); s.clip = p[3]; s.modo = "arquivo"; }
   s.play();
   const v = vozIndice(s.vozPrincipal());
   if (v < 0) return "[erro] audio: não tocou (sem voz livre, ou o clipe não carregou — ver o Console)";

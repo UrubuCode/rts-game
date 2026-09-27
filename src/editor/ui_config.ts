@@ -36,8 +36,23 @@ export const UI_COMPONENT_PICKER = {
   categoryHint: "Escolha uma categoria ou busque.",
   resultsOpen: "Resultados (", resultsClose: ")", backMark: "< ",
 };
-// Codigos do backend de input usados pelo navegador de componentes.
-export const UI_PICKER_KEYS = { enter: 1, escape: 2, up: 5, down: 6, left: 7, right: 8 };
+// Codigos do backend de input usados pelo navegador de componentes (e pelo
+// ObjectField: backspace/del compartilham a mesma fase 1 = borda de pressão).
+export const UI_PICKER_KEYS = { enter: 1, escape: 2, up: 5, down: 6, left: 7, right: 8, backspace: 4, del: 10 };
+// Seletor "Selecionar <Tipo>" do ObjectField (item 2 do brief de áudio-arquivos):
+// lista plana (sem categorias) com "Nenhum" no topo e busca por texto.
+export const UI_OBJECT_PICKER = {
+  margin: 14, padding: 10, gap: 6, titleH: 30, searchH: 20,
+  listGap: 8, rowH: 26, maxRows: 8,
+  buttonH: 24, font: 13, smallFont: 11, charW: 7,
+  textY: 7, border: 1, radius: 4, scrollbarW: 3,
+  searchId: 952,
+  titlePrefix: "Selecionar ", searchHint: "Buscar por nome...",
+  none: "Nenhum", empty: "Nenhum arquivo encontrado",
+  emptyHint: "Importe um arquivo para assets/ primeiro.",
+  help: "Enter seleciona • Esc fecha",
+  root: "assets",
+};
 export const UI_INSPECTOR_SCROLL_STEP = 52;
 export const UI_INSPECTOR = {
   padding: 12, gap: 6, rowH: 26, headerH: 24, objectH: 62,
@@ -57,6 +72,42 @@ export const UI_INSPECTOR = {
   headerKey: "/Header", removeKey: "/Remove", enabledKey: "/Enabled", expandedMark: "v  ", collapsedMark: ">  ",
   /// Sufixos das chaves de campo automático ("<comp>/Field/<i>") e do rótulo de vetor ("<chave>/Label").
   fieldKey: "/Field/", labelKey: "/Label",
+  /// ObjectField (item 2 do brief de áudio-arquivos): sufixo da chave do botão
+  /// seletor ("<campo>/Pick"), o glifo dele, o texto "Nenhum (<Tipo>)" e o
+  /// respiro do ícone dentro da caixa.
+  objectPickKey: "/Pick", objectPickGlyph: "…", objectFieldNone: "Nenhum",
+  objectFieldOpen: " (", objectFieldClose: ")", objectIconInset: 3,
+};
+/// Marcador `@asset <kind>` (tools/generate-components.mjs) -> estilo do
+/// ObjectField automático: rótulo do tipo mostrado ("<nome> (<tipo>)"),
+/// extensões aceitas (seletor + soltura) e o ícone (`assets/editor/icons/
+/// source.json`). Uma entrada por `kind`; o Inspector, o drop da viewport/
+/// hierarquia e a soltura do Explorer leem daqui — nunca duplicar em cada
+/// componente ou callsite.
+export interface AssetKindInfo { label: string; exts: string[]; icon: string; }
+const UI_ASSET_KIND_NAMES: string[] = ["audio", "imagem", "modelo", "prefab", "cena", "script"];
+const UI_ASSET_KIND_INFO: AssetKindInfo[] = [
+  { label: "AudioClip", exts: [".wav", ".ogg"], icon: "audio-fonte" },
+  { label: "Textura", exts: [".png", ".jpg", ".jpeg", ".bmp"], icon: "asset-imagem" },
+  { label: "Modelo", exts: [".obj", ".gltf", ".glb"], icon: "asset-modelo" },
+  { label: "Prefab", exts: [".prefab.json"], icon: "asset-prefab" },
+  { label: "Cena", exts: [".json"], icon: "asset-cena" },
+  { label: "Script", exts: [".ts", ".js"], icon: "asset-script" },
+];
+function montarAssetKinds(): Map<string, AssetKindInfo> {
+  const m = new Map<string, AssetKindInfo>();
+  let i = 0;
+  while (i < UI_ASSET_KIND_NAMES.length) { m.set(UI_ASSET_KIND_NAMES[i], UI_ASSET_KIND_INFO[i]); i = i + 1; }
+  return m;
+}
+export const UI_ASSET_KINDS: Map<string, AssetKindInfo> = montarAssetKinds();
+/// Soltura do Explorer (item 3 do brief de arquivos universais): rótulo e
+/// medidas do realce genérico (anel + texto) enquanto arquivos do SO pairam
+/// sobre a janela, centrado no cursor (`hoveredX/Y`).
+export const UI_EXPLORER_DROP = {
+  hovering: "arquivo(s) do sistema",
+  ringRadius: 24, ringSize: 48, ringBorder: 1, ringCorner: 8,
+  textOffsetX: 14, textOffsetY: 4, font: 12,
 };
 // onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
 // "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
@@ -308,6 +359,7 @@ export const UI_C = {
   assetScript: 0x5A82C8FF,
   assetPreset: 0xD2963EFF,
   assetModel: 0x9AA0A8FF,
+  assetAudio: 0xE0A040FF,
   assetText: 0x808890FF,
   assetOther: 0x6A6A6AFF,
   assetDragGhost: 0x1E1E22EE,

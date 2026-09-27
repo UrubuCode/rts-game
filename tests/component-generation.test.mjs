@@ -104,6 +104,37 @@ test('duplicate names, required arguments and unsupported public fields fail exp
   assert.throws(() => discoverComponents(root), /duplicado/);
 });
 
+test('@asset marks a string field with the asset kind; fieldHint of that index is "asset:<kind>"', t => {
+  const { root, write } = fixture(t);
+  write('assets/scripts/A.ts', importBase + `export class A extends Behavior {
+    /** @asset imagem */
+    textura: string = "";
+    outro: string = "";
+  }`);
+  const [entry] = discoverComponents(root);
+  assert.equal(entry.fields[0].asset, 'imagem');
+  assert.equal(entry.fields[1].asset, null);
+  const generated = renderComponents([entry])['src/engine/generated/components.ts'];
+  assert.match(generated, /return "asset:imagem";/);
+  // fieldAssetKind separado (sem o prefixo "asset:"): o caminho por quadro do
+  // Inspector usa este pra nunca fatiar uma string (ver src/editor/inspector.ts).
+  assert.match(generated, /fieldAssetKind\(component: any, index: number\): string \{[\s\S]*?return "imagem";/);
+});
+
+test('@asset rejects a non-string field and an unknown kind', t => {
+  const { root, write } = fixture(t);
+  write('assets/scripts/A.ts', importBase + `export class A extends Behavior {
+    /** @asset imagem */
+    quantidade: number = 0;
+  }`);
+  assert.throws(() => discoverComponents(root), /@asset so vale em campo string/);
+  write('assets/scripts/A.ts', importBase + `export class A extends Behavior {
+    /** @asset video */
+    clipe: string = "";
+  }`);
+  assert.throws(() => discoverComponents(root), /@asset "video" invalido/);
+});
+
 test('bad range and private #field exposure produce actionable errors', t => {
   const { root, write } = fixture(t);
   write('assets/scripts/A.ts', importBase + `export class A extends Behavior {

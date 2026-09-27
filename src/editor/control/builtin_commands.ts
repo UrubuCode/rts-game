@@ -132,6 +132,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
     "input wheel <d> :: gira a roda do mouse (positivo = para cima) :: input wheel -3",
     "input off :: solta tudo e volta a entrada real (a simulada ignora mouse/teclado fisicos enquanto ligada; desliga sozinha apos 30 s ociosa) :: input off"]),
   c("instprefab", "arquivos", MUTA_SIM, ["instprefab <path> :: instancia um prefab na cena e o seleciona :: instprefab assets/box.json"]),
+  c("importar", "arquivos", MUTA_NAO, ["importar <caminho> [pasta] :: copia um arquivo de fora de assets/ pra dentro (como a Unity); sem pasta, audio vai pra assets/audio e o resto pra pasta aberta do Project :: importar C:/sons/tiro.wav assets/audio"]),
   c("instscene", "cena", MUTA_SIM, ["instscene <path> [hostObj] :: CENA DENTRO DE CENA: instancia uma cena inteira sob um objeto (padrao: selecionado) :: instscene assets/subscene.json 0"]),
   c("iso", "objetos", MUTA_SIM, ["iso [obj] :: ISOLA o objeto (esconde os outros); de novo mostra todos :: iso 3"]),
   c("light", "vista", MUTA_NAO, ["light [x y z amb] :: luz legada da sessao: posicao + ambiente (0..1); sem args consulta :: light 7 13 5 0.28"]),

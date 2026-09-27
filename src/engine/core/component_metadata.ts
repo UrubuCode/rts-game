@@ -18,6 +18,10 @@ export class ComponentReflection {
   /// O gerador ainda não emite: é o ponto para uma futura marcação JSDoc
   /// (@color/@options) entrar sem mudar a API dos componentes.
   fieldHint(component: any, index: number): string { return ""; }
+  /// Kind cru do `@asset` ("audio"/"imagem"/...) do campo `index`, sem o
+  /// prefixo "asset:" de `fieldHint` — usado só pelo caminho por quadro do
+  /// Inspector, pra nunca fatiar uma string ali (ver `fieldHint`).
+  fieldAssetKind(component: any, index: number): string { return ""; }
   /// Opções de um campo "enum" (ver Behavior.fieldOptions).
   fieldOptions(component: any, index: number): string[] { return SEM_OPCOES; }
   serialize(component: any): any { return null; }
