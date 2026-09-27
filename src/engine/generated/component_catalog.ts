@@ -183,6 +183,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/vagar.ts"
   },
   {
+    "name": "DomCanvas",
+    "category": "UI",
+    "description": "Interface em HTML/CSS desenhada sobre o jogo; scripts do objeto acessam `documento`.",
+    "keywords": "ui html css hud menu dom documento",
+    "source": "src/engine/core/dom_canvas.ts"
+  },
+  {
     "name": "UIButton",
     "category": "UI",
     "description": "Botão na tela do jogo; o clique chega em onUIClick(label) dos scripts do mesmo objeto.",
