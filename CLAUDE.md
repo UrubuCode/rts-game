@@ -1,5 +1,11 @@
 # Convenções deste projeto
 
+## Idioma
+
+- **Código em inglês:** nomes de funções, métodos, classes, campos, constantes, arquivos novos e comandos WS novos são em inglês (mesma regra do repositório `rts`). A API pública segue os nomes da Unity quando houver equivalente (`play`, `waitForSeconds`, `dspTime`, `playScheduled`).
+- Comentários, documentação (`docs/`), mensagens de commit e a conversa continuam em português.
+- Código existente em português é migrado aos poucos, começando pela API pública usada em scripts; ao renomear algo público, mantenha o nome antigo como apelido marcado `@deprecated` até a migração das cenas e scripts, e cubra os dois nomes com teste.
+
 ## Interface do editor
 
 - Centralize medidas de layout, limites de painéis, espaçamentos, rótulos de menus e cores em `src/editor/ui_config.ts`. Não espalhe esses valores por `main.ts` ou por widgets novos.
