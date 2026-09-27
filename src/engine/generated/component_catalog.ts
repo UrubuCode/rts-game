@@ -206,8 +206,8 @@ export const COMPONENT_CATALOG = [
   {
     "name": "AudioSource",
     "category": "Áudio",
-    "description": "Emite som a partir do objeto.",
-    "keywords": "audio som beep",
+    "description": "Toca um clipe (WAV/OGG) ou um tom a partir do objeto, em 2D ou 3D.",
+    "keywords": "audio som fonte musica efeito wav ogg beep",
     "source": "src/scripts/audiosource.ts"
   }
 ];

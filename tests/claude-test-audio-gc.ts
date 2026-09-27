@@ -1,18 +1,28 @@
-// Sonda de ALOCAÇÃO do mixer (Task 6). Rodar com RTS_GC_DEBUG=1 e contar as
-// linhas "rts-gc" ENTRE os marcadores "FASE". Portão: 0 coletas nas fases
-// `mixar` e `pump` com 200 000 iterações (as de antes do 1º marcador são setup).
+// Sonda de ALOCAÇÃO do mixer (Task 6) e do quadro de áudio inteiro (Task 10).
+// Rodar com RTS_GC_DEBUG=1 e contar as linhas "rts-gc" ENTRE os marcadores
+// "FASE". Portão: 0 coletas nas fases `mixar`, `pump` e `quadro` com 200 000
+// iterações (as de antes do 1º marcador são setup).
 //
 //   RTS_GC_DEBUG=1 GC_N=200000 $RTS run tests/claude-test-audio-gc.ts 2>&1 | awk '/^FASE/{f=$2} /rts-gc/{c[f]++} END{for(k in c) print k, c[k]}'
 //
 // 32 vozes: 8 em laço mono, 8 com pitch 1,3 em estéreo, 8 3D em laço se
 // movendo e 8 3D além do máximo (virtuais).
+//
+// FASE quadro: uma cena com um AudioListener e várias AudioSource tocando,
+// rodando `audioQuadro(scene, dt)` (ouvinte + sincronizarFontes + pump) por
+// quadro — o caminho que main.ts/game.ts chamam de verdade.
 import io from "@compat/io.ts";
 import process from "@compat/process.ts";
 import { initAudio, AUDIO_NULO, mixarBloco, pumpAudio, tocarClipe, moverVoz } from "@engine/audio/audio";
 import { AudioClip } from "@engine/audio/clip";
 import { novoPedido, PEDIDO_LACO, PEDIDO_PITCH, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_BLEND, PEDIDO_MIN, PEDIDO_MAX, PEDIDO_GRUPO, FLAG_3D } from "@engine/audio/vozes";
 import { setListener, setRolloff } from "@engine/audio/spatial";
-import { mixerSetVolume } from "@engine/audio/mixer_grupos";
+import { mixerSetVolume, mixerPadrao } from "@engine/audio/mixer_grupos";
+import { Scene } from "@engine/core/scene";
+import { setActiveScene } from "@engine/core/active_scene";
+import { AudioListener } from "@engine/core/audio_listener";
+import { AudioSource } from "@scripts/audiosource";
+import { audioQuadro, limparPosesAudio } from "@engine/audio/audio_system";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
 initAudio(AUDIO_NULO);
@@ -49,4 +59,33 @@ while (f < n) {
 io.print("FASE pump " + n);
 f = 0;
 while (f < n) { pumpAudio(); f = f + 1; }
+
+// ── quadro de áudio inteiro (Task 10): ouvinte + sincronizarFontes + pump ──
+mixerPadrao();
+limparPosesAudio();
+const sc = new Scene("gc-quadro");
+setActiveScene(sc);
+const ouvido = sc.createGameObject("Ouvido");
+const escuta = new AudioListener();
+ouvido.addBehavior(escuta);
+const fontes: AudioSource[] = [];
+let fi = 0;
+while (fi < 8) {
+  const go = sc.createGameObject("Fonte" + fi);
+  go.transform.setPosition(fi * 2.0 - 8.0, 0.0, 3.0);
+  const fonte = new AudioSource();
+  fonte.clip = ""; fonte.forma = fi % 2 === 0 ? "seno" : "quadrada"; fonte.dur = 5.0; fonte.loop = true;
+  fonte.spatialBlend = fi >= 4 ? 1.0 : 0.0; fonte.minDistance = 1.0; fonte.maxDistance = 60.0;
+  go.addBehavior(fonte);
+  fonte.play();
+  fontes.push(fonte);
+  fi = fi + 1;
+}
+sc.computeWorld();
+io.print("FASE quadro " + n);
+f = 0;
+while (f < n) {
+  audioQuadro(sc, 0.016);
+  f = f + 1;
+}
 io.print("FASE fim");

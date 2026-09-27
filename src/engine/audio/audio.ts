@@ -20,7 +20,7 @@ import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PASSO, V_LACO, V_GL,
          V_LP_COEF, V_LP_L, V_LP_R, V_GRUPO, V_FONTE, V_FLAGS, V_VOLUME, V_X, V_Y, V_Z, V_BLEND, V_MIN, V_MAX,
          V_ROLLOFF, V_PITCH, V_CANAIS, V_CORTE, V_GERACAO, V_DIST, ESTADO_LIVRE, ESTADO_TOCANDO, ESTADO_PAUSADA,
          ESTADO_PARANDO, ESTADO_PAUSANDO,
-         FLAG_VIRTUAL, FLAG_PREVIA, FLAG_3D, FLAG_CONGELADA, CORTE_ABERTO, PEDIDO_VOLUME, PEDIDO_PITCH,
+         FLAG_VIRTUAL, FLAG_PREVIA, FLAG_3D, FLAG_ONESHOT, FLAG_CONGELADA, CORTE_ABERTO, PEDIDO_VOLUME, PEDIDO_PITCH,
          PEDIDO_LACO, PEDIDO_GRUPO, PEDIDO_FONTE, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_Y, PEDIDO_Z, PEDIDO_BLEND,
          PEDIDO_MIN, PEDIDO_MAX, PEDIDO_ROLLOFF, PEDIDO_FLOATS, ROLLOFF_LOG, pedidoPadrao } from "./vozes";
 
@@ -203,6 +203,22 @@ export function moverVoz(id: number, pos: Float64Array): void {
 }
 export function definirVolumeVoz(id: number, v: f64): void { const b = auBase(id); if (b >= 0) auVozes[b + V_VOLUME] = v; }
 export function definirGrupoVoz(id: number, grupo: number): void { const b = auBase(id); if (b >= 0) auVozes[b + V_GRUPO] = grupo; }
+/// A mistura 2D/3D de uma voz (o AudioSource muda `spatialBlend` em jogo).
+export function definirMisturaVoz(id: number, blend: f64): void {
+  const b = auBase(id);
+  if (b < 0) return;
+  auVozes[b + V_BLEND] = blend;
+  const f = auVozes[b + V_FLAGS] | 0;
+  auVozes[b + V_FLAGS] = blend > 0.0 ? (f | FLAG_3D) : (f & (0 - 1 - FLAG_3D));
+}
+
+/// Unity PlayClipAtPoint: um disparo 3D (blend 1, log, 1..500) no Master.
+export function tocarNoPonto(clip: AudioClip, pos: Float64Array, volume: f64): number {
+  pedidoPadrao(auPedido);
+  auPedido[PEDIDO_VOLUME] = volume; auPedido[PEDIDO_FLAGS] = FLAG_3D + FLAG_ONESHOT; auPedido[PEDIDO_BLEND] = 1.0;
+  auPedido[PEDIDO_X] = pos[0]; auPedido[PEDIDO_Y] = pos[1]; auPedido[PEDIDO_Z] = pos[2];
+  return tocarClipe(clip, auPedido);
+}
 
 /// Pico ESTIMADO de um grupo no último bloco: max(ganho-alvo × pico do clipe)
 /// das vozes do grupo que tocam e não são virtuais. Barato e sem mixar por

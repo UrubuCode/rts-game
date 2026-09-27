@@ -11,7 +11,7 @@ import { Camera } from "@engine/core/camera";
 import { AUDIO_PAPEL_OUVINTE, AUDIO_PAPEL_FONTE } from "@engine/core/behavior";
 import { logWarn } from "@engine/core/logger";
 import { setListener } from "./spatial";
-import { pumpAudio, tocarClipe } from "./audio";
+import { pumpAudio, tocarClipe, tocarNoPonto } from "./audio";
 import { AudioClip } from "./clip";
 
 export const OUVINTE_NENHUM: number = 0;
@@ -46,7 +46,13 @@ export function definirPoseEditor(pose: Float64Array): void {
   let i = 0; while (i < AUS_POSE_BASICA) { ausEditor[i] = pose[i]; i = i + 1; }
   ausTemEditor = 1;
 }
-export function limparPosesAudio(): void { ausTemEmpurrada = 0; ausTemEditor = 0; ausTemAntes = 0; }
+/// Zera TODO o estado de módulo do ouvinte: as poses empurrada/editor, a
+/// velocidade derivada (`ausTemAntes`/`ausOrigemAntes`), o aviso de "dois
+/// ouvintes" (`ausAvisou`) e quem é o dono resolvido (`ausDono`) — usado entre
+/// cenas de teste para um `resolverOuvinte` não herdar nada da cena anterior.
+export function limparPosesAudio(): void {
+  ausTemEmpurrada = 0; ausTemEditor = 0; ausTemAntes = 0; ausOrigemAntes = 0; ausAvisou = 0; ausDono = null;
+}
 export function origemOuvinte(): number { return ausOrigem; }
 export function donoOuvinte(): GameObject | null { return ausDono; }
 export function poseOuvinte(out: Float64Array): void { let i = 0; while (i < AUS_POSE_FLOATS) { out[i] = ausPose[i]; i = i + 1; } }
@@ -130,4 +136,5 @@ export function audioQuadro(sc: Scene, dts: f64): number {
 export class Audio {
   static setListenerPose(pose: Float64Array): void { definirPoseEmpurrada(pose); }
   static play(clip: AudioClip, pedido: Float64Array): number { return tocarClipe(clip, pedido); }
+  static playClipAtPoint(clip: AudioClip, pos: Float64Array, volume: f64): number { return tocarNoPonto(clip, pos, volume); }
 }
