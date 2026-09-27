@@ -72,9 +72,15 @@ export function importFileToAssets(srcPath: string, destDir: string): string {
   } catch (e) {
     throw new Error("falha ao ler '" + srcPath + "': " + String(e));
   }
+  // O nativo pode reportar falha de I/O sem lançar (CLAUDE.md) — confira o
+  // arquivo escrito de verdade em vez de confiar no retorno de fs.write.
   try {
     fs.write(dest, data);
+    if (!fs.exists(dest) || fs.size(dest) !== data.length) {
+      throw new Error("arquivo não apareceu com o tamanho esperado: " + dest);
+    }
   } catch (e) {
+    try { if (fs.exists(dest)) fs.remove_file(dest); } catch {}
     throw new Error("falha ao copiar para '" + dest + "' (verifique a escrita): " + String(e));
   }
   bumpAssetIndex();
