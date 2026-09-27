@@ -9,6 +9,9 @@ import type { GameObject } from "./gameobject";
 
 export const GIZMO_SEGMENTOS_CIRCULO: number = 24;
 export const GIZMO_ARESTAS_CONE: number = 8;
+/// Pares de índice de vértice (0-7) de cada uma das 12 arestas de `wireBox`
+/// (vértice `i`: bit0=eixo X, bit1=eixo Y, bit2=eixo Z, 0=-metade/1=+metade).
+const ARESTAS_CAIXA: number[] = [0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7];
 /// Profundidade mínima de um ponto desenhado (a mesma de projPt).
 export const GIZMO_Z_MIN: number = 0.2;
 const FLOATS_SEGMENTO: number = 5;   // x1, y1, x2, y2, cor
@@ -41,6 +44,8 @@ export class Gizmos {
   u: Float64Array; w: Float64Array;                // eixos do plano do círculo
   /// Raio da base do cone sendo desenhado (wireCone → coneArame).
   raioCone: number;
+  /// Os 8 vértices (3 floats cada) da caixa sendo desenhada (wireBox → caixaArame).
+  boxBuf: Float64Array;
   constructor() {
     this.cam = new Float64Array(10);
     this.seg = new Float64Array(SEGMENTOS_INICIAIS * FLOATS_SEGMENTO); this.nSeg = 0;
@@ -50,6 +55,7 @@ export class Gizmos {
     this.wa = new Float64Array(3); this.wb = new Float64Array(3); this.cb = new Float64Array(3);
     this.u = new Float64Array(3); this.w = new Float64Array(3);
     this.raioCone = 0.0;
+    this.boxBuf = new Float64Array(24);
   }
   color(rgb: number): void { this.cor = (rgb & 0xFFFFFF) * 256 + 255; }
   line(a: Float64Array, b: Float64Array): void { segmentoMundo(this, a, b); }
@@ -60,6 +66,13 @@ export class Gizmos {
     coneArame(this, apice, dir, comprimento);
   }
   icon(nome: string, pos: Float64Array): void { iconeMundo(this, nome, pos); }
+  /// Caixa de arestas alinhada aos eixos, centro `c`, tamanho TOTAL por eixo
+  /// em `tamanho` (não a meia-extensão): 8 vértices, 12 arestas. 2
+  /// parâmetros (dentro do limite do RTS); vértices em `boxBuf` (campo
+  /// reaproveitado, sem alocar por chamada — o formato do emissor de
+  /// partículas muda pelo Inspector, não por quadro, mas o gizmo redesenha
+  /// todo quadro do objeto selecionado).
+  wireBox(c: Float64Array, tamanho: Float64Array): void { caixaArame(this, c, tamanho); }
 }
 
 export function gizmosBegin(g: Gizmos, pose: Float64Array): void {
@@ -152,6 +165,30 @@ function coneArame(g: Gizmos, apice: Float64Array, dir: Float64Array, compriment
     k = k + 1;
   }
   anel(g, g.cb, raio);
+}
+
+/// Vértices em `g.boxBuf` (índice `i`: bit0=X, bit1=Y, bit2=Z, 0=-metade/1=+metade
+/// de `tamanho`), arestas por `ARESTAS_CAIXA`, cada uma desenhada via `g.wa`/`g.wb`
+/// (reaproveitados, como o resto do módulo). 3 parâmetros (limite do RTS).
+function caixaArame(g: Gizmos, c: Float64Array, tamanho: Float64Array): void {
+  const hx = tamanho[0] * 0.5; const hy = tamanho[1] * 0.5; const hz = tamanho[2] * 0.5;
+  const v = g.boxBuf;
+  let i = 0;
+  while (i < 8) {
+    const k = i * 3;
+    v[k] = c[0] + ((i & 1) !== 0 ? hx : 0.0 - hx);
+    v[k + 1] = c[1] + ((i & 2) !== 0 ? hy : 0.0 - hy);
+    v[k + 2] = c[2] + ((i & 4) !== 0 ? hz : 0.0 - hz);
+    i = i + 1;
+  }
+  let e = 0;
+  while (e < ARESTAS_CAIXA.length) {
+    const ka = ARESTAS_CAIXA[e] * 3; const kb = ARESTAS_CAIXA[e + 1] * 3;
+    g.wa[0] = v[ka]; g.wa[1] = v[ka + 1]; g.wa[2] = v[ka + 2];
+    g.wb[0] = v[kb]; g.wb[1] = v[kb + 1]; g.wb[2] = v[kb + 2];
+    segmentoMundo(g, g.wa, g.wb);
+    e = e + 2;
+  }
 }
 
 const tiposGizmo: string[] = [];
