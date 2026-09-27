@@ -1,7 +1,16 @@
 // Pool de partículas em SoA: um Float64Array só, P_FLOATS colunas por
 // partícula, reaproveitado entre quadros (zero alocação — CLAUDE.md "Custo
-// por quadro"). Reciclagem por lista de livres (pilha): O(1) para emitir e
-// para reciclar, sem compactar o pool a cada morte.
+// por quadro").
+//
+// Reciclagem (ruling P6, integração do kernel nativo `rts:particles`): NÃO é
+// mais uma pilha de livres. O kernel nativo (`particlesStep`) faz a
+// reciclagem escrevendo `P_VIDA=-1` no slot que expira, mas não mantém
+// nenhuma pilha do lado TS — então `emitirN` não pode mais confiar numa
+// pilha que o kernel não atualiza. Em vez disso, um CURSOR rotativo sobre
+// `P_VIDA` (opção 3 do relatório do kernel, `kernel-rts-report.md`): avança
+// a partir do último slot usado, pula slots ocupados (`P_VIDA>=0`), dá a
+// volta no array. O caminho TS (sim.ts) usa o MESMO cursor que o caminho
+// nativo depende dele usar — comportamento idêntico nos dois.
 import { aleatorio, aleatorioEntre } from "@engine/core/aleatorio";
 import { FORMA_PONTO, FORMA_ESFERA, FORMA_CONE, FORMA_CAIXA,
          D_FORMA, D_RAIO, D_ANGULO, D_CAIXA_X, D_CAIXA_Y, D_CAIXA_Z,
@@ -10,27 +19,36 @@ import { FORMA_PONTO, FORMA_ESFERA, FORMA_CONE, FORMA_CAIXA,
 
 const DOIS_PI: f64 = 6.283185307179586;
 
+/// Orçamento de sondas por partícula PEDIDA em `emitirN` (ruling P6): nunca
+/// escaneia o pool inteiro por quadro. No regime normal (taxa de morte ≈
+/// taxa de nascimento) o slot livre mais próximo do cursor é achado em ~1
+/// sonda; o orçamento só importa no caso raro de pool quase saturado — nesse
+/// caso a emissão já falha (sem slot achado) de qualquer forma, então o
+/// custo extra de sondar até o orçamento é irrelevante (bounded, não
+/// unbounded).
+const PS_SONDAS_POR_PARTICULA: number = 64;
+
 export class PoolParticulas {
   dados: Float64Array;
   max: number;
   vivas: number;
-  /// Pilha de índices livres (topo em `nLivres`); nasce cheia (todos livres).
-  livres: Int32Array;
-  nLivres: number;
+  /// Próximo slot a sondar em `emitirN` (ruling P6) — substitui a pilha de
+  /// livres. Não precisa ser preciso (pode apontar pra um slot ocupado; a
+  /// sonda só avança até achar `P_VIDA<0`), só precisa avançar entre
+  /// chamadas pra não sondar sempre os mesmos slots do início.
+  cursor: number;
   constructor(max: number) {
     this.dados = new Float64Array(max * P_FLOATS);
     this.max = max; this.vivas = 0;
-    this.livres = new Int32Array(max);
+    this.cursor = 0;
     let i = 0;
     while (i < max) {
-      this.livres[i] = max - 1 - i;
       // marca todo slot como livre (P_VIDA<0): distingue de uma partícula viva
       // com vida sorteada em 0 (ver atualizarVidas) — o default 0.0 do
       // Float64Array seria indistinguível de "viva, vida=0".
       this.dados[i * P_FLOATS + P_VIDA] = -1.0;
       i = i + 1;
     }
-    this.nLivres = max;
   }
 }
 export function criarPool(maxParticulas: number): PoolParticulas { return new PoolParticulas(maxParticulas); }
@@ -86,24 +104,39 @@ const vvTmp = new Float64Array(3);
 /// Emite até `n` partículas (menos se o pool não tiver slots livres o
 /// suficiente — o resto é descartado, `maxParticles` nunca é excedido).
 /// 3 parâmetros: pool e desc chegam por referência, dentro do limite do RTS.
+///
+/// Ruling P6 (ver comentário da classe): sem pilha de livres. Sonda a partir
+/// de `pool.cursor`, avançando com wrap-around, até achar `P_VIDA<0` — cada
+/// partícula pedida tem um orçamento de `PS_SONDAS_POR_PARTICULA` sondas
+/// (nunca escaneia o pool inteiro). `pool.vivas>=pool.max` sai ANTES de
+/// sondar nada (ruling P6: "pula emissão inteira quando o retorno do kernel
+/// diz vivas==maxParticles" — aqui `pool.vivas` é essa mesma contagem,
+/// atualizada pelo kernel nativo OU por `atualizarVidas` no caminho TS).
 export function emitirN(pool: PoolParticulas, desc: Float64Array, n: number): number {
+  if (pool.vivas >= pool.max) return 0;
   const pv = pvTmp; const vv = vvTmp;
   let emitidas = 0;
-  while (emitidas < n && pool.nLivres > 0) {
-    pool.nLivres = pool.nLivres - 1;
-    const slot = pool.livres[pool.nLivres];
-    amostrarPosVel(desc, pv, vv);
-    const k = slot * P_FLOATS;
-    pool.dados[k + P_X] = pv[0]; pool.dados[k + P_Y] = pv[1]; pool.dados[k + P_Z] = pv[2];
-    pool.dados[k + P_VX] = vv[0]; pool.dados[k + P_VY] = vv[1]; pool.dados[k + P_VZ] = vv[2];
-    pool.dados[k + P_IDADE] = 0.0;
-    pool.dados[k + P_VIDA] = aleatorioEntre(desc[D_VIDA_MIN], desc[D_VIDA_MAX]);
-    pool.dados[k + P_TAM0] = aleatorioEntre(desc[D_TAM_MIN], desc[D_TAM_MAX]);
-    pool.dados[k + P_ROT] = desc[D_ROT0];
-    pool.dados[k + P_COR_R] = desc[D_COR_R]; pool.dados[k + P_COR_G] = desc[D_COR_G]; pool.dados[k + P_COR_B] = desc[D_COR_B]; pool.dados[k + P_COR_A] = 1.0;
-    pool.vivas = pool.vivas + 1;
-    emitidas = emitidas + 1;
+  let cursor = pool.cursor;
+  const max = pool.max;
+  let sondasRestantes = n * PS_SONDAS_POR_PARTICULA;
+  while (emitidas < n && sondasRestantes > 0 && pool.vivas < pool.max) {
+    const k = cursor * P_FLOATS;
+    if (pool.dados[k + P_VIDA] < 0.0) {
+      amostrarPosVel(desc, pv, vv);
+      pool.dados[k + P_X] = pv[0]; pool.dados[k + P_Y] = pv[1]; pool.dados[k + P_Z] = pv[2];
+      pool.dados[k + P_VX] = vv[0]; pool.dados[k + P_VY] = vv[1]; pool.dados[k + P_VZ] = vv[2];
+      pool.dados[k + P_IDADE] = 0.0;
+      pool.dados[k + P_VIDA] = aleatorioEntre(desc[D_VIDA_MIN], desc[D_VIDA_MAX]);
+      pool.dados[k + P_TAM0] = aleatorioEntre(desc[D_TAM_MIN], desc[D_TAM_MAX]);
+      pool.dados[k + P_ROT] = desc[D_ROT0];
+      pool.dados[k + P_COR_R] = desc[D_COR_R]; pool.dados[k + P_COR_G] = desc[D_COR_G]; pool.dados[k + P_COR_B] = desc[D_COR_B]; pool.dados[k + P_COR_A] = 1.0;
+      pool.vivas = pool.vivas + 1;
+      emitidas = emitidas + 1;
+    }
+    cursor = cursor + 1; if (cursor >= max) cursor = 0;
+    sondasRestantes = sondasRestantes - 1;
   }
+  pool.cursor = cursor;
   return emitidas;
 }
 

@@ -48,7 +48,24 @@ assertEq("reciclagem sem buraco", pool.vivas, 10);
     assertEq("vazamento com vida=0 na rodada " + rodada, poolZero.vivas, 0);
     rodada = rodada + 1;
   }
-  assertEq("nenhuma capacidade perdida após 10k emissões com vida=0", poolZero.nLivres, 50);
+  // nenhuma capacidade perdida (cursor rotativo, ruling P6): um desc com vida
+  // longa agora preenche o pool inteiro, sem slot "esquecido" nunca marcado livre.
+  const descCheio = new Float64Array(16);
+  descCheio[0] = FORMA_PONTO; descCheio[10] = 100.0; descCheio[11] = 100.0;
+  emitirN(poolZero, descCheio, 50);
+  assertEq("nenhuma capacidade perdida após 10k emissões com vida=0", poolZero.vivas, 50);
+}
+
+// cursor de emissão nunca sonda sem limite (ruling P6): pedir mais do que o
+// pool tem espaço não trava nem escaneia o pool inteiro por partícula.
+{
+  const poolCursor = criarPool(20);
+  const descCursor = new Float64Array(16);
+  descCursor[0] = FORMA_PONTO; descCursor[10] = 100.0; descCursor[11] = 100.0;
+  const emitidas1 = emitirN(poolCursor, descCursor, 1000);
+  assertEq("cursor: nunca excede maxParticles mesmo pedindo muito mais", emitidas1, 20);
+  const emitidas2 = emitirN(poolCursor, descCursor, 5);
+  assertEq("cursor: pool cheio nao emite (sai antes de sondar)", emitidas2, 0);
 }
 
 console.log("[PASSOU] test_particulas_emissao");

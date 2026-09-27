@@ -6,7 +6,7 @@ import { Behavior, KIND_RENDERER } from "@engine/core/behavior";
 import type { InspectorUI } from "@engine/core/inspector_ui";
 import { PoolParticulas, criarPool, emitirN, atualizarVidas } from "@engine/particles/sim";
 import { avaliarGradiente, avaliarCurva, aplicarVelocidade } from "@engine/particles/curvas";
-import { drawParticlesSeguro, drawParticlesTexSeguro, setParticleTex } from "@compat/particles";
+import { drawParticlesSeguro, drawParticlesTexSeguro, setParticleTex, temParticlesStep, particlesStepSeguro } from "@compat/particles";
 import { emJogo } from "@engine/core/modo_jogo";
 import { clockDelta } from "@engine/core/clock";
 import { frustumParams, inFrustumFast } from "@engine/render/gpu3d";
@@ -43,6 +43,22 @@ const MAX_BURSTS: number = 4;
 const MAX_CHAVES: number = 4;
 const CHAVE_GRADIENTE_FLOATS: number = 5;
 const CHAVE_CURVA_FLOATS: number = 2;
+
+/// Layout de `params` do kernel nativo `particlesStep` (`rts:particles`,
+/// documentado em `kernel-rts-report.md` e `crates/rts-particles/src/kernel.rs`
+/// do repo `rts`): `[0..3)` vento efetivo (já com `gravityModifier` somado
+/// ao Y, o mesmo que `update()` já fazia antes de `aplicarVelocidade`),
+/// `[3]` arrasto, `[4]` nChavesGradiente, `[5..25)` até 4 chaves de gradiente
+/// (5 floats cada), `[25]` nChavesTamanho, `[26..34)` até 4 chaves de curva
+/// de tamanho (2 floats cada), `[34]` simulationSpace (!=0 world), `[35..38)`
+/// posição do dono, `[38]` sortMode, `[39..42)` posição da câmera (só lida
+/// se sortMode!=0).
+const PARAMS_FLOATS: number = 42;
+const PARAMS_VENTO: number = 0; const PARAMS_ARRASTO: number = 3;
+const PARAMS_N_GRADIENTE: number = 4; const PARAMS_GRADIENTE: number = 5;
+const PARAMS_N_TAMANHO: number = 25; const PARAMS_TAMANHO: number = 26;
+const PARAMS_ESPACO: number = 34; const PARAMS_POS: number = 35;
+const PARAMS_SORT: number = 38; const PARAMS_CAM: number = 39;
 
 /// Baldes de `ordenarPorDistancia` (Task 11): resolução do bucket sort
 /// back-to-front — 256 faixas de distância² cobrem qualquer emissor real sem
@@ -127,6 +143,10 @@ export class ParticleSystem extends Behavior {
 
   private pool: PoolParticulas | null = null;
   private descBuf: Float64Array = new Float64Array(DESC_FLOATS);
+  /// Buffer de `params` do kernel nativo (ver `PARAMS_FLOATS` acima):
+  /// montado uma vez (campo), remontado em campo todo quadro que o kernel
+  /// roda (`montarParams`, só escritas nos mesmos 42 floats — nunca realoca).
+  private paramsBuf: Float64Array = new Float64Array(PARAMS_FLOATS);
   private saidaBuf: Float32Array = new Float32Array(0);
   /// Buffers reaproveitados por quadro — nenhuma alocação em update()/drawSelf().
   private ventoBuf: Float64Array = new Float64Array(3);
@@ -220,6 +240,43 @@ export class ParticleSystem extends Behavior {
     d[D_VIDA_MIN] = this.startLifetimeMin; d[D_VIDA_MAX] = this.startLifetimeMax;
     d[D_ROT0] = this.startRotation;
     d[D_COR_R] = this.startColorR; d[D_COR_G] = this.startColorG; d[D_COR_B] = this.startColorB;
+  }
+
+  /// Monta `paramsBuf` pro kernel nativo (`particlesStep`), a partir dos
+  /// mesmos campos que a versão TS (`update`/`drawSelf`) já lê — vento+
+  /// gravidade, arrasto, gradiente de cor, curva de tamanho, espaço,
+  /// posição do dono, sort+câmera. Só escreve nos 42 floats já alocados
+  /// (`paramsBuf`), nunca realoca; chamado uma vez por quadro que o kernel
+  /// roda (`update()`), como `montarDesc()`.
+  private montarParams(): void {
+    const d = this.paramsBuf;
+    d[PARAMS_VENTO] = this.ventoX; d[PARAMS_VENTO + 1] = this.ventoY - this.gravityModifier; d[PARAMS_VENTO + 2] = this.ventoZ;
+    d[PARAMS_ARRASTO] = this.arrasto;
+    d[PARAMS_N_GRADIENTE] = this.nChavesGradiente;
+    let gi = 0;
+    while (gi < MAX_CHAVES) {
+      const src = gi * CHAVE_GRADIENTE_FLOATS; const dst = PARAMS_GRADIENTE + gi * CHAVE_GRADIENTE_FLOATS;
+      d[dst] = this.gradiente[src]; d[dst + 1] = this.gradiente[src + 1]; d[dst + 2] = this.gradiente[src + 2];
+      d[dst + 3] = this.gradiente[src + 3]; d[dst + 4] = this.gradiente[src + 4];
+      gi = gi + 1;
+    }
+    d[PARAMS_N_TAMANHO] = this.nChavesTamanho;
+    let ci = 0;
+    while (ci < MAX_CHAVES) {
+      const src = ci * CHAVE_CURVA_FLOATS; const dst = PARAMS_TAMANHO + ci * CHAVE_CURVA_FLOATS;
+      d[dst] = this.curvaTamanho[src]; d[dst + 1] = this.curvaTamanho[src + 1];
+      ci = ci + 1;
+    }
+    d[PARAMS_ESPACO] = this.simulationSpace !== "local" ? 1.0 : 0.0;
+    d[PARAMS_POS] = this.host.wx; d[PARAMS_POS + 1] = this.host.wy; d[PARAMS_POS + 2] = this.host.wz;
+    // Mesma condição que `drawSelf` já aplica pro sort TS (Task 11): só modo
+    // alfa (o aditivo é comutativo, ordem não muda o resultado).
+    const usarSort = this.sort !== 0 && this.modo === 0;
+    d[PARAMS_SORT] = usarSort ? 1.0 : 0.0;
+    if (usarSort) {
+      frustumParams(this.camBuf);
+      d[PARAMS_CAM] = this.camBuf[0]; d[PARAMS_CAM + 1] = this.camBuf[1]; d[PARAMS_CAM + 2] = this.camBuf[2];
+    }
   }
 
   /// Define um dos até MAX_BURSTS disparos (tempo em segundos desde o início
@@ -339,17 +396,17 @@ export class ParticleSystem extends Behavior {
   emit(n: number): void { this.montarDesc(); emitirN(this.garantirPool(), this.descBuf, n); }
 
   /// Zera o pool NA HORA: marca todo slot como livre (`P_VIDA = -1`, o mesmo
-  /// marcador de `sim.ts`) e reconstrói a pilha de livres cheia. Só zerar
-  /// `vivas`/`nLivres` sem marcar `P_VIDA=-1` deixaria slots "meio-vivos":
-  /// a próxima `atualizarVidas`/`aplicarVelocidade` ainda os processaria (elas
-  /// varrem por `P_VIDA>=0`, não por `vivas`) e tentaria reciclá-los de novo,
-  /// duplicando entradas na pilha de livres — o "sem partícula sobrando no
-  /// original" do ciclo Play/Stop depende de zerar por completo aqui.
+  /// marcador de `sim.ts`) e reseta o cursor de emissão (ruling P6 — sem
+  /// pilha de livres, ver `sim.ts`). Só zerar `vivas` sem marcar `P_VIDA=-1`
+  /// deixaria slots "meio-vivos": a próxima `atualizarVidas`/`aplicarVelocidade`
+  /// (ou o kernel nativo) ainda os processaria (varrem por `P_VIDA>=0`, não
+  /// por `vivas`) — o "sem partícula sobrando no original" do ciclo
+  /// Play/Stop depende de zerar por completo aqui.
   clear(): void {
     const p = this.garantirPool();
     let i = 0;
-    while (i < p.max) { p.dados[i * P_FLOATS + P_VIDA] = 0.0 - 1.0; p.livres[i] = p.max - 1 - i; i = i + 1; }
-    p.vivas = 0; p.nLivres = p.max;
+    while (i < p.max) { p.dados[i * P_FLOATS + P_VIDA] = 0.0 - 1.0; i = i + 1; }
+    p.vivas = 0; p.cursor = 0;
   }
 
   /// `playOnAwake` só vale DENTRO do Play/jogo (`emJogo()`) — carregar a
@@ -439,19 +496,35 @@ export class ParticleSystem extends Behavior {
         if (!this.loop && this.time >= this.duration) this.tocando = 0;
       }
     }
-    atualizarVidas(pool, dt);
-    const vento = this.ventoBuf;
-    vento[0] = this.ventoX; vento[1] = this.ventoY - this.gravityModifier; vento[2] = this.ventoZ;
-    aplicarVelocidade(pool, vento, this.arrasto, dt);
-    let slot = 0;
-    while (slot < pool.max) {
-      const k = slot * P_FLOATS;
-      if (pool.dados[k + P_VIDA] >= 0.0) {
-        pool.dados[k + P_X] = pool.dados[k + P_X] + pool.dados[k + P_VX] * dt;
-        pool.dados[k + P_Y] = pool.dados[k + P_Y] + pool.dados[k + P_VY] * dt;
-        pool.dados[k + P_Z] = pool.dados[k + P_Z] + pool.dados[k + P_VZ] * dt;
+    // Aging + integração (vento/gravidade/arrasto) + gradiente + curva de
+    // tamanho + sort + preenchimento do buffer de desenho: UMA chamada ao
+    // kernel nativo quando presente (`temParticlesStep`, checado uma vez,
+    // cacheado — nunca `typeof` por quadro), senão o caminho TS puro
+    // (`atualizarVidas`+`aplicarVelocidade`+integração de posição; gradiente/
+    // curva/sort ficam em `drawSelf`, como antes). Chamado aqui (não em
+    // `drawSelf`) pra sempre simular mesmo quando o corte de frustum de
+    // `drawSelf` pula o desenho (spec da integração: "frustum cull... skip
+    // the draw, but still simulate") — e pra continuar funcionando em testes
+    // headless que só chamam `update()`, sem nunca desenhar.
+    if (temParticlesStep()) {
+      this.montarParams();
+      if (this.saidaBuf.length < pool.max * PART_INSTANCIA_FLOATS) this.saidaBuf = new Float32Array(pool.max * PART_INSTANCIA_FLOATS);
+      pool.vivas = particlesStepSeguro(pool.dados, this.paramsBuf, dt, this.saidaBuf);
+    } else {
+      atualizarVidas(pool, dt);
+      const vento = this.ventoBuf;
+      vento[0] = this.ventoX; vento[1] = this.ventoY - this.gravityModifier; vento[2] = this.ventoZ;
+      aplicarVelocidade(pool, vento, this.arrasto, dt);
+      let slot = 0;
+      while (slot < pool.max) {
+        const k = slot * P_FLOATS;
+        if (pool.dados[k + P_VIDA] >= 0.0) {
+          pool.dados[k + P_X] = pool.dados[k + P_X] + pool.dados[k + P_VX] * dt;
+          pool.dados[k + P_Y] = pool.dados[k + P_Y] + pool.dados[k + P_VY] * dt;
+          pool.dados[k + P_Z] = pool.dados[k + P_Z] + pool.dados[k + P_VZ] * dt;
+        }
+        slot = slot + 1;
       }
-      slot = slot + 1;
     }
   }
 
@@ -484,6 +557,17 @@ export class ParticleSystem extends Behavior {
     // simulação (`update`) continua de qualquer forma: é outro método, chamado
     // à parte pelo laço de scripts — cortar o DESENHO nunca "perde" posição.
     if (inFrustumFast(pos[0], pos[1], pos[2], this.limiteRaio()) === 0) return 0;
+    // Com o kernel nativo, `update()` já preencheu `saidaBuf` (aging,
+    // gradiente, curva de tamanho, sort) nesta MESMA passagem de quadro —
+    // aqui só falta o corte de frustum (acima) e a chamada de desenho.
+    // `pool.vivas` é a contagem COMPACTADA que o kernel devolveu, o mesmo
+    // formato que `n` teria no caminho TS abaixo.
+    if (temParticlesStep()) {
+      const n = pool.vivas;
+      if (n === 0) return 0;
+      if (this.textura > 0) { setParticleTex(this.textura); return drawParticlesTexSeguro(win, this.saidaBuf, n, this.modo); }
+      return drawParticlesSeguro(win, this.saidaBuf, n, this.modo);
+    }
     if (this.saidaBuf.length < pool.max * PART_INSTANCIA_FLOATS) this.saidaBuf = new Float32Array(pool.max * PART_INSTANCIA_FLOATS);
     const out = this.saidaBuf; const cor = this.corBuf;
     const somaPos = this.simulationSpace !== "local";

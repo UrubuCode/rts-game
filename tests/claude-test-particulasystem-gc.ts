@@ -16,9 +16,17 @@ import io from "@compat/io.ts";
 import process from "@compat/process.ts";
 import { ParticleSystem } from "@scripts/particlesystem";
 import { fixarSementeAleatorio } from "@engine/core/aleatorio";
+import { temParticlesStep, aguardarParticlesStep } from "@compat/particles";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
 const pos = new Float64Array([0.0, 0.0, 0.0]);
+
+async function main(): Promise<void> {
+// Ver o mesmo comentário em claude-test-particulas-componente-10k-gc.ts: sem
+// este `await` a detecção assíncrona de `rts:particles` nunca resolveria
+// dentro deste script síncrono.
+await aguardarParticlesStep();
+io.print("nativo (rts:particles.particlesStep) = " + (temParticlesStep() ? "SIM" : "não — caminho TS puro"));
 
 fixarSementeAleatorio(9);
 
@@ -78,3 +86,5 @@ while (d < n) { psSort.update(0.016); psSort.drawSelf(0, pos, 0.0 - 1.0); d = d 
 io.print("FIM drawSelf_sort " + n);
 
 io.print("[PASSOU] claude-test-particulasystem-gc (vivas=" + ps.particleCount + ", vivasSort=" + psSort.particleCount + ")");
+}
+main();

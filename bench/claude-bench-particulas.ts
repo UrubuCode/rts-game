@@ -12,6 +12,7 @@ import io from "@compat/io.ts";
 import { ParticleSystem } from "@scripts/particlesystem";
 import { FORMA_ESFERA } from "@engine/particles/desc";
 import { fixarSementeAleatorio } from "@engine/core/aleatorio";
+import { temParticlesStep, aguardarParticlesStep } from "@compat/particles";
 
 const AQUECE = 200;
 const REPS = 200;
@@ -47,6 +48,16 @@ function medir(ps: ParticleSystem): f64 {
   return (Date.now() - t0) / REPS;
 }
 
+async function main(): Promise<void> {
+// `temParticlesStep()` depende de um `import()` dinâmico assíncrono
+// (`rts:particles` pode não existir em binários sem o PR #2831 — ver
+// `compat/particles.ts`). Este bench roda como UM script síncrono do início
+// ao fim (sem nenhuma volta ao host entre chamadas), então sem este `await`
+// explícito no topo a promise nunca teria a chance de resolver e o caminho
+// nativo nunca engataria, mesmo estando disponível.
+await aguardarParticlesStep();
+io.print("nativo (rts:particles.particlesStep) = " + (temParticlesStep() ? "SIM" : "não — caminho TS puro"));
+
 fixarSementeAleatorio(13);
 
 // ── sort=0 (aditivo, ordem não importa): 1000/5000/10000 ───────────────────
@@ -80,3 +91,5 @@ if (ms10k <= META_MS_10K) {
 } else {
   throw new Error("[FALHOU] 10000 partículas (sort=0) em " + ms10k.toFixed(4) + " ms (meta " + META_MS_10K.toFixed(1) + ", vivas=" + vivas10k + ")");
 }
+}
+main();
