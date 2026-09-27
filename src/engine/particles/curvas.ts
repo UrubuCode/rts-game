@@ -39,7 +39,7 @@ export function aplicarVelocidade(pool: PoolParticulas, ventoXYZ: Float64Array, 
   let slot = 0;
   while (slot < pool.max) {
     const k = slot * P_FLOATS;
-    if (pool.dados[k + P_VIDA] > 0.0) {
+    if (pool.dados[k + P_VIDA] >= 0.0) { // mesmo marcador de "viva" que atualizarVidas (sim.ts)
       pool.dados[k + P_VX] = (pool.dados[k + P_VX] + ventoXYZ[0] * dt) * fArrasto;
       pool.dados[k + P_VY] = (pool.dados[k + P_VY] + ventoXYZ[1] * dt) * fArrasto;
       pool.dados[k + P_VZ] = (pool.dados[k + P_VZ] + ventoXYZ[2] * dt) * fArrasto;

@@ -21,7 +21,15 @@ export class PoolParticulas {
     this.dados = new Float64Array(max * P_FLOATS);
     this.max = max; this.vivas = 0;
     this.livres = new Int32Array(max);
-    let i = 0; while (i < max) { this.livres[i] = max - 1 - i; i = i + 1; }
+    let i = 0;
+    while (i < max) {
+      this.livres[i] = max - 1 - i;
+      // marca todo slot como livre (P_VIDA<0): distingue de uma partícula viva
+      // com vida sorteada em 0 (ver atualizarVidas) — o default 0.0 do
+      // Float64Array seria indistinguível de "viva, vida=0".
+      this.dados[i * P_FLOATS + P_VIDA] = -1.0;
+      i = i + 1;
+    }
     this.nLivres = max;
   }
 }
@@ -45,9 +53,16 @@ function amostrarPosVel(desc: Float64Array, pos: Float64Array, vel: Float64Array
     pos[0] = d[0] * r; pos[1] = d[1] * r; pos[2] = d[2] * r;
     vel[0] = d[0] * speed; vel[1] = d[1] * speed; vel[2] = d[2] * speed;
   } else if (forma === FORMA_CONE) {
+    // amostragem uniforme por ÁREA no casquete esférico (não por ângulo):
+    // cosT = 1 - u·(1 - cos(meiaAngulo)) dá densidade uniforme no ângulo
+    // sólido; sortear `abre` uniforme em [0,meiaAngulo] concentraria amostras
+    // perto do eixo.
     const meiaAngulo = desc[D_ANGULO] * 0.5 * 0.017453292519943295;
-    const ang = aleatorio() * DOIS_PI; const abre = aleatorio() * meiaAngulo;
-    const sx = Math.sin(abre) * Math.cos(ang); const sz = Math.sin(abre) * Math.sin(ang); const sy = Math.cos(abre);
+    const cosMeia = Math.cos(meiaAngulo);
+    const ang = aleatorio() * DOIS_PI;
+    const cosT = 1.0 - aleatorio() * (1.0 - cosMeia);
+    const sinT = Math.sqrt(Math.max(0.0, 1.0 - cosT * cosT));
+    const sx = sinT * Math.cos(ang); const sz = sinT * Math.sin(ang); const sy = cosT;
     pos[0] = 0.0; pos[1] = 0.0; pos[2] = 0.0;
     vel[0] = sx * speed; vel[1] = sy * speed; vel[2] = sz * speed;
   } else if (forma === FORMA_CAIXA) {
@@ -94,14 +109,19 @@ export function emitirN(pool: PoolParticulas, desc: Float64Array, n: number): nu
 
 /// Envelhece todas as partículas por `dt`; recicla as que morreram (idade >=
 /// vida) devolvendo o slot à pilha de livres. 2 parâmetros. Devolve `vivas`.
+///
+/// Alocado/livre é decidido por `P_VIDA >= 0.0` (marcador), não por
+/// `idade < vida`: uma partícula emitida com vida sorteada em 0 (desc com
+/// vidaMin=vidaMax=0, ou desc não preenchido) precisa envelhecer e reciclar
+/// na primeira chamada, não ficar presa para sempre (vazamento do pool).
 export function atualizarVidas(pool: PoolParticulas, dt: f64): number {
   let slot = 0;
   while (slot < pool.max) {
     const k = slot * P_FLOATS;
-    if (pool.dados[k + P_VIDA] > 0.0 && pool.dados[k + P_IDADE] < pool.dados[k + P_VIDA]) {
+    if (pool.dados[k + P_VIDA] >= 0.0) {
       pool.dados[k + P_IDADE] = pool.dados[k + P_IDADE] + dt;
       if (pool.dados[k + P_IDADE] >= pool.dados[k + P_VIDA]) {
-        pool.dados[k + P_VIDA] = 0.0 - 1.0; // marca morta (vida<0: nunca mais entra aqui até reemitir)
+        pool.dados[k + P_VIDA] = 0.0 - 1.0; // marca livre (vida<0: nunca mais entra aqui até reemitir)
         pool.livres[pool.nLivres] = slot; pool.nLivres = pool.nLivres + 1;
         pool.vivas = pool.vivas - 1;
       }

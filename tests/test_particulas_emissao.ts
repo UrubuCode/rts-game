@@ -35,4 +35,20 @@ assertEq("todas morreram", pool.vivas, 0);
 emitirN(pool, desc, 10);
 assertEq("reciclagem sem buraco", pool.vivas, 10);
 
+// vida sorteada em 0 não vaza o pool: recicla na 1ª atualizarVidas (revisão
+// da Task 2, item 1 — marcador de alocação em P_VIDA).
+{
+  const poolZero = criarPool(50);
+  const descZero = new Float64Array(16); // vidaMin=vidaMax=0.0 (índices 10/11 ficam 0 por padrão)
+  descZero[0] = FORMA_PONTO;
+  let rodada = 0;
+  while (rodada < 10000) {
+    emitirN(poolZero, descZero, 1);
+    atualizarVidas(poolZero, 0.016);
+    assertEq("vazamento com vida=0 na rodada " + rodada, poolZero.vivas, 0);
+    rodada = rodada + 1;
+  }
+  assertEq("nenhuma capacidade perdida após 10k emissões com vida=0", poolZero.nLivres, 50);
+}
+
 console.log("[PASSOU] test_particulas_emissao");

@@ -54,6 +54,27 @@ function falhar(msg: string): void { console.log("[FALHOU] " + msg); process.exi
     if (theta > meiaAnguloRad + 1e-6) { falhar("cone: ângulo fora do limite, theta=" + theta); }
     slot = slot + 1;
   }
+
+  // uniformidade por ÂNGULO SÓLIDO (revisão da Task 2, item 2): a fração de
+  // amostras dentro da metade do meio-ângulo deve ser ~ a fração de área do
+  // casquete correspondente, não a fração LINEAR do ângulo (que indicaria a
+  // amostragem antiga, tendenciosa para o eixo).
+  const metade = meiaAnguloRad * 0.5;
+  const fracaoAreaEsperada = (1.0 - Math.cos(metade)) / (1.0 - Math.cos(meiaAnguloRad));
+  let dentro = 0;
+  slot = 0;
+  while (slot < N) {
+    const k = slot * P_FLOATS;
+    const vx = pool.dados[k + P_VX]; const vy = pool.dados[k + P_VY]; const vz = pool.dados[k + P_VZ];
+    const mag = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    const theta = Math.acos(Math.min(1.0, Math.max(-1.0, vy / mag)));
+    if (theta <= metade) dentro = dentro + 1;
+    slot = slot + 1;
+  }
+  const fracaoObservada = (dentro as f64) / (N as f64);
+  if (Math.abs(fracaoObservada - fracaoAreaEsperada) > 0.03) {
+    falhar("cone: amostragem não uniforme no ângulo sólido, esperado=" + fracaoAreaEsperada + " obtido=" + fracaoObservada);
+  }
 }
 
 // ── caixa: todo ponto tem |x|<=largura/2, |y|<=altura/2, |z|<=profund/2 ────
