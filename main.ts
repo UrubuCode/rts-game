@@ -401,12 +401,17 @@ function handleExplorerDrop(n: number, region: string, hIdx: number, sx: f64, sy
     i = i + 1;
   }
   if (firstImported === "" || region === "project") return;   // só importa sobre o Project
+  // Importar já mudou assets/ no disco (fora do Desfazer); a mutação da CENA a
+  // seguir entra no Desfazer como qualquer drop do mouse (mesma regra do bloco
+  // de release do drag do Project, mais abaixo).
   if (region === "viewport") {
+    history.snapshot();
     dropAssetInWorld(firstKind, firstImported, sx, sy);
   } else if (region === "hierarquia" && hIdx >= 0 && hIdx < scene.objects.length) {
-    if (firstKind === "tex") applyTexToObject(hIdx, firstImported, WIN);
-    else if (firstKind === "audio") applyAudioToObject(hIdx, firstImported);
+    if (firstKind === "tex") { history.snapshot(); applyTexToObject(hIdx, firstImported, WIN); }
+    else if (firstKind === "audio") { history.snapshot(); applyAudioToObject(hIdx, firstImported); }
     else if (firstKind === "script") {
+      // dropScriptOnObject já tira o snapshot sozinho (só no sucesso).
       const error = dropScriptOnObject(firstImported, hIdx);
       if (error.length > 0) logError(error);
     }
@@ -1549,8 +1554,10 @@ function frame(): void {
         // textura solta EM CIMA de um objeto → aplica nele (Unity); no vazio → cria
         const hitObj = kind === "tex" ? pickObjectAt(mx, my) : 0 - 1;
         if (hitObj >= 0) {
+          history.snapshot();
           if (applyTexToObject(hitObj, dpath, WIN) > 0) S.selected = hitObj;
         } else {
+          history.snapshot();
           dropAssetInWorld(kind, dpath, mx, my);
         }
       }
@@ -1558,16 +1565,19 @@ function frame(): void {
       // sobre a hierarquia: textura vai pro objeto da linha; resto instancia solto
       const hIdx = hierRowAt(my);
       if (kind === "tex" && hIdx >= 0 && hIdx < scene.objects.length) {
+        history.snapshot();
         applyTexToObject(hIdx, dpath, WIN);
       } else if (kind === "audio" && hIdx >= 0 && hIdx < scene.objects.length) {
+        history.snapshot();
         applyAudioToObject(hIdx, dpath);
       } else {
+        history.snapshot();
         dropAssetInWorld(kind, dpath, 0.0 - 1.0, 0.0);
       }
     } else if (mx > W - INSP_W && S.selected >= 0 && S.selected < scene.objects.length) {
       // sobre o inspector: só os slots aceitam (hit-test guardado no draw)
-      if (kind === "tex" && slotTexHot !== 0) applyTexToObject(S.selected, dpath, WIN);
-      else if (kind === "model" && slotMeshHot !== 0) applyMeshToObject(S.selected, dpath, WIN);
+      if (kind === "tex" && slotTexHot !== 0) { history.snapshot(); applyTexToObject(S.selected, dpath, WIN); }
+      else if (kind === "model" && slotMeshHot !== 0) { history.snapshot(); applyMeshToObject(S.selected, dpath, WIN); }
       else if (slotObjHotKind.length > 0 && slotObjHotKind === assetMarkerKind(kind)) inspector.dropObjectField(dpath);
     }
     // Soltar de VOLTA no Project (ou em qualquer área não tratada) = CANCELAR:
