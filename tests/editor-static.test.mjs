@@ -51,3 +51,19 @@ test('a documentação de áudio cobre componentes, mixer, verificação e migra
   const regras = read('CLAUDE.md');
   assert.ok(regras.includes('## Áudio') && regras.includes('audio nivel'), 'regra do CLAUDE.md');
 });
+test('a skill do agente RTS puxa comandos/componentes do runtime (contexto.py), sem lista hardcoded no SKILL.md', () => {
+  const skill = read('.claude/skills/rts-engine-control/SKILL.md');
+  assert.match(skill, /!`python "\$\{CLAUDE_SKILL_DIR\}\/contexto\.py"`/,
+    'SKILL.md injeta o contexto ao vivo com !`python "${CLAUDE_SKILL_DIR}/contexto.py"`');
+  assert.ok(fs.existsSync(new URL('../.claude/skills/rts-engine-control/contexto.py', import.meta.url)),
+    'contexto.py existe ao lado do SKILL.md');
+  const nomes = [...read('src/editor/control/builtin_commands.ts').matchAll(/c\("([a-z]+)"/g)].map(m => m[1]);
+  const PERMITIDOS = ['contexto', 'doc', 'help', 'shot'];
+  // Ignora blocos ``` (exemplos de shell/ws_client.py) e olha só trechos `entre crases simples`.
+  const semBlocos = skill.replace(/```[\s\S]*?```/g, '');
+  const primeirosTokens = [...semBlocos.matchAll(/`([^`\n]+)`/g)].map(m => m[1].trim().split(/\s+/)[0]);
+  for (const tok of primeirosTokens) {
+    assert.ok(!nomes.includes(tok) || PERMITIDOS.includes(tok),
+      'SKILL.md cita o comando `' + tok + '` num trecho de código: a lista/sintaxe deveria vir só de `contexto`/`doc` (bootstrap permitido: ' + PERMITIDOS.join(', ') + ')');
+  }
+});

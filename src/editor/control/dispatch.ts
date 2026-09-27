@@ -12,6 +12,7 @@ import { cmdTree, cmdParent, cmdMoveTree, cmdFind } from "./commands/hierarchy";
 import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc, cmdHelp } from "./commands/doc";
+import { cmdContexto } from "@editor/control/commands/contexto";
 import { cmdDescribe, cmdScene } from "@editor/control/commands/describe";
 import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
@@ -305,6 +306,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);
+    case "contexto": return cmdContexto(parts);
     case "shot": return cmdShot(parts, w, h);
     case "input": return cmdInput(parts, w, h, line);
     case "batch": return cmdLote(parts);
