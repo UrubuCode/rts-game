@@ -101,7 +101,12 @@ export class DomCanvas extends Behavior {
     if (campo === "html" || campo === "css") this.recarregar();
     else this.enviarLayout();
   }
-  /// O HTML deste canvas, escopado à raiz. Carrega sob demanda (script montado antes do canvas).
+  /// O HTML deste canvas, escopado à raiz. Carrega sob demanda (script montado
+  /// antes do canvas) — inclusive quando `owner` ainda não entrou numa cena.
+  /// Chamar `documento` num `DomCanvas` solto (criado com `new`, nunca
+  /// adicionado a uma `Scene`) registra a raiz mesmo assim; sem `onDestroy`
+  /// (que só roda ao remover da cena) essa raiz nunca é liberada. Só leia
+  /// `documento` de um componente que já está (ou vai estar) numa cena.
   get documento(): DomVista { this.garantir(); return this.vista; }
   /// Relê .html/.css. Erro: mantém o conteúdo anterior, anota e loga. Sucesso: onDomReload nos irmãos.
   recarregar(): boolean {
@@ -114,7 +119,7 @@ export class DomCanvas extends Behavior {
   definirConteudo(html: string): void {
     this.garantir();
     if (this.slot === SEM_SLOT) return;
-    this.aplicar(html, "");
+    this.aplicar(html, "", "definirConteudo");
     this.avisarIrmaos();
   }
   erro(): string { return this.ultimoErro; }
@@ -137,14 +142,14 @@ export class DomCanvas extends Behavior {
     let css = "";
     if (this.html.length > 0) { if (!lerArquivoDom(this.html)) return this.falhou(leitura.erro); html = leitura.texto; }
     if (this.css.length > 0) { if (!lerArquivoDom(this.css)) return this.falhou(leitura.erro); css = leitura.texto; }
-    this.aplicar(html, css);
+    this.aplicar(html, css, this.html.length > 0 ? this.html : "(sem arquivo .html)");
     return true;
   }
-  private aplicar(html: string, css: string): void {
+  private aplicar(html: string, css: string, origem: string): void {
     domHostConteudo(this.slot, prepararHtml(html, css, domHostEscopo(this.slot)));
     this.vista.recomecar();
     this.ultimoErro = "";
-    if (scriptsRemovidos() > 0) logWarn("DomCanvas: <script> ignorado em " + this.html + " (a lógica fica nos scripts do objeto)");
+    if (scriptsRemovidos() > 0) logWarn("DomCanvas: <script> ignorado em " + origem + " (a lógica fica nos scripts do objeto)");
   }
   private falhou(msg: string): boolean { this.ultimoErro = msg; logError("DomCanvas: " + msg); return false; }
   private avisarIrmaos(): void {

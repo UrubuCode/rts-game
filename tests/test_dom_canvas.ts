@@ -10,6 +10,7 @@ import { Behavior } from "@engine/core/behavior";
 import { DomCanvas, domCanvasDe } from "@engine/core/dom_canvas";
 import { DOM_VISTA_NENHUM, textoNumero, alternarClasse } from "@engine/ui/dom_vista";
 import { domHostAtivos, domHostRender, domHostDoc, domHostPump } from "@engine/ui/dom_host";
+import { ANCHOR_TL } from "@engine/ui/anchor";
 import { COMPONENT_NAMES, createComponent } from "@editor/components";
 import { componentToData } from "@engine/components";
 import { buildObject } from "@editor/sceneio";
@@ -73,6 +74,12 @@ va.setNumero(vida, 57.2, 0);
 check(va.escritas === e1 + 1, "mesmo inteiro: nenhuma escrita");
 va.setNumero(vida, 57.24, 1);
 check(va.getText(vida) === "57.2", "uma casa");
+va.setNumero(vida, NaN, 0);
+check(va.getText(vida) === "0", "setNumero com NaN não lança e vira 0");
+va.setNumero(vida, 5, NaN);
+check(va.getText(vida) === "5", "setNumero com casas NaN não lança e vira 0 casas");
+va.setStyleNumero(vida, "width", NaN, "%");
+check(dom.inlineProperty(h, va.noDom(vida), "width") === "0%", "setStyleNumero com NaN não lança e vira 0");
 va.setClass(vida, "alerta", true);
 const e2 = va.escritas;
 va.setClass(vida, "alerta", true);
@@ -101,6 +108,22 @@ check(leitor.achou >= 0 && cc.montado() && domHostAtivos() === ativos0 + 3, "doc
 // arquivo ausente
 const cx = objetoCom("X", DIR + "/nao-existe.html", "");
 check(cx.montado() && cx.erro().indexOf("nao-existe.html") >= 0, "arquivo ausente: raiz vazia e erro anotado");
+
+// .html válido com .css ausente: erro aponta para o .css, não trava
+const cy = objetoCom("Y", DIR + "/a.html", DIR + "/nao-existe.css");
+check(cy.montado() && cy.erro().indexOf("nao-existe.css") >= 0, ".html válido com .css ausente: erro aponta para o .css");
+
+// onValidate prende NaN (não propaga para Math.max/min nem trava o layout)
+ca.escala = NaN; ca.ancoragem = NaN; ca.ordem = NaN; ca.largura = NaN; ca.altura = NaN;
+ca.onValidate("escala");
+check(ca.escala > 0 && ca.ancoragem === ANCHOR_TL && ca.ordem === 0 && ca.largura === 0 && ca.altura === 0,
+  "onValidate prende NaN em escala/ancoragem/ordem/largura/altura");
+
+// recarregar() num canvas destruído devolve false e não remonta
+const cd = objetoCom("D", DIR + "/a.html", "");
+check(cd.montado(), "D montado antes de destruir");
+(cd.owner as GameObject).removeBehavior(0);
+check(!cd.montado() && !cd.recarregar() && !cd.montado(), "recarregar() após destruído devolve false e não remonta");
 
 // desabilitado: display none, ids válidos
 ca.enabled = 0; domHostRender(0, area);
