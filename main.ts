@@ -93,7 +93,7 @@ const P_UI_PROJ = profSection("  ui:project");
 const P_PRESENT = profSection("present/endFrame");
 import { ctrlServe, ctrlPoll, portaDeControle } from "@editor/control/server";
 import { passoDaSimulacao, definirAoFalharSimulacao } from "@editor/sim_step";
-import { coroutineResume } from "@engine/core/coroutine_scheduler";
+import { coroutineResume, coroutineHasReady } from "@engine/core/coroutine_scheduler";
 import { instalarEditorReal } from "@editor/editor_host";
 // Pacotes @editorOnly (comandos, ganchos, ferramentas): só o editor carrega.
 import "@engine/generated/editor_extensions";
@@ -577,7 +577,7 @@ function abrirCenaPeloDialogo(): void {
 
 // Corpo de 1 frame numa FUNÇÃO — no motor, métodos de singleton importado
 // (scene/S) despacham corretamente em função, não no top-level do while.
-async function frame(): Promise<void> {
+function frame(): void {
   // ── layout RESPONSIVO: lê o tamanho lógico atual da janela (segue o resize) ──
   logTick();   // avança o contador de frames do log
   // A aba vem da sessão: o clique na aba e o ws `gameview` escrevem S.gameView.
@@ -733,11 +733,16 @@ async function frame(): Promise<void> {
     // incondicional lá embaixo: a mesma visita O(n) duas vezes por frame.
   }
   secEnd(P_FISICA);
-  // Retoma as corrotinas prontas deste quadro (engine/core/coroutine_scheduler.ts),
-  // rodando ou não o Play: cancelamentos por destroy/Play-stop precisam
-  // desenrolar mesmo parado. Precisa de um `await` de verdade aqui — o motor
-  // só drena continuações pendentes num checkpoint real (cabeçalho do módulo).
-  await coroutineResume();
+  // Corrotinas: `coroutineTick` (dentro de `scene.update`, rodando ou não o
+  // Play — cancelamentos por destroy/Play-stop precisam desenrolar mesmo
+  // parado) já deixou prontas as continuações deste quadro; o CHECKPOINT
+  // assíncrono de verdade (`coroutineResume`) fica pro laço externo, que só o
+  // chama quando `coroutineHasReady()` (flag barata, sem alocar) diz que há
+  // alguma continuação pronta — `frame()` fica síncrona porque `await` só
+  // pode aparecer numa função async ou no topo do módulo, e chamar/`await`ar
+  // uma `async function` todo quadro aloca neste runtime mesmo sem nenhum
+  // `await` interno (ver CLAUDE.md § Custo por quadro; sonda em
+  // tests/claude-test-frame-async-gc.ts vs. tests/claude-test-frame-async-fix-gc.ts).
   // PRÉVIA de animação do Inspector: fora do Play só avançam os players cuja
   // prévia está tocando (escrevem só a pose de trabalho; a cena salva não
   // muda). No Play, o `scene.update` acima já roda o AnimationPlayer normal, e
@@ -1841,7 +1846,10 @@ async function frame(): Promise<void> {
 
 while (app.running()) {
   if (!app.beginFrame()) break;
-  await frame();
+  frame();
+  // Retoma as corrotinas prontas deste quadro — só paga o `await` de verdade
+  // quando há algo pronto (ver o comentário em `frame()`).
+  if (coroutineHasReady()) await coroutineResume();
   if (benchFrameEnd() !== 0) break;
 }
 

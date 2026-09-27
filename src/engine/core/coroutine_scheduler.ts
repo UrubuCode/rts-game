@@ -22,12 +22,22 @@
 //      MOVE para uma fila de pendentes — não resolve a Promise ainda.
 //
 //   2. `coroutineResume()` — ASSÍNCRONA, chamada UMA vez por quadro pelo laço
-//      de fora (main.ts/game.ts, DEPOIS de `scene.update`). Resolve/rejeita
-//      as promises da fila UMA DE CADA VEZ, com um `await` de verdade entre
-//      cada uma — isso dá ao motor a chance de rodar a continuação daquela
-//      corrotina especificamente antes de passar pra próxima, o que é o que
-//      permite identificar "qual corrotina está rodando agora" (`currentId`)
-//      sem precisar de um parâmetro extra em `waitForSeconds`/`nextFrame`/etc.
+//      de fora (main.ts/game.ts, DEPOIS de `scene.update`), MAS só quando
+//      `coroutineHasReady()` (flag barata, sem alocar) diz que há algo pronto.
+//      Resolve/rejeita as promises da fila UMA DE CADA VEZ, com um `await` de
+//      verdade entre cada uma — isso dá ao motor a chance de rodar a
+//      continuação daquela corrotina especificamente antes de passar pra
+//      próxima, o que é o que permite identificar "qual corrotina está
+//      rodando agora" (`currentId`) sem precisar de um parâmetro extra em
+//      `waitForSeconds`/`nextFrame`/etc. O laço externo NÃO chama
+//      `coroutineResume` incondicionalmente todo quadro: `frame()` fica
+//      síncrona e só o laço de fora, já num contexto `await` (top-level),
+//      paga o checkpoint quando `coroutineHasReady()` é verdadeiro — chamar/
+//      `await`ar uma `async function` todo quadro aloca neste runtime mesmo
+//      sem nenhum `await` interno (medido: ~2,5 µs/quadro incondicional vs.
+//      ~0,4 µs condicional, igual ao laço 100% síncrono — ver
+//      tests/claude-test-frame-async-timing.ts e
+//      tests/claude-test-frame-async-gc.ts vs. -fix-gc.ts).
 //
 // Consequência observável: uma corrotina retoma no PRÓXIMO quadro do laço que
 // chama `coroutineResume` — nunca no meio do mesmo `scene.update` que a
@@ -295,6 +305,18 @@ export function coroutineTick(dt: f64): void {
   }
 }
 let lastRealMs: f64 = 0.0;
+
+/// Checagem BARATA (sem alocar) pro laço externo (main.ts/game.ts) decidir se
+/// vale a pena pagar o checkpoint assíncrono este quadro: 1 quando
+/// `coroutineTick` deixou pelo menos uma continuação pronta (resolver ou
+/// cancelar) nesta rodada. Chamar `coroutineResume()` sem nenhuma pronta é
+/// inofensivo (as duas filas ficam vazias, o laço nem entra), mas o próprio
+/// `await` de uma `async function` chamada por quadro aloca no runtime deste
+/// motor mesmo sem nenhum `await` interno — por isso o laço externo só chama
+/// `coroutineResume` quando isto for 1 (ver CLAUDE.md § Custo por quadro).
+export function coroutineHasReady(): boolean {
+  return pendingResolveN > 0 || pendingCancelN > 0;
+}
 
 /// Metade ASSÍNCRONA — chamada uma vez por quadro pelo laço de fora (main.ts,
 /// game.ts), DEPOIS de `scene.update`. Resolve/cancela as pendências desta

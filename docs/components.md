@@ -505,6 +505,14 @@ quadro atual".
   passos sem checkpoint entre eles: os temporizadores descontam certo a cada
   passo, mas os corpos só retomam no quadro seguinte do editor.
 
+- **Custo por quadro do laço principal**: `main.ts`/`game.ts` mantêm `frame()`
+  SÍNCRONA e só pagam o checkpoint (`await coroutineResume()`) quando
+  `coroutineHasReady()` (flag barata, sem alocar) diz que há alguma
+  continuação pronta neste quadro — chamar/`await`ar uma `async function`
+  incondicionalmente todo quadro aloca neste runtime mesmo sem nenhum `await`
+  interno (jogo/editor sem nenhuma corrotina ativa é o caso comum). Ver
+  `tests/claude-test-frame-async-gc.ts`/`-fix-gc.ts`/`-timing.ts`.
+
 - **Verificar sem olhar a janela** (WS `contexto` / `contexto sistemas`): o
   número de corrotinas ativas e os objetos donos (lidos do escalonador, nunca
   hardcoded) aparecem na seção `sistemas` — `corrotinas: N ativas | donos:
