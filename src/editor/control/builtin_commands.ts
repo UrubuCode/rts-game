@@ -78,6 +78,9 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
     "batch end :: fecha o lote (1 entrada de Desfazer se a cena mudou) :: batch end",
     "batch cancel :: desfaz o que o lote aplicou e fecha :: batch cancel"]),
   c("bones", "esqueleto", MUTA_NAO, ["bones <obj> :: lista os ossos do Skeleton do objeto (indice, nome, pai) :: bones 0"]),
+  c("build", "sistema", MUTA_NAO, [
+    "build :: dispara o build do jogo (o mesmo do botao Build; snapshot em build/editor-build-<ms>, nao muda a cena) e responde quando termina: estado, pasta, exe e log :: build",
+    "build status :: estado do build em andamento ou do ultimo :: build status"]),
   c("cam", "vista", MUTA_NAO, ["cam <x> <y> <z> <yaw> <pitch> :: posiciona a camera do editor (angulos em radianos) :: cam 0 11 -15 0 -0.5"]),
   c("clear", "objetos", MUTA_SIM, ["clear :: esvazia a cena (para o Play) :: clear"]),
   c("color", "transform", MUTA_SIM, ["color <obj> <r> <g> <b> :: cor do objeto, 0..255 :: color 0 240 90 60"]),
@@ -165,6 +168,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("rot", "transform", MUTA_PROPRIO, [
     "rot <obj> <yaw> <pitch> [roll] :: define a ROTACAO local em graus (yaw = Y, pitch = X, roll = Z, padrao 0; a mesma convencao do pose rot; no Inspector X=pitch Y=yaw Z=roll) :: rot 0 90 0",
     "rot <obj> :: le a rotacao local e de mundo em graus (consulta: sem Desfazer) :: rot Cubo"]),
+  c("run", "sistema", MUTA_NAO, ["run tests [padrao] :: roda tests/*.ts no runtime (um processo por arquivo, prazo de 180 s cada) e responde passou/falhou por arquivo; padrao = trecho do nome ou curinga com * (padrao test_*) :: run tests test_ws_*"]),
   c("savescene", "cena", MUTA_NAO, ["savescene <path> :: SALVA a cena num JSON e passa a ser o documento aberto (dispara o gancho salvar) :: savescene assets/minhacena.json"]),
   c("scene", "consulta", MUTA_NAO, ["scene json [obj] :: a cena inteira no JSON que o save grava (ou so um objeto), SEM salvar nem mudar o documento :: scene json"]),
   c("scl", "transform", MUTA_SIM, ["scl <obj> <sx> <sy> <sz> :: escala NAO-uniforme :: scl 0 1 6 1"]),
@@ -185,6 +189,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("state", "consulta", MUTA_NAO, ["state :: estado da cena e da camera; por objeto: kind, pos, rot (yaw,pitch,roll em graus), escala :: state"]),
   c("step", "play", MUTA_NAO, ["step [N] :: com o Play pausado (pausa se estiver rodando), avanca exatamente N passos fixos (padrao 1) e responde passos e tempo simulado :: step 10"]),
   c("stop", "play", MUTA_NAO, ["stop :: descarta a simulacao e restaura a cena de edicao e seu historico :: stop"]),
+  c("testes", "sistema", MUTA_NAO, ["testes [padrao] :: o mesmo que run tests :: testes test_quat"]),
   c("thumb", "arrastar", MUTA_NAO, ["thumb <path> [cols] :: INSPECIONA o thumbnail que o Project mostra pro asset: estatisticas de pixel + preview ASCII (| = quebra de linha) :: thumb assets/models/torus.obj 16"]),
   c("timescale", "play", MUTA_NAO, ["timescale [x] :: escala do tempo da simulacao (0 = parado, 0.5 = metade dos passos por segundo, 1 = real); sem x consulta :: timescale 0.5"]),
   c("tool", "transform", MUTA_NAO, ["tool [move|rotate|scale|select] :: troca/consulta a ferramenta do gizmo da viewport :: tool rotate"]),
@@ -200,7 +205,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
 
 /// Comandos cuja resposta pode vir DEPOIS (adiado.ts): a conexão espera por
 /// ela antes de rodar a linha seguinte; não cabem num `batch`.
-export const COMANDOS_ASSINCRONOS: string[] = ["input", "shot"];
+export const COMANDOS_ASSINCRONOS: string[] = ["build", "input", "run", "shot", "testes"];
 
 function nomesDoManifesto(): string[] {
   const out: string[] = [];

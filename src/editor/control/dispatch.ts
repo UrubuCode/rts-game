@@ -21,6 +21,7 @@ import { cmdInput } from "@editor/control/commands/input";
 import { cmdLote, loteAtivo, loteAbortado, antesNoLote, depoisNoLote } from "@editor/control/lote";
 import { registrarExcecao } from "@engine/core/falhas";
 import { cmdErrors, cmdProfFrames, cmdGc, cmdAssets } from "@editor/control/commands/diag";
+import { cmdBuild, cmdRunTests } from "@editor/control/commands/build";
 import { cmdResume, cmdStep, cmdTimescale, cmdSeed } from "@editor/control/commands/tempo";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { comandoEmbutido, registraNoLog, MUTA_SIM } from "@editor/control/builtin_commands";
@@ -303,6 +304,9 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "errors": return cmdErrors(parts);
     case "gc": return cmdGc(parts);
     case "assets": return cmdAssets(parts);
+    case "build": return cmdBuild(parts);
+    case "run": return cmdRunTests(parts);
+    case "testes": return cmdRunTests(parts);
     default: return registrado >= 0 ? runRegistered(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

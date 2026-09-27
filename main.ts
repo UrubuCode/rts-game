@@ -44,7 +44,7 @@ import { WorkspaceViews } from "@editor/workspace_views";
 import { sceneDocument } from "@editor/scene_document";
 import { DocumentPanel, saveDocument } from "@editor/document_panel";
 import { chooseSceneFile } from "@editor/scene_dialog";
-import { EditorBuild } from "@editor/editor_build";
+import { editorBuild } from "@editor/editor_build";
 import { assetsInit, assetsOpenScenes, drawAssets, assetsArea, assetsMouse, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
 import { initMeshes, setCamBuf, frustumBeginBuf, CAM_FLOATS, FRUSTUM_NEAR_PADRAO, FRUSTUM_FAR_PADRAO, CAM_ORTO_PADRAO, frustumParams, winWidth, winHeight, loadTexture,
          setViewportBuf, setFundoCeu } from "@engine/render/gpu3d";
@@ -223,7 +223,6 @@ const playToolbar = new PlayToolbar(app);
 const workspaceViews = new WorkspaceViews(app);
 const consolePanel = new ConsolePanel(app);
 const documentPanel = new DocumentPanel(app);
-const editorBuild = new EditorBuild();
 sceneDocument.initialize(fs.exists(sceneFile) ? sceneFile : "");
 let documentPoll = 0;
 
