@@ -390,25 +390,54 @@ o mesmo caminho que `Skeleton` já usa.
   fora da reflexão automática — `ParticleSystem.toData()`/`fromData()`
   fazem o round-trip deles; os campos escalares automáticos continuam pelo
   caminho comum (`componentToData`/`legacyFields`).
-- **Portão de performance** (Task 11): a sonda de alocação
-  (`tests/claude-test-particulas-componente-10k-gc.ts`, 10 000 partículas
-  vivas em regime, `update`+`drawSelf` por quadro) dá 0 coletas de GC — os
-  buffers do caminho por quadro são todos reaproveitados (pool SoA,
-  `saidaBuf`, e agora também os baldes do bucket sort). O bench
-  (`bench/claude-bench-particulas.ts`) mede `update`+`drawSelf` (sem GPU) a
-  1 000/5 000/10 000 partículas e também `sort=1` (modo alfa) a 1 000/10 000:
-  a meta do plano era ≤ 1 ms a 10 000 partículas, mas medido neste runtime
-  (interpretado, sem JIT — o mesmo padrão que o `KERNEL_TS` de
-  `claude-bench-audio.ts` mostra) o caminho **sem** `sort` já custa
-  ~27 ms/quadro a 10 000 partículas vivas; a Task 11 substituiu a ordenação
-  original de `sort=1` (inserção O(n²), ~3,25 s/quadro a 10 000 — ~3250x o
-  orçamento) por um bucket sort O(n + 256 baldes) sem alocar, que soma só
-  mais ~5 ms sobre o caminho base. O gargalo que falta pra chegar em 1 ms é
-  o preenchimento do buffer de instância em si (`update`/`drawSelf` sem
-  `sort`), não a ordenação — reduzir isso exigiria um caminho nativo de
-  simulação (como `mix_add` faz para áudio), fora do escopo desta entrega.
-  `10 000` partículas vivas simultâneas continua um valor de referência para
-  medir, não uma garantia de 60 fps neste runtime interpretado.
+- **Kernel nativo** (`rts:particles`, PR `rts#2831`): `ParticleSystem.update()`
+  detecta `particlesStep` uma vez (`temParticlesStep()`/`compat/particles.ts`,
+  `import()` dinâmico — `rts:particles` é um namespace NOVO, que pode não
+  existir de jeito nenhum num binário sem o PR, diferente de `rts:egui` onde
+  só um membro pode faltar; a detecção é assíncrona por causa disso, mas
+  resolve bem antes do primeiro quadro real). Com o nativo presente, UMA
+  chamada por sistema por quadro (dentro de `update()`, não em `drawSelf()`)
+  faz envelhecimento + integração (vento/gravidade/arrasto exponencial) +
+  gradiente de cor + curva de tamanho + espaço world/local + bucket sort
+  opcional + preenchimento do buffer de instância — `drawSelf()` só faz o
+  corte de frustum (`inFrustumFast`) e, se visível, desenha o buffer que
+  `update()` já preencheu (o corte pula o DESENHO, nunca a simulação: o
+  sistema continua envelhecendo/reciclando fora de tela). Sem o nativo
+  (binário antigo, ex. `rts-particulas/target/release/rts.exe`), cai pro
+  caminho TS puro de sempre (`sim.ts`+`curvas.ts`, com o preenchimento do
+  buffer em `drawSelf()`) — `logWarn` avisa uma vez, nunca trava.
+  Reciclagem: nem o kernel nativo nem o caminho TS mantêm mais uma pilha de
+  livres — `emitirN` usa um CURSOR rotativo sobre `P_VIDA` (ruling P6),
+  compartilhado pelos dois caminhos, com orçamento de sondas por partícula
+  pedida (nunca escaneia o pool inteiro); emissão pula inteira quando
+  `pool.vivas>=maxParticles` (a última contagem que o kernel devolveu, ou que
+  `atualizarVidas` calculou sem o nativo).
+- **Portão de performance** (Task 11 + integração do kernel nativo): a sonda
+  de alocação (`tests/claude-test-particulas-componente-10k-gc.ts`,
+  `tests/claude-test-particulasystem-gc.ts`, 200 000 iterações cada) dá 0
+  coletas de GC nos dois caminhos (TS e nativo) — os buffers do caminho por
+  quadro são todos reaproveitados (pool SoA, `saidaBuf`, `paramsBuf`, e os
+  baldes do bucket sort). O bench (`bench/claude-bench-particulas.ts`) mede
+  `update`+`drawSelf` a 1 000/5 000/10 000 partículas e `sort=1` a 1 000/10 000,
+  nos dois caminhos (o script imprime qual está ativo):
+
+  | n | sort | TS puro (antes) | nativo (depois) | fator |
+  |---|---|---|---|---|
+  | 1 000 | 0 | ~2,7 ms | 0,115 ms | ~23x |
+  | 5 000 | 0 | ~13,1 ms | 0,620 ms | ~21x |
+  | 10 000 | 0 | ~26,1 ms | **1,21 ms** | ~22x |
+  | 1 000 | 1 | ~3,6 ms | 0,125 ms | ~29x |
+  | 10 000 | 1 | ~35,7 ms | 1,295 ms | ~28x |
+
+  A meta do plano (≤ 1 ms a 10 000 partículas, `sort=0`) fica em **1,21 ms**
+  com o nativo — bem mais perto, mas ainda ~21% acima do orçamento: o kernel
+  em si mede ~0,107 ms a 10 000 (`kernel-rts-report.md`, `cargo test --release`),
+  então a diferença é overhead do lado TS por quadro (montar `paramsBuf`,
+  checagens de tamanho de buffer, o corte de frustum em `drawSelf`), não do
+  kernel — neste runtime interpretado, sem JIT, chamadas de função e
+  indexação de array já têm custo fixo por si só. `10 000` partículas vivas
+  simultâneas continua um valor de referência pra medir, e com o nativo já
+  é uma meta alcançável (~20% de ajuste fino), não mais ~27x fora de escala.
 
 ## Estender o editor por script
 

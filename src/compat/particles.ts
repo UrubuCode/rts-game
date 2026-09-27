@@ -84,6 +84,70 @@ export function setParticleTex(tex: number): void {
   specTex.tex = tex;
 }
 
+// ── `rts:particles` — kernel nativo `particlesStep` (integração do kernel) ─
+//
+// Namespace NOVO (PR rts#2831), diferente de `rts:egui`/`rts:rigid`: aqueles
+// SEMPRE existem (só um MEMBRO pode faltar num binário antigo, daí
+// `typeof (egui as any).drawParticles === "function"` funcionar sem
+// travar). `rts:particles` pode não existir DE JEITO NENHUM num binário sem
+// o PR — um `import * as x from "rts:particles"` ESTÁTICO nesse caso falha
+// na RESOLUÇÃO DO MÓDULO INTEIRO ("cannot resolve module … nothing
+// registered that specifier"), um erro que acontece ANTES do corpo do
+// módulo rodar — nenhum `try/catch` em volta de um `import` estático pega
+// isso (confirmado rodando contra `rts-particulas/target/release/rts.exe`,
+// que não tem o namespace). Por isso a detecção aqui usa `import()`
+// DINÂMICO (sempre assíncrono, mas o motor drena a fila de microtasks entre
+// chamadas do host ao script — o resultado já está pronto antes do 1º
+// `update()` de qualquer `ParticleSystem`), disparado uma vez no carregamento
+// do módulo, nunca por quadro. Enquanto a resolução não termina (janela de
+// uma fração de quadro no pior caso), `temParticlesStep()` devolve `false`
+// — o chamador cai pro caminho TS puro nesse ínterim, nunca trava.
+const AVISO_SEM_PARTICLES_STEP: string = "Partículas: particlesStep (rts:particles) ausente neste binário do rts; usando o caminho TS puro.";
+let avisouStep: number = 0;
+/// -1 = ainda resolvendo, 0 = ausente (módulo ou membro), 1 = presente.
+let disponivelStep: number = -1;
+let particlesStepFn: ((pool: Float64Array, params: Float64Array, dt: number, out: Float32Array) => number) | null = null;
+
+async function iniciarDeteccaoParticlesStep(): Promise<void> {
+  try {
+    const mod: any = await import("rts:particles");
+    if (typeof mod.particlesStep === "function") { particlesStepFn = mod.particlesStep; disponivelStep = 1; }
+    else { disponivelStep = 0; }
+  } catch (e) {
+    disponivelStep = 0;
+  }
+}
+/// A promise da detecção, exportada pra quem precisar ESPERAR o resultado
+/// de verdade (testes que checam `temParticlesStep()` logo no início do
+/// script, antes de qualquer volta ao host que daria chance da microtask
+/// rodar) — `await aguardarParticlesStep()` uma vez, no início. Caminhos por
+/// quadro nunca esperam isto: `temParticlesStep()` já está resolvido bem
+/// antes do 1º `update()` de qualquer `ParticleSystem` em uso normal (mount()
+/// e o 1º quadro são chamadas separadas do host, com uma volta ao Rust no
+/// meio — tempo de sobra pra um `import()` que só consulta um registro,
+/// sem I/O de verdade).
+const deteccaoParticlesStepPromise: Promise<void> = iniciarDeteccaoParticlesStep();
+export function aguardarParticlesStep(): Promise<void> { return deteccaoParticlesStepPromise; }
+
+/// 1 se o binário atual do rts expõe `particlesStep` (kernel nativo) e a
+/// detecção assíncrona já terminou. Calculado uma vez (a promise acima) e
+/// só LIDO daqui em diante — nenhum novo `import()` por chamada.
+export function temParticlesStep(): boolean {
+  if (disponivelStep === 0 && avisouStep === 0) { logWarn(AVISO_SEM_PARTICLES_STEP); avisouStep = 1; }
+  return disponivelStep === 1;
+}
+
+/// Caminho por quadro: SEM `try/catch` (a checagem de presença já foi feita
+/// em `temParticlesStep` — chame-a antes, e só chame isto se ela devolveu
+/// `true`). `pool` é o `Float64Array` SoA do `PoolParticulas` (P_FLOATS=14
+/// colunas), `params` é o `Float64Array` de 42 posições montado pelo
+/// chamador (reaproveitado, nunca alocado por quadro), `out` é o buffer de
+/// instância (>= (pool.length/14)*9 floats). Devolve o número de partículas
+/// vivas, escritas COMPACTADAS a partir do índice 0 de `out`.
+export function particlesStepSeguro(pool: Float64Array, params: Float64Array, dt: number, out: Float32Array): number {
+  return (particlesStepFn as any)(pool, params, dt, out);
+}
+
 /// Caminho por quadro: SEM `try/catch` aqui (mesmo padrão de
 /// `drawParticlesSeguro`). `buf` tem `PART_FLOATS` (9) floats por partícula;
 /// devolve o número de partículas desenhadas (0 = recusado ou nativo

@@ -31,9 +31,18 @@ import process from "@compat/process.ts";
 import { ParticleSystem } from "@scripts/particlesystem";
 import { FORMA_ESFERA } from "@engine/particles/desc";
 import { fixarSementeAleatorio } from "@engine/core/aleatorio";
+import { temParticlesStep, aguardarParticlesStep } from "@compat/particles";
 
 const n = parseInt(process.env("GC_N") === "" ? "20000" : process.env("GC_N"));
 const pos = new Float64Array([0.0, 0.0, 0.0]);
+
+async function main(): Promise<void> {
+// Este arquivo roda como UM script síncrono do início ao fim — sem este
+// `await` explícito a detecção assíncrona de `rts:particles` (ver
+// `compat/particles.ts`) nunca teria a chance de resolver antes do laço de
+// medição, e a sonda mediria o caminho TS mesmo num binário com o nativo.
+await aguardarParticlesStep();
+io.print("nativo (rts:particles.particlesStep) = " + (temParticlesStep() ? "SIM" : "não — caminho TS puro"));
 
 fixarSementeAleatorio(11);
 
@@ -67,3 +76,5 @@ while (i < n) {
 }
 io.print("FIM quadro_10k " + n);
 io.print("[PASSOU] claude-test-particulas-componente-10k-gc (vivas=" + ps.particleCount + " max=" + ps.maxParticles + ")");
+}
+main();
