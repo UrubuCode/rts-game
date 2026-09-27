@@ -8,6 +8,12 @@ export const OBJECT_PRESETS = [
   { label: "Objeto vazio", name: "Empty", meshKind: 0, r: 0, g: 0, b: 0 },
 ];
 
+/// Nome do preset "Criar/Áudio/Fonte" (`assets/pacotes/audio/audio_editor.ts`
+/// e o drop de um tile de áudio na viewport/hierarquia — `src/editor/dnd.ts`,
+/// item 2/4 do brief de arquivos universais). Aqui e não em `dnd.ts` pra
+/// evitar `dnd.ts` importar um pacote `@editorOnly` (risco de ciclo).
+export const AUDIO_PRESET_NOME_FONTE: string = "Fonte de áudio";
+
 export const OBJECT_PRESET_LABELS: string[] = [];
 let presetIndex = 0;
 while (presetIndex < OBJECT_PRESETS.length) {

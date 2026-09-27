@@ -10,7 +10,7 @@ import fs from "@compat/fs.ts";
 
 import { scene, S } from "../session";
 import { sceneDocument } from "@editor/scene_document";
-import { kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, vistaDaSessao } from "@editor/dnd";
+import { kindOfPathAll as kindOfPath, instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, applyAudioToObject, vistaDaSessao } from "@editor/dnd";
 import { VISTA_FLOATS } from "@editor/gizmo";
 import { isModelPath } from "@engine/render/model";
 import { thumbReport, TH_IMAGE, TH_MODEL, TH_PREFAB, TH_SCENE } from "@editor/thumbs";
@@ -109,7 +109,12 @@ export function cmdDropOn(parts: string[]): string {
     S.selected = oi;
     return "[ok] dropon " + path + " -> mesh de #" + oi + " (" + scene.objects[oi].name + ") mesh#" + mid;
   }
-  return "[erro] " + kind + " nao se aplica a um objeto (use imagem pra textura ou .obj pra mesh)";
+  if (kind === "audio") {
+    applyAudioToObject(oi, path);
+    S.selected = oi;
+    return "[ok] dropon " + path + " -> AudioSource.clip de #" + oi + " (" + scene.objects[oi].name + ")";
+  }
+  return "[erro] " + kind + " nao se aplica a um objeto (use imagem pra textura, .obj pra mesh ou .wav/.ogg pra AudioSource)";
 }
 
 /// pickat <sx> <sy> — qual objeto está sob esse pixel da tela? (-1 = nenhum).

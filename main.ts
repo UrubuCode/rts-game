@@ -29,7 +29,7 @@ import { previewFrame } from "@editor/skeleton_preview";
 import { EditorUI } from "@editor/ui_controls";
 import { dropScriptOnObject, scriptDropError } from "@editor/script_drop";
 import { ScriptEditor } from "@editor/script_editor";
-import { UI_SCRIPT_DROP, UI_CODE_EDITOR } from "@editor/ui_config";
+import { UI_SCRIPT_DROP, UI_CODE_EDITOR, UI_EXPLORER_DROP } from "@editor/ui_config";
 import { PreferencesPanel } from "@editor/preferences_panel";
 import { PlayToolbar } from "@editor/play_toolbar";
 import { drawGameUI } from "@engine/ui/game_ui";
@@ -45,7 +45,8 @@ import { sceneDocument } from "@editor/scene_document";
 import { DocumentPanel, saveDocument } from "@editor/document_panel";
 import { chooseSceneFile } from "@editor/scene_dialog";
 import { editorBuild } from "@editor/editor_build";
-import { assetsInit, assetsOpenScenes, drawAssets, assetsArea, assetsMouse, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost } from "@editor/assets";
+import { assetsInit, assetsOpenScenes, drawAssets, assetsArea, assetsMouse, assetDragActive, assetDragPayload, assetDragName, assetDragClear, drawAssetDragGhost, assetsCurrentDir } from "@editor/assets";
+import { importFileToAssets, defaultImportDir, ASSETS_AUDIO_DIR } from "@editor/import_assets";
 import { initMeshes, setCamBuf, frustumBeginBuf, CAM_FLOATS, FRUSTUM_NEAR_PADRAO, FRUSTUM_FAR_PADRAO, CAM_ORTO_PADRAO, frustumParams, winWidth, winHeight, loadTexture,
          setViewportBuf, setFundoCeu } from "@engine/render/gpu3d";
 import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas, posicaoDaVista, frustumDaVista } from "@engine/render/camera_views";
@@ -58,7 +59,7 @@ import { pickAxis, axisMove, projPt, screenToGround, snapv, TOOL_MOVE, TOOL_ROTA
   GIZMO_ROTATE_PER_UNIT, SNAP_MOVE_STEP, SNAP_ROTATE_STEP } from "@editor/gizmo";
 import { selectedBoneTarget, boneWorldOriginInto, boneDrag } from "@editor/bone_gizmo";
 import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
-import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, vistaDaSessao } from "@editor/dnd";
+import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, applyAudioToObject, vistaDaSessao, assetMarkerKind, kindOfPathAll } from "@editor/dnd";
 import { history } from "@editor/undo";
 import { rigidBackendName } from "@engine/core/physics_backend";
 import { stepsFor, stepMore, stepAlpha, stepsLastFrame, stepDiscards, stepTimeScale } from "@engine/core/fixedstep";
@@ -373,6 +374,45 @@ function dropAssetInWorld(kind: string, path: string, sx: f64, sy: f64): number 
   return instantiateAt(kind, path, pontoDrop);
 }
 
+// ── Soltura do EXPLORER (item 3 do brief de arquivos universais) ───────────
+// Caminho LENTO (só roda quando `input.droppedCount(WIN) > 0` — raro, um
+// quadro por soltura): importa cada arquivo pra `assets/` (nunca referencia
+// caminho de fora do projeto) e aplica a MESMA ação do arraste do Project no
+// alvo sob o cursor da soltura. `try/catch` fica só aqui dentro — nunca no
+// caminho por quadro que chama isto (regra do CLAUDE.md).
+function handleExplorerDrop(n: number, region: string, hIdx: number, sx: f64, sy: f64): void {
+  const projectDir = assetsCurrentDir();
+  let firstImported = "";
+  let firstKind = "";
+  let i = 0;
+  while (i < n) {
+    const src = input.droppedPath(WIN, i);
+    if (src.length > 0) {
+      const rawKind = kindOfPathAll(src);
+      const destDir = region === "project" ? projectDir : (rawKind === "audio" ? ASSETS_AUDIO_DIR : projectDir);
+      try {
+        const dest = importFileToAssets(src, destDir);
+        logInfo("importado " + src + " → " + dest);
+        if (firstImported === "") { firstImported = dest; firstKind = rawKind; }
+      } catch (e) {
+        logError("Importar " + src + ": " + String(e));
+      }
+    }
+    i = i + 1;
+  }
+  if (firstImported === "" || region === "project") return;   // só importa sobre o Project
+  if (region === "viewport") {
+    dropAssetInWorld(firstKind, firstImported, sx, sy);
+  } else if (region === "hierarquia" && hIdx >= 0 && hIdx < scene.objects.length) {
+    if (firstKind === "tex") applyTexToObject(hIdx, firstImported, WIN);
+    else if (firstKind === "audio") applyAudioToObject(hIdx, firstImported);
+    else if (firstKind === "script") {
+      const error = dropScriptOnObject(firstImported, hIdx);
+      if (error.length > 0) logError(error);
+    }
+  }
+}
+
 // Reposiciona o objeto-preview no ponto do chão sob o cursor (segue o mouse).
 function movePreviewTo(sx: f64, sy: f64): void {
   if (previewIdx < 0 || previewIdx >= scene.objects.length) return;
@@ -462,7 +502,10 @@ let slotTexHot = 0;
 let slotMeshHot = 0;
 // Idem para o ObjectField do Inspector (item 2 do brief de áudio-arquivos):
 // 1 quando um tile de áudio arrastado do Project está sobre o campo de clipe.
-let slotAudioHot = 0;
+// Chave @asset ("audio"/"imagem"/...) do ObjectField do Inspector sob o
+// cursor neste quadro, ou "" (qualquer tipo — item 1 do brief de arquivos
+// universais, não só áudio como antes).
+let slotObjHotKind = "";
 // PREVIEW VIVO do drag: o asset arrastado já é instanciado na cena e segue o
 // cursor pelo chão (como na Unity). previewIdx = índice do objeto-preview na
 // cena (-1 = nenhum); previewPay = payload que o gerou, pra não recriar por frame.
@@ -726,6 +769,24 @@ function frame(): void {
   const dndTex = dndOn !== 0 && dndPay.charCodeAt(0) === 116 ? 1 : 0;      // "tex:"
   const dndModel = dndOn !== 0 && dndPay.charCodeAt(0) === 109 ? 1 : 0;    // "model:"
   const dndAudio = dndOn !== 0 && dndPay.charCodeAt(0) === 97 ? 1 : 0;     // "audio:"
+  // Chave crua do tipo arrastado ("audio"/"imagem"/...), pro ObjectField do
+  // Inspector comparar com o @asset do campo sob o cursor (qualquer tipo, não
+  // só áudio — item 1 do brief de arquivos universais).
+  const dndKindStr = dndOn === 0 ? "" : assetMarkerKind(subStr(dndPay, 0, dndPay.indexOf(":")));
+  // ── Soltura do Explorer (item 3 do brief de arquivos universais) ───────────
+  // Checagem barata, sem alocação, todo quadro; o caminho lento (import +
+  // try/catch) só roda no quadro em que algo foi solto de verdade.
+  const explorerDroppedN = input.droppedCount(WIN);
+  const explorerHovering = input.hoveredFiles(WIN) > 0;
+  if (explorerDroppedN > 0) {
+    const dx = input.droppedX(WIN); const dy = input.droppedY(WIN);
+    let dropRegion = "outro";
+    if (dx > HIER_W && dx < W - INSP_W && dy > H - UI_STATUS_H - ASSET_H) dropRegion = "project";
+    else if (dx > HIER_W && dx < W - INSP_W && dy > BAR_H + UI_SCENE_HEADER_H) dropRegion = "viewport";
+    else if (dx >= 0 && dx < HIER_W && dy > BAR_H) dropRegion = "hierarquia";
+    const dropHIdx = dropRegion === "hierarquia" ? hierRowAt(dy) : 0 - 1;
+    handleExplorerDrop(explorerDroppedN, dropRegion, dropHIdx, dx, dy);
+  }
   const cpt2 = math.cos(S.camPitch); const spt2 = math.sin(S.camPitch);
   vistaDaSessao(vistaEditor, W, H, focalW);
   let scriptTarget = 0 - 1;
@@ -1292,8 +1353,8 @@ function frame(): void {
     if (hi === S.selected) fill = UI_C.controlActive;
     if (hierDrag < 0 && inRow) fill = UI_C.controlHover;
     if (hierDrag >= 0 && dropMode === 2 && dropIdx === hi && hi !== hierDrag) fill = UI_C.rowDropTarget; // vira filho
-    // arrastando uma TEXTURA do Project sobre esta linha → alvo do drop
-    if (dndOn !== 0 && inRow && dndTex !== 0) fill = UI_C.rowDropTarget;
+    // arrastando uma TEXTURA ou um ÁUDIO do Project sobre esta linha → alvo do drop
+    if (dndOn !== 0 && inRow && (dndTex !== 0 || dndAudio !== 0)) fill = UI_C.rowDropTarget;
     if (dndScript && scriptTarget === hi && scriptError.length === 0) fill = UI_C.rowDropTarget;
     pincel(fill, 0, 0, 5); caixa(8 + indent, ry0 + 1, HIER_W - 16 - indent, UI_HIER_ROW_H - 2);
     if (depth > 0) texto(8 + indent - 12, ry0 + 5, "└", estiloTexto(UI_C.hierarchyBranch, 14));
@@ -1376,12 +1437,12 @@ function frame(): void {
   // Inspector: raiz e controles sao GameObjects de uma UIScene do editor.
   inspector.area(W - INSP_W, BAR_H, INSP_W, H - BAR_H);
   inspector.mouse(mx, my, mDownNow, mPressed);
-  inspector.drag(dndOn, dndAudio);
+  inspector.drag(dndOn, dndKindStr);
   inspector.renderProtegido(app, menuOpen !== 0 || helpOpen !== 0, dndModel, dndTex);
   addMenuOpen = inspector.opened !== 0 || inspector.objOpened !== 0 ? 1 : 0;
   slotMeshHot = inspector.meshHot;
   slotTexHot = inspector.textureHot;
-  slotAudioHot = inspector.objectHot();
+  slotObjHotKind = inspector.objectHotKind();
   // ObjectField pingado (clique no campo): mostra o Project (não o Console)
   // pra revelar o tile, como a Unity troca de painel ao pingar um asset.
   if (inspector.pinged) workspaceViews.console = false;
@@ -1498,6 +1559,8 @@ function frame(): void {
       const hIdx = hierRowAt(my);
       if (kind === "tex" && hIdx >= 0 && hIdx < scene.objects.length) {
         applyTexToObject(hIdx, dpath, WIN);
+      } else if (kind === "audio" && hIdx >= 0 && hIdx < scene.objects.length) {
+        applyAudioToObject(hIdx, dpath);
       } else {
         dropAssetInWorld(kind, dpath, 0.0 - 1.0, 0.0);
       }
@@ -1505,7 +1568,7 @@ function frame(): void {
       // sobre o inspector: só os slots aceitam (hit-test guardado no draw)
       if (kind === "tex" && slotTexHot !== 0) applyTexToObject(S.selected, dpath, WIN);
       else if (kind === "model" && slotMeshHot !== 0) applyMeshToObject(S.selected, dpath, WIN);
-      else if (kind === "audio" && slotAudioHot !== 0) inspector.dropObjectField(dpath);
+      else if (slotObjHotKind.length > 0 && slotObjHotKind === assetMarkerKind(kind)) inspector.dropObjectField(dpath);
     }
     // Soltar de VOLTA no Project (ou em qualquer área não tratada) = CANCELAR:
     // nenhum ramo acima rodou, então o preview é descartado e a cena fica intacta.
@@ -1540,6 +1603,15 @@ function frame(): void {
     // o "fantasma" com o nome do arquivo só aparece quando NÃO há preview 3D:
     // dentro do viewport o próprio objeto renderizado já é a prévia.
     if (previewIdx < 0) drawAssetDragGhost(WIN, mx, my);
+  }
+  // Arrasto do SISTEMA DE ARQUIVOS pairando (item 3): o runtime não expõe a
+  // extensão do arquivo pairando (só ao soltar), então o realce aqui é
+  // genérico — não distingue compatível/recusa por tipo como o arraste do
+  // Project acima; a classificação por tipo só acontece na soltura mesma.
+  if (explorerHovering && dndOn === 0) {
+    const hx = input.hoveredX(WIN); const hy = input.hoveredY(WIN);
+    pincel(0, 1, UI_C.dropMarker, 8); caixa(hx - 24, hy - 24, 48, 48);
+    texto(hx + 14, hy + 4, UI_EXPLORER_DROP.hovering, estiloTexto(UI_C.dropMarker, 12));
   }
 
   // Feedback controls are persistent GameObjects in the editor-only UI scene.
