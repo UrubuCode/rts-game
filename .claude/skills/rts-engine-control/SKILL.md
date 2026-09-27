@@ -145,6 +145,10 @@ arquivo.
   campo aceitos, sem precisar hardcodar aqui.
 - Salvar e build ficam bloqueados durante o Play; um segundo editor na mesma
   porta sobe sem controle.
+- **Partículas**: `playOnAwake` só dispara dentro do Play; fora dele, só o
+  objeto selecionado simula (prévia de edição), nunca salva na cena.
+  Confirme o efeito pelos números do estado (vivas, bbox, t), não por
+  impressão visual.
 
 ## 10. Pegadinhas
 

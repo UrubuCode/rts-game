@@ -284,7 +284,15 @@ function menuEntries(menu: number): string[] {
 function createMenuObject(choice: number, parentIdx: number): void {
   if (choice < 0 || choice >= OBJECT_PRESETS.length) return;
   const preset = OBJECT_PRESETS[choice];
-  ctxCreate(preset.name, preset.meshKind, preset.r, preset.g, preset.b, parentIdx);
+  const o = ctxCreate(preset.name, preset.meshKind, preset.r, preset.g, preset.b, parentIdx);
+  // presets sem malha (fogo/fumaça/faíscas/chuva…) trazem seus componentes
+  // pela mesma fábrica que o menu global e o de contexto leem — ambos
+  // passam por createMenuObject, então não há lógica duplicada entre eles.
+  if (preset.componentes) {
+    const behaviors = preset.componentes();
+    let bi = 0;
+    while (bi < behaviors.length) { o.addBehavior(behaviors[bi]); bi = bi + 1; }
+  }
 }
 
 function frameObject(idx: number): void {

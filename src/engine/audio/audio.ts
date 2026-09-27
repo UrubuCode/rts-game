@@ -27,6 +27,7 @@ import { MAX_VOZES, VOZ_FLOATS, V_ESTADO, V_CLIPE, V_POS, V_PASSO, V_LACO, V_GL,
          FLAG_VIRTUAL, FLAG_PREVIA, FLAG_3D, FLAG_ONESHOT, FLAG_CONGELADA, CORTE_ABERTO, PEDIDO_VOLUME, PEDIDO_PITCH,
          PEDIDO_LACO, PEDIDO_GRUPO, PEDIDO_FONTE, PEDIDO_FLAGS, PEDIDO_X, PEDIDO_Y, PEDIDO_Z, PEDIDO_BLEND,
          PEDIDO_MIN, PEDIDO_MAX, PEDIDO_ROLLOFF, PEDIDO_FLOATS, ROLLOFF_LOG, pedidoPadrao } from "./vozes";
+import { entrarJogo, sairJogo, emJogo } from "@engine/core/modo_jogo";
 
 export { AUDIO_REAL, AUDIO_NULO };
 export const KERNEL_NATIVO: number = 0;
@@ -70,7 +71,6 @@ let auDev: number = 0;
 let auTaxa: f64 = AU_TAXA_PADRAO;
 let auCanais: number = AU_CANAIS_PADRAO;
 let auNulo: number = 0;
-let auEmJogoFlag: number = 0;
 let auKernel: number = KERNEL_NATIVO;
 let auPreviaId: number = 0;
 /// Alvo ADAPTATIVO de quadros enfileirados (ver `AU_ALVO_QUADROS_MIN/MAX`);
@@ -328,11 +328,14 @@ export function activeVoices(): number {
 }
 
 // ── jogo e prévia ────────────────────────────────────────────────────────────
+// O flag "em jogo" em si mora em `engine/core/modo_jogo.ts` (compartilhado com
+// qualquer outro componente `playOnAwake`, como `ParticleSystem`) — aqui só os
+// efeitos colaterais PRÓPRIOS do áudio (parar prévia / parar tudo) continuam.
 /// O Play (ou o jogo) começou: `playOnAwake` vale a partir daqui. A prévia do editor para.
-export function audioEntrarJogo(): void { pararPrevia(); auEmJogoFlag = 1; }
+export function audioEntrarJogo(): void { pararPrevia(); entrarJogo(); }
 /// O Play parou: tudo o que tocava para (spec §3.6, "Ciclo do Play").
-export function audioSairJogo(): void { pararTodasSuave(); auEmJogoFlag = 0; }
-export function audioEmJogo(): number { return auEmJogoFlag; }
+export function audioSairJogo(): void { pararTodasSuave(); sairJogo(); }
+export function audioEmJogo(): number { return emJogo(); }
 
 /// Prévia 2D do Inspector: uma por vez, ignora o laço, sem mexer na cena.
 export function tocarPrevia(clip: AudioClip, volume: f64, pitch: f64): number {

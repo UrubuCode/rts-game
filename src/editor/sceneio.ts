@@ -24,6 +24,7 @@ import { Orbit } from "../scripts/orbit";
 import { Patrol } from "../scripts/patrol";
 import { KeyframeAnimator } from "../scripts/keyframeanimator";
 import { audioSourceLegado, AudioSource } from "../scripts/audiosource";
+import { ParticleSystem } from "../scripts/particlesystem";
 import { PhysicsMaterial } from "../scripts/physicsmaterial";
 import { Collider, SHAPE_BOX } from "../engine/core/collider";
 import { UIText } from "../engine/core/ui_text";
@@ -78,6 +79,7 @@ function recreateBehaviorInner(sd: any): Behavior {
     return animator;
   }
   if (t === "audiosource") return audioSourceLegado(sd);
+  if (t === "particleSystem") return ParticleSystem.fromData(sd);
   if (t === "physicsmaterial") {
     const physical = new PhysicsMaterial(sd.preset);
     physical.density = sd.density; physical.restitution = sd.restitution; physical.friction = sd.friction;
