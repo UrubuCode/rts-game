@@ -16,8 +16,11 @@
 //
 // Enquanto a simulação está ATIVA, a entrada real é ignorada (inclusive o
 // mouse físico): o que o agente injetou não pode ser misturado com o que a mão
-// do usuário faz ao mesmo tempo. Ela desliga com `input off` ou sozinha depois
-// de `SIM_OCIOSA_MS` sem injeção, fila vazia e nada segurado.
+// do usuário faz ao mesmo tempo. Para o humano nunca ficar trancado ela
+// desliga — soltando tudo o que estiver segurado — com `input off`, quando a
+// conexão dona fecha (commands/input.ts) ou sozinha depois de `SIM_OCIOSA_MS`
+// sem injeção com a fila vazia (mesmo com tecla/botão segurado). A barra de
+// status mostra quando ela está ligada.
 //
 // # Custo
 //
@@ -35,7 +38,7 @@ export const SIM_BOTOES: number = 3;
 /// Distância máxima (pixels) entre apertar e soltar para contar como clique
 /// (a mesma tolerância do egui para um clique não virar arrasto).
 export const SIM_CLIQUE_MAX_DIST: f64 = 6.0;
-/// Desliga sozinha depois deste tempo sem injeção (fila vazia, nada segurado).
+/// Desliga sozinha (soltando tudo) depois deste tempo sem injeção e fila vazia.
 export const SIM_OCIOSA_MS: number = 30000;
 
 // tipos de evento
@@ -58,6 +61,16 @@ let filaN = 0;
 const textos: string[] = [];
 
 let ativa = 0;
+/// Sobe a cada desligamento: quem espera a resposta de um `input` sabe que foi cancelado.
+let geracao = 0;
+/// `f(motivo)` nas transições: "ligada", "desligada" (input off / conexão
+/// fechou) e "ociosa" (prazo). Só nas transições, nunca por quadro.
+let aviso: any = null;
+export const SIM_LIGADA: string = "ligada";
+export const SIM_DESLIGADA: string = "desligada";
+export const SIM_OCIOSA: string = "ociosa";
+export function definirAvisoSimulacao(f: any): void { aviso = f; }
+export function simGeracao(): number { return geracao; }
 let quadro = 0;
 let quadroUltimoEvento = 0 - 1;
 let ultimaInjecaoMs: number = 0;
@@ -89,10 +102,13 @@ function empurra(tipo: number, a: f64, b: f64): boolean {
   const k = ((filaIni + filaN) % FILA_MAX) * CAMPOS;
   fila[k] = tipo; fila[k + 1] = a; fila[k + 2] = b;
   filaN = filaN + 1;
-  ativa = 1;
+  if (ativa === 0) { ativa = 1; if (aviso !== null) aviso(SIM_LIGADA); }
   ultimaInjecaoMs = Date.now();
   return true;
 }
+
+/// Testes: finge que a última injeção foi há `ms` milissegundos.
+export function simEnvelhecer(ms: number): void { ultimaInjecaoMs = ultimaInjecaoMs - ms; }
 
 /// Espaço livre na fila (o comando recusa em vez de enfileirar pela metade).
 export function simEspacoLivre(): number { return FILA_MAX - filaN; }
@@ -110,15 +126,20 @@ export function simTexto(t: string): void {
 export function simQuebra(): void { empurra(EV_QUEBRA, 0.0, 0.0); }
 
 /// Solta tudo, esvazia a fila e volta à entrada real.
-export function simDesligar(): void {
+export function simDesligar(): void { desligar(SIM_DESLIGADA); }
+function desligar(motivo: string): void {
+  const estava = ativa !== 0;
+  geracao = geracao + 1;
   filaIni = 0; filaN = 0; textos.length = 0;
   let b = 0; while (b < SIM_BOTOES) { botoes[b] = 0; botoesAntes[b] = 0; b = b + 1; }
   let t = 0; while (t < SIM_TECLAS) { teclas[t] = 0; bordaTecla[t] = 0; t = t + 1; }
   dx = 0.0; dy = 0.0; roda = 0.0; textoQuadro = "";
   ativa = 0;
+  if (estava && aviso !== null) aviso(motivo);
 }
 
-function algoSegurado(): boolean {
+/// Algum botão ou tecla simulado segurado?
+export function simAlgoSegurado(): boolean {
   let b = 0; while (b < SIM_BOTOES) { if (botoes[b] !== 0) return true; b = b + 1; }
   let t = 0; while (t < SIM_TECLAS) { if (teclas[t] !== 0) return true; t = t + 1; }
   return false;
@@ -136,7 +157,7 @@ export function entradaQuadro(): void {
   while (t < SIM_TECLAS) { bordaTecla[t] = 0; t = t + 1; }
   dx = 0.0; dy = 0.0; roda = 0.0; textoQuadro = "";
   if (filaN === 0) {
-    if (Date.now() - ultimaInjecaoMs >= SIM_OCIOSA_MS && !algoSegurado()) ativa = 0;
+    if (Date.now() - ultimaInjecaoMs >= SIM_OCIOSA_MS) desligar(SIM_OCIOSA);
     return;
   }
   while (filaN > 0) {

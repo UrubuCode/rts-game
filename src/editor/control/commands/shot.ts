@@ -12,7 +12,7 @@
 // RGBA do último quadro apresentado, mais um codificador PNG. Ver o relatório
 // controle-ia-lote2-report.md.
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import nodeProcess from "node:process";
 import fs from "@compat/fs.ts";
 import { S } from "@editor/control/session";
@@ -20,12 +20,14 @@ import { erroUso } from "@editor/control/builtin_commands";
 import { argInt } from "@editor/control/args";
 import { novoAdiado, RESPOSTA_ADIADA } from "@editor/control/adiado";
 import { decodePNG } from "@engine/render/png";
+import { tarefaDeFundo, matarArvore } from "@editor/control/processos";
 
 /// Pasta padrão das capturas (fora do versionamento, como os builds).
 export const SHOT_PASTA: string = "build/shots";
 const SHOT_SCRIPT: string = "tools/shot.ps1";
 /// O PowerShell sobe em ~1 s; a captura em si é instantânea.
 const SHOT_PRAZO_MS: number = 20000;
+const SHOT_FOLGA_MS: number = 2000;
 /// Maior lado aceito por `shot diff` (proteção contra arquivo corrompido).
 const DIFF_MAX_PIXELS: number = 16384;
 export const SHOT_MODO_JANELA: string = "janela";
@@ -44,6 +46,18 @@ export function caminhoPadraoShot(): string {
   return SHOT_PASTA + "/shot-" + Date.now() + ".png";
 }
 
+/// O caminho de saída é aceitável? "" = sim. Ele vira argumento do PowerShell
+/// e um arquivo gravado: nada de opção disfarçada ("-Algo"), só .png e só
+/// dentro da pasta do projeto.
+export function motivoCaminhoInvalido(caminho: string): string {
+  if (caminho.charCodeAt(0) === 45) return "caminho nao pode comecar com '-'";
+  if (!terminaCom(caminho, ".png")) return "o caminho precisa terminar em .png";
+  const raiz = resolve(".").toLowerCase();
+  const alvo = resolve(caminho).toLowerCase();
+  if (alvo.indexOf(raiz + sep) !== 0) return "o caminho precisa ficar dentro do projeto (" + resolve(".") + ")";
+  return "";
+}
+
 /// shot [caminho.png] [janela|jogo] | shot diff <a.png> <b.png> [tolerancia]
 export function cmdShot(parts: string[], w: number, h: number): string {
   if (parts.length > 1 && parts[1] === "diff") return cmdShotDiff(parts);
@@ -58,6 +72,8 @@ export function cmdShot(parts: string[], w: number, h: number): string {
     i = i + 1;
   }
   if (caminho.length === 0) caminho = caminhoPadraoShot();
+  const invalido = motivoCaminhoInvalido(caminho);
+  if (invalido.length > 0) return "[erro] shot: " + invalido;
   if (filho !== null) return "[erro] shot: outra captura em andamento";
   const absoluto = resolve(caminho);
   const args: string[] = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
@@ -73,14 +89,15 @@ export function cmdShot(parts: string[], w: number, h: number): string {
 
 /// Dispara o PowerShell (numa função própria por causa do `try`).
 function iniciarCaptura(caminho: string, args: string[]): string {
-  const espera = novoAdiado("shot", SHOT_PRAZO_MS);
+  const espera = novoAdiado("shot", SHOT_PRAZO_MS + SHOT_FOLGA_MS);   // a vigia responde antes, com o motivo
   let saida = "";
   try {
     const c = spawn("powershell.exe", args, { windowsHide: true });
     filho = c;
-    c.on("error", (e: any) => { filho = null; espera.concluir("[erro] shot: powershell nao iniciou: " + String(e)); });
+    c.on("error", (e: any) => { if (filho !== c) return; filho = null; espera.concluir("[erro] shot: powershell nao iniciou: " + String(e)); });
     if (c.stdout !== null && c.stdout !== undefined) c.stdout.on("data", (d: any) => { saida = saida + d.toString(); });
     c.on("exit", (codigo: any) => {
+      if (filho !== c) return;   // já foi morto por prazo (vigiarCaptura)
       filho = null;
       const linha = saida.trim();
       if (codigo === 0 && linha.indexOf("ok ") === 0) espera.concluir("[ok] " + caminho + " " + linha.substring(3));
@@ -90,6 +107,17 @@ function iniciarCaptura(caminho: string, args: string[]): string {
     filho = null;
     return "[erro] shot: " + String(e);
   }
+  // prazo e abandono vigiados pelo ctrlPoll: o PowerShell não fica pendurado
+  const limite = Date.now() + SHOT_PRAZO_MS;
+  tarefaDeFundo(() => {
+    if (filho === null) return true;
+    if (Date.now() < limite && !espera.abandonado) return false;
+    const c = filho;
+    filho = null;
+    matarArvore(c);
+    espera.concluir("[erro] shot: a captura nao terminou em " + (SHOT_PRAZO_MS / 1000) + " s (processo encerrado)");
+    return true;
+  });
   return RESPOSTA_ADIADA;
 }
 

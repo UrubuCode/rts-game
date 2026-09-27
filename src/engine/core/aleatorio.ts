@@ -27,6 +27,12 @@ export function semearAleatorio(n: f64): void {
   estado = semente;
 }
 
+/// Semente FIXADA (comando `seed`): reaplicada no início de cada Play
+/// (`reaplicarSementeFixada`), para cada sessão repetir a mesma sequência.
+let fixada = 0;
+export function fixarSementeAleatorio(n: f64): void { semearAleatorio(n); fixada = 1; }
+export function reaplicarSementeFixada(): void { if (fixada !== 0) estado = semente; }
+
 /// A semente em uso (a normalizada).
 export function sementeAleatorio(): f64 { return semente; }
 

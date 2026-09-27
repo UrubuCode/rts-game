@@ -8,7 +8,8 @@
 //   rts.exe run tests/test_ws_input.ts
 import io from "@compat/io.ts";
 import input from "@compat/input";
-import { entradaQuadro, simAtiva } from "@compat/input_sim";
+import { entradaQuadro, simAtiva, simEnvelhecer } from "@compat/input_sim";
+import { definirConexaoAtual, conexaoFechou } from "@editor/control/conexao";
 import { instalarEditorReal } from "@editor/editor_host";
 import { execCommand } from "@editor/control/dispatch";
 import { RESPOSTA_ADIADA, tomarAdiado, avancarAdiado, Adiado } from "@editor/control/adiado";
@@ -129,4 +130,30 @@ while (!quadroCampo(a)) {}
 check(valor === 42.5, "Enter confirma o texto digitado: " + valor);
 
 check(execCommand(W, H, "input off") === "[ok] input off (entrada real)" && !simAtiva(), "off");
-io.print("[PASSOU] ws input: clique, down/up persistente, arrasto, teclas, texto, roda, argumentos e campo numerico real");
+
+// ── o humano nunca fica trancado ──────────────────────────────────────────
+// 1. a conexão dona fecha com uma tecla segurada: tudo solto, entrada real de volta
+definirConexaoAtual(5);
+a = injeta("input key w down");
+definirConexaoAtual(0);
+while (!quadro(a)) {}
+check(simAtiva() && input.key(0, 122, 0), "w segurada pela conexao 5");
+conexaoFechou(6);
+check(simAtiva(), "outra conexao fechando nao solta");
+conexaoFechou(5);
+check(!simAtiva(), "a dona fechou: simulacao desligada");
+// 2. ociosa por 30 s MESMO com tecla segurada
+a = injeta("input key w down");
+while (!quadro(a)) {}
+check(simAtiva(), "segurada de novo");
+simEnvelhecer(31000);
+entradaQuadro();
+check(!simAtiva(), "30 s sem injecao: desliga mesmo segurada");
+// 3. `input off` de outro cliente cancela a resposta que alguém espera
+definirConexaoAtual(1);
+a = injeta("input drag 10 10 200 10 30");
+definirConexaoAtual(2);
+check(execCommand(W, H, "input off").indexOf("[ok] input off") === 0, "off de outro cliente");
+definirConexaoAtual(0);
+check(quadro(a) && a.texto.indexOf("[erro] input drag") === 0 && a.texto.indexOf("cancelado") > 0, "espera cancelada: " + a.texto);
+io.print("[PASSOU] ws input: clique, down/up persistente, arrasto, teclas, texto, roda, argumentos, campo numerico real, dona fechou, ociosa com tecla segurada, off cancela a espera");

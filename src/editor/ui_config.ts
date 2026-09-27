@@ -180,6 +180,17 @@ export const UI_WORKSPACE = {
   tabKey: "View/", bottomTabKey: "Bottom/",
   buildRunning: "Compilando jogo... acompanhe no Console", buildResult: "Build: resultado e caminho no Console",
 };
+/// Indicadores do controle pela porta WS na barra de status (à direita).
+export const UI_CONTROLE_IA = {
+  simulatedInput: "Entrada simulada (IA) - input off",
+  /// Largura do selo da entrada simulada, medida da direita da barra.
+  simulatedInputW: 220,
+  timeScalePrefix: "Tempo x",
+  /// Largura reservada ao rótulo da escala de tempo, à esquerda do selo.
+  timeScaleW: 90,
+  /// Recuo vertical do selo dentro da barra e altura do texto.
+  badgeInset: 3, textInset: 19, font: 11,
+};
 /// Aba Jogo: seletores de proporção (faixas quando não bate com a área) e de câmera, à direita das abas.
 export const UI_GAME_VIEW = {
   aspectLabels: ["Livre", "16:9", "4:3"], aspectTokens: ["livre", "16:9", "4:3"], aspectRatios: [0.0, 16.0 / 9.0, 4.0 / 3.0],
@@ -310,6 +321,11 @@ export const UI_C = {
   popupHover: 0x3A5A80FF,
   popupText: 0xD4D4D4FF,
   statusText: 0xB8C1CDFF,
+  /// Barra de status: entrada simulada pela porta de controle ligada (o mouse/teclado físicos são ignorados).
+  simulatedInputFill: 0x8A3A20FF,
+  simulatedInputText: 0xFFE0C8FF,
+  /// Barra de status: escala de tempo da simulação diferente de 1.
+  timeScaleText: 0xFFC860FF,
   splitterHover: 0x6A9DD2FF,
   dropTint: 0x77DD9955,
   contextBorder: 0x3C3C3CFF,

@@ -29,7 +29,7 @@ check(cmd("log tail x").indexOf("[erro]") === 0 && cmd("log tail 0").indexOf("[e
 check(cmd("log clear") === "[log] limpo", "clear");
 
 // ── errors ─────────────────────────────────────────────────────────────────
-check(cmd("errors clear") === "[ok] errors limpo", "errors clear");
+check(cmd("errors clear").indexOf("[ok] errors limpo") === 0, "errors clear");
 const vazio = cmd("errors");
 check(vazio.indexOf("[falhas] excecoes=0") === 0 && vazio.indexOf("ultima: nenhuma") > 0 && vazio.indexOf("desligados por falha: 0") > 0, "vazio: " + vazio);
 registerCommand("teste_diag_lanca", "teste_diag_lanca :: lanca", false, (p: string[]) => { throw new Error("falhou de proposito"); });
@@ -79,5 +79,6 @@ loadModel(0, "assets/claude_nao_existe.obj");
 const ae = cmd("assets errors");
 check(ae.indexOf("[assets] falhas=1") === 0 && ae.indexOf("modelo assets/claude_nao_existe.obj (x2)") > 0, "modelo que falhou: " + ae);
 check(cmd("errors").indexOf("assets_com_falha=1") > 0, "errors conta os assets");
+check(cmd("errors clear").indexOf("[ok]") === 0 && cmd("assets errors").indexOf("[assets] falhas=1") === 0, "errors clear nao apaga os assets");
 check(cmd("assets").indexOf("[erro] uso") === 0 && cmd("assets x").indexOf("[erro] uso") === 0, "assets uso");
 io.print("[PASSOU] ws diag: log tail, errors (excecao, pilha, ganchos), prof frames (picos), gc, assets errors");

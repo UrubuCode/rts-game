@@ -12,10 +12,12 @@ import { erroUso } from "@editor/control/builtin_commands";
 import { argInt, argNum } from "@editor/control/args";
 import { FIXED_DT, stepManual, stepSimSteps, stepSimTime, stepSetTimeScale, stepTimeScale } from "@engine/core/fixedstep";
 import { interpolateReset } from "@engine/core/interpolate";
-import { semearAleatorio, sementeAleatorio } from "@engine/core/aleatorio";
+import { fixarSementeAleatorio, sementeAleatorio } from "@engine/core/aleatorio";
 
-/// Maior N de um `step` (1000 s de simulação a 60 Hz; evita travar o editor).
-export const STEP_MAX: number = 60000;
+/// Maior N de um `step`: os passos rodam dentro de UM quadro do editor, e
+/// 6000 passos (100 s simulados) já seguram a janela por segundos numa cena
+/// pesada. Para mais, repita o comando.
+export const STEP_MAX: number = 6000;
 /// Maior escala de tempo aceita.
 export const TIMESCALE_MAX: number = 100;
 
@@ -34,7 +36,7 @@ export function cmdResume(): string {
 export function cmdStep(parts: string[]): string {
   if (parts.length > 2) return erroUso("step");
   const n = parts.length > 1 ? argInt(parts, 1) : 1;
-  if (!(n >= 1 && n <= STEP_MAX)) return erroUso("step") + " (N inteiro 1.." + STEP_MAX + ")";
+  if (!(n >= 1 && n <= STEP_MAX)) return erroUso("step") + " (N inteiro 1.." + STEP_MAX + " por comando; para mais, repita o step)";
   if (S.simulating === 0) return "[erro] step: " + ERRO_FORA_DO_PLAY;
   const pausou = S.playing !== 0;
   if (pausou) playMode.pause();
@@ -71,6 +73,6 @@ export function cmdSeed(parts: string[]): string {
   if (parts.length > 2) return erroUso("seed");
   const n = argInt(parts, 1);
   if (n !== n) return erroUso("seed") + " (n inteiro)";
-  semearAleatorio(n);
-  return "[ok] seed " + sementeAleatorio();
+  fixarSementeAleatorio(n);
+  return "[ok] seed " + sementeAleatorio() + " (reaplicada a cada play)";
 }

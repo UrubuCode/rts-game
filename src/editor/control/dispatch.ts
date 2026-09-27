@@ -18,7 +18,8 @@ import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
 import { cmdShot } from "@editor/control/commands/shot";
 import { cmdInput } from "@editor/control/commands/input";
-import { cmdLote, loteAtivo, loteAbortado, antesNoLote, depoisNoLote } from "@editor/control/lote";
+import { cmdLote, loteAtivo, loteAbortado, antesNoLote, depoisNoLote, loteDeOutraConexao, ERRO_LOTE_DE_OUTRA, contarVersaoDoLote } from "@editor/control/lote";
+import { ehRespostaAdiada } from "@editor/control/adiado";
 import { registrarExcecao } from "@engine/core/falhas";
 import { cmdErrors, cmdProfFrames, cmdGc, cmdAssets } from "@editor/control/commands/diag";
 import { cmdBuild, cmdRunTests } from "@editor/control/commands/build";
@@ -52,12 +53,19 @@ export function execCommand(w: number, h: number, line: string): string {
   const c = line.split(" ")[0];
   let out = "";
   // LOTE (lote.ts): dentro de `batch begin`…`end`, um [erro] desfaz tudo
-  if (loteAtivo() && c !== "batch" && c !== "txn") {
+  if (loteDeOutraConexao()) out = ERRO_LOTE_DE_OUTRA;   // o lote tem dono (lote.ts)
+  else if (loteAtivo() && c !== "batch" && c !== "txn") {
     const pre = antesNoLote(line);
-    if (pre.length === 0) out = depoisNoLote(line, execProtegido(w, h, line));
+    if (pre.length === 0) {
+      const v0 = history.versao;
+      const r = execProtegido(w, h, line);
+      contarVersaoDoLote(history.versao - v0);
+      out = depoisNoLote(line, r);
+    }
     else out = loteAbortado() && pre.indexOf("[erro] batch abortado") === 0 ? pre : depoisNoLote(line, pre);
   } else out = execProtegido(w, h, line);
-  if (registraNoLog(c)) {
+  // resposta adiada: o servidor registra a resposta final quando ela chega
+  if (registraNoLog(c) && !ehRespostaAdiada(out)) {
     // erro do comando vira nível de erro: é o que se procura ao investigar
     if (out.indexOf(ERRO_PREFIXO) === 0) logError(line + "  ->  " + out);
     else logInfo(line + "  ->  " + out);

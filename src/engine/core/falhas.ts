@@ -56,4 +56,6 @@ export function registrarFalhaAsset(tipo: string, caminho: string, motivo: strin
   while (falhasAsset.length > FALHAS_ASSET_MAX) falhasAsset.shift();
 }
 export function falhasDeAsset(): FalhaAsset[] { return falhasAsset; }
-export function limparFalhas(): void { falhasAsset.length = 0; ultima = null; totalExcecoes = 0; }
+/// Zera só as exceções (`errors clear`); as falhas de asset têm o próprio clear.
+export function limparExcecoes(): void { ultima = null; totalExcecoes = 0; }
+export function limparFalhasDeAsset(): void { falhasAsset.length = 0; }

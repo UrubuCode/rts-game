@@ -6,7 +6,7 @@ import { scene } from "@editor/control/session";
 import { erroUso } from "@editor/control/builtin_commands";
 import { argInt } from "@editor/control/args";
 import { FALHA_GIZMO, FALHA_GUI } from "@engine/core/behavior";
-import { ultimaExcecao, totalDeExcecoes, falhasDeAsset, limparFalhas } from "@engine/core/falhas";
+import { ultimaExcecao, totalDeExcecoes, falhasDeAsset, limparExcecoes, limparFalhasDeAsset } from "@engine/core/falhas";
 import { profEnabled, profQuadrosGuardados, profCopiarQuadros, PROF_JANELA_QUADROS } from "@engine/core/profiler";
 
 const NL: string = "\n";
@@ -18,7 +18,7 @@ const BYTES_POR_MB: f64 = 1048576.0;
 /// errors — a última exceção capturada (com a pilha) e os componentes cujo
 /// gizmo/onInspectorGUI lançou e foi desligado (Behavior.falhasEditor).
 export function cmdErrors(parts: string[]): string {
-  if (parts.length > 1 && parts[1] === "clear") { limparFalhas(); return "[ok] errors limpo"; }
+  if (parts.length > 1 && parts[1] === "clear") { limparExcecoes(); return "[ok] errors limpo (excecoes; assets errors clear zera os assets)"; }
   if (parts.length > 1) return erroUso("errors");
   const e = ultimaExcecao();
   let s = "[falhas] excecoes=" + totalDeExcecoes() + " assets_com_falha=" + falhasDeAsset().length;
@@ -112,7 +112,7 @@ export function cmdAssets(parts: string[]): string {
   if (parts.length < 2 || parts[1] !== "errors" || parts.length > 3) return erroUso("assets");
   if (parts.length === 3) {
     if (parts[2] !== "clear") return erroUso("assets");
-    falhasDeAsset().length = 0;
+    limparFalhasDeAsset();
     return "[ok] assets errors limpo";
   }
   const f = falhasDeAsset();

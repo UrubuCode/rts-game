@@ -18,6 +18,8 @@ import { S } from "./session";
 import { execCommand } from "./dispatch";
 import { Adiado, ehRespostaAdiada, tomarAdiado, avancarAdiado } from "@editor/control/adiado";
 import { logInfo, logError } from "@engine/core/logger";
+import { novaConexao, definirConexaoAtual, conexaoFechou } from "@editor/control/conexao";
+import { haTarefasDeFundo, rodarTarefasDeFundo } from "@editor/control/processos";
 
 /// Uma conexão: as linhas que chegaram e ainda não rodaram, e a resposta
 /// adiada que está segurando essas linhas (ver adiado.ts). As linhas de uma
@@ -25,9 +27,13 @@ import { logInfo, logError } from "@engine/core/logger";
 /// que o clique aconteceu.
 class ConexaoControle {
   ws: any;
+  /// Identidade (conexao.ts): dona da entrada simulada e do lote que abrir.
+  id: number;
   fila: string[] = [];
   espera: Adiado | null = null;
-  constructor(ws: any) { this.ws = ws; }
+  /// A linha cuja resposta está adiada (para o log da resposta final).
+  linhaEmEspera: string = "";
+  constructor(ws: any) { this.ws = ws; this.id = novaConexao(); }
 }
 /// Conexões com uma resposta adiada pendente (olhadas 1x por quadro só
 /// quando a lista não está vazia).
@@ -37,10 +43,12 @@ const esperando: ConexaoControle[] = [];
 function processarFila(c: ConexaoControle): void {
   while (c.espera === null && c.fila.length > 0) {
     const linha = c.fila.shift();
+    definirConexaoAtual(c.id);
     const out = execCommand(curW, curH, linha);
+    definirConexaoAtual(0);
     if (ehRespostaAdiada(out)) {
       const a = tomarAdiado();
-      if (a !== null) { c.espera = a; esperando.push(c); return; }
+      if (a !== null) { c.espera = a; c.linhaEmEspera = linha; esperando.push(c); return; }
       c.ws.send("[erro] " + linha.split(" ")[0] + ": resposta adiada sem espera registrada");
     } else c.ws.send(out);
   }
@@ -56,8 +64,8 @@ function retomarEsperas(): void {
       esperando.splice(i, 1);
       c.espera = null;
       if (a !== null) {
-        if (a.texto.indexOf("[erro]") === 0) logError(a.comando + "  ->  " + a.texto);
-        else logInfo(a.comando + "  ->  " + a.texto);
+        if (a.texto.indexOf("[erro]") === 0) logError(c.linhaEmEspera + "  ->  " + a.texto);
+        else logInfo(c.linhaEmEspera + "  ->  " + a.texto);
         c.ws.send(a.texto);
       }
       processarFila(c);
@@ -197,6 +205,8 @@ export function ctrlServe(port: number): void {
       if (k >= 0) esperando.splice(k, 1);
       if (con.espera !== null) con.espera.abandonado = true;
       con.espera = null;
+      // solta a entrada simulada e desfaz o lote que esta conexão deixou
+      conexaoFechou(con.id);
     });
     // Sem este handler um erro de socket sobe como exceção não capturada e leva
     // o editor junto — o cliente que caiu não deve derrubar a cena de quem está
@@ -211,6 +221,8 @@ export function ctrlServe(port: number): void {
 export function ctrlPoll(w: number, h: number): void {
   curW = w;
   curH = h;
+  // processos da porta (testes, captura): prazo e limpeza com ou sem cliente
+  if (haTarefasDeFundo()) rodarTarefasDeFundo();
   // -1 é a ÚNICA saída cedo. Com 0 (bind em voo) é obrigatório bombear: quem
   // entrega o `'listening'` é justamente o `pumpEvents` abaixo, e sair aqui
   // faria o estado nunca sair de 0 — o servidor abriria a porta e o editor

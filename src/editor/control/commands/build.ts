@@ -11,6 +11,7 @@ import { S } from "@editor/control/session";
 import { erroUso } from "@editor/control/builtin_commands";
 import { novoAdiado, RESPOSTA_ADIADA, Adiado } from "@editor/control/adiado";
 import { editorBuild, BUILD_FINISH_TIMEOUT_MS } from "@editor/editor_build";
+import { tarefaDeFundo, matarArvore } from "@editor/control/processos";
 
 /// Folga sobre o prazo do próprio build para a resposta.
 const BUILD_FOLGA_MS: number = 30000;
@@ -173,6 +174,30 @@ function dispararTeste(e: Execucao, arquivo: string): string {
   } catch (x) { return "nao iniciou: " + String(x); }
 }
 
+/// Um passo da vigia (1x por quadro): prazo por arquivo e resposta abandonada
+/// (a conexão fechou ou o prazo total venceu) matam a árvore do processo.
+/// true = a execução acabou (a tarefa sai da lista).
+function vigiarTestes(e: Execucao): boolean {
+  if (atual !== e) return true;
+  if (e.espera !== null && e.espera.abandonado) {
+    const c = e.filho;
+    e.filho = null;
+    matarArvore(c);
+    atual = null;
+    return true;
+  }
+  if (e.filho !== null && Date.now() - e.inicioArquivo >= TESTE_PRAZO_MS) {
+    const c = e.filho;
+    e.filho = null;   // o `exit` do morto é ignorado (e.filho !== c)
+    matarArvore(c);
+    terminarArquivo(e, 0 - 1, true);
+  }
+  return atual !== e;
+}
+
+/// Testes: a execução em andamento (null = nenhuma).
+export function testesEmAndamento(): boolean { return atual !== null; }
+
 /// run tests [padrão] | testes [padrão]
 export function cmdRunTests(parts: string[]): string {
   const nome = parts[0];
@@ -186,16 +211,10 @@ export function cmdRunTests(parts: string[]): string {
   const e = new Execucao();
   e.arquivos = arquivos; e.runtime = runtimeDosTestes(); e.inicio = Date.now();
   e.espera = novoAdiado(nome, arquivos.length * TESTE_PRAZO_MS + BUILD_FOLGA_MS);
-  e.espera.verificar = () => {
-    // prazo por arquivo: mata o processo; o `exit` segue para o próximo
-    if (e.filho !== null && Date.now() - e.inicioArquivo >= TESTE_PRAZO_MS) {
-      const c = e.filho;
-      e.filho = null;
-      c.kill();
-      terminarArquivo(e, 0 - 1, true);
-    }
-  };
   atual = e;
+  // O prazo por arquivo e o abandono são vigiados pelo ctrlPoll (processos.ts),
+  // não pela espera da conexão: com o cliente fora, o teste ainda termina.
+  tarefaDeFundo(() => vigiarTestes(e));
   iniciarProximo(e);
   return RESPOSTA_ADIADA;
 }

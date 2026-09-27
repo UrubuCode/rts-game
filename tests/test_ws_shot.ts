@@ -39,7 +39,7 @@ check(d.diferentes === 3 && d.largura === 10 && d.percentual() === 3.0, "compara
 check(execCommand(800, 600, "shot diff " + A + " " + C).indexOf("[erro] shot diff: tamanhos diferentes") === 0, "tamanhos");
 check(execCommand(800, 600, "shot diff " + A + " build/nao_existe.png").indexOf("[erro] shot diff: nao existe") === 0, "inexistente");
 const ruins: string[] = ["shot diff", "shot diff " + A, "shot diff " + A + " " + B + " 999", "shot diff " + A + " " + B + " x",
-  "shot foto.jpg", "shot a.png b.png", "shot tela"];
+  "shot foto.jpg", "shot a.png b.png", "shot tela", "shot -Saida.png", "shot C:/Windows/Temp/fora.png", "shot ../fora.png"];
 let i = 0;
 while (i < ruins.length) {
   const out = execCommand(800, 600, ruins[i]);

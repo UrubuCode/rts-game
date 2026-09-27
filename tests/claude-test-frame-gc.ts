@@ -31,6 +31,10 @@ import { editorIcon, iconAt, drawEditorIcon } from "@editor/icon_images";
 import { interpolateSync } from "@engine/core/interpolate";
 import input from "@compat/input";
 import { profEnable, profFrameBegin, profFrameEnd } from "@engine/core/profiler";
+import { haTarefasDeFundo, rodarTarefasDeFundo } from "@editor/control/processos";
+import { stepTimeScale, stepSetTimeScale } from "@engine/core/fixedstep";
+import { simAtiva } from "@compat/input_sim";
+import { RotuloNumero } from "@editor/rotulos";
 import { entradaQuadro, simMover, simApertar, simTeclaDesce, simQuebra, simDesligar } from "@compat/input_sim";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
@@ -184,4 +188,17 @@ profEnable(1); profFrameBegin(); profFrameEnd();
 io.print("FASE prof " + n);
 i = 0;
 while (i < n) { profFrameBegin(); profFrameEnd(); i = i + 1; }
+// Indicadores da barra de status (entrada simulada, escala de tempo) e a
+// vigia de processos do ctrlPoll, vazia.
+const rotEscala = new RotuloNumero("Tempo x", "");
+stepSetTimeScale(0.5);
+io.print("FASE status-ia " + n);
+i = 0;
+while (i < n) {
+  if (haTarefasDeFundo()) rodarTarefasDeFundo();
+  if (simAtiva()) soma = soma + 1;
+  if (stepTimeScale() !== 1.0) soma = soma + rotEscala.de(stepTimeScale()).length;
+  i = i + 1;
+}
+stepSetTimeScale(1.0);
 io.print("FASE fim " + soma);

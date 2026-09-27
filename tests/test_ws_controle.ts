@@ -5,8 +5,9 @@ import io from "@compat/io.ts";
 import { WebSocket } from "ws";
 import net from "node:net";
 import { ctrlServe, ctrlPoll, hostDeControleAceito, CONTROLE_HOST, portaDeControle, CONTROLE_PORTA_PADRAO } from "@editor/control/server";
-import { S } from "@editor/control/session";
-import { entradaQuadro } from "@compat/input_sim";
+import { S, scene } from "@editor/control/session";
+import { entradaQuadro, simAtiva } from "@compat/input_sim";
+import { loteAtivo } from "@editor/control/lote";
 import { instalarEditorReal } from "@editor/editor_host";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
@@ -67,6 +68,35 @@ check(respostas.length === 4 && respostas[0].indexOf("[ok] batch aberto") === 0 
   "lote numa mensagem: " + respostas.join(" || "));
 check(portaDeControle("") === CONTROLE_PORTA_PADRAO && portaDeControle("7790") === 7790 && portaDeControle("x") === CONTROLE_PORTA_PADRAO &&
   portaDeControle("70000") === CONTROLE_PORTA_PADRAO, "RTS_CTRL_PORT");
+// Cliente que CAI com um lote aberto e uma tecla segurada: o `close` cancela o
+// lote (desfeito) e devolve a entrada real, sem ninguém mandar `input off`.
+const antesQueda = scene.objects.length;
+local.send("batch begin\nspawn Orfao 0 0 0\ninput key w down");
+volta = 0;
+while (respostas.length < 7 && volta < 400000) { entradaQuadro(); ctrlPoll(800, 600); volta = volta + 1; }
+check(respostas.length === 7 && respostas[5].indexOf("[ok] spawn") === 0 && respostas[6].indexOf("[erro] batch linha 2") === 0,
+  "lote aberto e input recusado dentro dele: " + respostas.join(" || "));
+local.send("batch end\nbatch begin\nspawn Orfao 0 0 0\nstate");
+volta = 0;
+while (respostas.length < 11 && volta < 400000) { ctrlPoll(800, 600); volta = volta + 1; }
+check(loteAtivo() && scene.objects.length === antesQueda + 1, "lote aberto com 1 objeto");
 local.close();
-io.print("[PASSOU] ws controle: loopback, Host local aceito, Host externo recusado, resposta adiada em ordem, lote numa mensagem, RTS_CTRL_PORT");
+volta = 0;
+while (loteAtivo() && volta < 400000) { ctrlPoll(800, 600); volta = volta + 1; }
+check(!loteAtivo() && scene.objects.length === antesQueda, "o close da conexao dona cancelou o lote");
+const outro = new WebSocket("ws://127.0.0.1:" + PORTA + "/");
+let segura = "";
+outro.on("message", (d: any) => { segura = String(d); });
+outro.on("error", (_e: any) => { });
+volta = 0;
+while (segura.indexOf("[engine]") !== 0 && volta < 400000) { ctrlPoll(800, 600); volta = volta + 1; }
+outro.send("input key w down");
+volta = 0;
+while (segura.indexOf("[ok] input key w down") !== 0 && volta < 400000) { entradaQuadro(); ctrlPoll(800, 600); volta = volta + 1; }
+check(simAtiva(), "tecla segurada pela conexao: " + segura);
+outro.close();
+volta = 0;
+while (simAtiva() && volta < 400000) { ctrlPoll(800, 600); volta = volta + 1; }
+check(!simAtiva(), "o close da conexao dona soltou a tecla e devolveu a entrada real");
+io.print("[PASSOU] ws controle: loopback, Host local aceito, Host externo recusado, resposta adiada em ordem, lote numa mensagem, RTS_CTRL_PORT, close solta a entrada e cancela o lote");
 process.exit(0);

@@ -20,7 +20,8 @@ function lerManifesto() {
   return JSON.parse(linha.slice(MARCA.length));
 }
 
-const celula = s => String(s).replace(/\|/g, '\|');
+// Barra vertical dentro de uma célula de tabela Markdown precisa de `\|`.
+const celula = s => String(s).replace(/\|/g, '\\|');
 
 function markdown(m) {
   const out = [];

@@ -6,6 +6,7 @@ import { scene, S } from "./control/session";
 import { recreateBehavior } from "./sceneio";
 import { history } from "./undo";
 import { stepReset, stepSimReset } from "@engine/core/fixedstep";
+import { reaplicarSementeFixada } from "@engine/core/aleatorio";
 import { interpolateReset } from "@engine/core/interpolate";
 import { Ambiente, copiarAmbiente } from "@engine/core/ambiente";
 import { emitEditorEvent } from "./api";
@@ -71,6 +72,7 @@ export class PlayMode {
     S.gameCamera = camJogo >= 0 ? copies[camJogo] : null;
     scene.computeWorld();
     stepReset(); stepSimReset(); interpolateReset();
+    reaplicarSementeFixada();   // `seed n`: cada Play repete a mesma sequência
     S.simulating = 1; S.playing = 1;
     emitEditorEvent("entrarPlay", "");
     return true;

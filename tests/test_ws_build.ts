@@ -12,7 +12,8 @@ import { execCommand } from "@editor/control/dispatch";
 import { S } from "@editor/control/session";
 import { RESPOSTA_ADIADA, tomarAdiado, avancarAdiado, Adiado } from "@editor/control/adiado";
 import { editorBuild } from "@editor/editor_build";
-import { casaCuringa, testesQueCasam, runtimeDosTestes } from "@editor/control/commands/build";
+import { casaCuringa, testesQueCasam, runtimeDosTestes, testesEmAndamento } from "@editor/control/commands/build";
+import { rodarTarefasDeFundo, haTarefasDeFundo } from "@editor/control/processos";
 import { setLogEcho } from "@engine/core/logger";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
@@ -43,17 +44,27 @@ check(runtimeDosTestes().length > 0, "acha o runtime ao lado do processo");
 // ── run tests / testes ─────────────────────────────────────────────────────
 check(cmd("run").indexOf("[erro] uso") === 0 && cmd("run x").indexOf("[erro] uso") === 0 && cmd("run tests a b").indexOf("[erro] uso") === 0, "uso");
 check(cmd("testes claude_nao_existe_*").indexOf("[erro] testes: nenhum arquivo") === 0, "nenhum arquivo");
+function apagar(p: string): void { if (fs.exists(p)) fs.remove_file(p); }
 const OK = "tests/claude_tmp_run_ok.ts";
 const FALHA = "tests/claude_tmp_run_falha.ts";
 fs.write(OK, "import io from \"@compat/io.ts\";\nio.print(\"[PASSOU] tmp\");\n");
 fs.write(FALHA, "import io from \"@compat/io.ts\";\nio.print(\"antes\");\nthrow new Error(\"quebrou de proposito\");\n");
-const t = adiado("testes claude_tmp_run_*");
-check(cmd("run tests claude_tmp_run_ok").indexOf("[erro] run: ja ha testes rodando") === 0, "um de cada vez");
-const r = esperar(t);
-fs.remove_file(OK); fs.remove_file(FALHA);
+let r = "";
+// os arquivos temporários saem mesmo se uma checagem falhar
+try {
+  const t = adiado("testes claude_tmp_run_*");
+  check(cmd("run tests claude_tmp_run_ok").indexOf("[erro] run: ja ha testes rodando") === 0, "um de cada vez");
+  r = esperar(t);
+} finally { apagar(OK); apagar(FALHA); }
 check(r.indexOf("[erro] testes: 1 de 2 falharam em ") === 0, "resumo: " + r);
 check(r.indexOf("  ok claude_tmp_run_ok.ts (") > 0, "o que passou: " + r);
 check(r.indexOf("  FALHOU claude_tmp_run_falha.ts (codigo ") > 0 && r.indexOf("quebrou de proposito") > 0, "o que falhou, com a saida: " + r);
+// resposta abandonada (o cliente caiu): o processo morre e a vaga libera
+const ab = adiado("run tests test_quat");
+check(testesEmAndamento() && haTarefasDeFundo(), "rodando, com vigia");
+ab.abandonado = true;
+rodarTarefasDeFundo();
+check(!testesEmAndamento() && !haTarefasDeFundo(), "abandonada: processo morto, atual livre");
 const r2 = esperar(adiado("run tests test_quat"));
 check(r2.indexOf("[ok] testes: 1/1 passaram") === 0 && r2.indexOf("ok test_quat.ts") > 0, "run tests: " + r2);
 
@@ -65,6 +76,7 @@ check(cmd("build").indexOf("[erro] build: indisponivel durante o Play") === 0, "
 S.simulating = 0;
 const dir = "build/claude-build-ws-" + Date.now();
 fs.create_dir_all(dir);
+try {
 fs.write(dir + "/status.json", JSON.stringify({ state: "running", message: "Compilando jogo..." }));
 editorBuild.directory = dir; editorBuild.started = Date.now(); editorBuild.running = true; editorBuild.lastPoll = 0; editorBuild.estado = "";
 const b = adiado("build");   // já em andamento: espera o mesmo build
@@ -82,5 +94,5 @@ fs.write(dir + "/status.json", JSON.stringify({ state: "error", message: "Compil
 editorBuild.running = true; editorBuild.started = Date.now(); editorBuild.lastPoll = 0;
 const rf = esperar(adiado("build"));
 check(rf.indexOf("[erro] build error: Compilacao falhou") === 0 && rf.indexOf("log=" + dir + "/output.log") > 0, "build falhou: " + rf);
-fs.remove_dir_all(dir);
+} finally { if (fs.exists(dir)) fs.remove_dir_all(dir); }
 io.print("[PASSOU] ws build/testes: padroes, testes por processo (passou/falhou com a saida), build espera o EditorBuild, Play bloqueia");

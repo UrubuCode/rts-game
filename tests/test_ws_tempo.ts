@@ -38,7 +38,7 @@ ok("addcomp Unidade Vagar");
 ok("spawn Outra 4 1 0 1");
 ok("addcomp Outra Vagar");
 erro("step"); erro("step 5"); erro("resume");
-erro("step 0"); erro("step -2"); erro("step abc"); erro("step 1.5"); erro("step 1 2");
+erro("step 0"); erro("step -2"); erro("step 6001"); erro("step abc"); erro("step 1.5"); erro("step 1 2");
 erro("timescale -1"); erro("timescale x"); erro("timescale 1000"); erro("seed x"); erro("seed 1.5");
 check(ok("timescale").indexOf("[timescale] 1") === 0, "timescale padrao 1");
 
@@ -72,6 +72,12 @@ function posicoesDepois(semente: number, n: number): string {
 const a = posicoesDepois(42, 90);
 const b = posicoesDepois(42, 90);
 const c = posicoesDepois(7, 90);
+// a semente fixada é reaplicada a cada play: sem `seed` de novo, o mesmo caminho
+ok("stop"); ok("play"); ok("step 90");
+let semSeed = "";
+let si = 0;
+while (si < scene.objects.length) { const t = scene.objects[si].transform; semSeed = semSeed + t.px + "," + t.pz + ";"; si = si + 1; }
+check(semSeed === c, "play seguinte repete a semente 7: " + semSeed + " vs " + c);
 check(a === b, "mesma semente, mesmas posicoes: " + a + " vs " + b);
 check(a !== c, "semente diferente, caminho diferente");
 check(a !== "0,0;4,0;", "Vagar andou: " + a);

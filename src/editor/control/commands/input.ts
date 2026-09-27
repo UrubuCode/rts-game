@@ -13,8 +13,25 @@ import { argNum, argInt } from "@editor/control/args";
 import {
   simMover, simApertar, simSoltar, simTeclaDesce, simTeclaSobe, simTexto, simRoda, simQuebra, simDesligar,
   simAtiva, simConcluida, simQuadro, simFilaTamanho, simEspacoLivre, simMouseX, simMouseY, simMouseDown,
-  SIM_TECLA_CTRL, SIM_TECLA_SHIFT, SIM_TECLA_ALT, SIM_TECLAS,
+  SIM_TECLA_CTRL, SIM_TECLA_SHIFT, SIM_TECLA_ALT, SIM_TECLAS, SIM_LIGADA, SIM_OCIOSA,
+  simGeracao, definirAvisoSimulacao,
 } from "@compat/input_sim";
+import { conexaoAtual, aoFecharConexao } from "@editor/control/conexao";
+import { logInfo, logWarn } from "@engine/core/logger";
+
+/// Conexão que ligou a entrada simulada (0 = local/testes). Quando ela fecha,
+/// tudo é solto e a entrada real volta: um cliente que caiu com uma tecla
+/// segurada não pode deixar o humano sem mouse e teclado.
+let dono = 0;
+aoFecharConexao((id: number) => {
+  if (id === dono && simAtiva()) { logWarn("Entrada simulada: a conexao dona fechou; teclas e botoes soltos, entrada real de volta."); simDesligar(); }
+});
+// Toda transição vai para o log (o que liga/desliga a entrada do humano tem de ser visível).
+definirAvisoSimulacao((motivo: string) => {
+  if (motivo === SIM_LIGADA) logInfo("Entrada simulada LIGADA pela porta de controle: mouse e teclado fisicos ignorados ate 'input off'.");
+  else if (motivo === SIM_OCIOSA) logWarn("Entrada simulada desligada por inatividade (30 s): teclas e botoes soltos, entrada real de volta.");
+  else logInfo("Entrada simulada desligada: entrada real de volta.");
+});
 
 /// Quadros padrão de um `input drag` (o movimento é dividido neles).
 export const INPUT_DRAG_QUADROS: number = 10;
@@ -72,10 +89,14 @@ function dentro(x: f64, y: f64, w: number, h: number): boolean {
 
 /// Adia a resposta até a fila simulada esvaziar e o último quadro terminar.
 function esperar(resumo: string, quadros: number): string {
+  dono = conexaoAtual();   // só um comando válido (que enfileirou) passa a ser o dono
   const espera = novoAdiado("input", INPUT_PRAZO_MS + quadros * INPUT_PRAZO_QUADRO_MS);
   const q0 = simQuadro();
+  const g0 = simGeracao();
   espera.verificar = () => {
-    if (simConcluida()) espera.concluir("[ok] input " + resumo + " | quadros=" + (simQuadro() - q0));
+    // `input off` (de qualquer cliente), a conexão dona fechou ou o prazo ocioso
+    if (simGeracao() !== g0) espera.concluir("[erro] input " + resumo + ": cancelado (a entrada simulada foi desligada)");
+    else if (simConcluida()) espera.concluir("[ok] input " + resumo + " | quadros=" + (simQuadro() - q0));
   };
   return RESPOSTA_ADIADA;
 }
