@@ -63,11 +63,16 @@ function amostrarPosVel(desc: Float64Array, pos: Float64Array, vel: Float64Array
   }
 }
 
+/// Buffers de saída de `amostrarPosVel`, reaproveitados entre chamadas: chamado
+/// por quadro (emissão por taxa), então não pode alocar por chamada.
+const pvTmp = new Float64Array(3);
+const vvTmp = new Float64Array(3);
+
 /// Emite até `n` partículas (menos se o pool não tiver slots livres o
 /// suficiente — o resto é descartado, `maxParticles` nunca é excedido).
 /// 3 parâmetros: pool e desc chegam por referência, dentro do limite do RTS.
 export function emitirN(pool: PoolParticulas, desc: Float64Array, n: number): number {
-  const pv = new Float64Array(3); const vv = new Float64Array(3);
+  const pv = pvTmp; const vv = vvTmp;
   let emitidas = 0;
   while (emitidas < n && pool.nLivres > 0) {
     pool.nLivres = pool.nLivres - 1;
