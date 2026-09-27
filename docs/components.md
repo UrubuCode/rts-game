@@ -212,13 +212,113 @@ Os controles de câmera leem teclado e mouse por `@engine/core/entrada`. No
 editor, essa entrada só fica ligada com a aba **Jogo** ativa e sem campo de
 texto ou de número em edição. No jogo exportado, fica sempre ligada.
 
+## Campos de asset (`@asset`, ObjectField universal)
+
+Qualquer campo `string` de um componente (do motor, de um pacote ou de um
+script do usuário) pode virar um `ObjectField` estilo Unity — a caixa com
+ícone + `"<nome> (<Tipo>)"`/`"Nenhum (<Tipo>)"`, o botão `…` (seletor), o
+"ping" no Project, arrastar um tile do Project por cima, e Delete/Backspace —
+**sem escrever nenhum código de Inspector**. Basta marcar o campo:
+
+```ts
+/** Textura aplicada ao personagem. */
+// @asset imagem
+textura: string = "";
+```
+
+(o marcador é lido de dentro do bloco JSDoc do campo, como `@range`/`@label`;
+qualquer uma das formas — `/** @asset imagem */` sozinho, ou junto de outras
+linhas do comentário — vale, contanto que seja uma tag JSDoc de verdade e não
+uma menção em prosa).
+
+- **Tipos aceitos**: `audio` (`AudioClip`, `.wav`/`.ogg`), `imagem`
+  (`Textura`, `.png`/`.jpg`/`.jpeg`/`.bmp`), `modelo` (`Modelo`,
+  `.obj`/`.gltf`/`.glb`), `prefab` (`Prefab`, `.prefab.json`), `cena` (`Cena`,
+  `.json`) e `script` (`Script`, `.ts`/`.js`). Rótulo, extensões e ícone de
+  cada tipo ficam centralizados em `UI_ASSET_KINDS`
+  (`src/editor/ui_config.ts`) — nada disso é repetido no componente nem em
+  cada callsite do editor.
+- **Como funciona**: `tools/generate-components.mjs` valida o marcador (só em
+  campo `string`; falha o build com uma mensagem clara se o tipo não existir
+  ou o campo não for `string`) e gera `fieldHint(index)` = `"asset:<kind>"`
+  pra esse campo (o mesmo mecanismo de `fieldHint`/`FIELD_HINT_ENUM` já usado
+  por `@range`/campos enum). O Inspector (`Inspector.fieldRow`, em
+  `src/editor/inspector.ts`) reconhece o prefixo `"asset:"` e desenha o
+  `ObjectField` (em vez da caixa de texto comum) tanto na lista automática de
+  campos quanto em `ui.field(nome)` dentro de um `onInspectorGUI` próprio —
+  um componente com `onInspectorGUI` continua podendo chamar `ui.field("x")`
+  normalmente; se `x` for `@asset`, o campo já sai como ObjectField sozinho.
+- **Um componente que sobrescreve `fieldHint`** (para um campo enum, por
+  exemplo) precisa terminar com `return super.fieldHint(i);` no caso não
+  tratado, para não esconder os `@asset` gerados dos outros campos (ver
+  `AudioSource.fieldHint` como exemplo).
+- **`AudioSource.clip`** usa o marcador (`@asset audio`); não há mais nenhum
+  tipo/extensão/ícone hardcoded na classe.
+- **Arrastar/soltar**: um tile do Project (áudio, imagem, modelo, prefab,
+  cena ou script) solto sobre o campo do Inspector aplica o caminho, com
+  Desfazer; arrastar o mesmo tile pra viewport ou pra um objeto da Hierarquia
+  segue a ação por tipo descrita em "Arrastar assets pela cena", abaixo.
+- **Agente (WS)**: `setfield <obj> <Comp> <campo> <caminho>` grava o caminho
+  normalmente — o valor é sempre uma string; `getfield`/`describe` mostram o
+  tipo como `asset:<kind>` (por exemplo `asset:imagem`), mas leem/escrevem
+  como texto comum (nenhuma sintaxe especial de comando).
+
+### Arrastar assets pela cena
+
+Um tile do Project, solto sobre a viewport, cria um objeto novo (preset de
+`src/editor/object_presets.ts`, via `scene.createGameObject`) no ponto do
+chão sob o cursor:
+
+| Tipo do tile | Alvo | Ação |
+|---|---|---|
+| `modelo`/`prefab` | viewport | instancia o modelo/prefab (`dropAssetInWorld`/`instantiateAt`, `src/main.ts`) |
+| `áudio` | viewport | cria "Fonte de áudio" (preset `Criar/Áudio/Fonte`) com `AudioSource` em modo Arquivo e `clip` = o caminho solto |
+| `imagem` | objeto na Hierarquia | aplica como textura (Material do objeto) |
+| `áudio` | objeto na Hierarquia | adiciona `AudioSource` (se não tiver) ou troca o `clip` do que já existe, ligando modo Arquivo |
+| `script` | objeto na Hierarquia | anexa o componente (mesmo fluxo do seletor de componentes) |
+| qualquer tipo | campo `ObjectField` do Inspector | grava o caminho, se a extensão bater com o tipo do campo (realce verde/vermelho enquanto arrasta) |
+
+Tudo com Desfazer; um tipo que não combina com o alvo mostra o realce de
+recusa e não faz nada ao soltar.
+
+### Arrastar do sistema de arquivos (Explorer)
+
+O runtime expõe, por janela, em `rts:input`: `droppedCount`/`droppedPath`/
+`droppedX`/`droppedY` (arquivos soltos neste quadro + posição do cursor) e
+`hoveredFiles`/`hoveredX`/`hoveredY` (arrasto do SO pairando, antes de
+soltar). `src/compat/input.ts` declara os dois grupos no padrão de fallback
+já usado no resto do compat (`typeof fn === "function"`; um runtime antigo,
+sem essas funções, devolve 0/"" e o editor funciona normalmente sem a
+soltura do Explorer). Enquanto `hoveredFiles() > 0`, o editor mostra um
+realce genérico (um anel) na posição `hoveredX/Y` — o runtime só expõe a
+extensão do arquivo em `droppedPath` (na soltura), não durante o arrasto,
+então o realce por tipo (verde compatível/vermelho recusa, como o arraste do
+Project) só existe na SOLTURA mesma, não no pairar. No quadro em que
+`droppedCount() > 0`, cada arquivo é importado (`importFileToAssets` — copia
+pra `assets/`, nunca referencia um caminho de fora do projeto; sobre o
+painel Project, vai pra pasta aberta; áudio solto em outro alvo vai pra
+`assets/audio/`; um arquivo já dentro de `assets/` não é copiado de novo) e
+depois a mesma ação por tipo da tabela acima é aplicada ao PRIMEIRO arquivo
+compatível com o alvo (viewport: instancia; Hierarquia: aplica no objeto da
+linha; sobre o Project: só importa — sem aplicar em nada), usando a posição
+`droppedX/Y` pra achar o alvo. A aplicação no campo `ObjectField` específico
+do Inspector (vs. o objeto inteiro na Hierarquia) fica pro arraste de um
+tile do Project — a soltura do Explorer hoje cobre viewport/Hierarquia/
+Project; o campo do Inspector continua aceitando o arraste interno normal.
+O Console mostra `[info] importado <nome> → <destino>` por arquivo, ou o
+erro (arquivo sumiu, falha de escrita). A checagem por quadro
+(`droppedCount()`/`hoveredFiles() > 0`) é barata e sem alocação; a
+importação e a aplicação por tipo rodam numa função à parte
+(`handleExplorerDrop`, `main.ts`), fora do laço quente (regra de `try/catch`
+do CLAUDE.md).
+
 ## Áudio
 
 O motor toca WAV (PCM 8/16/24/32 bits e float 32, mono ou estéreo, decodificado em TypeScript) e OGG/Vorbis (decodificado pelo runtime), com 32 vozes, mixagem nativa (`rts:audio`, `mix_add`) e espacialização por fonte. Os clipes são reamostrados na carga para a taxa do dispositivo; limites: WAV até 256 MB, OGG até 10 minutos estéreo, mais de 2 canais é recusado com mensagem no Console.
 
 - **`AudioListener`** (categoria Áudio): o ouvido, na pose do objeto. Só o primeiro ativo vale (o Console avisa uma vez se houver dois). Sem ele, vale `Camera.main`; sem câmera, a pose que o jogo empurra com `Audio.setListenerPose(pose)` (`[x, y, z, yaw, pitch]`); por último, a vista do editor.
 - **`AudioSource`**: `modo` (`"arquivo"` toca `clip`; `"gerador"` toca o tom por `forma`/`freq`/`dur` — padrão `"arquivo"`; um `clip` guardado em modo gerador não é apagado, só não toca), `clip` (caminho `.wav`/`.ogg`), `volume`, `pitch`, `loop`, `playOnAwake`, `mudo`, `spatialBlend` (0 = 2D, 1 = 3D), `rolloff` (`log` = `min/d`, `linear`), `minDistance`, `maxDistance`, `grupo` (vazio = Master), `every` (repete a cada N s). O Inspector mostra os campos do modo atual (o campo `clip` só em Arquivo; `forma`/`freq`/`dur` só em Gerador). Cena salva sem `modo` migra ao carregar: `"arquivo"` se `clip` não vazio, senão `"gerador"`; o formato antigo (`type:"audiosource"`) sempre migra para `"gerador"`. Escolher um clipe (seletor, arraste ou atribuição direta de `clip` não vazio) liga `modo = "arquivo"` sozinho. Métodos: `play()`, `stop()`, `pause()`, `unPause()`, `isPlaying()`, `time`, `playOneShot(clip, escala)`, `AudioSource.playClipAtPoint(clip, pos, volume)`. Fora do Play nada toca sozinho; no Play e no jogo, `playOnAwake` toca ao entrar na cena, e parar o Play cala tudo.
-- **Campo `clip` (ObjectField estilo Unity)**: caixa com ícone + `"<nome sem extensão> (AudioClip)"`/`"Nenhum (AudioClip)"`, botão `…` que abre "Selecionar AudioClip" (lista cacheada de `.wav`/`.ogg` sob `assets/`, recarregada quando o Project rescaneia ou `importar` copia um arquivo; busca por texto; "Nenhum" no topo; clique seleciona, duplo clique/Enter confirma, Esc fecha). Clique simples no campo "pinga" o arquivo no painel Project (abre a pasta e seleciona o tile). Aceita soltar um tile de áudio arrastado do Project (realce verde compatível/vermelho recusa enquanto paira); Delete/Backspace com o campo focado volta a "Nenhum". Tudo com Desfazer. `InspectorUI.objectField(nome, tipo, exts, icon)` é genérico (tipo + filtro de extensões); hoje só o `clip` do `AudioSource` usa.
+- **Campo `clip` (ObjectField estilo Unity)**: `clip` é `@asset audio` (ver "Campos de asset", acima) — caixa com ícone + `"<nome sem extensão> (AudioClip)"`/`"Nenhum (AudioClip)"`, botão `…` que abre "Selecionar AudioClip" (lista cacheada de `.wav`/`.ogg` sob `assets/`, recarregada quando o Project rescaneia ou `importar` copia um arquivo; busca por texto; "Nenhum" no topo; clique seleciona, duplo clique/Enter confirma, Esc fecha). Clique simples no campo "pinga" o arquivo no painel Project (abre a pasta e seleciona o tile). Aceita soltar um tile de áudio arrastado do Project ou do Explorer (realce verde compatível/vermelho recusa enquanto paira); Delete/Backspace com o campo focado volta a "Nenhum". Tudo com Desfazer.
 - **Painel Project**: `.wav`/`.ogg` aparecem como tiles de áudio (cor/tag próprias); duplo clique toca/para uma prévia 2D, e a legenda do tile mostra a duração (cacheada por arquivo).
 - **Importar arquivos**: `importFileToAssets` (`src/editor/import_assets.ts`) copia um arquivo de fora do projeto pra dentro de `assets/` (sufixo `" 1"`, `" 2"`... em colisão de nome; um arquivo já dentro de `assets/` não é copiado). Comando WS `importar <caminho> [pasta]` — sem `pasta`, áudio vai para `assets/audio` e o resto para a pasta aberta do Project.
 - **3D**: pan de potência constante, atenuação por fonte, passa-baixa que cai de 22 kHz (frente) a 5 kHz (atrás) e com a distância (frente e trás soam diferentes), o pitch do ouvinte conta (fonte acima de quem olha para cima está à frente). Além de `maxDistance`, ou num grupo mudo, a voz fica **virtual**: a posição anda sem mixar e retoma no ponto certo.

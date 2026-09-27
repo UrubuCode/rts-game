@@ -107,6 +107,49 @@ Para um teste reproduzível: `seed`, `play`, `step N`, `describe`/`state`, `stop
 - `build` — o build do botão; responde ao terminar com a pasta, o exe e o log. `build status`.
 - `run tests [padrão]` / `testes [padrão]` — `tests/*.ts` (padrão `test_*`), um processo por arquivo, passou/falhou por arquivo.
 
+## Áudio
+
+A IA não ouve pelo ouvido — verifica sozinha, por número e pela saída real da placa:
+
+```
+audio list      # 1 linha por voz: fonte, clipe, grupo, posição, pitch, distância, gL/gR, corte, estado
+audio nivel     # pico e RMS L/R do último bloco
+audio mixer     # grupos, volume, mudo, pausa
+audio listener  # origem do ouvinte e o dispositivo (real/nulo/mudo)
+audio escuta [ms] [sonda]   # inicia o loopback pela saída real (não bloqueia a janela)
+audio escuta resultado      # lê o resultado: veredito=silencio|sonda-ok|som|sem-sonda, rms, pico, underruns
+```
+
+`audio escuta` mistura uma sonda de 997 Hz (padrão) no que está tocando e escuta a
+PRÓPRIA saída da placa via loopback — separa o som do motor do de outros
+programas rodando na máquina. `veredito=som`/`sonda-ok` confirma que saiu som de
+verdade; `silencio` ou `sem-sonda` (a sonda não voltou) indicam que não tocou.
+Nunca peça ao humano "você ouviu?" — rode `escuta` antes e depois da ação e
+compare.
+
+## Arquivos e campos de asset
+
+Qualquer campo string marcado `@asset <kind>` num componente (áudio, imagem,
+modelo, prefab, cena, script) vira um ObjectField no Inspector; pela porta de
+controle ele é só texto — sem sintaxe especial:
+
+```
+importar <caminho> [pasta]              # copia um arquivo de fora pra dentro de assets/ (ou usa o caminho, se já estiver dentro)
+setfield <obj> <Comp> <campo> <caminho> # grava o caminho no campo @asset (AudioSource.clip, ou qualquer script marcado)
+getfield <obj> <Comp> <campo>           # mostra o tipo como "asset:<kind>" (ex.: asset:audio) e o valor
+drop <caminho> [sx sy]                  # solta na cena como o mouse solta um tile do Project (áudio cria "Fonte de áudio")
+dropon <caminho> <obj>                  # aplica num objeto existente: imagem=textura, .obj=mesh, áudio=AudioSource.clip
+setfield <obj> AudioSource modo arquivo|gerador   # troca o modo do AudioSource (arquivo toca `clip`, gerador toca o tom)
+```
+
+Exemplo (importar e tocar um clipe num AudioSource existente):
+
+```
+importar C:/sons/explosao.ogg
+setfield 0 AudioSource clip assets/audio/explosao.ogg
+getfield 0 AudioSource modo        # -> arquivo (setfield em "clip" liga o modo sozinho)
+```
+
 ## 9. Pegadinhas
 
 - **Acentos**: `ws_client.py` fala UTF-8 (`menu Criar/Câmera` funciona); se o shell estragar o argumento, use `--file`/`--stdin`.
