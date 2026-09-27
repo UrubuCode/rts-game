@@ -11,6 +11,8 @@ import { isModelPath } from "@engine/render/model";
 import { instantiateAt } from "@editor/dnd";
 import { argNum, argInt, argObj, erroObj, argsNumericos } from "@editor/control/args";
 import { erroUso } from "@editor/control/builtin_commands";
+import { importFileToAssets, defaultImportDir } from "@editor/import_assets";
+import { assetsCurrentDir } from "@editor/assets";
 
 /// makeprefab <path> [i] — salva o objeto (default=selecionado) como PREFAB (JSON de
 /// 1 objeto), pra instanciar depois via o asset browser (duplo-clique) ou prefab.
@@ -34,6 +36,23 @@ export function cmdInstPrefab(parts: string[]): string {
   if (scene.objects.length === before) return "[erro] falha ao instanciar: " + parts[1];
   S.selected = scene.objects.length - 1;
   return "[ok] instprefab " + parts[1] + " -> #" + S.selected;
+}
+
+/// importar <caminho> [pasta] — copia um arquivo de FORA de `assets/` pra
+/// dentro (como a Unity), com sufixo em colisão de nome; se já está dentro de
+/// `assets/`, só usa o caminho. Sem `pasta`: áudio (.wav/.ogg) vai para
+/// `assets/audio`, os demais para a pasta aberta no Project. É a MESMA função
+/// usada pela soltura de arquivos do Explorer (item 5 do brief de áudio).
+export function cmdImportar(parts: string[]): string {
+  if (parts.length < 2) return erroUso("importar");
+  const origem = parts[1];
+  const destDir = parts.length > 2 ? parts[2] : defaultImportDir(origem, assetsCurrentDir());
+  try {
+    const destino = importFileToAssets(origem, destDir);
+    return "[ok] importado " + origem + " -> " + destino;
+  } catch (e) {
+    return "[erro] importar: " + (e instanceof Error ? e.message : String(e));
+  }
 }
 
 /// setcustom <objIdx> <meshId> — DEBUG: força o customMesh de um objeto (0=primitivo).

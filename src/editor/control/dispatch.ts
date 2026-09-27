@@ -9,7 +9,7 @@ import { cmdComps, cmdCompList, cmdAddComp, cmdRmComp, cmdSetField, cmdGetField 
 import { cmdAddSkel, cmdBones, cmdPose, cmdResetPose, cmdSelBone, cmdAnims, cmdAnim } from "./commands/skeleton";
 import { cmdAnimator } from "./commands/animator";
 import { cmdTree, cmdParent, cmdMoveTree, cmdFind } from "./commands/hierarchy";
-import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab } from "./commands/files";
+import { cmdLs, cmdMkdir, cmdRmpath, cmdReadFile, cmdWriteFile, cmdMv, cmdLoadObj, cmdSetCustom, cmdLoadTex, cmdMakePrefab, cmdInstPrefab, cmdImportar } from "./commands/files";
 import { cmdDrop, cmdDropAt, cmdDropOn, cmdPickAt, cmdGroundAt, cmdThumb } from "./commands/dnd";
 import { cmdDoc, cmdHelp } from "./commands/doc";
 import { cmdDescribe, cmdScene } from "@editor/control/commands/describe";
@@ -289,6 +289,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "makeprefab": return cmdMakePrefab(parts);
     case "instprefab": return cmdInstPrefab(parts);
     case "loadobj": return cmdLoadObj(parts);
+    case "importar": return cmdImportar(parts);
     case "loadtex": return cmdLoadTex(parts);
     case "setcustom": return cmdSetCustom(parts);
     // ── DRAG & DROP de assets (o equivalente WS de arrastar do Project) ──────

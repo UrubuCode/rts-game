@@ -209,6 +209,12 @@ function goUp(): void {
   if (cut > 0) navigateTo(subStr(curDir, 0, cut));
 }
 
+/// A pasta aberta no Project agora (usada como destino padrão de importação
+/// quando o alvo do drop/comando não é o Project panel nem áudio).
+export function assetsCurrentDir(): string {
+  return curDir;
+}
+
 /// nome do asset selecionado (ou "").
 export function assetSelectedName(): string {
   if (selIdx < 0 || selIdx >= count) return "";
