@@ -37,6 +37,12 @@ const AS_ROTULO_TOCAR: string = "Tocar";
 const AS_ROTULO_PARAR: string = "Parar";
 const AS_SEM_CLIPE: string = "Sem clipe: toca o tom gerado.";
 const AS_CLIPE_FALHOU: string = "O clipe não carregou (ver o Console).";
+/// ObjectField do campo `clip` (item 2 do brief de áudio-arquivos): tipo
+/// mostrado na caixa ("<nome> (AudioClip)"), extensões aceitas e ícone do
+/// editor. Constantes de módulo — nada disso é recriado por quadro.
+const AS_TIPO_CLIP: string = "AudioClip";
+const AS_CLIP_EXTS: string[] = [".wav", ".ogg"];
+const AS_CLIP_ICON: string = "audio-fonte";
 
 /// Rascunhos de módulo: nenhuma fonte aloca por quadro nem por disparo.
 const asPedido = new Float64Array(PEDIDO_FLOATS);
@@ -132,6 +138,11 @@ export class AudioSource extends Behavior {
     if (ROLLOFFS.indexOf(this.rolloff) < 0) this.rolloff = "log";
     if (FORMAS_TOM.indexOf(this.forma) < 0) this.forma = "seno";
     if (MODOS.indexOf(this.modo) < 0) this.modo = this.clip !== "" ? AS_MODO_ARQUIVO : AS_MODO_GERADOR;
+    // ObjectField/soltura (item 2 do brief de áudio-arquivos): escolher um
+    // clipe (seletor, arraste de um tile do Project ou atribuição direta)
+    // sempre liga o modo Arquivo — como a Unity, escolher o clipe é o que
+    // importa; ninguém espera continuar ouvindo o tom gerado depois disso.
+    if (field === "clip" && this.clip !== "") this.modo = AS_MODO_ARQUIVO;
   }
 
   /// Cenas salvas sem `modo` (antes do item 1 do brief de áudio-arquivos):
@@ -230,7 +241,7 @@ export class AudioSource extends Behavior {
     const nm = ui.dropdown(AS_ROTULO_MODO, MODOS_ROTULOS, m);
     if (nm !== m) this.modo = MODOS[nm];
     const arquivo = this.modo === AS_MODO_ARQUIVO;
-    if (arquivo) ui.field("clip");
+    if (arquivo) ui.objectField("clip", AS_TIPO_CLIP, AS_CLIP_EXTS, AS_CLIP_ICON);
     ui.label(this.rotuloInfo());
     ui.field("volume"); ui.field("pitch"); ui.field("loop"); ui.field("playOnAwake"); ui.field("mudo");
     ui.field("spatialBlend");
