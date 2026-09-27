@@ -66,7 +66,7 @@ export class PlayMode {
     copiarAmbiente(this.ambiente, scene.ambiente);
     this.undo = history.u; this.redo = history.r;
     history.u = []; history.r = [];
-    scene.clear();
+    scene.detachAll();   // os originais continuam vivos: voltam no stop()
     let copyIndex = 0;
     while (copyIndex < copies.length) { scene.add(copies[copyIndex]); copyIndex = copyIndex + 1; }
     S.gameCamera = camJogo >= 0 ? copies[camJogo] : null;

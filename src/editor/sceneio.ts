@@ -274,13 +274,15 @@ export function sceneFromJSON(s: string, sc?: Scene): void {
     i = i + 1;
   }
   const previous = targetScene.objects.slice();
-  targetScene.clear();
+  targetScene.detachAll();
   try {
     i = 0; while (i < next.length) { targetScene.add(next[i]); i = i + 1; }
   } catch (error) {
     targetScene.clear(); i = 0; while (i < previous.length) { targetScene.add(previous[i], false); i = i + 1; }
     throw error;
   }
+  // só agora a cena anterior sai de vez (onDestroy): a nova já está montada
+  i = 0; while (i < previous.length) { previous[i].destroyBehaviors(); i = i + 1; }
   if (typeof data.name === "string") targetScene.name = data.name;
   copiarAmbiente(targetScene.ambiente, ambienteLido);
   if (targetScene !== scene) return;

@@ -33,6 +33,7 @@ export interface UIOwner {
   uiChanged(go: GameObject): void;
   lightChanged(go: GameObject): void;
   cameraChanged(go: GameObject): void;
+  activeInHierarchy(go: GameObject): number;
 }
 
 export class GameObject {
@@ -249,7 +250,7 @@ export class GameObject {
     let i = 0;
     while (i < this.behaviors.length) {
       if (i !== idx) next.push(this.behaviors[i]);
-      else this.behaviors[i].owner = null;   // não pertence mais a este objeto — quem cacheou (ex.: AnimationPlayer.skeleton) re-resolve
+      else { this.behaviors[i].onDestroy(); this.behaviors[i].owner = null; }   // não pertence mais a este objeto — quem cacheou (ex.: AnimationPlayer.skeleton) re-resolve
       i = i + 1;
     }
     this.behaviors = next;
@@ -315,6 +316,12 @@ export class GameObject {
       if (b.enabled !== 0) b.update(dt);
       i = i + 1;
     }
+  }
+
+  /// onDestroy de todos os componentes (a cena chama quando o objeto sai de vez).
+  destroyBehaviors(): void {
+    let i = 0;
+    while (i < this.behaviors.length) { this.behaviors[i].onDestroy(); i = i + 1; }
   }
 }
 

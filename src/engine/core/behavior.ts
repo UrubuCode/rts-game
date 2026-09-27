@@ -74,6 +74,16 @@ export class Behavior {
   /// Chamado todo frame com o delta em SEGUNDOS.
   update(dt: f64): void {}
 
+  /// Chamado UMA vez quando o objeto sai da cena de vez (Scene.removeAt,
+  /// Scene.clear) ou o componente é removido (GameObject.removeBehavior).
+  /// Libere aqui o que não é do GC do RTS (nós do DOM, handles nativos).
+  /// NÃO é chamado quando o Play só guarda os originais (Scene.detachAll).
+  onDestroy(): void {}
+  /// Um DomCanvas do mesmo objeto recarregou o HTML (arquivo salvo, comando
+  /// `dom <obj> reload`): ids antigos da DomVista viraram no-op; refaça aqui
+  /// os `querySelector` e os `on(...)`.
+  onDomReload(): void {}
+
   // ── eventos de contato (Lote B2) ─────────────────────────────────────────
   // Entregues DEPOIS do passo de física por `Scene.resolveCollisions`, só a
   // objetos cujo `Collider.events` esteja ligado (1 = enter/exit, 2 = + stay).

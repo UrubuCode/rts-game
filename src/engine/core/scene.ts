@@ -218,6 +218,22 @@ export class Scene {
     if (k >= 0) this.camObjs.splice(k, 1);
   }
 
+  /// 1 se o objeto e todos os seus pais estão ativos (o activeInHierarchy da Unity).
+  activeInHierarchy(go: GameObject): number {
+    if (go.active === 0) return 0;
+    const objs = this.objects;
+    const n = objs.length;
+    let p = go.parent;
+    let passos = 0;
+    while (p >= 0 && p < n && passos < n) {
+      const pai = objs[p];
+      if (pai.active === 0) return 0;
+      p = pai.parent;
+      passos = passos + 1;
+    }
+    return 1;
+  }
+
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
   markStaticDirty(): void {
     this.markCollidersDirty();
@@ -275,8 +291,9 @@ export class Scene {
     return this.objects.length;
   }
 
-  /// Esvazia a cena (pra carregar outra por cima).
-  clear(): void {
+  /// Esvazia a cena SEM destruir: os objetos continuam vivos fora dela (o Play
+  /// guarda os originais; a carga de cena devolve os anteriores se a nova falhar).
+  detachAll(): void {
     let i = 0;
     while (i < this.objects.length) { this.objects[i].uiOwner = null; i = i + 1; }
     this.objects = [];
@@ -285,6 +302,15 @@ export class Scene {
     this.lightObjs.length = 0;
     this.camObjs.length = 0;
     this.markStaticDirty();
+  }
+
+  /// Esvazia a cena e DESTRÓI os objetos (onDestroy em cada componente):
+  /// carregar outra cena, cena nova, Parar o Play.
+  clear(): void {
+    const antigos = this.objects;
+    this.detachAll();
+    let i = 0;
+    while (i < antigos.length) { antigos[i].destroyBehaviors(); i = i + 1; }
   }
 
   /// Até MAX_LUZES luzes ativas em `buf` (16 números cada); devolve quantas.
@@ -440,6 +466,7 @@ export class Scene {
         }
       }
     }
+    removedObj.destroyBehaviors();
   }
 
   /// Computa a posição de MUNDO (wx,wy,wz) de cada objeto a partir do local
