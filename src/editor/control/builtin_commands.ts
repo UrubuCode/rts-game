@@ -13,7 +13,7 @@
 
 /// Grupos (ordem do `help`).
 export const GRUPOS_COMANDO: string[] = ["consulta", "objetos", "transform", "componentes", "hierarquia",
-  "cena", "play", "vista", "esqueleto", "arquivos", "arrastar", "sistema"];
+  "cena", "play", "vista", "ver", "entrada", "esqueleto", "arquivos", "arrastar", "sistema"];
 
 /// Desfazer: o despacho não tira snapshot.
 export const MUTA_NAO: number = 0;
@@ -153,6 +153,9 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("selectclear", "objetos", MUTA_NAO, ["selectclear :: volta pra selecao unica (esvazia a multi) :: selectclear"]),
   c("setcustom", "arquivos", MUTA_SIM, ["setcustom <obj> <meshId> :: DEBUG: forca o customMesh de um objeto (0=primitivo) :: setcustom 1 5"]),
   c("setfield", "componentes", MUTA_PROPRIO, ["setfield <obj> <comp|Nome> <campo|nome> <valor> :: edita um campo como o Inspector (roda onValidate). valor: numero, true/false, texto (entre aspas ou resto da linha), #RRGGBB (cor), opcao da lista (enum), x,y,z (Transform position/rotation/scale; rotation em graus X,Y,Z do Inspector) :: setfield Luz Light cor #FF8800"]),
+  c("shot", "ver", MUTA_NAO, [
+    "shot [caminho.png] [janela|jogo] :: CAPTURA a propria janela do editor num PNG (padrao build/shots/shot-<ms>.png; jogo = so a vista de Cena/Jogo); resposta adiada ate o arquivo existir :: shot build/shots/antes.png",
+    "shot diff <a.png> <b.png> [tolerancia] :: percentual de pixels diferentes (canal com diferenca > tolerancia 0..255) e a caixa que os contem :: shot diff build/shots/antes.png build/shots/depois.png"]),
   c("snap", "transform", MUTA_NAO, ["snap [0|1] :: liga/desliga o snap-to-grid do gizmo (move 0.5, rotate 15) :: snap 1"]),
   c("snd", "sistema", MUTA_NAO, ["snd [freq dur vol] :: toca um beep e mostra o estado do mixer :: snd 440 0.2 0.3"]),
   c("spawn", "objetos", MUTA_SIM, ["spawn <nome> <x> <y> <z> [kind] [escala] :: cria objeto; kind 1=cubo 2=piramide 3=octaedro 4=esfera; nasce estatico :: spawn Cubo 0 2 0 1 1.5"]),
@@ -169,6 +172,10 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("vsync", "sistema", MUTA_NAO, ["vsync <0|1> :: liga/desliga a espera do monitor (0 mede o custo real do quadro) :: vsync 0"]),
   c("writefile", "arquivos", MUTA_NAO, ["writefile <path> <conteudo> :: escreve (conteudo = resto da linha, 1 linha) :: writefile assets/nota.txt oi mundo"]),
 ];
+
+/// Comandos cuja resposta pode vir DEPOIS (adiado.ts): a conexão espera por
+/// ela antes de rodar a linha seguinte; não cabem num `batch`.
+export const COMANDOS_ASSINCRONOS: string[] = ["shot"];
 
 function nomesDoManifesto(): string[] {
   const out: string[] = [];

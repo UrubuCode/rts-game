@@ -16,6 +16,54 @@ import { WebSocketServer } from "ws";
 
 import { S } from "./session";
 import { execCommand } from "./dispatch";
+import { Adiado, ehRespostaAdiada, tomarAdiado, avancarAdiado } from "@editor/control/adiado";
+import { logInfo, logError } from "@engine/core/logger";
+
+/// Uma conexão: as linhas que chegaram e ainda não rodaram, e a resposta
+/// adiada que está segurando essas linhas (ver adiado.ts). As linhas de uma
+/// conexão rodam EM ORDEM: `input click` seguido de `shot` só captura depois
+/// que o clique aconteceu.
+class ConexaoControle {
+  ws: any;
+  fila: string[] = [];
+  espera: Adiado | null = null;
+  constructor(ws: any) { this.ws = ws; }
+}
+/// Conexões com uma resposta adiada pendente (olhadas 1x por quadro só
+/// quando a lista não está vazia).
+const esperando: ConexaoControle[] = [];
+
+/// Roda as linhas enfileiradas da conexão até acabar ou uma adiar a resposta.
+function processarFila(c: ConexaoControle): void {
+  while (c.espera === null && c.fila.length > 0) {
+    const linha = c.fila.shift();
+    const out = execCommand(curW, curH, linha);
+    if (ehRespostaAdiada(out)) {
+      const a = tomarAdiado();
+      if (a !== null) { c.espera = a; esperando.push(c); return; }
+      c.ws.send("[erro] " + linha.split(" ")[0] + ": resposta adiada sem espera registrada");
+    } else c.ws.send(out);
+  }
+}
+
+/// Conclui as esperas prontas ou vencidas e retoma a fila dessas conexões.
+function retomarEsperas(): void {
+  let i = 0;
+  while (i < esperando.length) {
+    const c = esperando[i];
+    const a = c.espera;
+    if (a === null || avancarAdiado(a)) {
+      esperando.splice(i, 1);
+      c.espera = null;
+      if (a !== null) {
+        if (a.texto.indexOf("[erro]") === 0) logError(a.comando + "  ->  " + a.texto);
+        else logInfo(a.comando + "  ->  " + a.texto);
+        c.ws.send(a.texto);
+      }
+      processarFila(c);
+    } else i = i + 1;
+  }
+}
 
 /// Tamanho lógico do último frame. Antes chegava por parâmetro e era usado na
 /// hora, porque o comando era LIDO dentro do próprio `ctrlPoll`. Com eventos, o
@@ -112,6 +160,7 @@ export function ctrlServe(port: number): void {
     S.wsClient = S.wsClient + 1;
     ws.send("[engine] editor conectado. envie 'help' (lista), 'doc' (detalhes+exemplos) ou 'doc json' (manifesto p/ IA).");
 
+    const con = new ConexaoControle(ws);
     ws.on("message", (dados: any) => {
       // `data` pode ser string ou Buffer conforme o frame; `toString()` é o que
       // vale para os dois, e o protocolo daqui é texto em qualquer caso.
@@ -120,12 +169,21 @@ export function ctrlServe(port: number): void {
       let li = 0;
       while (li < lines.length) {
         const l = lines[li].split("\r")[0];
-        if (l.length > 0) ws.send(execCommand(curW, curH, l));
+        if (l.length > 0) con.fila.push(l);
         li = li + 1;
       }
+      processarFila(con);
     });
 
-    ws.on("close", () => { S.wsClient = S.wsClient - 1; });
+    ws.on("close", () => {
+      S.wsClient = S.wsClient - 1;
+      // quem fechou não recebe mais nada: a espera dele é abandonada
+      con.fila = [];
+      const k = esperando.indexOf(con);
+      if (k >= 0) esperando.splice(k, 1);
+      if (con.espera !== null) con.espera.abandonado = true;
+      con.espera = null;
+    });
     // Sem este handler um erro de socket sobe como exceção não capturada e leva
     // o editor junto — o cliente que caiu não deve derrubar a cena de quem está
     // olhando a tela.
@@ -145,6 +203,7 @@ export function ctrlPoll(w: number, h: number): void {
   // nunca ficaria sabendo. Foi o impasse que a correção do estado otimista
   // criou, e é o motivo de haver TRÊS estados em vez de dois.
   if (S.wsServer < 0) return;
+  if (esperando.length > 0) retomarEsperas();
   // O booleano devolvido ("alguém ainda tem trabalho") é para um laço que
   // decide dormir; aqui quem dita o ritmo é o frame, então é ignorado.
   pumpEvents();

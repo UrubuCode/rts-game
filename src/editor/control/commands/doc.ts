@@ -2,7 +2,7 @@
 // GERADA do manifesto dos embutidos (builtin_commands.ts) e do registro dos
 // comandos de pacote (@editor/api registerCommand). Nenhuma lista à mão: um
 // comando novo aparece aqui ao entrar no manifesto ou ser registrado.
-import { BUILTIN_MANIFEST, GRUPOS_COMANDO, MUTA_SIM, MUTA_PROPRIO } from "@editor/control/builtin_commands";
+import { BUILTIN_MANIFEST, GRUPOS_COMANDO, MUTA_SIM, MUTA_PROPRIO, COMANDOS_ASSINCRONOS } from "@editor/control/builtin_commands";
 import { commandCount, commandUsage, commandName, commandMutates } from "@editor/api";
 
 /// Grupo dos comandos registrados por pacote.
@@ -60,6 +60,7 @@ export function manifestoComandos(): any {
     c.mutating = info.muta === MUTA_SIM || info.muta === MUTA_PROPRIO;
     c.undo = info.muta === MUTA_SIM ? "dispatch" : (info.muta === MUTA_PROPRIO ? "proprio" : "nenhum");
     c.objectArgs = info.objs;
+    c.async = COMANDOS_ASSINCRONOS.indexOf(info.nome) >= 0;
     cmds.push(c);
     i = i + 1;
   }
@@ -72,11 +73,12 @@ export function manifestoComandos(): any {
     c.mutating = commandMutates(r);
     c.undo = commandMutates(r) ? "dispatch" : "nenhum";
     c.objectArgs = [];
+    c.async = false;
     cmds.push(c);
     r = r + 1;
   }
   return {
-    protocol: "1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] ...; <obj> = indice, #indice, nome exato (aspas se tiver espaco) ou caminho Pai/Filho",
+    protocol: "1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] ...; <obj> = indice, #indice, nome exato (aspas se tiver espaco) ou caminho Pai/Filho; async = a resposta pode vir depois (a conexao espera por ela antes da linha seguinte)",
     groups: GRUPOS_COMANDO,
     commands: cmds
   };

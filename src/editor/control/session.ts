@@ -36,6 +36,9 @@ export class Session {
   /// Objeto da câmera única da aba Jogo (null = todas). Referência, não
   /// índice: apagar ou reordenar objetos não troca a câmera escolhida.
   gameCamera: GameObject | null;
+  /// Retângulo (x, y, w, h, pixels lógicos) da vista de Cena/Jogo no último
+  /// quadro: o recorte de `shot jogo`. Escrito pelo main.ts 1x por quadro.
+  areaVista: Float64Array;
   constructor() {
     this.camX = 0.0; this.camY = 11.0; this.camZ = -15.0;
     this.camYaw = 0.0; this.camPitch = 0 - 0.5;
@@ -55,6 +58,7 @@ export class Session {
     this.previewTouched = [];
     this.previewAnimators = [];
     this.gameView = 0; this.gameAspect = 0; this.gameCamera = null; this.cameraPreview = 0;
+    this.areaVista = new Float64Array(4);
   }
 }
 export const S = new Session();

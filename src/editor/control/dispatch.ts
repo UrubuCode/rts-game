@@ -16,6 +16,7 @@ import { cmdDescribe, cmdScene } from "@editor/control/commands/describe";
 import { cmdGizmoAt } from "./commands/gizmo";
 import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
+import { cmdShot } from "@editor/control/commands/shot";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { comandoEmbutido, registraNoLog, MUTA_SIM } from "@editor/control/builtin_commands";
 import { resolverArgsObjeto } from "@editor/control/object_ref";
@@ -278,6 +279,7 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "groundat": return cmdGroundAt(parts, w, h);
     case "thumb": return cmdThumb(parts);
     case "doc": return cmdDoc(parts);
+    case "shot": return cmdShot(parts, w, h);
     default: return registrado >= 0 ? runRegistered(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

@@ -959,6 +959,7 @@ function frame(): void {
   // passa a ser o da aba. Sem câmera, ou na aba Cena, a câmera do editor.
   const cenaX = HIER_W; const cenaY = BAR_H + UI_SCENE_HEADER_H;
   const cenaW = W - HIER_W - INSP_W; const cenaH = H - UI_STATUS_H - ASSET_H - cenaY;
+  S.areaVista[0] = cenaX; S.areaVista[1] = cenaY; S.areaVista[2] = cenaW; S.areaVista[3] = cenaH;
   let nJogo = 0; let nPrevia = 0;
   if (workspaceViews.game) {
     areaCena[0] = cenaX; areaCena[1] = cenaY; areaCena[2] = cenaW; areaCena[3] = cenaH;
