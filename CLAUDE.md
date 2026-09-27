@@ -1,8 +1,10 @@
 # Convenções deste projeto
 
-## Idioma dos identificadores
+## Idioma
 
-- Identificadores de código (funções, métodos, classes, campos, constantes, nomes de comando WS) em INGLÊS. Comentários e documentação continuam em português.
+- **Código em inglês:** nomes de funções, métodos, classes, campos, constantes, arquivos novos e comandos WS novos são em inglês (mesma regra do repositório `rts`). A API pública segue os nomes da Unity quando houver equivalente (`play`, `waitForSeconds`, `dspTime`, `playScheduled`).
+- Comentários, documentação (`docs/`), mensagens de commit e a conversa continuam em português.
+- Código existente em português é migrado aos poucos, começando pela API pública usada em scripts; ao renomear algo público, mantenha o nome antigo como apelido marcado `@deprecated` até a migração das cenas e scripts, e cubra os dois nomes com teste.
 
 ## Corrotinas
 
