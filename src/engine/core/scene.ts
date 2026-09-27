@@ -127,6 +127,9 @@ export class Scene {
   /// Objetos desta cena com componente Camera, mantida como `lightObjs`.
   /// `Camera.main()/all()` e `coletarCameras` leem daqui.
   camObjs: GameObject[];
+  /// Objetos desta cena com componente KIND_AUDIO, mantida como `lightObjs`.
+  /// O sistema de áudio (ouvinte e fontes) lê daqui: zero varredura por quadro.
+  audioObjs: GameObject[];
   /// Rascunho de distâncias de `coletarLuzes` (ver light.ts): só cresce, nunca
   /// realoca por frame.
   luzDist: Float64Array;
@@ -153,6 +156,7 @@ export class Scene {
     this.uiObjs = [];
     this.lightObjs = [];
     this.camObjs = [];
+    this.audioObjs = [];
     this.luzDist = new Float64Array(LUZ_DIST_INICIAL);
     this.ambiente = new Ambiente();
     this.colDirty = 1;
@@ -218,6 +222,18 @@ export class Scene {
     if (k >= 0) this.camObjs.splice(k, 1);
   }
 
+  /// `GameObject.refreshComponentCache` avisa quando o objeto ganhou ou perdeu
+  /// componente de áudio depois de estar na cena.
+  audioChanged(go: GameObject): void {
+    if (go.audioIdx >= 0) { if (this.audioObjs.indexOf(go) < 0) this.audioObjs.push(go); }
+    else this.audioForget(go);
+  }
+
+  audioForget(go: GameObject): void {
+    const k = this.audioObjs.indexOf(go);
+    if (k >= 0) this.audioObjs.splice(k, 1);
+  }
+
   /// Atalho de compatibilidade semântica para sinalizar mutação estática explícita.
   markStaticDirty(): void {
     this.markCollidersDirty();
@@ -231,6 +247,7 @@ export class Scene {
     if (go.uiIdx >= 0) this.uiObjs.push(go);
     if (go.lightIdx >= 0) this.lightObjs.push(go);
     if (go.camIdx >= 0) this.camObjs.push(go);
+    if (go.audioIdx >= 0) this.audioObjs.push(go);
     if (bodyTypeOf(go) === BODY_STATIC) {
       this.markCollidersDirty();
     } else {
@@ -284,6 +301,7 @@ export class Scene {
     this.uiObjs.length = 0;
     this.lightObjs.length = 0;
     this.camObjs.length = 0;
+    this.audioObjs.length = 0;
     this.markStaticDirty();
   }
 
@@ -422,6 +440,7 @@ export class Scene {
     if (removedObj.uiIdx >= 0) this.uiForget(removedObj);
     if (removedObj.lightIdx >= 0) this.lightForget(removedObj);
     if (removedObj.camIdx >= 0) this.cameraForget(removedObj);
+    if (removedObj.audioIdx >= 0) this.audioForget(removedObj);
 
     if (isStatic) {
       this.markCollidersDirty();

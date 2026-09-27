@@ -27,7 +27,7 @@ browser.refresh();
 check(browser.rows.length === 1 && browser.activate() === "Rigidbody", "busca global por funcao e sem case");
 browser.query = "   audio   ";
 browser.refresh();
-check(browser.rows.length === 1 && browser.activate() === "AudioSource", "termos sem acento e espacos externos");
+check(browser.rows.length === 2 && (browser.activate() === "AudioListener" || browser.activate() === "AudioSource"), "termos sem acento e espacos externos");
 browser.query = "nao-existe";
 browser.refresh();
 browser.move(1, 3);

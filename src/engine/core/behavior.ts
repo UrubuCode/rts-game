@@ -32,6 +32,12 @@ export const KIND_SCENE_REF: number = 4;  // instância de outra cena (cena dent
 export const KIND_CAMERA: number = 5;     // ponto de vista (o jogo renderiza pela main)
 export const KIND_COLLIDER: number = 6;   // a FORMA que colide (pode nao ser a que desenha)
 export const KIND_LIGHT: number = 7;      // luz (direcional/pontual/spot) usada pelo renderer
+export const KIND_AUDIO: number = 8;      // áudio: AudioListener e AudioSource (o papel diz qual)
+/// Papel de um componente KIND_AUDIO (um objeto pode ter os dois: a câmera
+/// com a música em laço, como na Unity).
+export const AUDIO_PAPEL_NENHUM: number = 0;
+export const AUDIO_PAPEL_OUVINTE: number = 1;
+export const AUDIO_PAPEL_FONTE: number = 2;
 // novos kinds entram aqui
 
 /// Bits de `Behavior.falhasEditor`: o gancho do EDITOR que lançou exceção e
@@ -224,6 +230,11 @@ export class Behavior {
   /// 1 = este renderer se desenha sozinho (`drawSelf`) e tem prioridade sobre
   /// os demais renderers do objeto. Lido só em `refreshComponentCache`.
   drawsSelf(): number { return 0; }
+  /// Áudio (src/engine/audio/audio_system.ts): AUDIO_PAPEL_OUVINTE, _FONTE ou _NENHUM.
+  audioPapel(): number { return AUDIO_PAPEL_NENHUM; }
+  /// Fonte de áudio: uma vez por quadro, pelo sistema de áudio. `ativo` 0 =
+  /// objeto (ou ancestral) inativo ou componente desligado.
+  audioSincronizar(ativo: number): void {}
   /// Raio envolvente do renderer em unidades do objeto, centrado na origem
   /// dele (0 = sem raio próprio: o culling usa o da malha). Lido só em
   /// `refreshComponentCache` e cacheado em `GameObject.boundRadius`.

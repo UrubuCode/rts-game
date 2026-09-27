@@ -197,6 +197,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/ui_text.ts"
   },
   {
+    "name": "AudioListener",
+    "category": "Áudio",
+    "description": "O ouvido da cena: o som é ouvido da pose deste objeto. Só um fica ativo por cena.",
+    "keywords": "ouvinte listener ouvido escuta som",
+    "source": "src/engine/core/audio_listener.ts"
+  },
+  {
     "name": "AudioSource",
     "category": "Áudio",
     "description": "Emite som a partir do objeto.",

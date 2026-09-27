@@ -29,7 +29,8 @@ import { Spinner as Component24 } from "../../scripts/spinner";
 import { Vagar as Component25 } from "../../scripts/vagar";
 import { UIButton as Component26 } from "../core/ui_button";
 import { UIText as Component27 } from "../core/ui_text";
-import { AudioSource as Component28 } from "../../scripts/audiosource";
+import { AudioListener as Component28 } from "../core/audio_listener";
+import { AudioSource as Component29 } from "../../scripts/audiosource";
 class GeneratedReflection extends ComponentReflection {
   create(name: string): any { return createRegisteredComponent(name); }
   name(component: any): string {
@@ -118,6 +119,9 @@ class GeneratedReflection extends ComponentReflection {
       return "UIText";
     }
     if (component instanceof Component28) {
+      return "AudioListener";
+    }
+    if (component instanceof Component29) {
       return "AudioSource";
     }
     return "Script";
@@ -208,6 +212,9 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component28) {
+      return 0;
+    }
+    if (component instanceof Component29) {
       return 0;
     }
     return 0;
@@ -378,6 +385,10 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component28) {
+
+      return "";
+    }
+    if (component instanceof Component29) {
 
       return "";
     }
@@ -552,6 +563,10 @@ class GeneratedReflection extends ComponentReflection {
 
       return "";
     }
+    if (component instanceof Component29) {
+
+      return "";
+    }
     return "";
   }
   fieldType(component: any, index: number): string {
@@ -720,6 +735,10 @@ class GeneratedReflection extends ComponentReflection {
       return "number";
     }
     if (component instanceof Component28) {
+
+      return "number";
+    }
+    if (component instanceof Component29) {
 
       return "number";
     }
@@ -894,6 +913,10 @@ class GeneratedReflection extends ComponentReflection {
 
       return 0;
     }
+    if (component instanceof Component29) {
+
+      return 0;
+    }
     return 0;
   }
   fieldStringGet(component: any, index: number): string {
@@ -1062,6 +1085,10 @@ class GeneratedReflection extends ComponentReflection {
       return "";
     }
     if (component instanceof Component28) {
+
+      return "";
+    }
+    if (component instanceof Component29) {
 
       return "";
     }
@@ -1236,6 +1263,10 @@ class GeneratedReflection extends ComponentReflection {
 
       return;
     }
+    if (component instanceof Component29) {
+
+      return;
+    }
   }
   fieldStringSet(component: any, index: number, value: string): void {
     if (component instanceof Component0) {
@@ -1406,6 +1437,10 @@ class GeneratedReflection extends ComponentReflection {
 
       return;
     }
+    if (component instanceof Component29) {
+
+      return;
+    }
   }
   serialize(component: any): any {
     if (component instanceof Component0) {
@@ -1493,6 +1528,9 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component28) {
+      return { type: "script:src/engine/core/audio_listener.ts#AudioListener", fields: {  } };
+    }
+    if (component instanceof Component29) {
       return null;
     }
     return null;
@@ -1583,6 +1621,9 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component28) {
+      return null;
+    }
+    if (component instanceof Component29) {
       return null;
     }
     return null;
@@ -1714,6 +1755,9 @@ class GeneratedReflection extends ComponentReflection {
     if (component instanceof Component28) {
       return;
     }
+    if (component instanceof Component29) {
+      return;
+    }
   }
   drawsGizmos(component: any): boolean {
     if (component instanceof Component0) {
@@ -1803,6 +1847,9 @@ class GeneratedReflection extends ComponentReflection {
     if (component instanceof Component28) {
       return false;
     }
+    if (component instanceof Component29) {
+      return false;
+    }
     return false;
   }
 }
@@ -1836,7 +1883,8 @@ export function createRegisteredComponent(name: string): Behavior {
   if (name === "Vagar") return new Component25();
   if (name === "UIButton") return new Component26();
   if (name === "UIText") return new Component27();
-  if (name === "AudioSource") return new Component28();
+  if (name === "AudioListener") return new Component28();
+  if (name === "AudioSource") return new Component29();
   throw new Error("Componente nao registrado: " + name);
 }
 export function restoreRegisteredComponent(data: any): any {
@@ -1939,6 +1987,12 @@ export function restoreRegisteredComponent(data: any): any {
     if (data.fields === undefined || data.fields === null) return component;
       if (typeof data.fields["raio"] === "number" && data.fields["raio"] === data.fields["raio"] && data.fields["raio"] > -1e30 && data.fields["raio"] < 1e30) component["raio"] = data.fields["raio"];
       if (typeof data.fields["velocidade"] === "number" && data.fields["velocidade"] === data.fields["velocidade"] && data.fields["velocidade"] > -1e30 && data.fields["velocidade"] < 1e30) component["velocidade"] = data.fields["velocidade"];
+    return component;
+  }
+  if (data.type === "script:src/engine/core/audio_listener.ts#AudioListener") {
+    const component = new Component28();
+    if (data.fields === undefined || data.fields === null) return component;
+
     return component;
   }
   return null;
