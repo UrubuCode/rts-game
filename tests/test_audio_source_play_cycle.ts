@@ -47,7 +47,7 @@ srcA.clip = "build/test-audio/ciclo.wav"; srcA.loop = true; srcA.playOnAwake = t
 a.addBehavior(srcA);
 const b = scene.createGameObject("Fonte B");
 const srcB = new AudioSource();
-srcB.forma = "quadrada"; srcB.dur = 1.0; srcB.loop = true; srcB.playOnAwake = true;
+srcB.modo = "gerador"; srcB.forma = "quadrada"; srcB.dur = 1.0; srcB.loop = true; srcB.playOnAwake = true;
 b.addBehavior(srcB);
 const c = scene.createGameObject("Fonte C (manual)");
 const srcC = new AudioSource();

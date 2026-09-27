@@ -50,11 +50,12 @@ const asPos = new Float64Array(3);
 export class AudioSource extends Behavior {
   /**
    * "arquivo" (toca `clip`) ou "gerador" (toca o tom: forma/freq/dur).
-   * Padrão "gerador": uma fonte nova sem clipe continua tocando o tom, como
-   * sempre tocou (só um `clip` atribuído ou o preset de arrastar áudio passam
-   * para "arquivo" — ver item 1/4 do brief de áudio-arquivos).
+   * Padrão "arquivo": atribuir `clip` direto no código (sem passar pelo
+   * Inspector) continua tocando esse clipe, como sempre tocou. Quem quer o
+   * tom gerado sem um clipe (menu Criar/Áudio/Fonte, os testes do gerador)
+   * marca `modo = "gerador"` explicitamente.
    */
-  modo: string = AS_MODO_GERADOR;
+  modo: string = AS_MODO_ARQUIVO;
   /** Caminho do .wav/.ogg; vazio = o tom gerado (forma, freq, dur). */
   clip: string = "";
   /** @range 0 1 */
@@ -229,10 +230,8 @@ export class AudioSource extends Behavior {
     const nm = ui.dropdown(AS_ROTULO_MODO, MODOS_ROTULOS, m);
     if (nm !== m) this.modo = MODOS[nm];
     const arquivo = this.modo === AS_MODO_ARQUIVO;
-    if (arquivo) {
-      ui.field("clip");
-      ui.label(this.rotuloInfo());
-    }
+    if (arquivo) ui.field("clip");
+    ui.label(this.rotuloInfo());
     ui.field("volume"); ui.field("pitch"); ui.field("loop"); ui.field("playOnAwake"); ui.field("mudo");
     ui.field("spatialBlend");
     if (this.spatialBlend > 0.0) {
@@ -252,11 +251,14 @@ export class AudioSource extends Behavior {
     if (ui.button(AS_ROTULO_TOCAR)) this.previa();
     if (ui.button(AS_ROTULO_PARAR)) { pararPrevia(); if (audioEmJogo() !== 0) this.stop(); }
   }
-  /// "48000 Hz, estéreo, 1,00 s, 375 KB", refeito só quando `clip` muda.
+  /// "48000 Hz, estéreo, 1,00 s, 375 KB" em modo arquivo (refeito só quando
+  /// `clip` muda); em modo gerador é sempre a mensagem do tom, mesmo com um
+  /// `clip` guardado (ele fica salvo, mas não tocando — item 1 do brief).
   private rotuloInfo(): string {
-    if (this.infoDe !== this.clip) {
-      this.infoDe = this.clip;
-      if (this.clip === "") this.infoRotulo = AS_SEM_CLIPE;
+    const chave = this.modo === AS_MODO_ARQUIVO ? this.clip : "\u0001";
+    if (this.infoDe !== chave) {
+      this.infoDe = chave;
+      if (this.modo !== AS_MODO_ARQUIVO || this.clip === "") this.infoRotulo = AS_SEM_CLIPE;
       else { const c = AudioClip.load(this.clip); this.infoRotulo = c !== null ? clipInfo(c) : AS_CLIPE_FALHOU; }
     }
     return this.infoRotulo;

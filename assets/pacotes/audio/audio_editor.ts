@@ -76,7 +76,13 @@ function criarAudio(ouvinte: boolean): void {
   const o = sc.createGameObject(ouvinte ? NOME_OUVINTE : NOME_FONTE);
   Editor.spawnPoint(menuPonto);
   o.transform.setPosition(menuPonto[0], menuPonto[1], menuPonto[2]);
-  if (ouvinte) o.addBehavior(new AudioListener()); else o.addBehavior(new AudioSource());
+  if (ouvinte) {
+    o.addBehavior(new AudioListener());
+  } else {
+    const fonte = new AudioSource();
+    fonte.modo = "gerador"; // o beep de demonstração do menu, como sempre foi
+    o.addBehavior(fonte);
+  }
   if (avisar) Editor.log(AVISO_OUVINTE_EXISTE);
 }
 export class AudioMenu {
