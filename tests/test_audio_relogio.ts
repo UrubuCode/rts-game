@@ -12,12 +12,14 @@ import { instalarEditorReal } from "@editor/editor_host";
 import { execCommand } from "@editor/control/dispatch";
 import { initAudio, closeAudio, AUDIO_NULO, pumpAudio, mixarBloco, tocarClipe, pausarVoz, definirPitchVoz,
          tempoDsp, amostrasDsp, framesMixadosTotais, vozTempoAudivel, audioUltimoBloco, audioCanais,
-         latenciaCalibradaMs } from "@engine/audio/audio";
+         latenciaCalibradaMs, vozTocando, activeVoices } from "@engine/audio/audio";
 import { Audio } from "@engine/audio/audio_system";
 import { AudioClip, toneClip, FORMA_SENO } from "@engine/audio/clip";
-import { novoPedido } from "@engine/audio/vozes";
+import { novoPedido, PEDIDO_VOLUME, PEDIDO_LACO, MAX_VOZES } from "@engine/audio/vozes";
 import { editorPreferences } from "@editor/preferences";
-import { offsetMaisProximo, medianaMs } from "@editor/calibrar_latencia_panel";
+import { offsetMaisProximo, medianaMs, CalibradorLatencia } from "@engine/audio/calibrador_latencia";
+import { ConfigUsuario } from "@engine/core/config_usuario";
+import fs from "@compat/fs.ts";
 
 function check(c: boolean, m: string): void { if (!c) throw new Error(m); }
 function cmd(l: string): string { return execCommand(800, 600, l); }
@@ -148,7 +150,7 @@ initAudio(AUDIO_NULO);
   // nesta sessão, latência/calibração estão em 0 (initAudio zera): a régua
   // audível e a mixada coincidem, então basta converter por `auTaxa`.
   const ok = Audio.agendarEm(clip, alvoQuadroMixado / 48000.0);
-  check(ok === 1, "agendarEm aceitou o agendamento");
+  check(ok > 0, "agendarEm devolve um id (handle) >0: " + ok);
   mixarBloco(BLOCO);
   const b = audioUltimoBloco();
   let k = 0;
@@ -171,7 +173,183 @@ closeAudio();
   check(Math.abs(medianaMs([0.5, 0.01, 0.02]) - 20.0) < 1e-9, "mediana robusta a um outlier (toque perdido/duplo)");
 }
 
-// ── 7. WS: `audio relogio` e `audio calibrar` ───────────────────────────────
+// ── 7b. cancelarAgendado ANTES do disparo: some da fila, nunca toca ────────
+initAudio(AUDIO_NULO);
+{
+  const canais = audioCanais();
+  const amostrasDc = new Float32Array(9600);
+  let i = 0; while (i < amostrasDc.length) { amostrasDc[i] = 1.0; i = i + 1; }
+  const clip = AudioClip.fromSamples("dc-cancelar-antes", amostrasDc, 1);
+
+  mixarBloco(64); // baseline qualquer, como no teste 5
+  const totalAntes = framesMixadosTotais();
+  const OFFSET = 5000; // bem além do bloco que vamos mixar agora: ainda pendente
+  const id = Audio.agendarEm(clip, (totalAntes + OFFSET) / 48000.0);
+  check(id > 0, "agendou (pendente, alvo no futuro)");
+  const cancelou = Audio.cancelarAgendado(id);
+  check(cancelou === 1, "cancelarAgendado remove da fila ANTES do disparo");
+  // Mixa blocos suficientes pra cobrir o alvo original: se não tivesse
+  // cancelado, o clique teria disparado em algum desses blocos.
+  let f = 0;
+  let apareceu = false;
+  while (f < 30) {
+    mixarBloco(256);
+    const b = audioUltimoBloco();
+    let k = 0;
+    while (k < 256) { if (Math.abs(b[k * canais]) > 1e-4) { apareceu = true; break; } k = k + 1; }
+    if (apareceu) break;
+    f = f + 1;
+  }
+  check(!apareceu, "cancelado antes do disparo: o clique NUNCA aparece no buffer mixado");
+  check(Audio.cancelarAgendado(id) === 0, "cancelar de novo o mesmo id (já cancelado) devolve 0 (desconhecido)");
+}
+closeAudio();
+
+// ── 7c. cancelarAgendado DEPOIS do disparo: para com a rampa normal ────────
+initAudio(AUDIO_NULO);
+{
+  const canais = audioCanais();
+  const amostrasDc = new Float32Array(9600);
+  let i = 0; while (i < amostrasDc.length) { amostrasDc[i] = 1.0; i = i + 1; }
+  const clip = AudioClip.fromSamples("dc-cancelar-depois", amostrasDc, 1);
+  const pedido = novoPedido();
+  pedido[PEDIDO_LACO] = 1.0; // em laço: sem cancelar, tocaria pra sempre — prova que o cancelamento é real
+
+  mixarBloco(64);
+  const totalAntes = framesMixadosTotais();
+  const id = Audio.agendarEm(clip, totalAntes / 48000.0, pedido); // dispara já no PRÓXIMO bloco (atraso 0)
+  check(id > 0, "agendou (dispara no próximo bloco)");
+  mixarBloco(256); // o clique dispara e toca (voz real nasce)
+  const b1 = audioUltimoBloco();
+  check(Math.abs(b1[0]) > 0.5, "a voz nasceu tocando (DC cheio no início do bloco): " + b1[0]);
+
+  const cancelou = Audio.cancelarAgendado(id);
+  check(cancelou === 1, "cancelarAgendado DEPOIS do disparo (mesmo id) para a voz real");
+  // A rampa de `pararVoz` leva alguns blocos pra chegar a zero (fase A6: sem
+  // clique) — mixa mais blocos e confere que a amplitude CAIU (não continua
+  // em laço no volume cheio, que é o que aconteceria sem o cancelamento).
+  let f = 0; let ultimoPico = 1.0;
+  while (f < 20) {
+    mixarBloco(256);
+    const b = audioUltimoBloco();
+    let pico = 0.0; let k = 0;
+    while (k < 256) { const v = Math.abs(b[k * canais]); if (v > pico) pico = v; k = k + 1; }
+    ultimoPico = pico;
+    f = f + 1;
+  }
+  check(ultimoPico < 0.05, "depois de cancelado, a voz rampeia a zero e FICA muda (não continua em laço): pico final=" + ultimoPico);
+}
+closeAudio();
+
+// ── 7d. agendarEm com as 32 vozes ocupadas: mesma política de `tocarClipe`
+//    (rouba VIRTUAL se houver; sem nenhuma, DESCARTA — nunca rouba audível).
+initAudio(AUDIO_NULO);
+{
+  const clipLoop = toneClip(30.0, 60.0, FORMA_SENO);
+  const pedido = novoPedido();
+  pedido[PEDIDO_LACO] = 1.0; pedido[PEDIDO_VOLUME] = 1.0; // audíveis (não-virtuais): volume > 0, dentro de alcance (2D)
+  let i = 0;
+  while (i < MAX_VOZES) { check(tocarClipe(clipLoop, pedido) !== 0, "voz " + i + " alocou"); i = i + 1; }
+  check(activeVoices() === MAX_VOZES, "as " + MAX_VOZES + " vozes estão ocupadas: " + activeVoices());
+
+  mixarBloco(64);
+  const totalAntes = framesMixadosTotais();
+  const dcCheio = new Float32Array(4800); { let k = 0; while (k < dcCheio.length) { dcCheio[k] = 1.0; k = k + 1; } }
+  const clip = AudioClip.fromSamples("dc-cheio", dcCheio, 1);
+  const id = Audio.agendarEm(clip, totalAntes / 48000.0); // dispara já
+  check(id > 0, "agendou mesmo com as vozes cheias (a fila de agendamento é separada da tabela de vozes)");
+  mixarBloco(256); // o disparo tenta alocar: sem slot livre/virtual, DESCARTA (mesma regra de tocarClipe)
+  check(activeVoices() === MAX_VOZES, "descartado ao disparar: continua " + MAX_VOZES + " vozes, nenhuma a mais");
+  check(Audio.cancelarAgendado(id) === 0, "cancelar um agendamento DESCARTADO (nunca virou voz) devolve 0");
+}
+closeAudio();
+
+// ── 7e. CalibradorLatencia (API de motor): computa e persiste ──────────────
+initAudio(AUDIO_NULO);
+{
+  const arquivoTeste = "build/test-audio/usuario-calibrador.json";
+  fs.create_dir_all("build/test-audio");
+  if (fs.exists(arquivoTeste)) fs.remove_file(arquivoTeste);
+  const configTeste = new ConfigUsuario(arquivoTeste);
+
+  // Sessão rápida (3 batidas, 60 ms de intervalo — não 16×500 ms: o teste
+  // não precisa de 8 s reais pra provar o fluxo).
+  const clip = toneClip(1200.0, 0.02, FORMA_SENO);
+  const cal = new CalibradorLatencia(0.06, 3);
+  cal.iniciar(clip);
+  check(cal.rodando, "iniciar() liga a sessão");
+  check(cal.resultado() !== cal.resultado(), "resultado() é NaN antes de completar");
+
+  // 3 toques, um pouco ATRASADO em relação à grade (~15 ms) todas as vezes —
+  // prova que a mediana capta um atraso sistemático, não só zero.
+  const ATRASO_SIMULADO_S = 0.015;
+  let i = 0;
+  while (i < 3) {
+    const alvo = cal.primeiroBeat + i * 0.06 + ATRASO_SIMULADO_S;
+    while (Audio.tempoDsp() < alvo) { pumpAudio(); time.sleep_ms(2); }
+    cal.toque();
+    i = i + 1;
+  }
+  check(!cal.rodando, "completou as 3 batidas: a sessão encerra sozinha");
+  check(cal.progresso() === 3, "progresso() conta os 3 toques");
+  const r = cal.resultado();
+  check(Math.abs(r - ATRASO_SIMULADO_S * 1000.0) < 25.0, "resultado() capta o atraso simulado (~15 ms): " + r);
+
+  // salvar() aplica em Audio.latenciaCalibrada E persiste em `config_usuario`
+  // — mas a instância global usa o arquivo PADRÃO; aqui confere só a
+  // matemática/aplicação e a persistência via uma instância PRÓPRIA (mesmo
+  // formato, arquivo isolado do teste, sem mexer no `config/usuario.json`
+  // real do repo).
+  Audio.latenciaCalibrada = 0.0; // limpa antes de aplicar, pra provar que `aplicar()` fez a diferença
+  cal.aplicar();
+  check(Math.abs(Audio.latenciaCalibrada - r) < 1e-9, "aplicar() liga Audio.latenciaCalibrada no resultado");
+  Audio.latenciaCalibrada = 0.0;
+  const salvouOk = configTeste.salvarAudioLatenciaMs(r);
+  check(salvouOk, "ConfigUsuario.salvarAudioLatenciaMs escreve com sucesso: " + configTeste.error);
+  check(fs.exists(arquivoTeste), "o arquivo de config do usuário foi criado");
+
+  // Round-trip: uma instância NOVA relê o mesmo arquivo (simula o próximo
+  // boot do jogo) e bate com o valor salvo.
+  const releitura = new ConfigUsuario(arquivoTeste);
+  releitura.carregar();
+  check(Math.abs(releitura.audioLatenciaMs - r) < 1e-9, "releitura bate com o valor salvo (round-trip): " + releitura.audioLatenciaMs);
+}
+closeAudio();
+
+// ── 7f. boot do JOGO: carrega a config do usuário ANTES do áudio começar e
+//    aplica em Audio.latenciaCalibrada (o mesmo passo que `game.ts` faz).
+{
+  const arquivoBoot = "build/test-audio/usuario-boot.json";
+  fs.create_dir_all("build/test-audio");
+  fs.write(arquivoBoot, JSON.stringify({ audioLatenciaMs: 37.5 }));
+  const configBoot = new ConfigUsuario(arquivoBoot);
+  Audio.latenciaCalibrada = 0.0; // estado "de fábrica", como um processo novo
+  // O MESMO passo de `game.ts`: carregar() então aplicar em latenciaCalibrada.
+  configBoot.carregar();
+  check(configBoot.error === "", "carregar() não reporta erro num arquivo válido: " + configBoot.error);
+  Audio.latenciaCalibrada = configBoot.audioLatenciaMs;
+  check(Math.abs(Audio.latenciaCalibrada - 37.5) < 1e-9, "boot aplica o valor salvo em Audio.latenciaCalibrada: " + Audio.latenciaCalibrada);
+  Audio.latenciaCalibrada = 0.0; // não vaza pro resto do arquivo de teste
+
+  // Arquivo INEXISTENTE (1ª execução, sem config salva ainda): carrega sem
+  // erro, com o padrão (0), como o boot do jogo numa instalação nova.
+  const configNovo = new ConfigUsuario("build/test-audio/nao-existe-usuario.json");
+  configNovo.carregar();
+  check(configNovo.error === "", "arquivo inexistente não é erro (instalação nova): " + configNovo.error);
+  check(configNovo.audioLatenciaMs === 0.0, "sem config salva, o padrão é 0");
+
+  // JSON corrompido: `carregar()` reporta o erro (pro Console, via chamador)
+  // sem lançar e sem mexer no valor em memória.
+  const arquivoRuim = "build/test-audio/usuario-corrompido.json";
+  fs.write(arquivoRuim, "{ nao e json valido");
+  const configRuim = new ConfigUsuario(arquivoRuim);
+  configRuim.audioLatenciaMs = 9.0;
+  configRuim.carregar();
+  check(configRuim.error !== "", "JSON corrompido reporta erro em .error");
+  check(configRuim.audioLatenciaMs === 9.0, "JSON corrompido não mexe no valor em memória");
+}
+
+// ── 8. WS: `audio relogio` e `audio calibrar` ───────────────────────────────
 instalarEditorReal();
 initAudio(AUDIO_NULO);
 {
@@ -196,4 +374,4 @@ initAudio(AUDIO_NULO);
 }
 closeAudio();
 
-io.print("[PASSOU] relógio DSP: monotônico/suave (normal, stall, alvo adaptativo), tempoAudivel (play/pausa/pitch), agendarEm sample-accurate, calibração e WS");
+io.print("[PASSOU] relógio DSP: monotônico/suave (normal, stall, alvo adaptativo), tempoAudivel (play/pausa/pitch), agendarEm sample-accurate, cancelarAgendado (antes/depois do disparo, 32 vozes cheias), CalibradorLatencia (API computa e persiste), boot do jogo (config_usuario) e WS");

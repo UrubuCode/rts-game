@@ -169,7 +169,23 @@ const AGENDA_MAX: number = 64;
 const agClipe: (AudioClip | null)[] = []; { let i = 0; while (i < AGENDA_MAX) { agClipe.push(null); i = i + 1; } }
 const agAlvoQuadro = new Float64Array(AGENDA_MAX); // alvo em amostras DSP (mesma régua de `amostrasDsp()`)
 const agPedido = new Float64Array(AGENDA_MAX * PEDIDO_FLOATS);
+/// Id ESTÁVEL de cada agendamento pendente (ver `agendarEm`/`cancelarAgendado`
+/// — não é id de voz: nasce ANTES de existir voz nenhuma).
+const agId = new Float64Array(AGENDA_MAX);
 let agN: number = 0; // agendamentos ocupados (0..agN-1, sem buracos: remoção troca com o último)
+/// Agendamentos que JÁ viraram voz (o clique disparou): o mesmo id de
+/// `agendarEm` continua válido pra `cancelarAgendado` — mapeia pro id de voz
+/// REAL. `Float64Array` paralelo (não `Map`: nada aqui itera por chave, só
+/// busca linear/poda — mesmo estilo do resto do arquivo), também
+/// `AGENDA_MAX` (o teto de agendamentos "vivos" de uma vez, agendados ou já
+/// tocando, é o mesmo).
+const agResId = new Float64Array(AGENDA_MAX);
+const agResVoz = new Float64Array(AGENDA_MAX);
+let agResN: number = 0;
+/// Próximo id de agendamento (nunca 0 — 0 é "sem agendamento"/falha, como o
+/// resto da API de áudio). Cresce sempre; não recicla (o teto prático é o
+/// mesmo de qualquer id de 53 bits num f64 — não estoura numa sessão real).
+let agProximoId: f64 = 1.0;
 
 /// Abre o dispositivo (`AUDIO_REAL` por padrão, `AUDIO_NULO` para testes).
 /// 1 = há saída; 0 = mudo, sem erro (máquina sem placa de som).
@@ -190,7 +206,7 @@ export function initAudio(modoArg?: number): number {
   auAlvoQuadros = AU_ALVO_QUADROS_MIN; auQuadrosSemFalta = 0; auFaltasAntes = 0.0; auRampaRestante = 0;
   rlBaseDefinida = 0; rlBaseConsumidos = 0.0; rlConsumidosUltimo = 0.0; rlConsumidosUltimoEm = 0.0;
   rlSuaveAmostras = 0.0; auTotalMixado = 0.0;
-  agN = 0; auAtrasoProximaVoz = 0;
+  agN = 0; agResN = 0; agProximoId = 1.0; auAtrasoProximaVoz = 0;
   return 1;
 }
 
@@ -338,8 +354,19 @@ export function framesMixadosTotais(): f64 { return auTotalMixado; }
 /// `Audio.tempoDsp()`) — sample-accurate dentro do bloco (ver `V_ATRASO` em
 /// `mixInto`), essencial pra ritmo/música sincronizada. `pedido` opcional
 /// (`pedidoPadrao` senão). Alvo já passado: toca no próximo bloco, já sem
-/// atraso (melhor esforço — não existe voltar no tempo). Fila cheia
-/// (`AGENDA_MAX`): devolve 0 sem agendar, como `tocarClipe` sem voz livre.
+/// atraso (melhor esforço — não existe voltar no tempo).
+///
+/// Devolve um id (≥ 1) que serve pra `cancelarAgendado` tanto ANTES do
+/// disparo (some da fila) quanto DEPOIS (a voz real para com a rampa normal
+/// — o mesmo id continua válido, só muda o que ele aponta por baixo). 0 =
+/// não agendou: sem dispositivo, clipe vazio, ou fila cheia (`AGENDA_MAX`).
+///
+/// Quando o alvo dispara (`auProcessarAgenda`) mas as 32 vozes já estão
+/// ocupadas por som AUDÍVEL (não virtual), a política é a MESMA de
+/// `tocarClipe`/`auAlocar`: rouba uma voz VIRTUAL se houver; sem nenhuma,
+/// DESCARTA o clique (nunca rouba uma voz audível — estalaria). Um clique
+/// descartado assim não deixa rastro pra cancelar (o id some da fila e não
+/// tem voz nenhuma pra mapear).
 export function agendarEm(clip: AudioClip, tempoDspAlvo: f64, pedido?: Float64Array): number {
   if (auDev === 0 || clip.quadros === 0 || agN >= AGENDA_MAX) return 0;
   // Converte o alvo AUDÍVEL (pós latência/calibração) pra régua MIXADA (a de
@@ -347,13 +374,66 @@ export function agendarEm(clip: AudioClip, tempoDspAlvo: f64, pedido?: Float64Ar
   // — o inverso de `amostrasDsp()`.
   const alvoQuadroMixado = tempoDspAlvo * auTaxa + rlLatenciaDispositivoQuadros + rlCalibracaoMs * auTaxa / 1000.0;
   const i = agN;
+  const id = agProximoId;
+  agProximoId = agProximoId + 1.0;
+  agId[i] = id;
   agClipe[i] = clip;
   agAlvoQuadro[i] = alvoQuadroMixado;
   const pb = i * PEDIDO_FLOATS;
   if (pedido !== undefined) { let k = 0; while (k < PEDIDO_FLOATS) { agPedido[pb + k] = pedido[k]; k = k + 1; } }
   else pedidoPadrao(agPedido.subarray(pb, pb + PEDIDO_FLOATS));
   agN = agN + 1;
-  return 1;
+  return id;
+}
+/// Remove o agendamento `i` da fila PENDENTE (troca com o último — sem
+/// buraco, sem alocar). Usado por `cancelarAgendado` e por
+/// `auProcessarAgenda` quando o alvo dispara.
+function agRemoverPendente(i: number): void {
+  agN = agN - 1;
+  agClipe[i] = agClipe[agN]; agClipe[agN] = null;
+  agAlvoQuadro[i] = agAlvoQuadro[agN];
+  agId[i] = agId[agN];
+  const pb = i * PEDIDO_FLOATS; const ub = agN * PEDIDO_FLOATS;
+  let k = 0; while (k < PEDIDO_FLOATS) { agPedido[pb + k] = agPedido[ub + k]; k = k + 1; }
+}
+/// Poda `agRes*` (agendamentos já disparados) das entradas cuja voz já
+/// acabou de vez (`vozIndice` não resolve mais essa geração) — sem isso a
+/// tabela cresce sem limite numa sessão longa. Barato (laço ≤ `AGENDA_MAX`,
+/// sem alocar); chamado no topo de `auProcessarAgenda`, mesmo com `agN = 0`.
+function agPodarResolvidos(): void {
+  let i = 0;
+  while (i < agResN) {
+    if (vozIndice(agResVoz[i]) < 0) {
+      agResN = agResN - 1;
+      agResId[i] = agResId[agResN]; agResVoz[i] = agResVoz[agResN];
+      continue; // o que veio da troca ainda não foi conferido
+    }
+    i = i + 1;
+  }
+}
+/// `Audio.cancelarAgendado`: antes do disparo, some da fila (a voz nunca
+/// chega a existir); depois, para a voz REAL com a rampa normal
+/// (`pararVoz` — sem clique, ver a fase A6). Devolve 1 se cancelou alguma
+/// coisa, 0 se o id é desconhecido (nunca existiu, já tocou e acabou
+/// sozinho, ou foi DESCARTADO ao disparar — ver a nota em `agendarEm` sobre
+/// as 32 vozes ocupadas).
+export function cancelarAgendado(id: number): number {
+  let i = 0;
+  while (i < agN) {
+    if (agId[i] === id) { agRemoverPendente(i); return 1; }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < agResN) {
+    if (agResId[i] === id) {
+      pararVoz(agResVoz[i]);
+      agResN = agResN - 1;
+      agResId[i] = agResId[agResN]; agResVoz[i] = agResVoz[agResN];
+      return 1;
+    }
+    i = i + 1;
+  }
+  return 0;
 }
 
 /// Quadros de SAÍDA decorridos desde a âncora da voz (nunca negativo — uma
@@ -682,6 +762,10 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
 /// `auTotalMixado` avançar — é o único lugar que sabe "o que vai ser mixado
 /// agora" sem duplicar o laço de `pumpAudio`.
 function auProcessarAgenda(n: number): void {
+  // Poda SEMPRE (mesmo `agN = 0`): um agendamento que já virou voz e essa voz
+  // já acabou sozinha (não cancelada) precisa sair de `agRes*` também sem
+  // agendamento novo nenhum pendente.
+  agPodarResolvidos();
   if (agN === 0) return;
   const inicioBloco = auTotalMixado;
   const fimBloco = inicioBloco + n;
@@ -692,15 +776,16 @@ function auProcessarAgenda(n: number): void {
     if (atraso < 0.0) atraso = 0.0; // alvo já passou: toca já (melhor esforço)
     auAtrasoProximaVoz = atraso | 0;
     const clip = agClipe[i];
+    const idAgendado = agId[i];
     const pb = i * PEDIDO_FLOATS;
-    if (clip !== null) tocarClipe(clip, agPedido.subarray(pb, pb + PEDIDO_FLOATS));
-    // Remove o slot i (troca com o último — sem buraco, sem alocar); não
-    // avança `i`, o que veio da troca ainda não foi conferido.
-    agN = agN - 1;
-    agClipe[i] = agClipe[agN]; agClipe[agN] = null;
-    const ub = agN * PEDIDO_FLOATS;
-    let k = 0; while (k < PEDIDO_FLOATS) { agPedido[pb + k] = agPedido[ub + k]; k = k + 1; }
-    agAlvoQuadro[i] = agAlvoQuadro[agN];
+    const vozId = clip !== null ? tocarClipe(clip, agPedido.subarray(pb, pb + PEDIDO_FLOATS)) : 0;
+    // Remove o slot i da fila PENDENTE (troca com o último — sem buraco, sem
+    // alocar); não avança `i`, o que veio da troca ainda não foi conferido.
+    agRemoverPendente(i);
+    // A voz nasceu de verdade (não descartada por falta de slot — ver a nota
+    // em `agendarEm`): o MESMO id continua válido pra `cancelarAgendado`,
+    // agora apontando pra voz real.
+    if (vozId !== 0 && agResN < AGENDA_MAX) { agResId[agResN] = idAgendado; agResVoz[agResN] = vozId; agResN = agResN + 1; }
   }
 }
 

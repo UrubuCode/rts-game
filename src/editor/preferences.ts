@@ -1,4 +1,5 @@
 import fs from "@compat/fs";
+import { logError } from "@engine/core/logger";
 
 export const EDITOR_PREFERENCES_FILE = ".rts-editor.local.json";
 
@@ -19,11 +20,25 @@ export class EditorPreferences {
       const data = JSON.parse(fs.read_text(this.file));
       if (data !== null && typeof data.codeEditor === "string") this.codeEditor = data.codeEditor;
       if (data !== null && typeof data.audioLatenciaMs === "number") this.audioLatenciaMs = data.audioLatenciaMs;
-    } catch { this.error = "Nao foi possivel ler as preferencias locais."; }
+    } catch (e) { this.error = "Nao foi possivel ler as preferencias locais: " + String(e); }
   }
+  /// Escreve E CONFERE (o nativo pode falhar a I/O sem lançar — CLAUDE.md;
+  /// mesmo padrão de `import_assets.ts`): relê o arquivo e compara o
+  /// conteúdo. Falha vai pro Console (`logError`) além de `this.error`.
   private escrever(): boolean {
-    try { fs.write(this.file, JSON.stringify({ codeEditor: this.codeEditor, audioLatenciaMs: this.audioLatenciaMs })); }
-    catch { this.error = "Nao foi possivel salvar as preferencias locais."; return false; }
+    const conteudo = JSON.stringify({ codeEditor: this.codeEditor, audioLatenciaMs: this.audioLatenciaMs });
+    try {
+      fs.write(this.file, conteudo);
+      if (!fs.exists(this.file) || fs.read_text(this.file) !== conteudo) {
+        this.error = "Nao foi possivel salvar as preferencias locais (escrita nao confirmada).";
+        logError("Preferencias: " + this.error);
+        return false;
+      }
+    } catch (e) {
+      this.error = "Nao foi possivel salvar as preferencias locais: " + String(e);
+      logError("Preferencias: " + this.error);
+      return false;
+    }
     this.error = "";
     return true;
   }

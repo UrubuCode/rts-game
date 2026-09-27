@@ -12,7 +12,8 @@ import { AUDIO_PAPEL_OUVINTE, AUDIO_PAPEL_FONTE } from "@engine/core/behavior";
 import { logWarn } from "@engine/core/logger";
 import { setListener } from "./spatial";
 import { pumpAudio, tocarClipe, tocarNoPonto, tempoDsp as auTempoDsp, amostrasDsp as auAmostrasDsp,
-         agendarEm as auAgendarEm, latenciaCalibradaMs as auLatenciaCalibradaMs,
+         agendarEm as auAgendarEm, cancelarAgendado as auCancelarAgendado,
+         latenciaCalibradaMs as auLatenciaCalibradaMs,
          definirLatenciaCalibradaMs as auDefinirLatenciaCalibradaMs } from "./audio";
 import { AudioClip } from "./clip";
 
@@ -152,6 +153,10 @@ export class Audio {
   /// `Audio.tempoDsp()`), sample-accurate. `pedido` opcional (`tocarClipe`
   /// padrão senão).
   static agendarEm(clip: AudioClip, alvo: f64, pedido?: Float64Array): number { return auAgendarEm(clip, alvo, pedido); }
+  /// Cancela um agendamento de `agendarEm` — antes do disparo, some da fila;
+  /// depois, para a voz real com a rampa normal (sem clique). 1 cancelou, 0
+  /// id desconhecido (ver a nota de `cancelarAgendado` em `audio.ts`).
+  static cancelarAgendado(id: number): number { return auCancelarAgendado(id); }
   /// Offset de calibração do usuário (ms) — ver `latenciaCalibradaMs`/
   /// `definirLatenciaCalibradaMs` em `engine/audio/audio.ts`.
   static get latenciaCalibrada(): f64 { return auLatenciaCalibradaMs(); }
