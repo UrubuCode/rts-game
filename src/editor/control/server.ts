@@ -166,12 +166,18 @@ export function ctrlServe(port: number): void {
       // vale para os dois, e o protocolo daqui é texto em qualquer caso.
       const msg = dados.toString();
       const lines = msg.split("\n");
-      let li = 0;
+      // Uma mensagem que começa com a linha `batch` (ou `txn`) sozinha é um
+      // LOTE inteiro: vira `batch begin` + as linhas + `batch end` (lote.ts).
+      const primeira = lines.length > 1 ? lines[0].split("\r")[0].trim() : "";
+      const loteNaMensagem = primeira === "batch" || primeira === "txn";
+      let li = loteNaMensagem ? 1 : 0;
+      if (loteNaMensagem) con.fila.push(primeira + " begin");
       while (li < lines.length) {
         const l = lines[li].split("\r")[0];
         if (l.length > 0) con.fila.push(l);
         li = li + 1;
       }
+      if (loteNaMensagem) con.fila.push(primeira + " end");
       processarFila(con);
     });
 

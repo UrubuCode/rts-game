@@ -18,6 +18,7 @@ import { cmdMenu } from "./commands/menu";
 import { cmdGameView } from "./commands/gameview";
 import { cmdShot } from "@editor/control/commands/shot";
 import { cmdInput } from "@editor/control/commands/input";
+import { cmdLote, loteAtivo, loteAbortado, antesNoLote, depoisNoLote } from "@editor/control/lote";
 import { cmdResume, cmdStep, cmdTimescale, cmdSeed } from "@editor/control/commands/tempo";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { comandoEmbutido, registraNoLog, MUTA_SIM } from "@editor/control/builtin_commands";
@@ -45,8 +46,14 @@ const ERRO_PREFIXO: string = "[erro]";
 /// o `switch` lá dentro tem `return` em cada caso e capturar em todos seria
 /// repetir 80 vezes.
 export function execCommand(w: number, h: number, line: string): string {
-  const out = execProtegido(w, h, line);
   const c = line.split(" ")[0];
+  let out = "";
+  // LOTE (lote.ts): dentro de `batch begin`…`end`, um [erro] desfaz tudo
+  if (loteAtivo() && c !== "batch" && c !== "txn") {
+    const pre = antesNoLote(line);
+    if (pre.length === 0) out = depoisNoLote(line, execProtegido(w, h, line));
+    else out = loteAbortado() && pre.indexOf("[erro] batch abortado") === 0 ? pre : depoisNoLote(line, pre);
+  } else out = execProtegido(w, h, line);
   if (registraNoLog(c)) {
     // erro do comando vira nível de erro: é o que se procura ao investigar
     if (out.indexOf(ERRO_PREFIXO) === 0) logError(line + "  ->  " + out);
@@ -287,6 +294,8 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "doc": return cmdDoc(parts);
     case "shot": return cmdShot(parts, w, h);
     case "input": return cmdInput(parts, w, h, line);
+    case "batch": return cmdLote(parts);
+    case "txn": return cmdLote(parts);
     default: return registrado >= 0 ? runRegistered(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

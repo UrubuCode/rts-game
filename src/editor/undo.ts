@@ -40,6 +40,8 @@ function rebindSelectedBone(previousPath: string): void {
 }
 
 const CAP: number = 40;   // teto de estados guardados
+/// O teto, para quem monta uma entrada de Desfazer por fora (lote da porta de controle).
+export const HISTORY_CAP: number = CAP;
 
 export class History {
   u: string[];   // pilha de undo (estados anteriores)

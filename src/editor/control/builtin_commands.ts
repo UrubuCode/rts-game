@@ -72,6 +72,10 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
     "animator <obj> state :: estado atual e tempo normalizado por camada, fade em andamento, erro do controlador :: animator 0 state",
     "animator <obj> params :: parametros do controlador (nome, tipo, valor) :: animator 0 params"]),
   c("anims", "esqueleto", MUTA_NAO, ["anims <obj> :: lista os clipes do modelo do Skeleton (nome + duracao) :: anims 0"]),
+  c("batch", "play", MUTA_NAO, [
+    "batch begin :: abre um LOTE: os comandos seguintes viram UMA entrada de Desfazer; no primeiro [erro] o lote inteiro e desfeito e a resposta diz a linha :: batch begin",
+    "batch end :: fecha o lote (1 entrada de Desfazer se a cena mudou) :: batch end",
+    "batch cancel :: desfaz o que o lote aplicou e fecha :: batch cancel"]),
   c("bones", "esqueleto", MUTA_NAO, ["bones <obj> :: lista os ossos do Skeleton do objeto (indice, nome, pai) :: bones 0"]),
   c("cam", "vista", MUTA_NAO, ["cam <x> <y> <z> <yaw> <pitch> :: posiciona a camera do editor (angulos em radianos) :: cam 0 11 -15 0 -0.5"]),
   c("clear", "objetos", MUTA_SIM, ["clear :: esvazia a cena (para o Play) :: clear"]),
@@ -178,6 +182,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
   c("timescale", "play", MUTA_NAO, ["timescale [x] :: escala do tempo da simulacao (0 = parado, 0.5 = metade dos passos por segundo, 1 = real); sem x consulta :: timescale 0.5"]),
   c("tool", "transform", MUTA_NAO, ["tool [move|rotate|scale|select] :: troca/consulta a ferramenta do gizmo da viewport :: tool rotate"]),
   c("tree", "hierarquia", MUTA_NAO, ["tree :: hierarquia: indice, nome, indice do pai (-1=raiz) :: tree"]),
+  c("txn", "play", MUTA_NAO, ["txn begin|end|cancel :: o mesmo que batch :: txn begin"]),
   c("undo", "play", MUTA_NAO, ["undo :: desfaz a ultima operacao mutante (snapshot da cena) :: undo"]),
   c("ungroup", "hierarquia", MUTA_SIM, ["ungroup [obj] :: dissolve o grupo (passa a pose de mundo aos filhos e remove o no) :: ungroup 8"]),
   c("view", "vista", MUTA_NAO, ["view <top|front|side|persp> :: posiciona a camera do editor num preset olhando a origem :: view top"]),
