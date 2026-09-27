@@ -17,8 +17,8 @@ import { MENU_ITEMS } from "@engine/generated/editor_extensions";
 import { scene, S } from "@editor/control/session";
 import { sceneDocument } from "@editor/scene_document";
 import fs from "@compat/fs.ts";
-import { audioReady, audioNulo, audioRate, audioCanais } from "@engine/audio/audio";
-import { escutaDisponivel } from "@compat/audio.ts";
+import { audioReady, audioNulo, audioRate, audioCanais, audioStats } from "@engine/audio/audio";
+import { escutaDisponivel, STATS_FLOATS } from "@compat/audio.ts";
 import * as rtsEguiSonda from "rts:egui";
 import * as rtsInputSonda from "rts:input";
 
@@ -149,10 +149,18 @@ function textoPacotes(pacotes: string[]): string {
 function temFuncao(ns: any, nome: string): boolean {
   return typeof ns[nome] === "function";
 }
+const ctxStats = new Float64Array(STATS_FLOATS);
+/// `faltas` (underruns) do dispositivo nativo desde a abertura — a IA confere
+/// chiado por número aqui, sem depender de `audio nivel` nem de escutar
+/// (CLAUDE.md, Áudio).
+function faltasAudio(pronto: boolean): f64 {
+  return pronto && audioStats(ctxStats) !== 0 ? ctxStats[1] : 0.0 - 1.0;
+}
 function sistemaAudio(): any {
   const pronto = audioReady() !== 0;
   return { pronto: pronto, tipo: pronto ? (audioNulo() !== 0 ? "nulo" : "real") : "mudo",
-    taxa: pronto ? audioRate() : 0, canais: pronto ? audioCanais() : 0, escutaDisponivel: escutaDisponivel() };
+    taxa: pronto ? audioRate() : 0, canais: pronto ? audioCanais() : 0, escutaDisponivel: escutaDisponivel(),
+    faltas: faltasAudio(pronto) };
 }
 function sistemas(): any {
   return {
@@ -164,7 +172,7 @@ function sistemas(): any {
 function textoSistemas(sis: any): string {
   const a = sis.audio;
   return "[contexto:sistemas] audio: " + (a.pronto ? a.tipo + " " + a.taxa + "hz " + a.canais + "ch" : "mudo") +
-    " escuta=" + (a.escutaDisponivel ? "sim" : "nao") + NL +
+    " escuta=" + (a.escutaDisponivel ? "sim" : "nao") + " faltas=" + (a.faltas >= 0.0 ? a.faltas : "-") + NL +
     "particulas: drawParticles=" + (sis.particulas.drawParticlesDisponivel ? "sim" : "nao (nao esta nesta branch/binario)") + NL +
     "input: droppedCount=" + (sis.input.droppedCountDisponivel ? "sim" : "nao (nao esta nesta branch/binario)");
 }
