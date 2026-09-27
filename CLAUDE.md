@@ -48,6 +48,7 @@
 - A IA não ouve pelo ouvido, mas verifica sozinha: por número — `audio list`, `audio nivel`, `audio mixer` — e pela saída real da placa com `audio escuta [ms] [sonda]` + `audio escuta resultado` (loopback, não bloqueia a janela; a sonda de 997 Hz separa o som do motor do de outros programas). Testes sem janela rodam no dispositivo nulo (`initAudio(AUDIO_NULO)` + `mixarBloco`). Não dependa do humano para saber se há som.
 - Caminhos por quadro do áudio (`pumpAudio`, `mixarBloco`, `audioQuadro`, `audioSincronizar`) seguem "Custo por quadro": estado de voz na tabela `Float64Array`, pedidos de voz reaproveitados, nada de `AudioClip.load` por quadro sem cache.
 - Clipes em `assets/audio/`; o mixer do projeto em `assets/audio/mixer.json`, fora do Desfazer da cena.
+- Ritmo/música sincroniza em `Audio.tempoDsp()` (o relógio DSP audível, suavizado e monotônico — `docs/components.md` § Áudio), nunca no tempo de quadro (`dt`/`update`): `AudioSource.time`/`vozSegundos` são a posição MIXADA (100–250 ms adiantada, adaptativa), não a que está saindo no alto-falante agora.
 
 ## Partículas
 

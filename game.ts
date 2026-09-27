@@ -42,8 +42,9 @@ import { vooDoJogo, VOO_POSE_FLOATS } from "@engine/core/voo_livre";
 import { VistasDeCamera, coletarCameras, aplicarVistas, frustumDasVistas,
          posicaoDaVista } from "@engine/render/camera_views";
 import { initAudio, audioEntrarJogo } from "@engine/audio/audio";
-import { audioQuadro, definirPoseEditor } from "@engine/audio/audio_system";
+import { audioQuadro, definirPoseEditor, Audio } from "@engine/audio/audio_system";
 import { carregarMixer, MIXER_ARQUIVO } from "@engine/audio/mixer_grupos";
+import { configUsuario } from "@engine/core/config_usuario";
 
 // ── janela do JOGO (sem os painéis do editor: a tela toda é o jogo) ─────────
 let W = 1280;
@@ -68,6 +69,12 @@ definirJanelaEntrada(WIN);
 if (process.env("RTS_VSYNC") === "0") setVsync(WIN, 0);
 benchInit();
 initMeshes(WIN);
+// Config do USUÁRIO (por máquina/instalação, `config/usuario.json` — nunca a
+// cena): a calibração de latência de áudio, ANTES do áudio começar, pra não
+// perder amostra nenhuma do relógio já corrigido.
+configUsuario.carregar();
+if (configUsuario.error !== "") io.print("[jogo] " + configUsuario.error);
+Audio.latenciaCalibrada = configUsuario.audioLatenciaMs;
 // Áudio antes da cena: no jogo não há botão Play, então `playOnAwake` toca no
 // mount da carga. Sem placa de som, `initAudio` devolve 0 e o jogo segue mudo.
 initAudio();

@@ -11,7 +11,10 @@ import { Camera } from "@engine/core/camera";
 import { AUDIO_PAPEL_OUVINTE, AUDIO_PAPEL_FONTE } from "@engine/core/behavior";
 import { logWarn } from "@engine/core/logger";
 import { setListener } from "./spatial";
-import { pumpAudio, tocarClipe, tocarNoPonto } from "./audio";
+import { pumpAudio, tocarClipe, tocarNoPonto, tempoDsp as auTempoDsp, amostrasDsp as auAmostrasDsp,
+         agendarEm as auAgendarEm, cancelarAgendado as auCancelarAgendado,
+         latenciaCalibradaMs as auLatenciaCalibradaMs,
+         definirLatenciaCalibradaMs as auDefinirLatenciaCalibradaMs } from "./audio";
 import { AudioClip } from "./clip";
 
 export const OUVINTE_NENHUM: number = 0;
@@ -137,4 +140,25 @@ export class Audio {
   static setListenerPose(pose: Float64Array): void { definirPoseEmpurrada(pose); }
   static play(clip: AudioClip, pedido: Float64Array): number { return tocarClipe(clip, pedido); }
   static playClipAtPoint(clip: AudioClip, pos: Float64Array, volume: f64): number { return tocarNoPonto(clip, pos, volume); }
+  /// Equivalente a `AudioSettings.dspTime` da Unity: segundos desde a
+  /// abertura do dispositivo, AUDÍVEIS (o que sai no alto-falante agora), não
+  /// a posição mixada de `AudioSource.time`/`vozSegundos` — ver a nota
+  /// "relógio DSP (ritmo)" em `engine/audio/audio.ts`. Sincronize ritmo/música
+  /// nisto, nunca no tempo de quadro (`dt`/`update`).
+  static tempoDsp(): f64 { return auTempoDsp(); }
+  /// O mesmo, em quadros (amostras) na taxa do dispositivo.
+  static amostrasDsp(): f64 { return auAmostrasDsp(); }
+  /// Unity `AudioSource.PlayScheduled`: agenda `clip` pra tocar com a 1ª
+  /// amostra audível exatamente em `alvo` (segundos, régua de
+  /// `Audio.tempoDsp()`), sample-accurate. `pedido` opcional (`tocarClipe`
+  /// padrão senão).
+  static agendarEm(clip: AudioClip, alvo: f64, pedido?: Float64Array): number { return auAgendarEm(clip, alvo, pedido); }
+  /// Cancela um agendamento de `agendarEm` — antes do disparo, some da fila;
+  /// depois, para a voz real com a rampa normal (sem clique). 1 cancelou, 0
+  /// id desconhecido (ver a nota de `cancelarAgendado` em `audio.ts`).
+  static cancelarAgendado(id: number): number { return auCancelarAgendado(id); }
+  /// Offset de calibração do usuário (ms) — ver `latenciaCalibradaMs`/
+  /// `definirLatenciaCalibradaMs` em `engine/audio/audio.ts`.
+  static get latenciaCalibrada(): f64 { return auLatenciaCalibradaMs(); }
+  static set latenciaCalibrada(ms: f64) { auDefinirLatenciaCalibradaMs(ms); }
 }
