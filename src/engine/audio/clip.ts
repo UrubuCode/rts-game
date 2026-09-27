@@ -66,7 +66,15 @@ export function definirTaxaDosClipes(taxa: number): void {
   clpNTons = 0; clpTonsId.length = 0;
 }
 export function taxaDosClipes(): number { return clpTaxa; }
-export function clipPorId(id: number): AudioClip | null { return id >= 0 && id < clpLista.length ? clpLista[id] : null; }
+/// `null` pra fora do índice OU pra um clipe de uma taxa antiga (`definirTaxaDosClipes`
+/// não esvazia `clpLista` — as amostras de antes não valem mais, mas o índice
+/// continua o mesmo). Barato: só compara `taxa` (já guardada no clipe), sem
+/// lista à parte nem custo por quadro.
+export function clipPorId(id: number): AudioClip | null {
+  if (id < 0 || id >= clpLista.length) return null;
+  const c = clpLista[id];
+  return c.taxa === clpTaxa ? c : null;
+}
 export function clipDecodificacoes(): number { return clpDecods; }
 
 function clipRegistrar(nome: string, caminho: string, amostras: Float32Array, canais: number): AudioClip {

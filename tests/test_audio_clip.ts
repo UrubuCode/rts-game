@@ -48,4 +48,18 @@ let q = 1;
 while (q < 240) { if (Math.abs(t1.amostras[q]) > q / 240.0 + 1e-6) ataqueOk = false; q = q + 1; }
 check(ataqueOk, "ataque linear de 5 ms (240 quadros): |s| <= q/240");
 check(Math.abs(t1.amostras[7199]) < 0.001, "queda até zero no fim");
-io.print("[PASSOU] clip: cache por caminho, erro uma vez, WAV reamostrado, OGG, fromSamples, tons em cache com envelope");
+
+// ── mudar a taxa não esvazia `clpLista` (os índices continuam os mesmos), mas
+// os ids de ANTES da mudança precisam voltar `null` — sem lista à parte, só
+// comparando a taxa guardada no clipe com a taxa atual (custo zero por quadro).
+const idAntigo = a !== null ? a.id : 0 - 1;
+check(idAntigo >= 0 && clipPorId(idAntigo) === a, "id ainda válido antes da mudança de taxa");
+definirTaxaDosClipes(44100);
+check(taxaDosClipes() === 44100, "taxa mudou");
+check(clipPorId(idAntigo) === null, "id de um clipe da taxa antiga vira null depois da mudança");
+const b2 = AudioClip.load(DIR + "/tom.wav"); // recarrega na taxa nova (cache por caminho foi esvaziada)
+check(b2 !== null && b2.taxa === 44100 && b2 !== a, "recarregado na taxa nova é um clipe NOVO");
+check(clipPorId(b2 !== null ? b2.id : 0 - 1) === b2, "o id novo resolve normalmente");
+definirTaxaDosClipes(48000); // devolve a taxa padrão do resto do teste (e dos outros testes na mesma run)
+
+io.print("[PASSOU] clip: cache por caminho, erro uma vez, WAV reamostrado, OGG, fromSamples, tons em cache com envelope, ids da taxa antiga viram null");
