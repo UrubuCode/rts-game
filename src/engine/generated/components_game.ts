@@ -1814,7 +1814,7 @@ class GeneratedReflection extends ComponentReflection {
       return { type: "script:assets/scripts/VitrineHud.ts#VitrineHud", fields: { "titulo": component["titulo"], "alvo": component["alvo"] } };
     }
     if (component instanceof Component9) {
-      return { type: "script:src/scripts/particlesystem.ts#ParticleSystem", fields: { "duration": component["duration"], "loop": component["loop"], "playOnAwake": component["playOnAwake"], "prewarm": component["prewarm"], "maxParticles": component["maxParticles"], "gravityModifier": component["gravityModifier"], "simulationSpace": component["simulationSpace"], "rateOverTime": component["rateOverTime"], "startLifetimeMin": component["startLifetimeMin"], "startLifetimeMax": component["startLifetimeMax"], "startSpeedMin": component["startSpeedMin"], "startSpeedMax": component["startSpeedMax"], "startSizeMin": component["startSizeMin"], "startSizeMax": component["startSizeMax"], "startRotation": component["startRotation"], "startColorR": component["startColorR"], "startColorG": component["startColorG"], "startColorB": component["startColorB"], "forma": component["forma"], "raio": component["raio"], "anguloCone": component["anguloCone"], "caixaX": component["caixaX"], "caixaY": component["caixaY"], "caixaZ": component["caixaZ"], "ventoX": component["ventoX"], "ventoY": component["ventoY"], "ventoZ": component["ventoZ"], "arrasto": component["arrasto"], "modo": component["modo"], "sort": component["sort"], "textura": component["textura"] } };
+      return null;
     }
     if (component instanceof Component10) {
       return null;
@@ -1910,7 +1910,7 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component9) {
-      return null;
+      return { "duration": component["duration"], "loop": component["loop"], "playOnAwake": component["playOnAwake"], "prewarm": component["prewarm"], "maxParticles": component["maxParticles"], "gravityModifier": component["gravityModifier"], "simulationSpace": component["simulationSpace"], "rateOverTime": component["rateOverTime"], "startLifetimeMin": component["startLifetimeMin"], "startLifetimeMax": component["startLifetimeMax"], "startSpeedMin": component["startSpeedMin"], "startSpeedMax": component["startSpeedMax"], "startSizeMin": component["startSizeMin"], "startSizeMax": component["startSizeMax"], "startRotation": component["startRotation"], "startColorR": component["startColorR"], "startColorG": component["startColorG"], "startColorB": component["startColorB"], "forma": component["forma"], "raio": component["raio"], "anguloCone": component["anguloCone"], "caixaX": component["caixaX"], "caixaY": component["caixaY"], "caixaZ": component["caixaZ"], "ventoX": component["ventoX"], "ventoY": component["ventoY"], "ventoZ": component["ventoZ"], "arrasto": component["arrasto"], "modo": component["modo"], "sort": component["sort"], "textura": component["textura"] };
     }
     if (component instanceof Component10) {
       return null;
@@ -2006,6 +2006,38 @@ class GeneratedReflection extends ComponentReflection {
       return;
     }
     if (component instanceof Component9) {
+      if (fields === null || fields === undefined) return;
+      if (typeof fields["duration"] === "number" && fields["duration"] === fields["duration"] && fields["duration"] > -1e30 && fields["duration"] < 1e30) component["duration"] = fields["duration"];
+      if (typeof fields["loop"] === "boolean" && true) component["loop"] = fields["loop"];
+      if (typeof fields["playOnAwake"] === "boolean" && true) component["playOnAwake"] = fields["playOnAwake"];
+      if (typeof fields["prewarm"] === "boolean" && true) component["prewarm"] = fields["prewarm"];
+      if (typeof fields["maxParticles"] === "number" && fields["maxParticles"] === fields["maxParticles"] && fields["maxParticles"] > -1e30 && fields["maxParticles"] < 1e30) component["maxParticles"] = fields["maxParticles"];
+      if (typeof fields["gravityModifier"] === "number" && fields["gravityModifier"] === fields["gravityModifier"] && fields["gravityModifier"] > -1e30 && fields["gravityModifier"] < 1e30) component["gravityModifier"] = fields["gravityModifier"];
+      if (typeof fields["simulationSpace"] === "string" && true) component["simulationSpace"] = fields["simulationSpace"];
+      if (typeof fields["rateOverTime"] === "number" && fields["rateOverTime"] === fields["rateOverTime"] && fields["rateOverTime"] > -1e30 && fields["rateOverTime"] < 1e30) component["rateOverTime"] = fields["rateOverTime"];
+      if (typeof fields["startLifetimeMin"] === "number" && fields["startLifetimeMin"] === fields["startLifetimeMin"] && fields["startLifetimeMin"] > -1e30 && fields["startLifetimeMin"] < 1e30) component["startLifetimeMin"] = fields["startLifetimeMin"];
+      if (typeof fields["startLifetimeMax"] === "number" && fields["startLifetimeMax"] === fields["startLifetimeMax"] && fields["startLifetimeMax"] > -1e30 && fields["startLifetimeMax"] < 1e30) component["startLifetimeMax"] = fields["startLifetimeMax"];
+      if (typeof fields["startSpeedMin"] === "number" && fields["startSpeedMin"] === fields["startSpeedMin"] && fields["startSpeedMin"] > -1e30 && fields["startSpeedMin"] < 1e30) component["startSpeedMin"] = fields["startSpeedMin"];
+      if (typeof fields["startSpeedMax"] === "number" && fields["startSpeedMax"] === fields["startSpeedMax"] && fields["startSpeedMax"] > -1e30 && fields["startSpeedMax"] < 1e30) component["startSpeedMax"] = fields["startSpeedMax"];
+      if (typeof fields["startSizeMin"] === "number" && fields["startSizeMin"] === fields["startSizeMin"] && fields["startSizeMin"] > -1e30 && fields["startSizeMin"] < 1e30) component["startSizeMin"] = fields["startSizeMin"];
+      if (typeof fields["startSizeMax"] === "number" && fields["startSizeMax"] === fields["startSizeMax"] && fields["startSizeMax"] > -1e30 && fields["startSizeMax"] < 1e30) component["startSizeMax"] = fields["startSizeMax"];
+      if (typeof fields["startRotation"] === "number" && fields["startRotation"] === fields["startRotation"] && fields["startRotation"] > -1e30 && fields["startRotation"] < 1e30) component["startRotation"] = fields["startRotation"];
+      if (typeof fields["startColorR"] === "number" && fields["startColorR"] === fields["startColorR"] && fields["startColorR"] > -1e30 && fields["startColorR"] < 1e30) component["startColorR"] = fields["startColorR"];
+      if (typeof fields["startColorG"] === "number" && fields["startColorG"] === fields["startColorG"] && fields["startColorG"] > -1e30 && fields["startColorG"] < 1e30) component["startColorG"] = fields["startColorG"];
+      if (typeof fields["startColorB"] === "number" && fields["startColorB"] === fields["startColorB"] && fields["startColorB"] > -1e30 && fields["startColorB"] < 1e30) component["startColorB"] = fields["startColorB"];
+      if (typeof fields["forma"] === "number" && fields["forma"] === fields["forma"] && fields["forma"] > -1e30 && fields["forma"] < 1e30) component["forma"] = fields["forma"];
+      if (typeof fields["raio"] === "number" && fields["raio"] === fields["raio"] && fields["raio"] > -1e30 && fields["raio"] < 1e30) component["raio"] = fields["raio"];
+      if (typeof fields["anguloCone"] === "number" && fields["anguloCone"] === fields["anguloCone"] && fields["anguloCone"] > -1e30 && fields["anguloCone"] < 1e30) component["anguloCone"] = fields["anguloCone"];
+      if (typeof fields["caixaX"] === "number" && fields["caixaX"] === fields["caixaX"] && fields["caixaX"] > -1e30 && fields["caixaX"] < 1e30) component["caixaX"] = fields["caixaX"];
+      if (typeof fields["caixaY"] === "number" && fields["caixaY"] === fields["caixaY"] && fields["caixaY"] > -1e30 && fields["caixaY"] < 1e30) component["caixaY"] = fields["caixaY"];
+      if (typeof fields["caixaZ"] === "number" && fields["caixaZ"] === fields["caixaZ"] && fields["caixaZ"] > -1e30 && fields["caixaZ"] < 1e30) component["caixaZ"] = fields["caixaZ"];
+      if (typeof fields["ventoX"] === "number" && fields["ventoX"] === fields["ventoX"] && fields["ventoX"] > -1e30 && fields["ventoX"] < 1e30) component["ventoX"] = fields["ventoX"];
+      if (typeof fields["ventoY"] === "number" && fields["ventoY"] === fields["ventoY"] && fields["ventoY"] > -1e30 && fields["ventoY"] < 1e30) component["ventoY"] = fields["ventoY"];
+      if (typeof fields["ventoZ"] === "number" && fields["ventoZ"] === fields["ventoZ"] && fields["ventoZ"] > -1e30 && fields["ventoZ"] < 1e30) component["ventoZ"] = fields["ventoZ"];
+      if (typeof fields["arrasto"] === "number" && fields["arrasto"] === fields["arrasto"] && fields["arrasto"] > -1e30 && fields["arrasto"] < 1e30) component["arrasto"] = fields["arrasto"];
+      if (typeof fields["modo"] === "number" && fields["modo"] === fields["modo"] && fields["modo"] > -1e30 && fields["modo"] < 1e30) component["modo"] = fields["modo"];
+      if (typeof fields["sort"] === "number" && fields["sort"] === fields["sort"] && fields["sort"] > -1e30 && fields["sort"] < 1e30) component["sort"] = fields["sort"];
+      if (typeof fields["textura"] === "number" && fields["textura"] === fields["textura"] && fields["textura"] > -1e30 && fields["textura"] < 1e30) component["textura"] = fields["textura"];
       return;
     }
     if (component instanceof Component10) {
@@ -2309,42 +2341,6 @@ export function restoreRegisteredComponent(data: any): any {
     if (data.fields === undefined || data.fields === null) return component;
       if (typeof data.fields["titulo"] === "string" && true) component["titulo"] = data.fields["titulo"];
       if (typeof data.fields["alvo"] === "string" && true) component["alvo"] = data.fields["alvo"];
-    return component;
-  }
-  if (data.type === "script:src/scripts/particlesystem.ts#ParticleSystem") {
-    const component = new Component9();
-    if (data.fields === undefined || data.fields === null) return component;
-      if (typeof data.fields["duration"] === "number" && data.fields["duration"] === data.fields["duration"] && data.fields["duration"] > -1e30 && data.fields["duration"] < 1e30) component["duration"] = data.fields["duration"];
-      if (typeof data.fields["loop"] === "boolean" && true) component["loop"] = data.fields["loop"];
-      if (typeof data.fields["playOnAwake"] === "boolean" && true) component["playOnAwake"] = data.fields["playOnAwake"];
-      if (typeof data.fields["prewarm"] === "boolean" && true) component["prewarm"] = data.fields["prewarm"];
-      if (typeof data.fields["maxParticles"] === "number" && data.fields["maxParticles"] === data.fields["maxParticles"] && data.fields["maxParticles"] > -1e30 && data.fields["maxParticles"] < 1e30) component["maxParticles"] = data.fields["maxParticles"];
-      if (typeof data.fields["gravityModifier"] === "number" && data.fields["gravityModifier"] === data.fields["gravityModifier"] && data.fields["gravityModifier"] > -1e30 && data.fields["gravityModifier"] < 1e30) component["gravityModifier"] = data.fields["gravityModifier"];
-      if (typeof data.fields["simulationSpace"] === "string" && true) component["simulationSpace"] = data.fields["simulationSpace"];
-      if (typeof data.fields["rateOverTime"] === "number" && data.fields["rateOverTime"] === data.fields["rateOverTime"] && data.fields["rateOverTime"] > -1e30 && data.fields["rateOverTime"] < 1e30) component["rateOverTime"] = data.fields["rateOverTime"];
-      if (typeof data.fields["startLifetimeMin"] === "number" && data.fields["startLifetimeMin"] === data.fields["startLifetimeMin"] && data.fields["startLifetimeMin"] > -1e30 && data.fields["startLifetimeMin"] < 1e30) component["startLifetimeMin"] = data.fields["startLifetimeMin"];
-      if (typeof data.fields["startLifetimeMax"] === "number" && data.fields["startLifetimeMax"] === data.fields["startLifetimeMax"] && data.fields["startLifetimeMax"] > -1e30 && data.fields["startLifetimeMax"] < 1e30) component["startLifetimeMax"] = data.fields["startLifetimeMax"];
-      if (typeof data.fields["startSpeedMin"] === "number" && data.fields["startSpeedMin"] === data.fields["startSpeedMin"] && data.fields["startSpeedMin"] > -1e30 && data.fields["startSpeedMin"] < 1e30) component["startSpeedMin"] = data.fields["startSpeedMin"];
-      if (typeof data.fields["startSpeedMax"] === "number" && data.fields["startSpeedMax"] === data.fields["startSpeedMax"] && data.fields["startSpeedMax"] > -1e30 && data.fields["startSpeedMax"] < 1e30) component["startSpeedMax"] = data.fields["startSpeedMax"];
-      if (typeof data.fields["startSizeMin"] === "number" && data.fields["startSizeMin"] === data.fields["startSizeMin"] && data.fields["startSizeMin"] > -1e30 && data.fields["startSizeMin"] < 1e30) component["startSizeMin"] = data.fields["startSizeMin"];
-      if (typeof data.fields["startSizeMax"] === "number" && data.fields["startSizeMax"] === data.fields["startSizeMax"] && data.fields["startSizeMax"] > -1e30 && data.fields["startSizeMax"] < 1e30) component["startSizeMax"] = data.fields["startSizeMax"];
-      if (typeof data.fields["startRotation"] === "number" && data.fields["startRotation"] === data.fields["startRotation"] && data.fields["startRotation"] > -1e30 && data.fields["startRotation"] < 1e30) component["startRotation"] = data.fields["startRotation"];
-      if (typeof data.fields["startColorR"] === "number" && data.fields["startColorR"] === data.fields["startColorR"] && data.fields["startColorR"] > -1e30 && data.fields["startColorR"] < 1e30) component["startColorR"] = data.fields["startColorR"];
-      if (typeof data.fields["startColorG"] === "number" && data.fields["startColorG"] === data.fields["startColorG"] && data.fields["startColorG"] > -1e30 && data.fields["startColorG"] < 1e30) component["startColorG"] = data.fields["startColorG"];
-      if (typeof data.fields["startColorB"] === "number" && data.fields["startColorB"] === data.fields["startColorB"] && data.fields["startColorB"] > -1e30 && data.fields["startColorB"] < 1e30) component["startColorB"] = data.fields["startColorB"];
-      if (typeof data.fields["forma"] === "number" && data.fields["forma"] === data.fields["forma"] && data.fields["forma"] > -1e30 && data.fields["forma"] < 1e30) component["forma"] = data.fields["forma"];
-      if (typeof data.fields["raio"] === "number" && data.fields["raio"] === data.fields["raio"] && data.fields["raio"] > -1e30 && data.fields["raio"] < 1e30) component["raio"] = data.fields["raio"];
-      if (typeof data.fields["anguloCone"] === "number" && data.fields["anguloCone"] === data.fields["anguloCone"] && data.fields["anguloCone"] > -1e30 && data.fields["anguloCone"] < 1e30) component["anguloCone"] = data.fields["anguloCone"];
-      if (typeof data.fields["caixaX"] === "number" && data.fields["caixaX"] === data.fields["caixaX"] && data.fields["caixaX"] > -1e30 && data.fields["caixaX"] < 1e30) component["caixaX"] = data.fields["caixaX"];
-      if (typeof data.fields["caixaY"] === "number" && data.fields["caixaY"] === data.fields["caixaY"] && data.fields["caixaY"] > -1e30 && data.fields["caixaY"] < 1e30) component["caixaY"] = data.fields["caixaY"];
-      if (typeof data.fields["caixaZ"] === "number" && data.fields["caixaZ"] === data.fields["caixaZ"] && data.fields["caixaZ"] > -1e30 && data.fields["caixaZ"] < 1e30) component["caixaZ"] = data.fields["caixaZ"];
-      if (typeof data.fields["ventoX"] === "number" && data.fields["ventoX"] === data.fields["ventoX"] && data.fields["ventoX"] > -1e30 && data.fields["ventoX"] < 1e30) component["ventoX"] = data.fields["ventoX"];
-      if (typeof data.fields["ventoY"] === "number" && data.fields["ventoY"] === data.fields["ventoY"] && data.fields["ventoY"] > -1e30 && data.fields["ventoY"] < 1e30) component["ventoY"] = data.fields["ventoY"];
-      if (typeof data.fields["ventoZ"] === "number" && data.fields["ventoZ"] === data.fields["ventoZ"] && data.fields["ventoZ"] > -1e30 && data.fields["ventoZ"] < 1e30) component["ventoZ"] = data.fields["ventoZ"];
-      if (typeof data.fields["arrasto"] === "number" && data.fields["arrasto"] === data.fields["arrasto"] && data.fields["arrasto"] > -1e30 && data.fields["arrasto"] < 1e30) component["arrasto"] = data.fields["arrasto"];
-      if (typeof data.fields["modo"] === "number" && data.fields["modo"] === data.fields["modo"] && data.fields["modo"] > -1e30 && data.fields["modo"] < 1e30) component["modo"] = data.fields["modo"];
-      if (typeof data.fields["sort"] === "number" && data.fields["sort"] === data.fields["sort"] && data.fields["sort"] > -1e30 && data.fields["sort"] < 1e30) component["sort"] = data.fields["sort"];
-      if (typeof data.fields["textura"] === "number" && data.fields["textura"] === data.fields["textura"] && data.fields["textura"] > -1e30 && data.fields["textura"] < 1e30) component["textura"] = data.fields["textura"];
     return component;
   }
   if (data.type === "script:assets/pacotes/ambiente/ciclo_do_dia.ts#CicloDoDia") {

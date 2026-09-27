@@ -3,11 +3,12 @@
 // cache novo em Scene. Simula em update(dt), o hook por-frame comum a todo
 // Behavior.
 import { Behavior, KIND_RENDERER } from "@engine/core/behavior";
+import type { InspectorUI } from "@engine/core/inspector_ui";
 import { PoolParticulas, criarPool, emitirN, atualizarVidas } from "@engine/particles/sim";
 import { avaliarGradiente, avaliarCurva, aplicarVelocidade } from "@engine/particles/curvas";
 import { drawParticlesSeguro, drawParticlesTexSeguro, setParticleTex } from "@compat/particles";
 import { emJogo } from "@engine/core/modo_jogo";
-import { frustumParams } from "@engine/render/gpu3d";
+import { frustumParams, inFrustumFast } from "@engine/render/gpu3d";
 import { DESC_FLOATS, D_FORMA, D_RAIO, D_ANGULO, D_CAIXA_X, D_CAIXA_Y, D_CAIXA_Z,
          D_VEL_MIN, D_VEL_MAX, D_TAM_MIN, D_TAM_MAX, D_VIDA_MIN, D_VIDA_MAX, D_ROT0, D_COR_R, D_COR_G, D_COR_B,
          P_X, P_Y, P_Z, P_VX, P_VY, P_VZ, P_IDADE, P_VIDA, P_TAM0, P_ROT, P_COR_R, P_COR_G, P_COR_B, P_COR_A, P_FLOATS } from "@engine/particles/desc";
@@ -33,6 +34,14 @@ const PS_PREWARM_PASSO: f64 = 1.0 / 30.0;
 /// Até 4 bursts fixos (Emission) — nada de array dinâmico no caminho por
 /// quadro, mesmo espírito de `MAX_GRUPOS` no mixer de áudio.
 const MAX_BURSTS: number = 4;
+
+/// Até 4 chaves no gradiente de cor e na curva de tamanho (Task 8, Inspector
+/// customizado + serialização — ruling P3). `CHAVE_GRADIENTE_FLOATS`/
+/// `CHAVE_CURVA_FLOATS` são a largura de UMA chave em cada array plano
+/// (tempo + RGBA, tempo + valor).
+const MAX_CHAVES: number = 4;
+const CHAVE_GRADIENTE_FLOATS: number = 5;
+const CHAVE_CURVA_FLOATS: number = 2;
 
 /**
  * @componentCategory Efeitos
@@ -82,10 +91,24 @@ export class ParticleSystem extends Behavior {
 
   /// Gradiente de cor (2-4 chaves RGBA) e curva de tamanho (2-4 chaves)
   /// sobre o tempo de vida normalizado — Inspector customizado (spec §4.3).
-  private gradiente: Float64Array = new Float64Array([0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]);
+  /// Arrays já alocados para MAX_CHAVES (as chaves além de `nChaves*` são
+  /// lixo não usado por `avaliarGradiente`/`avaliarCurva`, que só leem até
+  /// `nChaves`); `setChaveGradiente`/`setChaveTamanho` são o único jeito de
+  /// escrever aqui (Task 8: campo privado, não é number/boolean/string
+  /// simples — não entra na reflexão automática, precisa de `toData()`
+  /// próprio, ver ruling P3 no fim do arquivo).
+  private gradiente: Float64Array = new Float64Array([
+    0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+  ]);
   private nChavesGradiente: number = 2;
-  private curvaTamanho: Float64Array = new Float64Array([0.0, 1.0, 1.0, 1.0]);
+  private curvaTamanho: Float64Array = new Float64Array([0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]);
   private nChavesTamanho: number = 2;
+
+  /// Cabeçalhos do Inspector cacheados por contagem (ver `rotuloBursts`
+  /// etc., no fim do arquivo) — nada de string nova por quadro.
+  private rotBurstsDe: number = 0 - 1; private rotBurstsCache: string = "";
+  private rotGradDe: number = 0 - 1; private rotGradCache: string = "";
+  private rotTamDe: number = 0 - 1; private rotTamCache: string = "";
 
   private pool: PoolParticulas | null = null;
   private descBuf: Float64Array = new Float64Array(DESC_FLOATS);
@@ -179,6 +202,81 @@ export class ParticleSystem extends Behavior {
   burstCount(): number { return this.nBursts; }
   burstTime(indice: number): f64 { return indice >= 0 && indice < this.nBursts ? this.bursts[indice * 2] : 0.0; }
   burstAmount(indice: number): f64 { return indice >= 0 && indice < this.nBursts ? this.bursts[indice * 2 + 1] : 0.0; }
+
+  // ── Gradiente de cor / curva de tamanho (Task 8: Inspector customizado) ──
+  //
+  // `valores` chega como Float64Array (não escalares soltos: uma chave de
+  // gradiente é tempo+4 componentes de cor, 5 números — acima do limite de 4
+  // parâmetros por função do RTS, regra "Custo por quadro" do CLAUDE.md,
+  // mesma solução do `desc` de emissão). `indice` fora de [0, MAX_CHAVES) é
+  // ignorado (devolve false); preencher um índice >= nChaves* estende a
+  // contagem. Depois de gravar, reordena por tempo crescente (inserção,
+  // igual a `KeyframeAnimator.key`) — uma chave nova ou uma chave existente
+  // com o tempo movido sempre acaba na posição certa.
+  nChavesGradienteCount(): number { return this.nChavesGradiente; }
+  chaveGradienteTempo(indice: number): f64 { return indice >= 0 && indice < this.nChavesGradiente ? this.gradiente[indice * CHAVE_GRADIENTE_FLOATS] : 0.0; }
+  /// Escreve RGBA da chave `indice` em `out` (4 posições); no-op se fora de alcance.
+  chaveGradienteCor(indice: number, out: Float64Array): void {
+    if (indice < 0 || indice >= this.nChavesGradiente) return;
+    const k = indice * CHAVE_GRADIENTE_FLOATS;
+    out[0] = this.gradiente[k + 1]; out[1] = this.gradiente[k + 2]; out[2] = this.gradiente[k + 3]; out[3] = this.gradiente[k + 4];
+  }
+  /// `valores`: [tempo, r, g, b, a]. Devolve false se `indice` estiver fora de [0, MAX_CHAVES).
+  setChaveGradiente(indice: number, valores: Float64Array): boolean {
+    if (indice < 0 || indice >= MAX_CHAVES) return false;
+    const k = indice * CHAVE_GRADIENTE_FLOATS;
+    this.gradiente[k] = valores[0]; this.gradiente[k + 1] = valores[1]; this.gradiente[k + 2] = valores[2];
+    this.gradiente[k + 3] = valores[3]; this.gradiente[k + 4] = valores[4];
+    if (indice + 1 > this.nChavesGradiente) this.nChavesGradiente = indice + 1;
+    this.ordenarChavesGradiente();
+    return true;
+  }
+  private ordenarChavesGradiente(): void {
+    let a = 1;
+    while (a < this.nChavesGradiente) {
+      let b = a;
+      while (b > 0 && this.gradiente[(b - 1) * CHAVE_GRADIENTE_FLOATS] > this.gradiente[b * CHAVE_GRADIENTE_FLOATS]) {
+        let f = 0;
+        while (f < CHAVE_GRADIENTE_FLOATS) {
+          const tmp = this.gradiente[(b - 1) * CHAVE_GRADIENTE_FLOATS + f];
+          this.gradiente[(b - 1) * CHAVE_GRADIENTE_FLOATS + f] = this.gradiente[b * CHAVE_GRADIENTE_FLOATS + f];
+          this.gradiente[b * CHAVE_GRADIENTE_FLOATS + f] = tmp;
+          f = f + 1;
+        }
+        b = b - 1;
+      }
+      a = a + 1;
+    }
+  }
+  nChavesTamanhoCount(): number { return this.nChavesTamanho; }
+  chaveTamanhoTempo(indice: number): f64 { return indice >= 0 && indice < this.nChavesTamanho ? this.curvaTamanho[indice * CHAVE_CURVA_FLOATS] : 0.0; }
+  chaveTamanhoValor(indice: number): f64 { return indice >= 0 && indice < this.nChavesTamanho ? this.curvaTamanho[indice * CHAVE_CURVA_FLOATS + 1] : 0.0; }
+  /// `valores`: [tempo, valor]. Devolve false se `indice` estiver fora de [0, MAX_CHAVES).
+  setChaveTamanho(indice: number, valores: Float64Array): boolean {
+    if (indice < 0 || indice >= MAX_CHAVES) return false;
+    const k = indice * CHAVE_CURVA_FLOATS;
+    this.curvaTamanho[k] = valores[0]; this.curvaTamanho[k + 1] = valores[1];
+    if (indice + 1 > this.nChavesTamanho) this.nChavesTamanho = indice + 1;
+    this.ordenarChavesTamanho();
+    return true;
+  }
+  private ordenarChavesTamanho(): void {
+    let a = 1;
+    while (a < this.nChavesTamanho) {
+      let b = a;
+      while (b > 0 && this.curvaTamanho[(b - 1) * CHAVE_CURVA_FLOATS] > this.curvaTamanho[b * CHAVE_CURVA_FLOATS]) {
+        let f = 0;
+        while (f < CHAVE_CURVA_FLOATS) {
+          const tmp = this.curvaTamanho[(b - 1) * CHAVE_CURVA_FLOATS + f];
+          this.curvaTamanho[(b - 1) * CHAVE_CURVA_FLOATS + f] = this.curvaTamanho[b * CHAVE_CURVA_FLOATS + f];
+          this.curvaTamanho[b * CHAVE_CURVA_FLOATS + f] = tmp;
+          f = f + 1;
+        }
+        b = b - 1;
+      }
+      a = a + 1;
+    }
+  }
 
   /// `prewarm`: simula `duration` segundos ANTES do primeiro quadro visível
   /// (a fogueira já ardendo, não começando do zero) — passos fixos de
@@ -308,12 +406,35 @@ export class ParticleSystem extends Behavior {
     }
   }
 
+  /// Raio que envolve as partículas vivas, usado só pelo corte de `drawSelf`
+  /// (Task 6): o maior entre o raio/caixa do FORMATO do emissor (onde as
+  /// partículas NASCEM) e o alcance máximo que uma já viva pode ter percorrido
+  /// (`startSpeedMax * startLifetimeMax`, o pior caso sem vento/arrasto —
+  /// margem, não medida exata). Recomputado a cada `drawSelf` (barato, sem
+  /// buffer próprio) em vez de cacheado, porque os campos que o formam mudam
+  /// pelo Inspector fora de `montarDesc()`.
+  private limiteRaio(): f64 {
+    let base = this.raio;
+    if (this.caixaX > base) base = this.caixaX;
+    if (this.caixaY > base) base = this.caixaY;
+    if (this.caixaZ > base) base = this.caixaZ;
+    const speed = this.startSpeedMax > 0.0 ? this.startSpeedMax : 0.0;
+    const vida = this.startLifetimeMax > 0.0 ? this.startLifetimeMax : 0.0;
+    return base + speed * vida;
+  }
+
   /// Preenche o buffer de instância e desenha. 3 parâmetros (win, pos do
   /// dono, tint — a assinatura fixa de drawsSelf; simulationSpace="world" soma
   /// `pos` a cada quadro, "local" usa a posição relativa já simulada).
   drawSelf(win: number, pos: Float64Array, tint: number): number {
     const pool = this.pool;
     if (pool === null || pool.vivas === 0) return 0;
+    // Corte por frustum ANTES de montar o buffer de instância — barato (uma
+    // esfera contra o frustum já preparado pelo laço de render) e não toca em
+    // `saidaBuf` nem chama o desenho nativo quando o emissor está fora. A
+    // simulação (`update`) continua de qualquer forma: é outro método, chamado
+    // à parte pelo laço de scripts — cortar o DESENHO nunca "perde" posição.
+    if (inFrustumFast(pos[0], pos[1], pos[2], this.limiteRaio()) === 0) return 0;
     if (this.saidaBuf.length < pool.max * PART_INSTANCIA_FLOATS) this.saidaBuf = new Float32Array(pool.max * PART_INSTANCIA_FLOATS);
     const out = this.saidaBuf; const cor = this.corBuf;
     const somaPos = this.simulationSpace !== "local";
@@ -391,4 +512,184 @@ export class ParticleSystem extends Behavior {
     }
     return saida;
   }
+
+  // ── Serialização (ruling P3 do lote B) ───────────────────────────────
+  //
+  // `bursts`/`gradiente`/`curvaTamanho` são campos PRIVADOS com dados não
+  // escalares (arrays), então a reflexão automática do gerador
+  // (tools/generate-components.mjs) não os alcança — ela só serializa
+  // number/boolean/string públicos. Overrideando `toData()` aqui, o
+  // gerador detecta `customSerialization` e passa a devolver os campos
+  // escalares automáticos por `legacyFields()`/`componentFields` (o mesmo
+  // mecanismo do `spin.sy`/`AudioSource` legado — CLAUDE.md "Salvar,
+  // duplicar e Rodar devem usar componentToData"); só os arrays custom
+  // ficam por nossa conta aqui. Salva só até `nChaves*`/`nBursts` (o resto
+  // do array fixo é lixo não usado por `avaliarGradiente`/`avaliarCurva`).
+  // `time`/`tocando`/`pausado`/`acumulado`/`burstDisparado` (estado de
+  // SIMULAÇÃO) nunca aparecem aqui — nem os automáticos (are `@nonSerialized`
+  // ou privados) nem os manuais.
+  toData(): any {
+    const bursts: number[] = [];
+    let bi = 0;
+    while (bi < this.nBursts * 2) { bursts.push(this.bursts[bi]); bi = bi + 1; }
+    const gradiente: number[] = [];
+    let gi = 0;
+    while (gi < this.nChavesGradiente * CHAVE_GRADIENTE_FLOATS) { gradiente.push(this.gradiente[gi]); gi = gi + 1; }
+    const curvaTamanho: number[] = [];
+    let ci = 0;
+    while (ci < this.nChavesTamanho * CHAVE_CURVA_FLOATS) { curvaTamanho.push(this.curvaTamanho[ci]); ci = ci + 1; }
+    return { type: "particleSystem", bursts: bursts, gradiente: gradiente, curvaTamanho: curvaTamanho };
+  }
+
+  /// Recria a partir do descritor de `toData()` + `componentFields`
+  /// (restaurados por `restoreLegacyFields`, chamado por `recreateBehavior`
+  /// logo depois desta fábrica — spec: round-trip salvar/carregar, cópia do
+  /// Play e duplicar, todos por `componentToData`/`recreateBehavior`).
+  static fromData(sd: any): ParticleSystem {
+    const p = new ParticleSystem();
+    const bursts = sd.bursts;
+    if (Array.isArray(bursts)) {
+      let bi = 0;
+      while (bi < bursts.length && bi < MAX_BURSTS * 2) { p.bursts[bi] = bursts[bi]; bi = bi + 1; }
+      p.nBursts = Math.min(MAX_BURSTS, Math.floor(bursts.length / 2));
+    }
+    const gradiente = sd.gradiente;
+    if (Array.isArray(gradiente)) {
+      let gi = 0;
+      while (gi < gradiente.length && gi < MAX_CHAVES * CHAVE_GRADIENTE_FLOATS) { p.gradiente[gi] = gradiente[gi]; gi = gi + 1; }
+      p.nChavesGradiente = Math.min(MAX_CHAVES, Math.floor(gradiente.length / CHAVE_GRADIENTE_FLOATS));
+    }
+    const curvaTamanho = sd.curvaTamanho;
+    if (Array.isArray(curvaTamanho)) {
+      let ci = 0;
+      while (ci < curvaTamanho.length && ci < MAX_CHAVES * CHAVE_CURVA_FLOATS) { p.curvaTamanho[ci] = curvaTamanho[ci]; ci = ci + 1; }
+      p.nChavesTamanho = Math.min(MAX_CHAVES, Math.floor(curvaTamanho.length / CHAVE_CURVA_FLOATS));
+    }
+    return p;
+  }
+
+  // ── Inspector customizado (Task 8) ────────────────────────────────────
+  //
+  // Campos escalares automáticos via `ui.field(nome)` (mesmo controle que a
+  // lista automática desenharia, só que agrupados/condicionados); os três
+  // arrays (bursts, gradiente, curva de tamanho) com um editor próprio —
+  // slider de tempo + cor/valor por chave, "+ chave"/"+ burst" até MAX_CHAVES/
+  // MAX_BURSTS. `tmp*` são rascunhos de módulo (Float64Array), reaproveitados
+  // entre chamadas — nenhuma alocação por frame de Inspector aberto.
+  onInspectorGUI(ui: InspectorUI): void {
+    ui.label("Main");
+    ui.field("duration"); ui.field("loop"); ui.field("playOnAwake"); ui.field("prewarm");
+    ui.field("maxParticles"); ui.field("gravityModifier"); ui.field("simulationSpace");
+    ui.field("rateOverTime");
+    ui.field("startLifetimeMin"); ui.field("startLifetimeMax");
+    ui.field("startSpeedMin"); ui.field("startSpeedMax");
+    ui.field("startSizeMin"); ui.field("startSizeMax");
+    ui.field("startRotation");
+    ui.field("startColorR"); ui.field("startColorG"); ui.field("startColorB");
+
+    ui.label("Shape (0 ponto, 1 esfera, 2 cone, 3 caixa)");
+    ui.field("forma");
+    if (this.forma === 1) ui.field("raio");
+    else if (this.forma === 2) { ui.field("raio"); ui.field("anguloCone"); }
+    else if (this.forma === 3) { ui.field("caixaX"); ui.field("caixaY"); ui.field("caixaZ"); }
+
+    ui.label("Over lifetime");
+    ui.field("ventoX"); ui.field("ventoY"); ui.field("ventoZ"); ui.field("arrasto");
+
+    ui.label("Renderer (0 alfa, 1 aditivo)");
+    ui.field("modo"); ui.field("sort"); ui.field("textura");
+
+    ui.label(this.rotuloBursts());
+    let bi = 0;
+    while (bi < this.nBursts) {
+      const t = ui.slider(ROT_BURST_TEMPO[bi], this.burstTime(bi), 0.0, this.duration > 0.0 ? this.duration : 1.0);
+      const q = ui.slider(ROT_BURST_QTD[bi], this.burstAmount(bi), 0.0, this.maxParticles);
+      if (t !== this.burstTime(bi) || q !== this.burstAmount(bi)) this.setBurst(bi, t, q);
+      bi = bi + 1;
+    }
+    if (this.nBursts < MAX_BURSTS && ui.button(ROT_MAIS_BURST)) this.setBurst(this.nBursts, 0.0, 10.0);
+
+    ui.label(this.rotuloGradiente());
+    let gi = 0;
+    while (gi < this.nChavesGradiente) {
+      psTmpGradiente[0] = this.chaveGradienteTempo(gi);
+      this.chaveGradienteCor(gi, psTmpCor);
+      psTmpGradiente[1] = psTmpCor[0]; psTmpGradiente[2] = psTmpCor[1]; psTmpGradiente[3] = psTmpCor[2]; psTmpGradiente[4] = psTmpCor[3];
+      const t = ui.slider(ROT_COR_TEMPO[gi], psTmpGradiente[0], 0.0, 1.0);
+      const rgb = (Math.round(psTmpCor[0] * 255) << 16) | (Math.round(psTmpCor[1] * 255) << 8) | Math.round(psTmpCor[2] * 255);
+      const novoRgb = ui.color(ROT_COR[gi], rgb);
+      const a = ui.slider(ROT_COR_ALFA[gi], psTmpGradiente[4], 0.0, 1.0);
+      if (t !== psTmpGradiente[0] || novoRgb !== rgb || a !== psTmpGradiente[4]) {
+        psTmpGradiente[0] = t;
+        psTmpGradiente[1] = ((novoRgb >> 16) & 0xFF) / 255.0; psTmpGradiente[2] = ((novoRgb >> 8) & 0xFF) / 255.0; psTmpGradiente[3] = (novoRgb & 0xFF) / 255.0;
+        psTmpGradiente[4] = a;
+        this.setChaveGradiente(gi, psTmpGradiente);
+      }
+      gi = gi + 1;
+    }
+    if (this.nChavesGradiente < MAX_CHAVES && ui.button(ROT_MAIS_COR)) {
+      psTmpGradiente[0] = 1.0; psTmpGradiente[1] = 1.0; psTmpGradiente[2] = 1.0; psTmpGradiente[3] = 1.0; psTmpGradiente[4] = 1.0;
+      this.setChaveGradiente(this.nChavesGradiente, psTmpGradiente);
+    }
+
+    ui.label(this.rotuloTamanho());
+    let ci = 0;
+    while (ci < this.nChavesTamanho) {
+      psTmpCurva[0] = this.chaveTamanhoTempo(ci); psTmpCurva[1] = this.chaveTamanhoValor(ci);
+      const t = ui.slider(ROT_TAM_TEMPO[ci], psTmpCurva[0], 0.0, 1.0);
+      const v = ui.slider(ROT_TAM_VALOR[ci], psTmpCurva[1], 0.0, 4.0);
+      if (t !== psTmpCurva[0] || v !== psTmpCurva[1]) { psTmpCurva[0] = t; psTmpCurva[1] = v; this.setChaveTamanho(ci, psTmpCurva); }
+      ci = ci + 1;
+    }
+    if (this.nChavesTamanho < MAX_CHAVES && ui.button(ROT_MAIS_TAMANHO)) {
+      psTmpCurva[0] = 1.0; psTmpCurva[1] = 1.0;
+      this.setChaveTamanho(this.nChavesTamanho, psTmpCurva);
+    }
+  }
+
+  /// Cabeçalhos "N/MAX ..." refeitos só quando a contagem muda (nada de
+  /// string por quadro de Inspector aberto — CLAUDE.md "Custo por quadro"),
+  /// mesmo padrão de `AudioSource.rotuloInfo`/`MixerInspector.rotulos`.
+  private rotuloBursts(): string {
+    if (this.rotBurstsDe !== this.nBursts) { this.rotBurstsDe = this.nBursts; this.rotBurstsCache = "Bursts (" + this.nBursts + "/" + MAX_BURSTS + ")"; }
+    return this.rotBurstsCache;
+  }
+  private rotuloGradiente(): string {
+    if (this.rotGradDe !== this.nChavesGradiente) { this.rotGradDe = this.nChavesGradiente; this.rotGradCache = "Gradiente de cor (" + this.nChavesGradiente + "/" + MAX_CHAVES + " chaves)"; }
+    return this.rotGradCache;
+  }
+  private rotuloTamanho(): string {
+    if (this.rotTamDe !== this.nChavesTamanho) { this.rotTamDe = this.nChavesTamanho; this.rotTamCache = "Curva de tamanho (" + this.nChavesTamanho + "/" + MAX_CHAVES + " chaves)"; }
+    return this.rotTamCache;
+  }
 }
+
+/// Rótulos do Inspector (`onInspectorGUI`): os por-índice são MÓDULO (só
+/// dependem de `i`, iguais em toda instância — construídos uma vez, nunca
+/// por quadro); os cabeçalhos "N/MAX" são cacheados por instância acima
+/// (dependem da contagem). Nenhuma alocação de string por quadro de
+/// Inspector aberto — CLAUDE.md "Não monte strings por quadro", mesmo
+/// padrão de `MixerInspector.rotulos`.
+const ROT_BURST_TEMPO: string[] = []; const ROT_BURST_QTD: string[] = [];
+const ROT_COR_TEMPO: string[] = []; const ROT_COR: string[] = []; const ROT_COR_ALFA: string[] = [];
+const ROT_TAM_TEMPO: string[] = []; const ROT_TAM_VALOR: string[] = [];
+{
+  let i = 0;
+  while (i < MAX_BURSTS) { ROT_BURST_TEMPO.push("Burst " + i + " — tempo"); ROT_BURST_QTD.push("Burst " + i + " — quantidade"); i = i + 1; }
+  i = 0;
+  while (i < MAX_CHAVES) {
+    ROT_COR_TEMPO.push("Cor " + i + " — tempo"); ROT_COR.push("Cor " + i); ROT_COR_ALFA.push("Cor " + i + " — alfa");
+    ROT_TAM_TEMPO.push("Tamanho " + i + " — tempo"); ROT_TAM_VALOR.push("Tamanho " + i + " — escala");
+    i = i + 1;
+  }
+}
+const ROT_MAIS_BURST: string = "+ burst";
+const ROT_MAIS_COR: string = "+ chave de cor";
+const ROT_MAIS_TAMANHO: string = "+ chave de tamanho";
+
+/// Rascunhos de módulo do Inspector (`onInspectorGUI`): nenhuma alocação por
+/// quadro de Inspector aberto, mesmo padrão de `asPedido`/`asPos` do
+/// AudioSource.
+const psTmpGradiente = new Float64Array(CHAVE_GRADIENTE_FLOATS);
+const psTmpCor = new Float64Array(4);
+const psTmpCurva = new Float64Array(CHAVE_CURVA_FLOATS);
