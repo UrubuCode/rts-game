@@ -2,7 +2,7 @@
   "size": 16,
   "scale": 2,
   "samples": 4,
-  "palette": { "neutral": "#BEC5CE", "info": "#86B9E3", "warning": "#E7B75A", "error": "#E87878", "ink": "#25282D", "light": "#F2D16B", "camera": "#9AC7F0" },
+  "palette": { "neutral": "#BEC5CE", "info": "#86B9E3", "warning": "#E7B75A", "error": "#E87878", "ink": "#25282D", "light": "#F2D16B", "camera": "#9AC7F0", "som": "#8FD19E" },
   "icons": {
     "info": [{"kind":"circle","cx":8,"cy":8,"r":6,"color":"info"},{"kind":"line","x1":8,"y1":7,"x2":8,"y2":11,"width":1.5,"color":"ink"},{"kind":"circle","cx":8,"cy":4.8,"r":0.85,"color":"ink"}],
     "warning": [{"kind":"polygon","points":[[8,1],[15,14],[1,14]],"color":"warning"},{"kind":"line","x1":8,"y1":5.5,"x2":8,"y2":9,"width":1.5,"color":"ink"},{"kind":"circle","cx":8,"cy":11.5,"r":0.85,"color":"ink"}],
@@ -14,6 +14,8 @@
     "luz-direcional": [{"kind":"circle","cx":8,"cy":8,"r":3.5,"color":"light"},{"kind":"line","x1":13,"y1":8,"x2":15.5,"y2":8,"width":1.2,"color":"light"},{"kind":"line","x1":11.54,"y1":11.54,"x2":13.3,"y2":13.3,"width":1.2,"color":"light"},{"kind":"line","x1":8,"y1":13,"x2":8,"y2":15.5,"width":1.2,"color":"light"},{"kind":"line","x1":4.46,"y1":11.54,"x2":2.7,"y2":13.3,"width":1.2,"color":"light"},{"kind":"line","x1":3,"y1":8,"x2":0.5,"y2":8,"width":1.2,"color":"light"},{"kind":"line","x1":4.46,"y1":4.46,"x2":2.7,"y2":2.7,"width":1.2,"color":"light"},{"kind":"line","x1":8,"y1":3,"x2":8,"y2":0.5,"width":1.2,"color":"light"},{"kind":"line","x1":11.54,"y1":4.46,"x2":13.3,"y2":2.7,"width":1.2,"color":"light"}],
     "luz-pontual": [{"kind":"circle","cx":8,"cy":6.5,"r":4.5,"color":"light"},{"kind":"polygon","points":[[6,11],[10,11],[9.5,14],[6.5,14]],"color":"light"}],
     "luz-spot": [{"kind":"polygon","points":[[6,2],[10,2],[14,14],[2,14]],"color":"light"},{"kind":"circle","cx":8,"cy":3,"r":1.5,"color":"ink"}],
-    "camera": [{"kind":"polygon","points":[[2,5],[11,5],[11,12],[2,12]],"color":"camera"},{"kind":"polygon","points":[[11,7],[15,5],[15,12],[11,10]],"color":"camera"}]
+    "camera": [{"kind":"polygon","points":[[2,5],[11,5],[11,12],[2,12]],"color":"camera"},{"kind":"polygon","points":[[11,7],[15,5],[15,12],[11,10]],"color":"camera"}],
+    "audio-fonte": [{"kind":"polygon","points":[[1.5,6],[4.5,6],[8.5,2.5],[8.5,13.5],[4.5,10],[1.5,10]],"color":"som"},{"kind":"line","x1":10.5,"y1":5.5,"x2":11.8,"y2":8,"width":1.2,"color":"som"},{"kind":"line","x1":11.8,"y1":8,"x2":10.5,"y2":10.5,"width":1.2,"color":"som"},{"kind":"line","x1":12.8,"y1":3.5,"x2":14.8,"y2":8,"width":1.2,"color":"som"},{"kind":"line","x1":14.8,"y1":8,"x2":12.8,"y2":12.5,"width":1.2,"color":"som"}],
+    "audio-ouvinte": [{"kind":"ring","cx":8.5,"cy":6.5,"r":4.5,"width":1.6,"color":"som"},{"kind":"line","x1":10.2,"y1":10.6,"x2":7,"y2":14.5,"width":1.6,"color":"som"},{"kind":"circle","cx":8.5,"cy":6.5,"r":1.4,"color":"som"}]
   }
 }
