@@ -2,7 +2,7 @@
 
 <!-- GERADO por `npm run docs:ws` a partir de `doc json` (src/editor/control/builtin_commands.ts + comandos de pacote). Não edite à mão. -->
 
-Conexão: `ws://127.0.0.1:7777` (só loopback). Cliente: `python tools/ws_client.py` (ver `docs/skills/rts-engine-control/SKILL.md`).
+Conexão: `ws://127.0.0.1:7777` (só loopback). Cliente: `python tools/ws_client.py` (ver `.claude/skills/rts-engine-control/SKILL.md`).
 
 Protocolo: 1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] ...; <obj> = indice, #indice, nome exato (aspas se tiver espaco) ou caminho Pai/Filho; async = a resposta pode vir depois (a conexao espera por ela antes da linha seguinte).
 
