@@ -107,7 +107,46 @@ Para um teste reproduzível: `seed`, `play`, `step N`, `describe`/`state`, `stop
 - `build` — o build do botão; responde ao terminar com a pasta, o exe e o log. `build status`.
 - `run tests [padrão]` / `testes [padrão]` — `tests/*.ts` (padrão `test_*`), um processo por arquivo, passou/falhou por arquivo.
 
-## 9. Pegadinhas
+## 9. Partículas
+
+`ParticleSystem` (efeitos: fogo, fumaça, faíscas, chuva) não tem janela
+própria — verifique por número, do mesmo jeito que áudio:
+
+```
+particulas Fogo play                # começa a simular (fora do Play, só se Fogo estiver selecionado)
+step 30                             # ou: espere alguns quadros reais de qualquer forma
+particulas Fogo info                # vivas=<n> max=<m> tocando=<0|1> t=<s> bbox=(minx,miny,minz)-(maxx,maxy,maxz)
+particulas Fogo emit 50             # emite 50 na hora, ignorando rateOverTime
+particulas Fogo stop                # para (sem limpar; `particulas Fogo clear` zera o pool)
+```
+
+- **Verificação em duas pernas**: `vivas` crescendo de um `info` para o outro
+  confirma que a emissão está rodando; o `bbox` mudando de tamanho/posição
+  entre duas chamadas confirma que as partículas estão se movendo (vento,
+  velocidade inicial, gravidade). Objeto sem `ParticleSystem` ou inexistente
+  responde `[erro] particulas: ...` — não trava nem inventa números.
+- **Ver de verdade**: depois de `play` + alguns quadros, `shot build/shots/x.png`
+  (ou `shot x.png jogo` dentro do Play) mostra o efeito — útil pra conferir
+  cor/forma/textura que o `info` não descreve.
+- **Pegadinha — `playOnAwake` só dentro do Play**: `particulas <obj> play`
+  funciona a qualquer momento (chama `play()` direto no componente), mas
+  entrar na cena/arrastar o componente NUNCA começa a simular sozinho fora
+  do Play — se `vivas` ficar em 0 sem que ninguém tenha chamado `play`, é
+  esperado, não bug.
+- **Pegadinha — prévia de edição só com o objeto selecionado**: fora do
+  Play, o `update()` só avança se o editor disser que aquele objeto está
+  selecionado (a prévia do Inspector aberto). `particulas <obj> play` liga
+  `tocando=1`, mas se `<obj>` não estiver selecionado na Hierarquia, `vivas`
+  pode não crescer nos quadros seguintes — selecione o objeto (`select <obj>`)
+  antes de rodar `step`/esperar quadros pra conferir emissão fora do Play.
+  Dentro do Play (`play` do editor, não o comando `particulas ... play`) a
+  simulação roda sempre, sem depender de seleção.
+- **Pegadinha — orçamento de CPU**: neste runtime (interpretado, sem JIT),
+  `maxParticles` alto (milhares) custa CPU real por quadro — não assuma que
+  um efeito grande é de graça só porque não há janela própria pra medir;
+  `prof frames` mostra se o quadro está pesado.
+
+## 10. Pegadinhas
 
 - **Acentos**: `ws_client.py` fala UTF-8 (`menu Criar/Câmera` funciona); se o shell estragar o argumento, use `--file`/`--stdin`.
 - **Porta**: uma por editor; um segundo editor na mesma porta sobe sem controle (`indisponivel` no log).
