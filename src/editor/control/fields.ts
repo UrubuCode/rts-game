@@ -14,6 +14,14 @@ export const TIPO_STRING: string = "string";
 export const TIPO_COLOR: string = FIELD_HINT_COLOR;
 export const TIPO_ENUM: string = FIELD_HINT_ENUM;
 export const TIPO_VECTOR: string = "vector";
+/// Prefixo da dica de campo `@asset <kind>` ("asset:audio", "asset:imagem"...).
+/// O valor gravado é sempre um caminho (string) — `setfield`/`getfield` tratam
+/// como TIPO_STRING, só o rótulo de tipo mostrado ao agente muda.
+export const TIPO_ASSET_PREFIXO: string = "asset:";
+/// `tipo` (de `tipoCampo`) é uma dica `@asset`.
+export function ehTipoAsset(tipo: string): boolean {
+  return tipo.length > TIPO_ASSET_PREFIXO.length && tipo.slice(0, TIPO_ASSET_PREFIXO.length) === TIPO_ASSET_PREFIXO;
+}
 
 const COR_MAXIMA: number = 0xFFFFFF;
 const DIGITOS_COR: number = 6;
@@ -54,7 +62,7 @@ export function lerCor(t: string): number {
 /// Valor do campo para o JSON (cor em "#RRGGBB").
 export function valorCampoJson(b: Behavior, fi: number): any {
   const tipo = tipoCampo(b, fi);
-  if (tipo === TIPO_STRING || tipo === TIPO_ENUM) return b.fieldStringGet(fi);
+  if (tipo === TIPO_STRING || tipo === TIPO_ENUM || ehTipoAsset(tipo)) return b.fieldStringGet(fi);
   if (tipo === TIPO_BOOLEAN) return b.fieldGet(fi) !== 0;
   if (tipo === TIPO_COLOR) return hexCor(b.fieldGet(fi));
   return b.fieldGet(fi);
@@ -63,7 +71,8 @@ export function valorCampoJson(b: Behavior, fi: number): any {
 /// Valor do campo em texto (texto entre aspas; cor em #RRGGBB).
 export function textoCampo(b: Behavior, fi: number): string {
   const v = valorCampoJson(b, fi);
-  return b.fieldType(fi) === TIPO_STRING && tipoCampo(b, fi) === TIPO_STRING ? JSON.stringify(v) : "" + v;
+  const tipo = tipoCampo(b, fi);
+  return b.fieldType(fi) === TIPO_STRING && (tipo === TIPO_STRING || ehTipoAsset(tipo)) ? JSON.stringify(v) : "" + v;
 }
 
 /// Tira as aspas de fora ("texto com espaço" -> texto com espaço).
@@ -103,7 +112,7 @@ function interpretar(b: Behavior, fi: number, texto: string): string {
     LIDO_TEXTO[0] = opcoes[achou];
     return "";
   }
-  if (tipo === TIPO_STRING) { LIDO_TEXTO[0] = semAspasExternas(texto); return ""; }
+  if (tipo === TIPO_STRING || ehTipoAsset(tipo)) { LIDO_TEXTO[0] = semAspasExternas(texto); return ""; }
   const n = numeroEstrito(texto);
   if (n !== n) return nome + " e number: use um numero (recebi '" + texto + "')";
   LIDO_NUM[0] = n;
