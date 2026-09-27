@@ -423,9 +423,16 @@ export function cmdLog(parts: string[]): string {
   if (parts.length > 1) {
     const a = parts[1];
     if (a === "clear") { logClear(); return "[log] limpo"; }
+    if (a === "tail") {
+      if (parts.length > 3) return erroUso("log");
+      const t = parts.length > 2 ? argInt(parts, 2) : n;
+      if (!(t > 0)) return erroUso("log") + " (tail n inteiro > 0)";
+      n = t;
+    }
     if (a === "erro" || a === "error") level = LOG_ERROR;
     else if (a === "warn" || a === "aviso") level = LOG_WARN;
     else if (a === "debug") level = LOG_DEBUG;
+    else if (a === "tail") level = LOG_INFO;
     else {
       const num = numeroEstrito(a);
       if (num === num && num > 0.0) n = num | 0;   // NaN !== NaN: não é número

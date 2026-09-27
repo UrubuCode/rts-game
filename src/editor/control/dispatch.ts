@@ -19,6 +19,8 @@ import { cmdGameView } from "./commands/gameview";
 import { cmdShot } from "@editor/control/commands/shot";
 import { cmdInput } from "@editor/control/commands/input";
 import { cmdLote, loteAtivo, loteAbortado, antesNoLote, depoisNoLote } from "@editor/control/lote";
+import { registrarExcecao } from "@engine/core/falhas";
+import { cmdErrors, cmdProfFrames, cmdGc, cmdAssets } from "@editor/control/commands/diag";
 import { cmdResume, cmdStep, cmdTimescale, cmdSeed } from "@editor/control/commands/tempo";
 import { commandIndex, commandMutates, runCommand } from "../api";
 import { comandoEmbutido, registraNoLog, MUTA_SIM } from "@editor/control/builtin_commands";
@@ -82,6 +84,7 @@ function execProtegido(w: number, h: number, line: string): string {
   try { out = execCommandInner(w, h, line); }
   catch (error) {
     lancou = true;
+    registrarExcecao("comando " + line.split(" ")[0], error);
     out = ERRO_PREFIXO + " " + line.split(" ")[0] + ": " + (error instanceof Error ? error.message : String(error));
   }
   // `versao` sobe a cada snapshot (o tamanho da pilha não: no teto ela empurra e descarta)
@@ -151,6 +154,7 @@ function execCommandInner(w: number, h: number, line: string): string {
       if (alvo === "off") { profEnable(0); return "[prof] desligado"; }
       if (alvo === "on") { profEnable(1); profReset(); return "[prof] ligado (zerado)"; }
       if (alvo === "reset") { profReset(); return "[prof] zerado"; }
+      if (alvo === "frames") return cmdProfFrames(parts);
       if (profEnabled() === 0) return "[prof] desligado — use `prof on`";
       const nl = String.fromCharCode(10);
       return profReport() + nl +
@@ -296,6 +300,9 @@ function execCommandInner(w: number, h: number, line: string): string {
     case "input": return cmdInput(parts, w, h, line);
     case "batch": return cmdLote(parts);
     case "txn": return cmdLote(parts);
+    case "errors": return cmdErrors(parts);
+    case "gc": return cmdGc(parts);
+    case "assets": return cmdAssets(parts);
     default: return registrado >= 0 ? runRegistered(registrado, parts) : "[erro] desconhecido: " + cmd;
   }
 }

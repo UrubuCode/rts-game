@@ -30,6 +30,7 @@ import { gizmosBegin } from "@engine/core/gizmos";
 import { editorIcon, iconAt, drawEditorIcon } from "@editor/icon_images";
 import { interpolateSync } from "@engine/core/interpolate";
 import input from "@compat/input";
+import { profEnable, profFrameBegin, profFrameEnd } from "@engine/core/profiler";
 import { entradaQuadro, simMover, simApertar, simTeclaDesce, simQuebra, simDesligar } from "@compat/input_sim";
 
 const n = parseInt(process.env("GC_N") === "" ? "200000" : process.env("GC_N"));
@@ -178,4 +179,9 @@ while (i < n) {
   i = i + 1;
 }
 simDesligar();
+// Profiler ligado (o padrão do editor): o anel de `prof frames` por quadro.
+profEnable(1); profFrameBegin(); profFrameEnd();
+io.print("FASE prof " + n);
+i = 0;
+while (i < n) { profFrameBegin(); profFrameEnd(); i = i + 1; }
 io.print("FASE fim " + soma);

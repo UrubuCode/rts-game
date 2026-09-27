@@ -7,6 +7,7 @@
 // cai no modo sem imagem e isto não tenta de novo a cada frame. O motivo sai
 // uma vez no log.
 import { Behavior } from "@engine/core/behavior";
+import { registrarFalhaAsset } from "@engine/core/falhas";
 import { loadTexture } from "@engine/render/gpu3d";
 import { procTexture, PROC_NOMES } from "@engine/render/proc_textures";
 import { logWarn } from "@engine/core/logger";
@@ -31,10 +32,12 @@ function resolverDevagar(win: number, m: Behavior, proc: string, path: string): 
   let id = 0 - 1;
   if (proc.length > 0) {
     if (PROC_NOMES.indexOf(proc) >= 0) id = procTexture(win, proc);
-    else logWarn("Textura procedural desconhecida: '" + proc + "' (use " + PROC_NOMES.join(", ") + ").");
+    else { logWarn("Textura procedural desconhecida: '" + proc + "' (use " + PROC_NOMES.join(", ") + ")."); registrarFalhaAsset("textura", proc, "procedural desconhecida"); }
   } else {
-    try { id = loadTexture(win, path); }
-    catch (error) { logWarn("Textura '" + path + "' nao carregou: " + String(error)); id = 0 - 1; }
+    let motivo = "";
+    try { id = loadTexture(win, path); if (id <= 0) motivo = "id invalido (" + id + ")"; }
+    catch (error) { logWarn("Textura '" + path + "' nao carregou: " + String(error)); motivo = String(error); id = 0 - 1; }
+    if (motivo.length > 0) registrarFalhaAsset("textura", path, motivo);
   }
   if (id <= 0) id = 0 - 1;
   m.setMatTexture(id, path);

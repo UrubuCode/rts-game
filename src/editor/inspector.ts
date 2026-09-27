@@ -1,4 +1,5 @@
 import { Behavior, KIND_UI, FALHA_GUI } from "@engine/core/behavior";
+import { registrarExcecao } from "@engine/core/falhas";
 import { logError } from "@engine/core/logger";
 import { GameObject } from "@engine/core/gameobject";
 import { EditorUI } from "./ui_controls";
@@ -637,6 +638,7 @@ export class Inspector extends Behavior {
     if (b === null) throw e;
     b.falhasEditor = b.falhasEditor | FALHA_GUI;
     const dono = b.owner !== null ? b.owner.name : "?";
+    registrarExcecao("onInspectorGUI " + b.typeName() + " em " + dono, e);
     logError("Inspector: onInspectorGUI de " + b.typeName() + " em '" + dono + "' lançou: " + String(e) + " — usando os campos automáticos deste componente.");
     this.ui.end();
   }

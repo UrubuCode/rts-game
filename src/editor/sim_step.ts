@@ -8,6 +8,7 @@ import { playMode } from "@editor/play_mode";
 import { FIXED_DT, stepDone } from "@engine/core/fixedstep";
 import { rigidStep } from "@engine/core/physics_backend";
 import { logError } from "@engine/core/logger";
+import { registrarExcecao } from "@engine/core/falhas";
 
 /// Chamado quando um script lança durante a simulação (o main.ts abre o
 /// Console). null = só registra.
@@ -20,7 +21,7 @@ export function definirAoFalharSimulacao(f: any): void { aoFalhar = f; }
 function atualizarCenaProtegido(): number {
   try { scene.update(FIXED_DT); return 1; }
   catch (error) {
-    logError("Erro durante simulacao: " + String(error)); playMode.pause();
+    logError("Erro durante simulacao: " + String(error)); registrarExcecao("simulacao", error); playMode.pause();
     if (aoFalhar !== null) aoFalhar();
     return 0;
   }
