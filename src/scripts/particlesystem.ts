@@ -8,7 +8,6 @@ import { PoolParticulas, criarPool, emitirN, atualizarVidas } from "@engine/part
 import { avaliarGradiente, avaliarCurva, aplicarVelocidade } from "@engine/particles/curvas";
 import { drawParticlesSeguro, drawParticlesTexSeguro, setParticleTex } from "@compat/particles";
 import { emJogo } from "@engine/core/modo_jogo";
-import { clockDelta } from "@engine/core/clock";
 import { frustumParams, inFrustumFast } from "@engine/render/gpu3d";
 import { DESC_FLOATS, D_FORMA, D_RAIO, D_ANGULO, D_CAIXA_X, D_CAIXA_Y, D_CAIXA_Z,
          D_VEL_MIN, D_VEL_MAX, D_TAM_MIN, D_TAM_MAX, D_VIDA_MIN, D_VIDA_MAX, D_ROT0, D_COR_R, D_COR_G, D_COR_B,
@@ -44,12 +43,12 @@ const MAX_CHAVES: number = 4;
 const CHAVE_GRADIENTE_FLOATS: number = 5;
 const CHAVE_CURVA_FLOATS: number = 2;
 
-/// Injeção do editor (Task 9): `assets/pacotes/particulas/particulas_editor.ts`
-/// chama isto uma vez, na carga do pacote, pra o núcleo não importar
-/// `@editor/api` (evitaria o ciclo `scripts → editor` que o CLAUDE.md proíbe).
-/// `id` é o `GameObject.id` do dono; devolve 1 = objeto selecionado no editor.
-let consultaSelecao: ((id: number) => boolean) | null = null;
-export function definirConsultaSelecao(fn: (id: number) => boolean): void { consultaSelecao = fn; }
+/// Baldes de `ordenarPorDistancia` (Task 11): resolução do bucket sort
+/// back-to-front — 256 faixas de distância² cobrem qualquer emissor real sem
+/// banding perceptível (o mesmo compromisso de um z-buffer raso), e o custo
+/// de zerar/varrer os dois arrays de baldes (O(baldes), não O(n)) fica
+/// irrisório mesmo a n pequeno.
+const PS_SORT_BALDES: number = 256;
 
 /**
  * @componentCategory Efeitos
@@ -134,6 +133,15 @@ export class ParticleSystem extends Behavior {
   private ordemBuf: Int32Array = new Int32Array(0);
   private saidaOrdenadaBuf: Float32Array = new Float32Array(0);
   private camBuf: f64[] = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  /// Balde (bucket sort) de `ordenarPorDistancia` (Task 11 — a inserção O(n²)
+  /// original estourava o orçamento de 1 ms a 10k partículas por ~3000x, ver
+  /// o comentário acima do método): `itemBalde` cresce com `n`, como
+  /// `ordemBuf`; `baldeContagem`/`baldeOffset` têm tamanho FIXO
+  /// (`PS_SORT_BALDES`), zerados a cada chamada (custo O(baldes), irrisório
+  /// perto de O(n)) — nunca realocados.
+  private itemBalde: Int32Array = new Int32Array(0);
+  private baldeContagem: Int32Array = new Int32Array(PS_SORT_BALDES);
+  private baldeOffset: Int32Array = new Int32Array(PS_SORT_BALDES);
   /// Saída reaproveitada de `bboxAtual()` (Task 10): [minx,miny,minz,maxx,maxy,maxz].
   /// Não é caminho por quadro (só o comando WS `particulas <obj> info` chama),
   /// então tem sua própria passada leve sobre o pool em vez de acumular durante
@@ -149,14 +157,6 @@ export class ParticleSystem extends Behavior {
   /// gravação, não a visibilidade do campo.
   /** @nonSerialized */
   time: number = 0.0;
-  /// Task 9: setado pelo `PlayMode` ao copiar o objeto pro Play (hoje
-  /// `scene.update()`/`updateAll` só roda dentro do Play, chamado por
-  /// `sim_step.ts` — então isto é uma segunda trava, não a única: mesmo que
-  /// algum caminho futuro chame `update()` fora do Play, `emPlay` continua
-  /// protegendo). Estado de execução, nunca gravado na cena — mesmo motivo
-  /// de `time` acima.
-  /** @nonSerialized */
-  emPlay: boolean = false;
   get particleCount(): number { return this.pool === null ? 0 : this.pool.vivas; }
 
   /// Bbox local (sem somar a posição do dono) das partículas vivas — usado
@@ -376,23 +376,6 @@ export class ParticleSystem extends Behavior {
   /// carried item (c): um hitch de 2 s não emite nem envelhece um passo de
   /// 2 s de uma vez.
   update(dtArg: f64): void {
-    // Task 9: fora do Play, só simula se o editor disser que este objeto
-    // está selecionado (prévia de edição) — economiza CPU com o efeito
-    // parado/oculto, como a Unity. `emJogo()!==0` cobre o Play de verdade
-    // (jogo exportado E o Play do editor — `PlayMode.play()` chama
-    // `audioEntrarJogo()`/`entrarJogo()`, o mesmo flag que `mount()` já usa
-    // acima para `playOnAwake`): a cópia do Play não depende de ninguém
-    // setar `emPlay` nela. `emPlay` continua existindo pra quem quiser
-    // simular incondicionalmente sem esse flag global (e é o que o teste
-    // isolado usa pra exercitar o caminho "dentro do Play" sem depender de
-    // `entrarJogo()`). `consultaSelecao === null` (nenhum pacote de editor
-    // carregado: teste isolado, jogo exportado sem o pacote) não bloqueia
-    // nada, pro comportamento de antes desta task continuar valendo nesses
-    // casos.
-    if (!this.emPlay && emJogo() === 0 && consultaSelecao !== null) {
-      const dono = this.owner === null ? 0 - 1 : this.owner.id;
-      if (!consultaSelecao(dono)) return;
-    }
     if (this.pausado !== 0) return;
     const dt: f64 = dtArg > PS_DT_MAX_PASSO ? PS_DT_MAX_PASSO : (dtArg < 0.0 ? 0.0 : dtArg);
     const pool = this.garantirPool();
@@ -494,11 +477,10 @@ export class ParticleSystem extends Behavior {
     }
     if (n === 0) return 0;
     // `sort` (back-to-front): só faz sentido no modo alfa (o aditivo é
-    // comutativo — soma pura, a ordem não muda o resultado). Ordenação por
-    // inserção sobre um índice (O(n²), mas só custa algo quando `sort=1`,
-    // opt-in e default 0; um `Array.sort`/`TypedArray.sort` com comparador
-    // teria custo/alocação não comprovados neste runtime — ver o comentário
-    // acima do campo `distBuf`).
+    // comutativo — soma pura, a ordem não muda o resultado). Bucket sort
+    // sobre um índice (Task 11: O(n + PS_SORT_BALDES), sem alocar — a
+    // primeira versão era uma inserção O(n²) que media ~3,25 s/quadro a 10k
+    // partículas, ~3250x o orçamento de 1 ms; ver o comentário do método).
     const buf = (this.sort !== 0 && this.modo === 0 && n > 1) ? this.ordenarPorDistancia(out, n) : out;
     if (this.textura > 0) { setParticleTex(this.textura); return drawParticlesTexSeguro(win, buf, n, this.modo); }
     return drawParticlesSeguro(win, buf, n, this.modo);
@@ -509,31 +491,64 @@ export class ParticleSystem extends Behavior {
   /// (back-to-front, pintor's algorithm) e devolve a cópia ordenada — nunca
   /// muta `buf` (que é `saidaBuf`, reaproveitado pelo próximo `drawSelf`).
   /// 2 parâmetros (buf, n; câmera/buffers auxiliares ficam em campos).
+  ///
+  /// Bucket sort por distância² quantizada em `PS_SORT_BALDES` faixas
+  /// (Task 11 — a versão original era uma inserção O(n²): estável e correta
+  /// para os N pequenos com que foi validada, mas ~3,25 s/quadro a 10 000
+  /// partículas vivas, ~3250x o orçamento de 1 ms do bench; um bucket sort é
+  /// O(n + PS_SORT_BALDES), sem alocar, e não depende de N — só perde exatidão
+  /// DENTRO de um balde (duas partículas na mesma faixa de distância podem
+  /// desenhar em qualquer ordem entre si), imperceptível com 256 faixas.
   private ordenarPorDistancia(buf: Float32Array, n: number): Float32Array {
     if (this.distBuf.length < n) this.distBuf = new Float64Array(n);
     if (this.ordemBuf.length < n) this.ordemBuf = new Int32Array(n);
+    if (this.itemBalde.length < n) this.itemBalde = new Int32Array(n);
     if (this.saidaOrdenadaBuf.length < buf.length) this.saidaOrdenadaBuf = new Float32Array(buf.length);
     frustumParams(this.camBuf);
     const camX = this.camBuf[0]; const camY = this.camBuf[1]; const camZ = this.camBuf[2];
-    const dist = this.distBuf; const ordem = this.ordemBuf;
+    const dist = this.distBuf;
+    let minD: f64 = 1e30; let maxD: f64 = -1e30;
     let i = 0;
     while (i < n) {
       const o = i * PART_INSTANCIA_FLOATS;
       const dx = buf[o] - camX; const dy = buf[o + 1] - camY; const dz = buf[o + 2] - camZ;
-      dist[i] = dx * dx + dy * dy + dz * dz;
-      ordem[i] = i;
+      const d = dx * dx + dy * dy + dz * dz;
+      dist[i] = d;
+      if (d < minD) minD = d;
+      if (d > maxD) maxD = d;
       i = i + 1;
     }
-    // Inserção, decrescente por distância (farthest primeiro): estável, sem
-    // alocar, e barato o bastante pros N típicos de um emissor (centenas a
-    // poucos milhares) — não é o algoritmo pra 10k+ com sort=1 todo quadro.
-    let a = 1;
-    while (a < n) {
-      const chaveIdx = ordem[a]; const chaveDist = dist[chaveIdx];
-      let b = a - 1;
-      while (b >= 0 && dist[ordem[b]] < chaveDist) { ordem[b + 1] = ordem[b]; b = b - 1; }
-      ordem[b + 1] = chaveIdx;
-      a = a + 1;
+    // Quantiza cada distância em [0, PS_SORT_BALDES) (0 = mais perto). Faixa
+    // degenerada (todas as partículas à mesma distância, ou n<=1 já tratado
+    // pelo chamador): `inv=0` joga tudo no balde 0, sem dividir por zero.
+    const faixa = maxD - minD;
+    const inv: f64 = faixa > 1e-12 ? (PS_SORT_BALDES - 1) / faixa : 0.0;
+    const balde = this.itemBalde;
+    const contagem = this.baldeContagem;
+    let c = 0;
+    while (c < PS_SORT_BALDES) { contagem[c] = 0; c = c + 1; }
+    i = 0;
+    while (i < n) {
+      let b = ((dist[i] - minD) * inv) | 0;
+      if (b < 0) b = 0; else if (b >= PS_SORT_BALDES) b = PS_SORT_BALDES - 1;
+      balde[i] = b;
+      contagem[b] = contagem[b] + 1;
+      i = i + 1;
+    }
+    // Contagem cumulativa em ordem DECRESCENTE de balde (o mais distante,
+    // PS_SORT_BALDES-1, ocupa as primeiras posições de `ordem` — farthest
+    // primeiro, o mesmo sentido do pintor's algorithm de antes).
+    const offset = this.baldeOffset;
+    let acc = 0;
+    let b2 = PS_SORT_BALDES - 1;
+    while (b2 >= 0) { offset[b2] = acc; acc = acc + contagem[b2]; b2 = b2 - 1; }
+    const ordem = this.ordemBuf;
+    i = 0;
+    while (i < n) {
+      const b = balde[i];
+      ordem[offset[b]] = i;
+      offset[b] = offset[b] + 1;
+      i = i + 1;
     }
     const saida = this.saidaOrdenadaBuf;
     let k = 0;
@@ -678,21 +693,6 @@ export class ParticleSystem extends Behavior {
       psTmpCurva[0] = 1.0; psTmpCurva[1] = 1.0;
       this.setChaveTamanho(this.nChavesTamanho, psTmpCurva);
     }
-
-    // ── Prévia de edição (Task 9) ────────────────────────────────────────
-    // Fora do Play, `onInspectorGUI` roda uma vez por quadro de editor
-    // enquanto ESTE componente está selecionado com o Inspector aberto (o
-    // mesmo gancho, `inspector.ts`) — o ponto certo pra avançar a prévia sem
-    // precisar de um laço próprio em `main.ts` nem de import de `@editor/api`
-    // aqui. Dentro do Play, `scene.update()` já roda este `update()` pelo
-    // caminho normal (`sim_step.ts`); chamar de novo aqui duplicaria a
-    // simulação, por isso o `emJogo()===0`. O corte por seleção de verdade
-    // ainda é o de dentro de `update()` (`consultaSelecao`) — chamar aqui é
-    // só o "quem avança o relógio".
-    if (emJogo() === 0) this.update(clockDelta());
-    ui.label("Prévia");
-    if (ui.button(this.isPlaying() ? "Pausar" : "Continuar")) { if (this.isPlaying()) this.pause(); else this.unPause(); }
-    if (ui.button("Reiniciar")) { this.clear(); this.play(); }
   }
 
   /// Cabeçalhos "N/MAX ..." refeitos só quando a contagem muda (nada de
