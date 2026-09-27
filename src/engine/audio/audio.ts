@@ -244,7 +244,10 @@ export function previaTocando(): number { return auPreviaId !== 0 ? vozTocando(a
 
 // ── ganhos-alvo por bloco ────────────────────────────────────────────────────
 /// Ganho-alvo L/R de uma voz para o próximo bloco. 3D: `panGains` (atenuação e
-/// panorâmica); 2D: 1/1. Alvo zero (fora do alcance, volume 0) → voz VIRTUAL.
+/// panorâmica); 2D: 1/1; multiplicado pelo ganho do GRUPO. Alvo zero por
+/// volume da voz/fora de alcance → voz VIRTUAL na hora (sem rampa: não havia
+/// áudio audível antes). Alvo zero por MUDO/PAUSA do grupo não marca nada
+/// aqui — `mixInto` decide VIRTUAL/CONGELADA só depois do bloco de rampa.
 function atualizarAlvoVoz(vz: Float64Array, b: number): void {
   // Parando/pausando (fase A6): alvo zero, sem recalcular 3D/volume — é só a
   // rampa de saída; o estado transiciona em `mixInto` quando ela chegar a zero.
@@ -257,12 +260,20 @@ function atualizarAlvoVoz(vz: Float64Array, b: number): void {
     vz[b + V_LP_COEF] = auEsp[ESP_LP]; vz[b + V_DIST] = auEsp[ESP_DIST]; vz[b + V_CORTE] = auEsp[ESP_CORTE];
   }
   const grupo = vz[b + V_GRUPO] | 0;
-  const vol = vz[b + V_VOLUME] * ganhoGrupo(grupo);
+  const gGrupo = ganhoGrupo(grupo);
+  const pausado = grupoPausado(grupo) !== 0;
+  const vol = vz[b + V_VOLUME] * gGrupo;
   gl = gl * vol; gr = gr * vol;
+  if (pausado) { gl = 0.0; gr = 0.0; }
   vz[b + V_ALVO_L] = gl; vz[b + V_ALVO_R] = gr;
-  let f = flags & (0 - 1 - FLAG_VIRTUAL - FLAG_CONGELADA);
-  if (grupoPausado(grupo) !== 0) f = f | FLAG_CONGELADA;
-  if (gl <= 0.0 && gr <= 0.0 && (flags & FLAG_PREVIA) === 0) f = f | FLAG_VIRTUAL;
+  // Alvo zero por causa do GRUPO (mudo ou pausa) espera o bloco de rampa em
+  // `mixInto` antes de virar VIRTUAL/CONGELADA — sem isso, mudar o volume de
+  // um grupo no meio de uma nota estala (ruling A8). Alvo zero por outro
+  // motivo (volume da própria voz, fora de alcance) continua virtual na
+  // hora: não havia áudio audível antes, então não há rampa a fazer.
+  const porGrupo = pausado || gGrupo === 0.0;
+  let f = flags & (0 - 1 - FLAG_VIRTUAL);
+  if (!porGrupo && gl <= 0.0 && gr <= 0.0 && (flags & FLAG_PREVIA) === 0) f = f | FLAG_VIRTUAL;
   vz[b + V_FLAGS] = f;
 }
 
@@ -302,10 +313,18 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
       ativas = ativas + 1;
       const src = amostras[v];
       const canais = vozes[b + V_CANAIS];
-      const flags = vozes[b + V_FLAGS] | 0;
-      if ((flags & FLAG_CONGELADA) !== 0) { v = v + 1; continue; }
+      const grupo = vozes[b + V_GRUPO] | 0;
+      let flags = vozes[b + V_FLAGS] | 0;
+      if ((flags & FLAG_CONGELADA) !== 0) {
+        if (grupoPausado(grupo) !== 0) { v = v + 1; continue; } // ainda em pausa: nem mixa nem anda
+        // despausou: cai no caminho normal abaixo e rampeia de volta a
+        // partir de zero (V_GL já está em zero, congelado desde a pausa).
+        flags = flags & (0 - 1 - FLAG_CONGELADA);
+        vozes[b + V_FLAGS] = flags;
+      }
       if ((flags & FLAG_VIRTUAL) !== 0) {
-        // Já silenciosa (fora de alcance): parar/pausar não precisa de rampa.
+        // Já silenciosa (fora de alcance/volume da voz): parar/pausar não
+        // precisa de rampa.
         avancarVirtual(vozes, b, quadros, src.length / canais);
         if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
         else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
@@ -319,6 +338,14 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
       if (nativo) audio.mix_add(buf, src, d); else mixAddTs(buf, src, d);
       vozes[b + V_POS] = d[D_POS]; vozes[b + V_LP_L] = d[D_LP_L]; vozes[b + V_LP_R] = d[D_LP_R];
       vozes[b + V_GL] = vozes[b + V_ALVO_L]; vozes[b + V_GR] = vozes[b + V_ALVO_R];
+      // O ganho chegou no alvo deste bloco (rampa completa, sem clique). Se o
+      // motivo do zero é o GRUPO (mudo ou pausa), agora sim marca
+      // VIRTUAL/CONGELADA — mudo continua no caminho virtual (barato, a
+      // posição anda sem mixar); pausa congela (nem mixa, nem anda).
+      const pausadoAgora = grupoPausado(grupo) !== 0;
+      if ((pausadoAgora || ganhoGrupo(grupo) === 0.0) && vozes[b + V_GL] === 0.0 && vozes[b + V_GR] === 0.0) {
+        vozes[b + V_FLAGS] = (vozes[b + V_FLAGS] | 0) | (pausadoAgora ? FLAG_CONGELADA : FLAG_VIRTUAL);
+      }
       if (d[D_FIM] !== 0.0) vozes[b + V_ESTADO] = ESTADO_LIVRE;
       else if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
       else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
