@@ -11,6 +11,9 @@
 // `update`, e `playOnAwake` só vale com a bandeira de jogo ligada); no Play e no
 // jogo, `playOnAwake` toca no `mount`.
 import { Behavior, KIND_AUDIO, AUDIO_PAPEL_FONTE, FIELD_HINT_ENUM } from "@engine/core/behavior";
+// clip: agora um ObjectField automático via `@asset audio` (tools/generate-
+// components.mjs) — item 1 do brief de arquivos-universais. O tipo/extensões/
+// ícone somem daqui: ficam centralizados em UI_ASSET_KINDS (ui_config.ts).
 import type { InspectorUI } from "@engine/core/inspector_ui";
 import { AudioClip, toneClip, clipInfo, FORMAS_TOM } from "@engine/audio/clip";
 import { tocarClipe, pararVoz, pausarVoz, vozTocando, vozSegundos, moverVoz, definirVolumeVoz, definirPitchVoz,
@@ -37,13 +40,6 @@ const AS_ROTULO_TOCAR: string = "Tocar";
 const AS_ROTULO_PARAR: string = "Parar";
 const AS_SEM_CLIPE: string = "Sem clipe: toca o tom gerado.";
 const AS_CLIPE_FALHOU: string = "O clipe não carregou (ver o Console).";
-/// ObjectField do campo `clip` (item 2 do brief de áudio-arquivos): tipo
-/// mostrado na caixa ("<nome> (AudioClip)"), extensões aceitas e ícone do
-/// editor. Constantes de módulo — nada disso é recriado por quadro.
-const AS_TIPO_CLIP: string = "AudioClip";
-const AS_CLIP_EXTS: string[] = [".wav", ".ogg"];
-const AS_CLIP_ICON: string = "audio-fonte";
-
 /// Rascunhos de módulo: nenhuma fonte aloca por quadro nem por disparo.
 const asPedido = new Float64Array(PEDIDO_FLOATS);
 const asPos = new Float64Array(3);
@@ -62,7 +58,10 @@ export class AudioSource extends Behavior {
    * marca `modo = "gerador"` explicitamente.
    */
   modo: string = AS_MODO_ARQUIVO;
-  /** Caminho do .wav/.ogg; vazio = o tom gerado (forma, freq, dur). */
+  /**
+   * Caminho do .wav/.ogg; vazio = o tom gerado (forma, freq, dur).
+   * @asset audio
+   */
   clip: string = "";
   /** @range 0 1 */
   volume: number = 1.0;
@@ -117,7 +116,8 @@ export class AudioSource extends Behavior {
   audioPapel(): number { return AUDIO_PAPEL_FONTE; }
   fieldHint(i: number): string {
     const n = this.fieldName(i);
-    return n === "rolloff" || n === "forma" || n === "modo" ? FIELD_HINT_ENUM : "";
+    if (n === "rolloff" || n === "forma" || n === "modo") return FIELD_HINT_ENUM;
+    return super.fieldHint(i);   // "clip" -> "asset:audio" (gerado a partir de @asset)
   }
   fieldOptions(i: number): string[] {
     const n = this.fieldName(i);
@@ -241,7 +241,7 @@ export class AudioSource extends Behavior {
     const nm = ui.dropdown(AS_ROTULO_MODO, MODOS_ROTULOS, m);
     if (nm !== m) this.modo = MODOS[nm];
     const arquivo = this.modo === AS_MODO_ARQUIVO;
-    if (arquivo) ui.objectField("clip", AS_TIPO_CLIP, AS_CLIP_EXTS, AS_CLIP_ICON);
+    if (arquivo) ui.field("clip");
     ui.label(this.rotuloInfo());
     ui.field("volume"); ui.field("pitch"); ui.field("loop"); ui.field("playOnAwake"); ui.field("mudo");
     ui.field("spatialBlend");

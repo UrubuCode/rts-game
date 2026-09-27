@@ -71,7 +71,7 @@ o.addBehavior(as);
 S.selected = 0; S.selection = [0];
 
 render(0 - 1, 0 - 1, 0, 0);
-const field = control("Components/0/GUI/1");
+const field = control("Components/0/Field/1");
 check(field.label === "Nenhum (AudioClip)", "rotulo vazio: " + field.label);
 check(field.icon === "audio-fonte", "icone do campo: " + field.icon);
 
@@ -114,7 +114,7 @@ check(as.clip === P2 && as.modo === "arquivo" && history.undoDepth() === antesDr
 // ── seletor "Selecionar AudioClip": abrir, listar, buscar, Nenhum ───────────
 inspector.drag(0, 0);
 render(0 - 1, 0 - 1, 0, 0);
-const pick = control("Components/0/GUI/1/Pick");
+const pick = control("Components/0/Field/1/Pick");
 app.clickId = pick.id;
 render(0 - 1, 0 - 1, 0, 0);
 app.clickId = 0 - 1;
@@ -138,7 +138,7 @@ check(inspector.objOpened === 0 && as.clip === P1, "duplo-clique confirma a esco
 
 // reabre e escolhe "Nenhum" (linha 0) por Enter
 render(0 - 1, 0 - 1, 0, 0);
-const pick2 = control("Components/0/GUI/1/Pick");
+const pick2 = control("Components/0/Field/1/Pick");
 app.clickId = pick2.id;
 render(0 - 1, 0 - 1, 0, 0);
 app.clickId = 0 - 1;
