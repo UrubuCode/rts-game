@@ -101,9 +101,14 @@ function montarAssetKinds(): Map<string, AssetKindInfo> {
   return m;
 }
 export const UI_ASSET_KINDS: Map<string, AssetKindInfo> = montarAssetKinds();
-/// Soltura do Explorer (item 3 do brief de arquivos universais): rótulo do
-/// realce genérico enquanto arquivos do SO pairam sobre a janela.
-export const UI_EXPLORER_DROP = { hovering: "arquivo(s) do sistema" };
+/// Soltura do Explorer (item 3 do brief de arquivos universais): rótulo e
+/// medidas do realce genérico (anel + texto) enquanto arquivos do SO pairam
+/// sobre a janela, centrado no cursor (`hoveredX/Y`).
+export const UI_EXPLORER_DROP = {
+  hovering: "arquivo(s) do sistema",
+  ringRadius: 24, ringSize: 48, ringBorder: 1, ringCorner: 8,
+  textOffsetX: 14, textOffsetY: 4, font: 12,
+};
 // onInspectorGUI: chave dos controles ("<componente>/GUI/<ordem>"), separador
 // "rótulo: valor", casas do valor do slider e aviso de campo que não existe.
 export const UI_INSPECTOR_GUI = {

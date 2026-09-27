@@ -1620,8 +1620,9 @@ function frame(): void {
   // Project acima; a classificação por tipo só acontece na soltura mesma.
   if (explorerHovering && dndOn === 0) {
     const hx = input.hoveredX(WIN); const hy = input.hoveredY(WIN);
-    pincel(0, 1, UI_C.dropMarker, 8); caixa(hx - 24, hy - 24, 48, 48);
-    texto(hx + 14, hy + 4, UI_EXPLORER_DROP.hovering, estiloTexto(UI_C.dropMarker, 12));
+    const D = UI_EXPLORER_DROP;
+    pincel(0, D.ringBorder, UI_C.dropMarker, D.ringCorner); caixa(hx - D.ringRadius, hy - D.ringRadius, D.ringSize, D.ringSize);
+    texto(hx + D.textOffsetX, hy + D.textOffsetY, D.hovering, estiloTexto(UI_C.dropMarker, D.font));
   }
 
   // Feedback controls are persistent GameObjects in the editor-only UI scene.
