@@ -41,3 +41,9 @@
 - Não monte strings por quadro: guarde o rótulo e refaça só quando o valor mudar (`editor/rotulos.ts`, `EditorControl.legenda`, `CampoCache`). Chaves de controle criadas uma vez.
 - `try/catch` fora de funções por quadro: no RTS a função que contém `try` aloca a cada chamada, mesmo sem entrar nele — ponha o caminho lento numa função própria.
 - Toda mudança num caminho por quadro vem com sonda de alocação: 200k iterações com `RTS_GC_DEBUG=1`, 0 coletas entre os marcadores (`tests/claude-test-frame-gc.ts`). Meça o quadro com `node bench/claude-frame-bench.mjs` (RTS_VSYNC=0, GC/1000 quadros, carga da máquina) e compare antes/depois na mesma sessão.
+
+## Áudio
+
+- A IA não ouve pelo ouvido, mas verifica sozinha: por número — `audio list`, `audio nivel`, `audio mixer` — e pela saída real da placa com `audio escuta [ms] [sonda]` + `audio escuta resultado` (loopback, não bloqueia a janela; a sonda de 997 Hz separa o som do motor do de outros programas). Testes sem janela rodam no dispositivo nulo (`initAudio(AUDIO_NULO)` + `mixarBloco`). Não dependa do humano para saber se há som.
+- Caminhos por quadro do áudio (`pumpAudio`, `mixarBloco`, `audioQuadro`, `audioSincronizar`) seguem "Custo por quadro": estado de voz na tabela `Float64Array`, pedidos de voz reaproveitados, nada de `AudioClip.load` por quadro sem cache.
+- Clipes em `assets/audio/`; o mixer do projeto em `assets/audio/mixer.json`, fora do Desfazer da cena.
