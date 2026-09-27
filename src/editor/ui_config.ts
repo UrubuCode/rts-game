@@ -308,6 +308,7 @@ export const UI_C = {
   assetScript: 0x5A82C8FF,
   assetPreset: 0xD2963EFF,
   assetModel: 0x9AA0A8FF,
+  assetAudio: 0xE0A040FF,
   assetText: 0x808890FF,
   assetOther: 0x6A6A6AFF,
   assetDragGhost: 0x1E1E22EE,

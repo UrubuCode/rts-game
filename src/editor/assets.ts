@@ -11,6 +11,8 @@ import fs from "../compat/fs.ts";
 import { PANEL, PANEL_DK, HEADER, BORDER, FIELD, TEXT, TEXT_DIM, SEL, HOVER, button, subStr, widgetRect, widgetMouse } from "./widgets";
 import { drawThumb, thumbAt } from "./thumbs";
 import { ProjectTree } from "./project_tree";
+import { AudioClip, clipInfo } from "../engine/audio/clip";
+import { tocarPrevia, pararPrevia, vozTocando } from "../engine/audio/audio";
 import { UI_C, UI_WORKSPACE, UI_PROJECT_HEADER_H, UI_PROJECT_PATH_Y, UI_PROJECT_PATH_H,
          UI_PROJECT_TOOL_W, UI_PROJECT_GRID_Y, UI_PROJECT_TILE_W, UI_PROJECT_TILE_H,
          UI_PROJECT_ICON_SIZE, UI_PROJECT_TILE_GAP, UI_PROJECT_DRAG_DISTANCE_SQ,
@@ -30,7 +32,8 @@ const T_SCRIPT = 4;  // .ts/.js
 const T_PRESET = 5;  // .preset
 const T_MODEL = 6;   // .obj/.gltf
 const T_TEXT = 7;    // .txt/.md
-const T_OTHER = 8;
+const T_AUDIO = 8;   // .wav/.ogg
+const T_OTHER = 9;
 
 // ── estado do módulo ─────────────────────────────────────────────────────────
 let root = "assets";
@@ -82,7 +85,14 @@ let fulls: string[] = [];
 let curtos: string[] = [];
 let curtosFantasma: string[] = [];
 let payloads: string[] = [];
+/// Legenda de duração dos áudios ("1,2 s"), uma vez por arquivo no `rescan`
+/// (Task 10.5: nada de decodificar/formatar por quadro) — "" pros não-áudio.
+let durLabels: string[] = [];
 let count = 0;
+
+// ── prévia de áudio (duplo-clique num tile T_AUDIO toca/para) ───────────────
+let previewPath = "";
+let previewVoz = 0;
 
 // ── classificação por extensão ───────────────────────────────────────────────
 function endsWith(s: string, suf: string): number {
@@ -103,6 +113,7 @@ function classify(name: string, isDir: number): number {
   if (endsWith(name, ".obj") !== 0 || endsWith(name, ".gltf") !== 0 ||
       endsWith(name, ".glb") !== 0) return T_MODEL;
   if (endsWith(name, ".txt") !== 0 || endsWith(name, ".md") !== 0) return T_TEXT;
+  if (endsWith(name, ".wav") !== 0 || endsWith(name, ".ogg") !== 0) return T_AUDIO;
   return T_OTHER;
 }
 function typeColor(t: number): number {
@@ -114,6 +125,7 @@ function typeColor(t: number): number {
   if (t === T_PRESET) return UI_C.assetPreset;   // laranja preset
   if (t === T_MODEL) return UI_C.assetModel;    // cinza model
   if (t === T_TEXT) return UI_C.assetText;
+  if (t === T_AUDIO) return UI_C.assetAudio;    // laranja-ouro áudio
   return UI_C.assetOther;
 }
 function typeTag(t: number): string {
@@ -125,17 +137,39 @@ function typeTag(t: number): string {
   if (t === T_PRESET) return "PRE";
   if (t === T_MODEL) return "3D";
   if (t === T_TEXT) return "TXT";
+  if (t === T_AUDIO) return "AUD";
   return "?";
+}
+
+/// "1,2 s" — decodifica UMA VEZ (no rescan), nunca por quadro. "" se não carregar.
+function duracaoLabel(path: string): string {
+  const c = AudioClip.load(path);
+  if (c === null) return "";
+  return c.duracao.toFixed(1).replace(".", ",") + " s";
+}
+/// Toca/para a prévia 2D de um tile de áudio (duplo-clique, estilo Unity):
+/// clicar de novo no MESMO arquivo enquanto toca para; em outro, troca.
+function togglePreviewAudio(path: string): void {
+  if (previewPath === path && vozTocando(previewVoz) !== 0) {
+    pararPrevia();
+    previewPath = ""; previewVoz = 0;
+    return;
+  }
+  pararPrevia();
+  const c = AudioClip.load(path);
+  previewVoz = c !== null ? tocarPrevia(c, 1.0, 1.0) : 0;
+  previewPath = previewVoz !== 0 ? path : "";
 }
 
 // ── varredura do diretório atual ─────────────────────────────────────────────
 function rescan(): void {
   treeDirty = 1;
   assetDragClear();
+  if (previewPath !== "") { pararPrevia(); previewPath = ""; previewVoz = 0; }
   lastClickIdx = 0 - 1;
   names = [];
   types = [];
-  fulls = []; curtos = []; curtosFantasma = []; payloads = [];
+  fulls = []; curtos = []; curtosFantasma = []; payloads = []; durLabels = [];
   count = 0;
   selIdx = 0 - 1;
   deleteArmed = 0;
@@ -170,7 +204,9 @@ function rescan(): void {
     else if (t === T_IMAGE) pay = "tex:";
     else if (t === T_MODEL) pay = "model:";
     else if (t === T_SCRIPT) pay = "script:";
+    else if (t === T_AUDIO) pay = "audio:";
     payloads.push(pay + full);
+    durLabels.push(t === T_AUDIO ? duracaoLabel(full) : "");
     i = i + 1;
   }
   selIdx = 0 - 1;
@@ -298,6 +334,12 @@ function drawIcon(x: number, y: number, s: number, i: number): void {
   } else if (t === T_SCENE || t === T_PREFAB || t === T_MODEL) {
     // cubinho 3D (losango)
     pincel(c, 1, UI_C.assetThumbnailShadow, 3); caixa(x + 6, y + 6, s - 12, s - 12);
+  } else if (t === T_AUDIO) {
+    // "equalizador": três barras de altura crescente, como um ícone de som
+    const barW = (s - 12) / 3.0;
+    pincel(c, 0, 0, 1); caixa(x + 5, y + s * 0.55, barW, s * 0.35);
+    pincel(c, 0, 0, 1); caixa(x + 5 + barW + 2, y + s * 0.35, barW, s * 0.55);
+    pincel(c, 0, 0, 1); caixa(x + 5 + (barW + 2) * 2, y + s * 0.2, barW, s * 0.7);
   } else {
     // "folha de arquivo"
     pincel(c, 1, BORDER, 3); caixa(x + 4, y + 2, s - 8, s - 4);
@@ -485,6 +527,10 @@ export function drawAssets(win: i64): string {
       drawIcon(tx + (tileW - iconS) / 2, ty + 6, iconS, i);
       // nome (corta se longo)
       texto(tx + 5, ty + tileH - 15, curtos[i], estiloTexto(TEXT, 11));
+      // legenda de duração do áudio (ex.: "1,2 s"), cacheada no rescan
+      if (types[i] === T_AUDIO && durLabels[i] !== "") {
+        texto(tx + 5, ty + tileH - 26, durLabels[i], estiloTexto(TEXT_DIM, 10));
+      }
 
       // realce do tile que está sendo arrastado
       if (i === dragIdx && dragArmed !== 0) { pincel(UI_C.assetSelectionGhost, 0, 0, 4); caixa(tx, ty, tileW, tileH); }
@@ -495,6 +541,9 @@ export function drawAssets(win: i64): string {
         // como voltar a ser contagem de frame.
         const agora: f64 = clockNow();
         const dbl = (i === lastClickIdx && clockSince(lastClickMs) < DOUBLE_CLICK_MS) ? 1 : 0;
+        // Trocar a seleção pra outro arquivo para a prévia de áudio em curso
+        // (a Unity faz o mesmo — a prévia é "do item selecionado").
+        if (previewPath !== "" && fulls[i] !== previewPath) { pararPrevia(); previewPath = ""; previewVoz = 0; }
         selIdx = i;
         deleteArmed = 0;
         // pressionar num tile ARMA um possível drag (pastas não são arrastáveis
@@ -508,6 +557,7 @@ export function drawAssets(win: i64): string {
           else if (t === T_PREFAB) action = "prefab:" + full;
           else if (t === T_IMAGE) action = "tex:" + full;   // aplica no obj selecionado
           else if (t === T_SCRIPT) { action = "script:" + full; assetDragClear(); }
+          else if (t === T_AUDIO) { togglePreviewAudio(full); assetDragClear(); }
         }
         lastClickIdx = i;
         lastClickMs = agora;
