@@ -1,0 +1,1 @@
+{ "name": "RedCube", "mesh": 1, "pos": [0,1,0], "rot": [0,0], "scale": 1.5, "color": [220,70,60], "scripts": [{"type":"spin","sy":0.8,"sx":0.0}] }

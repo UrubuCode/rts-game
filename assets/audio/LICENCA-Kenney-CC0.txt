@@ -1,0 +1,26 @@
+Pacotes: Kenney Sci-fi Sounds (1.0) e Kenney Impact Sounds (1.0), por Kenney (www.kenney.nl).
+URL: https://kenney.nl/assets/sci-fi-sounds e https://kenney.nl/assets/impact-sounds
+Licenca: Creative Commons Zero (CC0) — http://creativecommons.org/publicdomain/zero/1.0/
+
+Arquivo original -> nome aqui
+Sci-fi Sounds / Audio/laserSmall_000.ogg      -> tiro.ogg
+Sci-fi Sounds / Audio/explosionCrunch_000.ogg -> explosao.ogg
+Impact Sounds / Audio/impactMetal_light_000.ogg  -> impacto.ogg
+Impact Sounds / Audio/footstep_concrete_000.ogg  -> passo1.ogg
+Impact Sounds / Audio/footstep_concrete_001.ogg  -> passo2.ogg
+
+		------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	This content is free to use in personal, educational and commercial projects.
+	Support us by crediting Kenney or www.kenney.nl (this is not mandatory)
+
+		------------------------------
+
+	Donate:   http://support.kenney.nl
+	Patreon:  http://patreon.com/kenney/
+
+	Follow on Twitter for updates:
+	http://twitter.com/KenneyNL

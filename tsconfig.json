@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
     "paths": {
-      "@engine/*": ["./src/engine/*"],
-      "@editor/*": ["./src/editor/*"],
-      "@scripts/*": ["./src/scripts/*"],
-      "@compat/*": ["./src/compat/*"]
+      "@engine/*": ["./engine/src/engine/*"],
+      "@editor/*": ["./engine/src/editor/*"],
+      "@scripts/*": ["./engine/src/scripts/*"],
+      "@compat/*": ["./engine/src/compat/*"]
     }
   }
 }

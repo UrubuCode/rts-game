@@ -1,0 +1,941 @@
+diff --git a/crates/rts-egui/src/frame/scene3d/mod.rs b/crates/rts-egui/src/frame/scene3d/mod.rs
+index 56a79d4..7a3453b 100644
+--- a/crates/rts-egui/src/frame/scene3d/mod.rs
++++ b/crates/rts-egui/src/frame/scene3d/mod.rs
+@@ -33,6 +33,10 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
+ }
+ 
+ mod lights;
++mod pbr;
++mod post;
++mod mipmaps;
++mod capture;
+ mod math;
+ mod particles;
+ mod pipeline;
+@@ -41,6 +45,8 @@ mod shader;
+ mod views;
+ #[cfg(test)]
+ mod tests;
++#[cfg(test)]
++mod pbr_gpu_tests;
+ 
+ use math::{identity, light_view_proj};
+ pub use math::{Cam3D, model_matrix, model_matrix_quat, view_proj, view_proj_lookat};
+@@ -59,6 +65,14 @@ struct GpuMesh {
+ }
+ 
+ pub struct Scene3D {
++    post: post::Post,
++    material_bgl: wgpu::BindGroupLayout,
++    default_material: Option<wgpu::BindGroup>,
++    materials: HashMap<u64, pbr::MaterialGpu>,
++    next_material: u64,
++    material_sky: u64,
++    default_tex_view: wgpu::TextureView,
++    texture_views: HashMap<u64, wgpu::TextureView>,
+     pipeline: wgpu::RenderPipeline,
+     sky_pipeline: wgpu::RenderPipeline,
+     shadow_pipeline: wgpu::RenderPipeline,
+@@ -90,7 +104,7 @@ pub struct Scene3D {
+     // (mesh, model, color, emissive, tex_flag, tex_id, tile) — tex_flag vai pro
+     // shader (0/1/2), tex_id seleciona o bind group da textura no render loop,
+     // tile > 0 = UV em coordenada de mundo (repetições por unidade).
+-    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64, f32)>,
++    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64, f32, u64)>,
+     water_pipeline: wgpu::RenderPipeline,
+     /// (mesh, buffer de instâncias [vec4/partícula], count, escala) — drenada
+     /// junto de `draws`. O buffer vem CLONADO do rts:gpu (mesmo device).
+@@ -126,6 +140,10 @@ pub struct Scene3D {
+ 
+ impl Scene3D {
+ 
++    pub fn set_exposure(&mut self, exposure: f64) {
++        self.post.settings[0] = if exposure.is_finite() { exposure.clamp(0.0, 64.0) as f32 } else { 0.0 };
++    }
++
+     pub fn upload_mesh(&mut self, device: &wgpu::Device, verts: &[f32], indices: &[u32]) -> u64 {
+         let vbuf = init_buffer(device, "scene3d vbuf", f32_bytes(verts), wgpu::BufferUsages::VERTEX);
+         let ibuf = init_buffer(device, "scene3d ibuf", u32_bytes(indices), wgpu::BufferUsages::INDEX);
+@@ -165,7 +183,7 @@ impl Scene3D {
+     /// `tex`: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (imagem).
+     /// `tile`: 0 = UV da malha; > 0 = UV em mundo, `tile` repetições por unidade.
+     pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64, tile: f32) {
+-        self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex, tile));
++        self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex, tile, 0));
+     }
+ 
+     /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh`, lendo cada
+@@ -209,10 +227,15 @@ impl Scene3D {
+         if w == 0 || h == 0 || rgba.len() < (w as usize) * (h as usize) * 4 {
+             return 0;
+         }
+-        let bg = make_tex_bg(device, queue, &self.tex_bgl, &self.tex_sampler, rgba, w, h);
++        self.upload_texture_kind(device, queue, rgba, w, h, false)
++    }
++    pub fn upload_texture_kind(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, rgba: &[u8], w: u32, h: u32, data: bool) -> u64 {
++        if w == 0 || h == 0 || rgba.len() < w as usize * h as usize * 4 { return 0; }
++        let (bg, view) = make_tex_bg(device, queue, &self.tex_bgl, &self.tex_sampler, rgba, w, h, data);
+         let id = self.next_tex;
+         self.next_tex += 1;
+         self.textures.insert(id, bg);
++        self.texture_views.insert(id, view);
+         id
+     }
+     /// Fundo CHAPADO da vista corrente (desliga o céu nela). Ideal pro viewport
+@@ -254,15 +277,16 @@ fn make_tex_bg(
+     rgba: &[u8],
+     w: u32,
+     h: u32,
+-) -> wgpu::BindGroup {
++    data: bool,
++) -> (wgpu::BindGroup, wgpu::TextureView) {
+     let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+     let tex = device.create_texture(&wgpu::TextureDescriptor {
+         label: Some("scene3d albedo tex"),
+         size,
+-        mip_level_count: 1,
++        mip_level_count: 32 - w.max(h).leading_zeros(),
+         sample_count: 1,
+         dimension: wgpu::TextureDimension::D2,
+-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
++        format: if data { wgpu::TextureFormat::Rgba8Unorm } else { wgpu::TextureFormat::Rgba8UnormSrgb },
+         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+         view_formats: &[],
+     });
+@@ -281,15 +305,17 @@ fn make_tex_bg(
+         },
+         size,
+     );
++    mipmaps::upload_mips(queue, &tex, rgba, w, h, data);
+     let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+-    device.create_bind_group(&wgpu::BindGroupDescriptor {
++    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+         label: Some("scene3d albedo bg"),
+         layout: bgl,
+         entries: &[
+             wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+         ],
+-    })
++    });
++    (bg, view)
+ }
+ 
+ fn make_depth(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::TextureView, wgpu::Texture) {
+@@ -321,4 +347,3 @@ fn make_shadow(device: &wgpu::Device, size: u32) -> (wgpu::TextureView, wgpu::Te
+     let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+     (view, tex)
+ }
+-
+diff --git a/crates/rts-egui/src/frame/scene3d/pipeline.rs b/crates/rts-egui/src/frame/scene3d/pipeline.rs
+index c51df26..08156a4 100644
+--- a/crates/rts-egui/src/frame/scene3d/pipeline.rs
++++ b/crates/rts-egui/src/frame/scene3d/pipeline.rs
+@@ -70,6 +70,9 @@ fn make_particle_pipeline(
+ 
+ impl Scene3D {
+     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, color_format: wgpu::TextureFormat) -> Scene3D {
++        let post = post::Post::new(device, color_format);
++        let color_format = post::FORMAT;
++        let material_bgl = pbr::layout(device);
+         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+             label: Some("scene3d shader"),
+             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+@@ -202,17 +205,18 @@ impl Scene3D {
+             address_mode_w: wgpu::AddressMode::Repeat,
+             mag_filter: wgpu::FilterMode::Linear,
+             min_filter: wgpu::FilterMode::Linear,
+-            mipmap_filter: wgpu::MipmapFilterMode::Nearest, // mip_level_count=1 → irrelevante
++            mipmap_filter: wgpu::MipmapFilterMode::Linear,
++            anisotropy_clamp: 8,
+             ..Default::default()
+         });
+         // 1×1 branca default: bindada em objetos SEM textura (o shader só a usa se
+         // tex_flag>=2, mas o pipeline exige group 2 sempre bindado).
+-        let default_tex_bg = make_tex_bg(device, queue, &tex_bgl, &tex_sampler, &[255, 255, 255, 255], 1, 1);
++        let (default_tex_bg, default_tex_view) = make_tex_bg(device, queue, &tex_bgl, &tex_sampler, &[255, 255, 255, 255], 1, 1, false);
+ 
+         // layout do pass principal: group 0 (câmera) + group 1 (shadow) + group 2 (albedo).
+         let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+             label: Some("scene3d mesh layout"),
+-            bind_group_layouts: &[Some(&cam_bgl), Some(&shadow_bgl), Some(&tex_bgl)],
++            bind_group_layouts: &[Some(&cam_bgl), Some(&shadow_bgl), Some(&tex_bgl), Some(&material_bgl)],
+             immediate_size: 0,
+         });
+         // layout do shadow pass: só group 0 (light_vp vem do uniform da câmera)
+@@ -450,7 +454,9 @@ impl Scene3D {
+             mapped_at_creation: false,
+         });
+ 
+-        Scene3D {
++        let mut scene = Scene3D {
++            post, material_bgl, default_material: None, materials: HashMap::new(), next_material: 1, material_sky: 0,
++            default_tex_view, texture_views: HashMap::new(),
+             pipeline,
+             sky_pipeline,
+             shadow_pipeline,
+@@ -488,6 +494,8 @@ impl Scene3D {
+             part_pending_batches: Vec::new(),
+             particle_inst_buf,
+             particle_inst_cap: 64,
+-        }
++        };
++        scene.default_material = Some(scene.make_material(device, &[0.0; 11], false));
++        scene
+     }
+ }
+diff --git a/crates/rts-egui/src/frame/scene3d/render.rs b/crates/rts-egui/src/frame/scene3d/render.rs
+index ad6f124..f0df45c 100644
+--- a/crates/rts-egui/src/frame/scene3d/render.rs
++++ b/crates/rts-egui/src/frame/scene3d/render.rs
+@@ -17,6 +17,10 @@ impl Scene3D {
+         h: u32,
+     ) -> bool {
+         self.ensure_depth(device, w, h);
++        self.post.resize(device, w, h);
++        self.refresh_material_environment(device);
++        let output = view;
++        let view = &self.post.view;
+ 
+         // um slot `Cam` por vista (offset dinâmico) + o `Env` do frame
+         let water = self.water_draws.first().map(|d| d.3).unwrap_or(0.0);
+@@ -57,19 +61,19 @@ impl Scene3D {
+         // por draw — dois objetos com texturas diferentes não podem entrar na
+         // mesma chamada. Na prática quase tudo usa a textura default.
+         let mut ordem: Vec<usize> = (0..self.draws.len()).collect();
+-        ordem.sort_by_key(|&i| (self.draws[i].0, self.draws[i].5));
++        ordem.sort_by_key(|&i| (self.draws[i].0, self.draws[i].5, self.draws[i].7));
+         // Faixas contíguas de mesma (malha, textura): cada uma vira um draw.
+-        let mut grupos: Vec<(u64, u64, u32, u32)> = Vec::new(); // (malha, tex, inicio, n)
++        let mut grupos: Vec<(u64, u64, u64, u32, u32)> = Vec::new(); // (malha, tex, inicio, n)
+         for (posicao, &i) in ordem.iter().enumerate() {
+-            let chave = (self.draws[i].0, self.draws[i].5);
++            let chave = (self.draws[i].0, self.draws[i].5, self.draws[i].7);
+             match grupos.last_mut() {
+-                Some(g) if (g.0, g.1) == chave => g.3 += 1,
+-                _ => grupos.push((chave.0, chave.1, posicao as u32, 1)),
++                Some(g) if (g.0, g.1, g.2) == chave => g.4 += 1,
++                _ => grupos.push((chave.0, chave.1, chave.2, posicao as u32, 1)),
+             }
+         }
+         let mut inst: Vec<f32> = Vec::with_capacity(self.draws.len() * 24);
+         for &i in &ordem {
+-            let (_m, model, color, emissive, tex_flag, _tid, tile) = &self.draws[i];
++            let (_m, model, color, emissive, tex_flag, _tid, tile, _material) = &self.draws[i];
+             inst.extend_from_slice(model);
+             inst.extend_from_slice(color);
+             inst.push(*emissive);
+@@ -126,7 +130,7 @@ impl Scene3D {
+             // critério de agrupamento seria uma segunda ordenação do buffer de
+             // instâncias, e as duas teriam de concordar sobre qual instância
+             // está em qual posição.
+-            for &(mesh_id, _tid, inicio, n) in &grupos {
++            for &(mesh_id, _tid, _material, inicio, n) in &grupos {
+                 if let Some(m) = self.meshes.get(&mesh_id) {
+                     let off = (inicio as u64) * 96;
+                     let bytes = (n as u64) * 96;
+@@ -179,6 +183,7 @@ impl Scene3D {
+             pass.set_scissor_rect(px[0], px[1], px[2], px[3]);
+             pass.set_bind_group(0, &self.cam_bg, &[(i as u64 * CAM_STRIDE) as u32]);
+             pass.set_bind_group(1, &self.shadow_bg, &[]);
++            pass.set_bind_group(3, self.default_material.as_ref().unwrap(), &[]);
+             // 1. fundo da vista: céu, ou cor chapada (view_bg.w = 1) só dentro
+             // do retângulo. `limpar = false` não pinta nada (só a profundidade).
+             if v.limpar {
+@@ -190,10 +195,11 @@ impl Scene3D {
+             // a textura do objeto (tex_id>=2) ou a 1×1 branca default.
+             pass.set_pipeline(&self.pipeline);
+             pass.set_bind_group(2, &self.default_tex_bg, &[]);
+-            for &(mesh_id, tid, inicio, n) in &grupos {
++            for &(mesh_id, tid, material, inicio, n) in &grupos {
+                 if let Some(m) = self.meshes.get(&mesh_id) {
+                     let tex_bg = self.textures.get(&tid).unwrap_or(&self.default_tex_bg);
+                     pass.set_bind_group(2, tex_bg, &[]);
++                    pass.set_bind_group(3, self.materials.get(&material).map(|m| &m.bg).unwrap_or(self.default_material.as_ref().unwrap()), &[]);
+                     let off = (inicio as u64) * 96;
+                     let bytes = (n as u64) * 96;
+                     pass.set_vertex_buffer(0, m.vbuf.slice(..));
+@@ -202,6 +208,7 @@ impl Scene3D {
+                     pass.draw_indexed(0..m.icount, 0, 0..n);
+                 }
+             }
++            pass.set_bind_group(3, self.default_material.as_ref().unwrap(), &[]);
+             // 2.5 PARTÍCULAS: billboard instanciado, DEPOIS das malhas opacas
+             // (depth já escrito) e ANTES da água. Depth TEST ligado (ficam
+             // atrás de paredes), WRITE desligado (translúcidas entre si, não
+@@ -262,6 +269,7 @@ impl Scene3D {
+             });
+         }
+ 
++        self.post.render(queue, encoder, output);
+         self.draws.clear();
+         self.water_draws.clear();
+         self.part_pending.clear();
+diff --git a/crates/rts-egui/src/frame/scene3d/shader.rs b/crates/rts-egui/src/frame/scene3d/shader.rs
+index eb43728..1277b9c 100644
+--- a/crates/rts-egui/src/frame/scene3d/shader.rs
++++ b/crates/rts-egui/src/frame/scene3d/shader.rs
+@@ -1,7 +1,7 @@
+ /// WGSL: vertex = pos+normal (slot 0) × instância model(4×vec4)+color (slot 1).
+ /// Uniform (group 0): `Cam` (um slot de 256 bytes por vista, offset dinâmico)
+ /// + `Env` (luzes, céu, neblina — um por frame).
+-pub(in crate::frame::scene3d) const SHADER: &str = r#"
++pub(in crate::frame::scene3d) const SHADER: &str = concat!(r#"
+ struct Cam {
+   view_proj: mat4x4<f32>,
+   light: vec4<f32>,      // luz LEGADA (setLight): xyz = posição, w = ambiente
+@@ -121,7 +121,7 @@ fn sky_fs(i: SkyOut) -> @location(0) vec4<f32> {
+   // amostra SEMPRE (fluxo uniforme); só vale no modo panorama. A costura do
+   // equirretangular (atan2 salta de 1 para 0) é inofensiva sem mipmaps; se a
+   // textura ganhar mips, usar textureSampleLevel(..., 0.0) aqui.
+-  let pano = textureSample(albedo_tex, albedo_samp, equiret(ray)).rgb;
++  let pano = textureSampleLevel(albedo_tex, albedo_samp, equiret(ray), 0.0).rgb;
+   if (cam.view_bg.w > 0.5) { return vec4<f32>(cam.view_bg.rgb, 1.0); }
+   return vec4<f32>(cor_do_ceu(ray, pano), 1.0);
+ }
+@@ -202,7 +202,11 @@ fn vs(
+   let world = model * vec4<f32>(position, 1.0);
+   var o: VOut;
+   o.clip = cam.view_proj * world;
+-  o.normal = normalize((model * vec4<f32>(normal, 0.0)).xyz);
++  // Inverse-transpose for rotation + nonuniform scale (columns are orthogonal).
++  let n0 = m0.xyz / max(dot(m0.xyz, m0.xyz), 0.0000001);
++  let n1 = m1.xyz / max(dot(m1.xyz, m1.xyz), 0.0000001);
++  let n2 = m2.xyz / max(dot(m2.xyz, m2.xyz), 0.0000001);
++  o.normal = normalize(n0 * normal.x + n1 * normal.y + n2 * normal.z);
+   o.color = color;
+   o.world = world.xyz;
+   o.emissive = iparams.x;
+@@ -291,6 +295,15 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
+     let chk = fract(c * 0.5) * 2.0;        // 0 ou 1
+     albedo = albedo * mix(0.5, 1.0, chk);
+   }
++  // Derivatives/maps must be evaluated uniformly, before a material branch.
++  let pn = pbr_normal(i.world, i.normal, uv);
++  let mr = textureSample(pbr_mr, pbr_sampler, uv);
++  let ao = textureSample(pbr_ao, pbr_sampler, uv).r;
++  let emission = textureSample(pbr_emission, pbr_sampler, uv).rgb;
++  let psh = shadow_factor(i.world);
++  if (pbr.emission.w > 0.5) {
++    return vec4<f32>(neblina(shade_pbr(i, albedo, pn, mr, ao, emission, psh), i.world), i.color.a);
++  }
+   // emissivo (ex.: o Sol) — cor cheia, sem sombreamento
+   if (i.emissive > 0.5) { return vec4<f32>(albedo, i.color.a); }
+   let n = normalize(i.normal);
+@@ -331,4 +344,4 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
+   }
+   return vec4<f32>(neblina(rgb, i.world), i.color.a);
+ }
+-"#;
++"#, include_str!("pbr.wgsl"));
+diff --git a/crates/rts-egui/src/scene_api.rs b/crates/rts-egui/src/scene_api.rs
+index d14f856..47a9629 100644
+--- a/crates/rts-egui/src/scene_api.rs
++++ b/crates/rts-egui/src/scene_api.rs
+@@ -10,6 +10,44 @@ use crate::ctx::with_ctx;
+ use crate::frame::scene3d::{model_matrix, model_matrix_quat, view_proj_lookat, view_proj_spec, CamSpec, Scene3D};
+ use crate::frame::Backend;
+ 
++/// Upload/update a PBR material. Zero creates; invalid data returns zero.
++pub fn material_set(win: u64, id: u64, data: &[f64]) -> u64 {
++    with_scene(win, |s, d| s.set_material(d, id, data), 0)
++}
++pub fn material_free(win: u64, id: u64) { with_scene(win, |s, _| s.free_material(id), ()); }
++/// Capture queued 3D draws to PPM. Consumes that queue; excludes the UI overlay.
++pub fn capture_scene(win: u64, path: &str, width: i64, height: i64) -> bool {
++    if path.is_empty() || width <= 0 || height <= 0 || width > 4096 || height > 4096 { return false; }
++    with_ctx(win, |c| {
++        if let Backend::Wgpu(r) = &mut c.backend {
++            if let Some(scene) = &mut r.scene {
++                let result=scene.capture(&r.device,&r.queue,width as u32,height as u32,r.config.format)
++                    .and_then(|bytes| std::fs::write(path,bytes).map_err(|e|e.to_string()));
++                if let Err(error)=result {eprintln!("scene capture: {error}");return false;}
++                return true;
++            }
++        }
++        false
++    }).unwrap_or(false)
++}
++/// Used immediately after queueing a mesh; material zero preserves legacy shading.
++pub fn mesh_material(win: u64, id: u64) { with_scene(win, |s, _| s.last_material(id), ()); }
++/// Exposure multiplier. Zero disables tone mapping for existing scenes.
++pub fn set_exposure(win: u64, exposure: f64) {
++    if !exposure.is_finite() { return; }
++    with_scene(win, |s, _| s.set_exposure(exposure), ());
++}
++/// Linear data maps (normal, metallic/roughness, occlusion), not sRGB color.
++pub fn upload_data_texture(win: u64, rgba: &[u8], w: i64, h: i64) -> u64 {
++    if w <= 0 || h <= 0 || w > 16384 || h > 16384 || rgba.len() < w as usize*h as usize*4 { return 0; }
++    with_ctx(win, |c| {
++        if let Backend::Wgpu(r) = &mut c.backend {
++            if r.scene.is_none() { r.scene = Some(Scene3D::new(&r.device, &r.queue, r.config.format)); }
++            r.scene.as_mut().unwrap().upload_texture_kind(&r.device, &r.queue, rgba, w as u32, h as u32, true)
++        } else { 0 }
++    }).unwrap_or(0)
++}
++
+ // Re-exportadas na raiz do crate (`rts_egui::PART_FLOATS`, mesmo nome do lado
+ // TS) — ver `frame::scene3d::particles` pelo layout completo dos 9 floats.
+ // `pub use` também traz os nomes para este arquivo, então `draw_particles`
+diff --git a/crates/rts-host/examples/ui_fixture.rs b/crates/rts-host/examples/ui_fixture.rs
+index cdc8fa9..5096166 100644
+--- a/crates/rts-host/examples/ui_fixture.rs
++++ b/crates/rts-host/examples/ui_fixture.rs
+@@ -26,6 +26,7 @@
+ //! não mascara.
+ 
+ fn main() {
++    let startup = std::time::Instant::now();
+     let path = std::env::args()
+         .nth(1)
+         .expect("uso: ui_fixture <programa.ts>");
+@@ -36,5 +37,8 @@ fn main() {
+             std::process::exit(2);
+         }
+     };
++    if std::env::var_os("RTS_LOAD_TIMING").is_some() {
++        eprintln!("RTS startup: compile_graph {:.3} s", startup.elapsed().as_secs_f64());
++    }
+     program.run();
+ }
+diff --git a/crates/rts-ui/src/scene.rs b/crates/rts-ui/src/scene.rs
+index 9ece244..600beb5 100644
+--- a/crates/rts-ui/src/scene.rs
++++ b/crates/rts-ui/src/scene.rs
+@@ -41,6 +41,11 @@ pub const MEMBERS: &[(&str, Provided)] = &[
+     ("meshUpload", mesh_upload),
+     ("meshFree", mesh_free),
+     ("textureUpload", texture_upload),
++    ("textureUploadData", texture_upload_data),
++    ("materialSet", material_set),
++    ("materialFree", material_free),
++    ("setExposure", set_exposure),
++    ("captureScene", capture_scene),
+     ("setCamera", set_camera),
+     ("setCameraLookAt", set_camera_look_at),
+     ("setClearColor", set_clear_color),
+@@ -100,6 +105,24 @@ fn doubles(raw: &[u8]) -> Vec<f64> {
+     raw.chunks_exact(8).map(|w| f64::from_ne_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]])).collect()
+ }
+ 
++extern "C" fn texture_upload_data(_e: u64, _t: u64, win: u64, pixels: u64, w: u64, h: u64) -> u64 {
++    let Some(pixels) = bytes(pixels) else { return value::from_number(0.0); };
++    value::from_number(rts_egui::upload_data_texture(handle(win), &pixels, integer(w, 0), integer(h, 0)) as f64)
++}
++extern "C" fn material_set(_e: u64, _t: u64, win: u64, id: u64, data: u64, _c: u64) -> u64 {
++    let Some(raw) = bytes(data) else { return value::from_number(0.0); };
++    value::from_number(rts_egui::material_set(handle(win), handle(id), &doubles(&raw)) as f64)
++}
++extern "C" fn material_free(_e: u64, _t: u64, win: u64, id: u64, _b: u64, _c: u64) -> u64 {
++    rts_egui::material_free(handle(win), handle(id)); value::nothing()
++}
++extern "C" fn capture_scene(_e: u64, _t: u64, win: u64, path: u64, w: u64, h: u64) -> u64 {
++    value::from_bool(rts_egui::capture_scene(handle(win), &value::text(path), integer(w, 0), integer(h, 0)))
++}
++extern "C" fn set_exposure(_e: u64, _t: u64, win: u64, exposure: u64, _b: u64, _c: u64) -> u64 {
++    rts_egui::set_exposure(handle(win), number(exposure, 0.0)); value::nothing()
++}
++
+ /// `setCamera(win, { x, y, z, yaw, pitch, fov, aspect, near, far, ortho, orthoSize })`
+ /// — câmera de voo da vista corrente. Ângulos em RADIANOS; base canhota, `yaw` 0
+ /// olha para +Z. `ortho != 0` = ortográfica com meia altura `orthoSize`.
+@@ -211,9 +234,9 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
+         spec,
+         &[
+             "mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex", "tile",
+-            "qx", "qy", "qz", "qw",
++            "qx", "qy", "qz", "qw", "material",
+         ],
+-        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
++        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0xFFFF_FFFFu32 as f64, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+     );
+     let quat = if read[13] != 0.0 || read[14] != 0.0 || read[15] != 0.0 || read[16] != 0.0 {
+         Some([read[13], read[14], read[15], read[16]])
+@@ -230,6 +253,7 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
+         read[12],
+         quat,
+     );
++    rts_egui::mesh_material(handle(win), read[17].max(0.0) as u64);
+     value::nothing()
+ }
+ 
+diff --git a/crates/rts-egui/src/frame/scene3d/capture.rs b/crates/rts-egui/src/frame/scene3d/capture.rs
+new file mode 100644
+index 0000000..e3eae24
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/capture.rs
+@@ -0,0 +1,37 @@
++//! Read back the queued scene without depending on desktop/window capture.
++//! Explicit diagnostic operation: synchronizes the GPU and consumes the queue.
++use super::*;
++impl Scene3D {
++    pub fn capture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, width: u32, height: u32,
++        format: wgpu::TextureFormat) -> Result<Vec<u8>, String> {
++        if width == 0 || height == 0 || width > 4096 || height > 4096 { return Err("capture dimensions must be 1..4096".into()); }
++        if !matches!(format, wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb | wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb) {
++            return Err("capture requires an RGBA8/BGRA8 output".into());
++        }
++        let size=wgpu::Extent3d {width,height,depth_or_array_layers:1};
++        let target=device.create_texture(&wgpu::TextureDescriptor {label:Some("scene capture"),size,mip_level_count:1,sample_count:1,
++            dimension:wgpu::TextureDimension::D2,format,usage:wgpu::TextureUsages::RENDER_ATTACHMENT|wgpu::TextureUsages::COPY_SRC,view_formats:&[]});
++        let view=target.create_view(&Default::default());
++        let stride=(width*4).div_ceil(256)*256;
++        let buffer=device.create_buffer(&wgpu::BufferDescriptor {label:Some("scene capture readback"),size:(stride*height) as u64,
++            usage:wgpu::BufferUsages::COPY_DST|wgpu::BufferUsages::MAP_READ,mapped_at_creation:false});
++        let mut encoder=device.create_command_encoder(&Default::default());
++        self.render(device,queue,&mut encoder,&view,width,height);
++        encoder.copy_texture_to_buffer(wgpu::TexelCopyTextureInfo {texture:&target,mip_level:0,origin:wgpu::Origin3d::ZERO,aspect:wgpu::TextureAspect::All},
++            wgpu::TexelCopyBufferInfo {buffer:&buffer,layout:wgpu::TexelCopyBufferLayout {offset:0,bytes_per_row:Some(stride),rows_per_image:Some(height)}},size);
++        let submission=queue.submit([encoder.finish()]);
++        let (tx,rx)=std::sync::mpsc::channel();
++        buffer.slice(..).map_async(wgpu::MapMode::Read,move |r| {let _=tx.send(r);});
++        device.poll(wgpu::PollType::Wait {submission_index:Some(submission),timeout:Some(std::time::Duration::from_secs(30))}).map_err(|e|e.to_string())?;
++        rx.recv_timeout(std::time::Duration::from_secs(30)).map_err(|e|e.to_string())?.map_err(|e|e.to_string())?;
++        let bgra=matches!(format,wgpu::TextureFormat::Bgra8Unorm|wgpu::TextureFormat::Bgra8UnormSrgb);
++        let mut out=format!("P6\n{width} {height}\n255\n").into_bytes();
++        {
++            let mapped=buffer.slice(..).get_mapped_range();
++            for row in mapped.chunks_exact(stride as usize) {for px in row[..width as usize*4].chunks_exact(4) {
++                if bgra {out.extend_from_slice(&[px[2],px[1],px[0]]);} else {out.extend_from_slice(&px[..3]);}
++            }}
++        }
++        buffer.unmap();Ok(out)
++    }
++}
+diff --git a/crates/rts-egui/src/frame/scene3d/mipmaps.rs b/crates/rts-egui/src/frame/scene3d/mipmaps.rs
+new file mode 100644
+index 0000000..7da03cb
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/mipmaps.rs
+@@ -0,0 +1,44 @@
++//! Upload-time mip generation. Color maps are averaged in linear light;
++//! normal/MR/AO data maps must never receive an sRGB conversion.
++pub(super) fn linear(x: f32) -> f32 { if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) } }
++fn srgb(x: f32) -> f32 { if x <= 0.0031308 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 } }
++fn downsample(src: &[u8], w: u32, h: u32, data: bool) -> Vec<u8> {
++    let nw = (w / 2).max(1); let nh = (h / 2).max(1);
++    let mut out = vec![0; (nw * nh * 4) as usize];
++    for y in 0..nh { for x in 0..nw {
++        // Integer regions include the last row/column of odd-sized textures.
++        let (x0, x1) = (x*w/nw, (x+1)*w/nw); let (y0,y1) = (y*h/nh, (y+1)*h/nh);
++        let count = ((x1-x0)*(y1-y0)) as f32;
++        for c in 0..4 {
++            let mut sum = 0.0;
++            for sy in y0..y1 { for sx in x0..x1 {
++                let v = src[((sy*w+sx)*4+c) as usize] as f32 / 255.0;
++                sum += if data || c == 3 { v } else { linear(v) };
++            }}
++            let v = sum / count;
++            out[((y*nw+x)*4+c) as usize] = ((if data || c == 3 { v } else { srgb(v) }) * 255.0).round() as u8;
++        }
++    }}
++    out
++}
++pub(super) fn upload_mips(queue: &wgpu::Queue, tex: &wgpu::Texture, src: &[u8], mut w: u32, mut h: u32, data: bool) {
++    let mut previous = src.to_vec(); let mut level = 1;
++    while w > 1 || h > 1 {
++        let pixels = downsample(&previous, w, h, data); w = (w/2).max(1); h = (h/2).max(1);
++        queue.write_texture(wgpu::TexelCopyTextureInfo { texture: tex, mip_level: level, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
++            &pixels, wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w*4), rows_per_image: Some(h) },
++            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 });
++        previous = pixels; level += 1;
++    }
++}
++#[cfg(test)] mod tests {
++    use super::*;
++    #[test] fn color_is_filtered_in_linear_light_and_data_is_not() {
++        let pixels = [0,0,0,255,255,255,255,255];
++        assert_eq!(downsample(&pixels,2,1,false), [188,188,188,255]);
++        assert_eq!(downsample(&pixels,2,1,true), [128,128,128,255]);
++    }
++    #[test] fn odd_texture_includes_last_texel() {
++        assert_eq!(downsample(&[0,0,0,255,0,0,0,255,255,255,255,255],3,1,true), [85,85,85,255]);
++    }
++}
+diff --git a/crates/rts-egui/src/frame/scene3d/pbr.rs b/crates/rts-egui/src/frame/scene3d/pbr.rs
+new file mode 100644
+index 0000000..6d75e48
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/pbr.rs
+@@ -0,0 +1,88 @@
++//! Material resources for the existing scene queue. Texture handles are owned
++//! by Scene3D; material handles occupy a separate namespace and are reusable.
++use super::*;
++
++pub(super) struct MaterialGpu {
++    pub data: [f64; 11],
++    pub bg: wgpu::BindGroup,
++}
++
++pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
++    let mut entries = vec![wgpu::BindGroupLayoutEntry {
++        binding: 0, visibility: wgpu::ShaderStages::FRAGMENT,
++        ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform,
++            has_dynamic_offset: false, min_binding_size: wgpu::BufferSize::new(48) }, count: None,
++    }];
++    for binding in 1..=5 {
++        entries.push(wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT,
++            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true },
++                view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None });
++    }
++    entries.push(wgpu::BindGroupLayoutEntry { binding: 6, visibility: wgpu::ShaderStages::FRAGMENT,
++        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None });
++    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("PBR material"), entries: &entries })
++}
++
++fn finite(x: f64, fallback: f64) -> f32 { if x.is_finite() { x as f32 } else { fallback as f32 } }
++
++/// metallic, roughness, normalScale, occlusionStrength, emissive RGB,
++/// normalTexture, metallicRoughnessTexture, occlusionTexture, emissiveTexture.
++pub(super) fn uniform(data: &[f64; 11], enabled: bool) -> [f32; 12] {
++    [finite(data[0], 0.0).clamp(0.0, 1.0), finite(data[1], 1.0).clamp(0.045, 1.0),
++     finite(data[2], 1.0).clamp(0.0, 8.0), finite(data[3], 1.0).clamp(0.0, 1.0),
++     finite(data[4], 0.0).clamp(0.0, 65504.0), finite(data[5], 0.0).clamp(0.0, 65504.0),
++     finite(data[6], 0.0).clamp(0.0, 65504.0), if enabled { 1.0 } else { 0.0 },
++     if data[7] >= 2.0 { 1.0 } else { 0.0 }, if data[8] >= 2.0 { 1.0 } else { 0.0 },
++     if data[9] >= 2.0 { 1.0 } else { 0.0 }, if data[10] >= 2.0 { 1.0 } else { 0.0 }]
++}
++
++impl Scene3D {
++    pub fn set_material(&mut self, device: &wgpu::Device, id: u64, src: &[f64]) -> u64 {
++        if src.len() != 11 || src.iter().any(|x| !x.is_finite()) { return 0; }
++        let mut data = [0.0; 11]; data.copy_from_slice(src);
++        let id = if id == 0 { let id = self.next_material; self.next_material += 1; id }
++            else if self.materials.contains_key(&id) { id } else { return 0; };
++        let bg = self.make_material(device, &data, true);
++        self.materials.insert(id, MaterialGpu { data, bg });
++        id
++    }
++    pub fn free_material(&mut self, id: u64) { self.materials.remove(&id); }
++    pub fn last_material(&mut self, id: u64) {
++        if let Some(draw) = self.draws.last_mut() { draw.7 = id; }
++    }
++    pub(super) fn make_material(&self, device: &wgpu::Device, data: &[f64; 11], enabled: bool) -> wgpu::BindGroup {
++        let buf = init_buffer(device, "PBR parameters", f32_bytes(&uniform(data, enabled)), wgpu::BufferUsages::UNIFORM);
++        let view = |id: f64| self.texture_views.get(&(id as u64)).unwrap_or(&self.default_tex_view);
++        let sky = self.texture_views.get(&self.sky.textura).unwrap_or(&self.default_tex_view);
++        device.create_bind_group(&wgpu::BindGroupDescriptor {
++            label: Some("PBR maps"), layout: &self.material_bgl,
++            entries: &[
++                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
++                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view(data[7])) },
++                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(view(data[8])) },
++                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(view(data[9])) },
++                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(view(data[10])) },
++                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(sky) },
++                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.tex_sampler) },
++            ],
++        })
++    }
++    pub(super) fn refresh_material_environment(&mut self, device: &wgpu::Device) {
++        if self.material_sky == self.sky.textura { return; }
++        self.material_sky = self.sky.textura;
++        let updates: Vec<_> = self.materials.iter().map(|(&id, m)| (id, self.make_material(device, &m.data, true))).collect();
++        for (id, bg) in updates { self.materials.get_mut(&id).unwrap().bg = bg; }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn material_clamps_and_keeps_hdr_emission() {
++        let p = uniform(&[2.0, 0.0, 1.0, -1.0, 8.0, 2.0, 1.0, 2.0, 0.0, 0.0, 0.0], true);
++        assert_eq!(&p[..4], &[1.0, 0.045, 1.0, 0.0]);
++        assert_eq!(&p[4..8], &[8.0, 2.0, 1.0, 1.0]);
++        assert_eq!(&p[8..], &[1.0, 0.0, 0.0, 0.0]);
++    }
++}
+diff --git a/crates/rts-egui/src/frame/scene3d/pbr.wgsl b/crates/rts-egui/src/frame/scene3d/pbr.wgsl
+new file mode 100644
+index 0000000..286fb56
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/pbr.wgsl
+@@ -0,0 +1,86 @@
++struct PbrMaterial { surface: vec4<f32>, emission: vec4<f32>, maps: vec4<f32> };
++@group(3) @binding(0) var<uniform> pbr: PbrMaterial;
++@group(3) @binding(1) var pbr_normal_tex: texture_2d<f32>;
++@group(3) @binding(2) var pbr_mr: texture_2d<f32>;
++@group(3) @binding(3) var pbr_ao: texture_2d<f32>;
++@group(3) @binding(4) var pbr_emission: texture_2d<f32>;
++@group(3) @binding(5) var pbr_environment: texture_2d<f32>;
++@group(3) @binding(6) var pbr_sampler: sampler;
++
++fn srgb_linear(c: vec3<f32>) -> vec3<f32> {
++    return select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
++}
++fn safe_unit(v: vec3<f32>) -> vec3<f32> { return v * inverseSqrt(max(dot(v,v), 0.00000001)); }
++
++// Derivative cotangent frame supports imported UVs, mirrored islands and the
++// existing world projection, without requiring tangents in legacy mesh buffers.
++fn pbr_normal(world: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
++    let n = safe_unit(normal);
++    let q1 = dpdx(world); let q2 = dpdy(world);
++    let st1 = dpdx(uv); let st2 = dpdy(uv);
++    let p2 = cross(q2, n); let p1 = cross(n, q1);
++    let t = p2 * st1.x + p1 * st2.x;
++    let b = p2 * st1.y + p1 * st2.y;
++    let len = max(dot(t,t), dot(b,b));
++    let inv = inverseSqrt(max(len, 0.00000001));
++    let sample_n = textureSample(pbr_normal_tex, pbr_sampler, uv).xyz * 2.0 - 1.0;
++    let mapped = safe_unit(t * inv * sample_n.x * pbr.surface.z + b * inv * sample_n.y * pbr.surface.z + n * sample_n.z);
++    return select(n, mapped, pbr.maps.x > 0.5 && len > 0.00000001);
++}
++fn fresnel(f0: vec3<f32>, cos_theta: f32) -> vec3<f32> {
++    return f0 + (vec3<f32>(1.0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
++}
++fn brdf(base: vec3<f32>, metallic: f32, rough: f32, n: vec3<f32>, v: vec3<f32>, l: vec3<f32>) -> vec3<f32> {
++    let h = safe_unit(v+l); let nl = max(dot(n,l),0.0); let nv = max(dot(n,v),0.0001);
++    let nh = max(dot(n,h),0.0); let vh = max(dot(v,h),0.0);
++    let a = rough * rough; let a2 = a*a;
++    let denom = nh*nh*(a2-1.0)+1.0;
++    let d = a2 / max(3.14159265*denom*denom, 0.0000001);
++    // Height-correlated Smith visibility (GGX).
++    let gv = nl * sqrt(nv*nv*(1.0-a2)+a2);
++    let gl = nv * sqrt(nl*nl*(1.0-a2)+a2);
++    let visibility = 0.5 / max(gv+gl, 0.00001);
++    let f = fresnel(mix(vec3<f32>(0.04),base,metallic),vh);
++    let diffuse = (vec3<f32>(1.0)-f)*(1.0-metallic)*base/3.14159265;
++    return (diffuse + d*visibility*f)*nl;
++}
++fn environment(dir: vec3<f32>, rough: f32) -> vec3<f32> {
++    let lod = rough * f32(textureNumLevels(pbr_environment)-1u);
++    let pano = textureSampleLevel(pbr_environment, pbr_sampler, equiret(dir), lod).rgb;
++    return cor_do_ceu(dir,pano);
++}
++fn shade_pbr(i: VOut, albedo: vec3<f32>, n: vec3<f32>, mr: vec4<f32>, ao_sample: f32, emission: vec3<f32>, shadow: f32) -> vec3<f32> {
++    // Vertex tint is sRGB; albedo texture has already been hardware-decoded.
++    let tint = srgb_linear(i.color.rgb);
++    let ratio = tint / max(i.color.rgb,vec3<f32>(0.00001));
++    let base = albedo * ratio;
++    let metallic = pbr.surface.x * select(1.0,mr.b,pbr.maps.y>0.5);
++    let rough = clamp(pbr.surface.y * select(1.0,mr.g,pbr.maps.y>0.5),0.045,1.0);
++    let ao = mix(1.0,select(1.0,ao_sample,pbr.maps.z>0.5),pbr.surface.w);
++    let v = safe_unit(cam.cam_pos.xyz-i.world);
++    let f0 = mix(vec3<f32>(0.04),base,metallic);
++    let f = fresnel(f0,max(dot(n,v),0.0));
++    let reflection = reflect(-v,n);
++    // First IBL tier: mip-filtered panorama / procedural sky. It is deliberately
++    // an approximation; irradiance convolution and GGX prefiltering come later.
++    let ambient = environment(n,1.0)*base*(1.0-metallic)*(vec3<f32>(1.0)-f);
++    let reflected = environment(reflection,rough)*f*(1.0-rough*0.5);
++    var rgb = (ambient+reflected)*env.info.w*ao;
++    let count = min(u32(env.info.x),8u);
++    if (count == 0u) {
++        rgb += brdf(base,metallic,rough,n,v,safe_unit(cam.light.xyz-i.world))*shadow*(1.0-cam.light.w);
++    }
++    for (var k = 0u; k < count; k += 1u) {
++        let light = env.lights[k]; var l = -safe_unit(light.b.xyz); var att = 1.0;
++        if (light.a.w > 0.5) {
++            let delta = light.a.xyz-i.world; let distance = length(delta);
++            l = delta/max(distance,0.0001);
++            att = atenuacao(distance,light.b.w) / max(distance*distance,0.01);
++            if (light.a.w > 1.5) { att *= cone(dot(-l,safe_unit(light.b.xyz)),light.d.x,light.d.y); }
++        }
++        let visibility = select(1.0,shadow,i32(k)==i32(env.info.y));
++        rgb += brdf(base,metallic,rough,n,v,l)*light.c.rgb*light.c.w*att*visibility;
++    }
++    rgb += pbr.emission.rgb*select(vec3<f32>(1.0),emission,pbr.maps.w>0.5);
++    return rgb;
++}
+diff --git a/crates/rts-egui/src/frame/scene3d/pbr_gpu_tests.rs b/crates/rts-egui/src/frame/scene3d/pbr_gpu_tests.rs
+new file mode 100644
+index 0000000..d604e8b
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/pbr_gpu_tests.rs
+@@ -0,0 +1,93 @@
++//! Opt-in GPU acceptance test: actual pixels, not only shader validation.
++use super::*;
++const W: u32 = 768;
++const H: u32 = 512;
++
++fn render_readback(scene: &mut Scene3D, dev: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
++    let target = dev.create_texture(&wgpu::TextureDescriptor {
++        label: Some("PBR acceptance"), size: wgpu::Extent3d { width: W, height: H, depth_or_array_layers: 1 },
++        mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8UnormSrgb,
++        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
++    });
++    let view = target.create_view(&Default::default());
++    let readback = dev.create_buffer(&wgpu::BufferDescriptor { label: Some("PBR pixels"), size: (W*H*4) as u64,
++        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
++    let mut encoder = dev.create_command_encoder(&Default::default());
++    scene.render(dev,queue,&mut encoder,&view,W,H);
++    encoder.copy_texture_to_buffer(wgpu::TexelCopyTextureInfo { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
++        wgpu::TexelCopyBufferInfo { buffer: &readback, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(W*4), rows_per_image: Some(H) } },
++        wgpu::Extent3d { width: W, height: H, depth_or_array_layers: 1 });
++    let submission = queue.submit([encoder.finish()]);
++    let (tx,rx)=std::sync::mpsc::channel();
++    readback.slice(..).map_async(wgpu::MapMode::Read, move |r| { tx.send(r).unwrap(); });
++    dev.poll(wgpu::PollType::Wait { submission_index: Some(submission), timeout: Some(std::time::Duration::from_secs(30)) }).unwrap();
++    rx.recv().unwrap().unwrap();
++    let data=readback.slice(..).get_mapped_range().to_vec(); readback.unmap(); data
++}
++fn sphere() -> (Vec<f32>,Vec<u32>) {
++    let mut v=Vec::new(); let mut ix=Vec::new();
++    for y in 0..=32 { for x in 0..=64 {
++        let theta=y as f32/32.0*std::f32::consts::PI; let phi=x as f32/64.0*std::f32::consts::TAU;
++        let n=[theta.sin()*phi.cos(),theta.cos(),theta.sin()*phi.sin()];
++        v.extend_from_slice(&[n[0],n[1],n[2],n[0],n[1],n[2],x as f32/64.0,y as f32/32.0]);
++        if y<32 && x<64 {let a=y*65+x;ix.extend_from_slice(&[a,a+65,a+1,a+1,a+65,a+66]);}
++    }}
++    (v,ix)
++}
++fn queue_sphere(scene: &mut Scene3D, mesh: u64, mat: u64, x: f32, y: f32) {
++    scene.queue_draw(mesh,model_matrix(x,y,0.0,0.0,0.0,0.75,0.75,0.75),[0.78,0.42,0.16,1.0],0.0,0,0.0);
++    scene.last_material(mat);
++}
++fn delta(a: &[u8],b: &[u8]) -> u64 { a.iter().zip(b).map(|(a,b)|a.abs_diff(*b) as u64).sum() }
++
++#[test]
++#[ignore = "requires a GPU; run explicitly for renderer changes"]
++fn pbr_gpu_pixels_and_reference() {
++    let instance=wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
++    let adapter=pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance,
++        compatible_surface: None, force_fallback_adapter: false })).expect("GPU required");
++    println!("adapter: {:?}",adapter.get_info());
++    let (dev,queue)=pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("PBR acceptance"),
++        required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::default(), memory_hints: Default::default(),
++        experimental_features: wgpu::ExperimentalFeatures::disabled(), trace: wgpu::Trace::Off })).unwrap();
++    let mut scene=Scene3D::new(&dev,&queue,wgpu::TextureFormat::Rgba8UnormSrgb);
++    scene.set_camera(view_proj_lookat([0.0,0.0,-8.0],[0.0,0.0,0.0],0.85,W as f32/H as f32,0.1,100.0));
++    scene.sky.modo=1.0; scene.sky.amb_intensidade=0.8;
++    scene.set_lights(&[0.0,0.0,0.0,0.0, -0.4,-0.6,1.0, 1.0,0.93,0.82,4.0,0.0, 0.0,0.0,0.0,0.0],1);
++    scene.set_exposure(1.0);
++    let (v,ix)=sphere(); let mesh=scene.upload_mesh(&dev,&v,&ix);
++    let data=[0.0,0.15,1.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
++    let mat=scene.set_material(&dev,0,&data);
++    queue_sphere(&mut scene,mesh,mat,0.0,0.0);
++    let dielectric=render_readback(&mut scene,&dev,&queue);
++    let mut metallic=data; metallic[0]=1.0; scene.set_material(&dev,mat,&metallic);
++    queue_sphere(&mut scene,mesh,mat,0.0,0.0); let metal=render_readback(&mut scene,&dev,&queue);
++    assert!(delta(&dielectric,&metal)>100_000,"metallicity must change actual pixels");
++    metallic[1]=0.9; scene.set_material(&dev,mat,&metallic);
++    queue_sphere(&mut scene,mesh,mat,0.0,0.0); let rough=render_readback(&mut scene,&dev,&queue);
++    assert!(delta(&metal,&rough)>30_000,"roughness must change reflections");
++    let normal=scene.upload_texture_kind(&dev,&queue,&[218,128,218,255],1,1,true);
++    metallic[7]=normal as f64; scene.set_material(&dev,mat,&metallic);
++    queue_sphere(&mut scene,mesh,mat,0.0,0.0); let mapped=render_readback(&mut scene,&dev,&queue);
++    assert!(delta(&rough,&mapped)>30_000,"normal maps must change lighting");
++    // Same mesh/base texture, different material IDs: grouping must not merge them.
++    let mut reference_materials=Vec::new();
++    for row in 0..2 { for col in 0..5 {
++        let mut d=data;d[0]=row as f64;d[1]=0.06+col as f64*0.23;
++        let id=scene.set_material(&dev,0,&d); reference_materials.push(id);
++        queue_sphere(&mut scene,mesh,id,(col as f32-2.0)*1.8,(0.5-row as f32)*2.0);
++    }}
++    let image=render_readback(&mut scene,&dev,&queue);
++    let path=std::env::var("RTS_PBR_CAPTURE").unwrap_or_else(|_|"pbr-reference.ppm".into());
++    let mut ppm=format!("P6\n{W} {H}\n255\n").into_bytes();
++    for px in image.chunks_exact(4){ppm.extend_from_slice(&px[..3]);}
++    std::fs::write(&path,ppm).unwrap(); println!("reference: {path}");
++    // Emission survives >1 in the HDR target; exposure changes the final image.
++    let mut emission=data;emission[4]=8.0;scene.set_material(&dev,mat,&emission);
++    queue_sphere(&mut scene,mesh,mat,0.0,0.0);let bright=render_readback(&mut scene,&dev,&queue);
++    scene.set_exposure(0.1);queue_sphere(&mut scene,mesh,mat,0.0,0.0);let dark=render_readback(&mut scene,&dev,&queue);
++    let center=((H/2*W+W/2)*4) as usize;
++    assert!(bright[center]>dark[center]+10,"HDR exposure must preserve distinguishable highlights");
++    for id in reference_materials {scene.free_material(id);}
++    scene.free_material(mat); assert!(scene.materials.is_empty());
++}
+diff --git a/crates/rts-egui/src/frame/scene3d/post.rs b/crates/rts-egui/src/frame/scene3d/post.rs
+new file mode 100644
+index 0000000..57f3d65
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/post.rs
+@@ -0,0 +1,75 @@
++//! Floating point scene target and display conversion, before the egui overlay.
++use super::*;
++pub(super) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
++
++pub(super) struct Post {
++    pub view: wgpu::TextureView,
++    size: [u32; 2],
++    layout: wgpu::BindGroupLayout,
++    bind: wgpu::BindGroup,
++    params: wgpu::Buffer,
++    pipeline: wgpu::RenderPipeline,
++    /// exposure multiplier (0 disables tone mapping), environment intensity.
++    pub settings: [f32; 4],
++}
++
++fn target(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView {
++    device.create_texture(&wgpu::TextureDescriptor {
++        label: Some("HDR scene"), size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
++        mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
++        format: FORMAT, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
++        view_formats: &[],
++    }).create_view(&wgpu::TextureViewDescriptor::default())
++}
++fn bind(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, view: &wgpu::TextureView, params: &wgpu::Buffer) -> wgpu::BindGroup {
++    device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("HDR resolve"), layout,
++        entries: &[
++            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
++            wgpu::BindGroupEntry { binding: 1, resource: params.as_entire_binding() },
++        ] })
++}
++impl Post {
++    pub fn new(device: &wgpu::Device, output: wgpu::TextureFormat) -> Self {
++        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
++            label: Some("HDR resolve layout"), entries: &[
++                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT,
++                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false },
++                        view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
++                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT,
++                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false,
++                        min_binding_size: wgpu::BufferSize::new(16) }, count: None },
++            ],
++        });
++        let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("HDR resolve"),
++            bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
++        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("HDR resolve"),
++            source: wgpu::ShaderSource::Wgsl(include_str!("post.wgsl").into()) });
++        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
++            label: Some("HDR resolve"), layout: Some(&pl),
++            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs"), buffers: &[], compilation_options: Default::default() },
++            fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some("fs"),
++                targets: &[Some(wgpu::ColorTargetState { format: output, blend: None, write_mask: wgpu::ColorWrites::ALL })],
++                compilation_options: Default::default() }),
++            primitive: Default::default(), depth_stencil: None, multisample: Default::default(), multiview_mask: None, cache: None,
++        });
++        let params = init_buffer(device, "HDR exposure", f32_bytes(&[0.0, 1.0, 0.0, 0.0]), wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
++        let view = target(device, 1, 1);
++        let bind = bind(device, &layout, &view, &params);
++        Self { view, size: [1, 1], layout, bind, params, pipeline, settings: [0.0, 1.0, 0.0, 0.0] }
++    }
++    pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32) {
++        if self.size == [w, h] { return; }
++        self.view = target(device, w, h); self.size = [w, h];
++        self.bind = bind(device, &self.layout, &self.view, &self.params);
++    }
++    pub fn render(&self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
++        queue.write_buffer(&self.params, 0, f32_bytes(&self.settings));
++        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
++            label: Some("HDR tone mapping"), color_attachments: &[Some(wgpu::RenderPassColorAttachment {
++                view: output, resolve_target: None, depth_slice: None,
++                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
++            })], depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
++        });
++        pass.set_pipeline(&self.pipeline); pass.set_bind_group(0, &self.bind, &[]); pass.draw(0..3, 0..1);
++    }
++}
+diff --git a/crates/rts-egui/src/frame/scene3d/post.wgsl b/crates/rts-egui/src/frame/scene3d/post.wgsl
+new file mode 100644
+index 0000000..b29c14e
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/post.wgsl
+@@ -0,0 +1,14 @@
++@group(0) @binding(0) var hdr: texture_2d<f32>;
++@group(0) @binding(1) var<uniform> settings: vec4<f32>;
++@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
++    let x = f32((i << 1u) & 2u); let y = f32(i & 2u);
++    return vec4<f32>(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0);
++}
++@fragment fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
++    let src = textureLoad(hdr, vec2<i32>(p.xy), 0);
++    if (settings.x <= 0.0) { return src; }
++    let x = max(src.rgb * settings.x, vec3<f32>(0.0));
++    // ACES fitted curve. Output stays linear; the sRGB target performs encoding.
++    let mapped = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
++    return vec4<f32>(mapped, src.a);
++}

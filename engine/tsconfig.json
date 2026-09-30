@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@engine/*": ["./src/engine/*"],
+      "@editor/*": ["./src/editor/*"],
+      "@scripts/*": ["./src/scripts/*"],
+      "@compat/*": ["./src/compat/*"]
+    }
+  }
+}

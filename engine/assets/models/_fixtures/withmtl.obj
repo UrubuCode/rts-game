@@ -1,0 +1,8 @@
+mtllib mat.mtl
+o Chao
+usemtl Vermelho
+v -1 0 -1
+v  1 0 -1
+v  1 0  1
+v -1 0  1
+f 1 2 3 4

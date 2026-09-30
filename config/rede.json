@@ -1,0 +1,5 @@
+{
+  "modo": "cliente",
+  "servidor": { "host": "127.0.0.1", "porta": 27015 },
+  "bots": 0
+}

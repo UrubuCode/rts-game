@@ -1,0 +1,35 @@
+newmtl steel
+Kd 1 1 1
+map_Kd steel.png
+
+newmtl edge
+Kd 1 1 1
+map_Kd edge.png
+
+newmtl wood
+Kd 1 1 1
+map_Kd wood.png
+
+newmtl dark
+Kd 1 1 1
+map_Kd dark.png
+
+newmtl concrete
+Kd 1 1 1
+map_Kd concrete.png
+
+newmtl glass
+Kd 1 1 1
+map_Kd glass.png
+
+newmtl ochre
+Kd 1 1 1
+map_Kd ochre.png
+
+newmtl paving
+Kd 1 1 1
+map_Kd paving.png
+
+newmtl white
+Kd 1 1 1
+map_Kd white.png

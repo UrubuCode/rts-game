@@ -1,0 +1,3 @@
+{
+  "runtime": "../rts-uv-mundo/target/release"
+}

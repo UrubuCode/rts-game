@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "generate:components": "node tools/generate-components.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

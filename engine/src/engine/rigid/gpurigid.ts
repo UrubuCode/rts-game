@@ -1,0 +1,987 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// RÍGIDOS NA GPU — backend GPU da física de corpos rígidos (campanha
+// "rígidos GPU-first", 2026-07-26; ver memória gpu-compute-fluido).
+//
+// A MESMA física do solver imediato da CPU (engine/core/scene.ts), no modelo
+// GATHER de GPU: cada corpo i varre todos os j lendo o estado corrente e
+// escreve SÓ o próprio — sem atomics, sem contenção. É o primo Jacobi do
+// nosso solver: a CPU resolve pares em sequência (cada par duplicado é uma
+// iteração grátis); aqui cada corpo aplica a própria METADE da correção de
+// cada par, e os sub-passos fazem o papel das iterações.
+//
+// Regras portadas 1:1 do solvePair (as lições da campanha do castelo):
+//   - eixo de MENOR penetração no box-box;
+//   - corte de restituição (contato < 1 u/s não quica);
+//   - slop 0.04 com correção de 85%;
+//   - HERANÇA DE APOIO: contato vertical lento não gera impulso — o de cima
+//     herda o vy do de baixo (mata o ciclo-limite de coluna);
+//   - sleeping por velocidade (0.45 u/s por 10 passos), acordado por contato
+//     forte ou por vizinho rápido;
+//   - teto anti-tunneling de 48 u/s; estacionamento em y=-18.
+//
+// Estado (tudo na GPU; readback pipelined 1x/frame como o fluido):
+//   pos: vec4 (xyz centro, w = contador de sono; w >= 10 dorme)
+//   vel: vec4 (xyz, w = FORMA do colisor — 0 esfera, 1 caixa)
+//   ext: vec4 (xyz meia-extensão, w = invMass; 0 = infinita/kinemático)
+//   world: [0] params (dt, nStaticos, tamCélula, -); estáticos; grid na cauda
+//
+// ── A FORMA MORA NO `vel.w`, e por quê ──────────────────────────────────────
+//
+// Este cabeçalho declarava aquele campo "livre", e ele era o único que estava.
+// Os outros candidatos foram descartados por motivo, não por gosto:
+//
+//   pos.w — já é o contador de sono, que é ESTADO evoluindo a cada passo.
+//   ext.w — é o invMass. Daria para embutir a forma no SINAL dele, que hoje é
+//           sempre positivo, e funcionaria; mas faria um campo significar duas
+//           coisas por um truque que só o autor enxerga, e no dia em que alguém
+//           escrever invMass 0 para um cinemático a forma fica indefinida.
+//   buffer novo — esbarra no teto de 4 storage buffers por estágio que o device
+//           ganha com uma JANELA aberta (a mesma razão que pôs o grid na cauda
+//           do `world`). O kernel já liga os quatro.
+//
+// Um campo livre resolvia, então nenhum buffer foi inventado. O kernel preserva
+// `vel.w` na escrita final — era ali que ele escrevia um 0 constante.
+//
+// O RAIO de uma esfera é `min(ext.xyz)`, a mesma regra do `radiusOf` da CPU
+// (metade da MENOR escala): a esfera cabe dentro da caixa, então nunca há
+// empurrão fantasma. Está calculado no kernel a partir de `ext` para que não
+// exista um segundo lugar onde o raio possa divergir.
+// ═══════════════════════════════════════════════════════════════════════════
+import gpu from "@compat/gpu.ts";
+import buffer from "@compat/buffer.ts";
+import io from "@compat/io.ts";
+
+import { Scene } from "../core/scene";
+import { GameObject } from "../core/gameobject";
+import { shapeOf, halfXOf, halfYOf, halfZOf, centerWorldX, centerWorldY, centerWorldZ } from "../core/collider";
+import { MAT_MAX_STATICS, MAT_STATIC_REC, MAT_BODY_REC, matBytesFor,
+         MAT_STATIC_LAYER, MAT_STATIC_MASK, MAT_BODY_LAYER, MAT_BODY_MASK,
+         matFillDefaults, matWriteBody, matWriteStatic, PHYSICS_LAYOUT_VERSION,
+         WORLD_HEADER_FLOATS, WORLD_HEADER_VEC4S, WORLD_PARAM_DT, WORLD_PARAM_NUM_STATICS,
+         WORLD_PARAM_CELL_SIZE, WORLD_PARAM_SUBSTEPS, WORLD_PARAM_LAYOUT_VERSION,
+         WORLD_PARAM_ANY_MASK, WORLD_PARAM_RESERVED_A, WORLD_PARAM_RESERVED_B,
+         STATIC_RECORD_FLOATS, STATIC_RECORD_VEC4S,
+         BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, MASK_ALL } from "./materials";
+import { Transform } from "../core/transform";
+import { stepCount } from "../core/fixedstep";
+
+export const RB_MAX_STATICS = MAT_MAX_STATICS;
+export const RB_DT: f64 = 1.0 / 60.0;
+const RB_SLEEP_FRAMES = "10.0";
+const RB_SLEEP_SPEED2 = "0.2025";   // 0.45 u/s ao quadrado
+
+// ── GRID ESPACIAL (a mesma estrutura do gfPipeGrid do fluido) ───────────────
+//
+// 8192 buckets por hash 3D, 32 vagas por bucket, contagens antes das vagas, e
+// os atomics ISOLADOS num kernel minúsculo — a lição medida que o fluido deixa
+// escrita em `gpufluid.ts:109`: atomic dentro do kernel quente pessimiza o pass
+// inteiro no DX12 (+33 ms/frame lá). Mesmo `cellHash` e mesmos números de
+// propósito: duas respostas diferentes para "vizinhança na GPU" neste projeto
+// seriam piores que o O(n²) que isto remove.
+const RB_NCELLS_N = 8192;
+const RB_SLOT_N = 32;
+const RB_GRID_OVERFLOW_I32 = 2055;
+
+// ONDE o grid mora: na CAUDA do buffer `world`, e não num buffer próprio.
+//
+// Não é economia de memória — é o limite de 4 storage buffers por estágio que o
+// device ganha quando há uma JANELA aberta, documentado em `gpufluid.ts:53`. O
+// kernel de colisão já liga quatro (pos, vel, ext, world); um quinto compilaria
+// headless e falharia no jogo, que é o pior lugar para descobrir isso. O fluido
+// resolveu o mesmo aperto enfiando a densidade no `w` da posição e os impulsos
+// na cauda do `world`; aqui a cauda do `world` recebe o grid.
+//
+// O `world` é `vec4<f32>` para quem colide e `atomic<i32>` para quem constrói —
+// o tipo é por PIPELINE, o buffer é o mesmo. Por isso o lado que lê faz
+// `bitcast`: os bits guardados ali são de i32.
+//
+//   [0]           params: dt, nEstaticos, tamanhoDaCélula, substeps
+//   [1]           layout_version, 0, 0, 0
+//   [2 .. 514)    estáticos (centro, meia-extensão)
+//   514*4 = 2056  ← daqui, em i32: 8192 contagens, depois 8192*32 vagas
+const RB_GRID_I32_N = 2056;
+/// Onde a REGIÃO DE MATERIAIS mora AQUI: depois do grid, e não em `MAT_AT` como
+/// no backend Rust. Não é uma segunda resposta para a mesma pergunta — é a
+/// mesma região, num buffer que tem uma coisa a mais no meio: `MAT_AT` cai
+/// exatamente em cima do grid, que só existe deste lado. O FORMATO (que é o que
+/// os dois solvers leem) é o mesmo, e mora em `materials.ts`.
+const RB_MAT_AT = RB_GRID_I32_N + RB_NCELLS_N + RB_NCELLS_N * RB_SLOT_N;
+/// O buffer sem a região: tudo que não depende da contagem de corpos.
+const RB_MAT_BODIES_AT = MAT_MAX_STATICS * MAT_STATIC_REC;
+const RB_WORLD_HEAD = RB_MAT_AT + MAT_MAX_STATICS * MAT_STATIC_REC;
+// Grupos do kernel que zera as contagens (uma thread por bucket).
+const RB_CLEAR_GROUPS = RB_NCELLS_N / 64;
+
+let rbN = 0;
+let rbAnyMask = 0;
+// DUAS variantes do kernel de corpos, geradas da mesma string (ver
+// `rbKernelSrc`): `rbPipe` sem o filtro layer/mask e `rbPipeFiltro` com ele. O
+// `rbKick` escolhe pela flag `rbAnyMask`. É o equivalente WGSL do `const FILTRO:
+// bool` do solver em Rust: um `if (anyMask && …)` por candidato é ramo em tempo
+// de execução, e layer/mask do próprio corpo eram lidos sempre — a cena sem
+// máscara, o caso comum, pagava isso sem usar (~3% de tempo de GPU do kernel em
+// n = 8000, medido com passos em lote).
+let rbPipe: i64 = 0;
+// Compilada só na PRIMEIRA vez que uma cena com máscara chega ao `rbKick`
+// (ver `rbPipeComFiltro`): a cena sem máscara nunca paga a compilação (~1 s).
+// Existir, ela não custa nada por passo.
+let rbPipeFiltro: i64 = 0;
+let rbPipeFiltroFalhou = 0;   // não recompila (nem repete o erro) a cada kick
+let rbPipeGrid: i64 = 0;    // constrói o grid — os ÚNICOS atomics daqui
+let rbPipeClear: i64 = 0;   // zera as contagens entre sub-passos
+// Meia-extensão MÁXIMA vista: é ela que dimensiona a célula (ver rbWriteWorld).
+let rbMaxHalf: f64 = 0.0;
+let rbGPos: i64 = 0;
+let rbGVel: i64 = 0;
+let rbGExt: i64 = 0;
+let rbGWorld: i64 = 0;
+let rbPosBuf: i64 = 0;
+let rbVelBuf: i64 = 0;
+let rbExtBuf: i64 = 0;
+let rbWorldBuf: i64 = 0;
+let rbGroups = 0;
+let rbStatics = 0;
+/// Espelho da região de materiais (ver `RB_MAT_AT`).
+let rbMatBuf: Float32Array = new Float32Array(matBytesFor(0));
+let rbMatBufU32: Uint32Array = new Uint32Array(rbMatBuf.buffer);
+
+export function rbAvailable(): number { return gpu.available(); }
+export function rbCount(): number { return rbN; }
+export function rbX(i: number): f64 { return buffer.read_f32(rbPosBuf, (i * 4) * 4); }
+export function rbY(i: number): f64 { return buffer.read_f32(rbPosBuf, (i * 4 + 1) * 4); }
+export function rbZ(i: number): f64 { return buffer.read_f32(rbPosBuf, (i * 4 + 2) * 4); }
+/// Contador de sono (>= 10 = dormindo) — para telemetria/depuração.
+export function rbSleep(i: number): f64 { return buffer.read_f32(rbPosBuf, (i * 4 + 3) * 4); }
+export function rbVelX(i: number): f64 { return buffer.read_f32(rbVelBuf, (i * 4) * 4); }
+export function rbVelY(i: number): f64 { return buffer.read_f32(rbVelBuf, (i * 4 + 1) * 4); }
+export function rbVelZ(i: number): f64 { return buffer.read_f32(rbVelBuf, (i * 4 + 2) * 4); }
+/// Id do buffer de posições (render instanciado futuro / inspeção).
+export function rbPosBufferId(): i64 { return rbGPos; }
+
+// O MESMO hash 3D do fluido (gpufluid.ts:105) e do buildSceneGrid da CPU.
+const RB_HASH_FN = `
+fn cellHash(gx: i32, gy: i32, gz: i32) -> u32 {
+  return u32((gx * 73856093) ^ (gy * 19349663) ^ (gz * 83492791)) & 8191u;
+}
+`;
+
+/// O WGSL do kernel de corpos. `filtro` = 1 gera a variante que aplica
+/// layer/mask (corpo×corpo, corpo×estático e a varredura de acordar); 0 gera a
+/// variante sem nenhuma leitura nem teste de máscara. As linhas do filtro são
+/// as ÚNICAS diferenças entre as duas — o resto é o mesmo texto, para que as
+/// variantes não possam divergir na física.
+function rbKernelSrc(filtro: number): string {
+  let minhaMascara = "";
+  let filtroCorpo = "";
+  let filtroEstatico = "";
+  if (filtro !== 0) {
+    minhaMascara = "  let minhaMascara = mascaraDoCorpo(id.x);\n";
+    filtroCorpo = "    if (filtrado(minhaMascara, mascaraDoCorpo(j))) { continue; }\n";
+    filtroEstatico = "    if (filtrado(minhaMascara, mascaraDoEstatico(k))) { continue; }\n";
+  }
+  return `
+@group(0) @binding(0) var<storage, read_write> pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> vel: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> ext: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read> world: array<vec4<f32>>;
+${RB_HASH_FN}
+
+// penetração por eixo entre os AABBs (a, ha) e (b, hb); negativa = separados
+fn pen(a: vec3<f32>, ha: vec3<f32>, b: vec3<f32>, hb: vec3<f32>) -> vec3<f32> {
+  return (ha + hb) - abs(a - b);
+}
+
+// raio da esfera de colisão: METADE DA MENOR extensão, igual ao radiusOf da CPU.
+fn raio(h: vec3<f32>) -> f32 { return min(h.x, min(h.y, h.z)); }
+
+// CONTATO entre duas formas — a porta única da narrow-phase deste kernel.
+//
+// Responde xyz = normal apontando de B PARA A (o gather aplica só a própria
+// metade, então quem chama é sempre A) e w = profundidade; w <= 0 = sem
+// contato. Os três casos e as constantes são os do solvePair da CPU
+// (engine/core/scene.ts): é dele que esta função é a tradução, e qualquer
+// divergência aqui aparece como os dois backends terminando em lugares
+// diferentes — que é o que o teste de paridade mede.
+fn contato(pa: vec3<f32>, ha: vec3<f32>, sa: f32,
+           pb: vec3<f32>, hb: vec3<f32>, sb: f32) -> vec4<f32> {
+  let d = pa - pb;
+  let vazio = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+
+  if (sa > 0.5 && sb > 0.5) {
+    // CAIXA x CAIXA — eixo de MENOR penetração. É o que faz um cubo caindo num
+    // chão largo ser empurrado para CIMA e não para o lado.
+    let o = (ha + hb) - abs(d);
+    if (o.x <= 0.0 || o.y <= 0.0 || o.z <= 0.0) { return vazio; }
+    if (o.y <= o.x && o.y <= o.z) { return vec4<f32>(0.0, select(-1.0, 1.0, d.y >= 0.0), 0.0, o.y); }
+    if (o.x <= o.z) { return vec4<f32>(select(-1.0, 1.0, d.x >= 0.0), 0.0, 0.0, o.x); }
+    return vec4<f32>(0.0, 0.0, select(-1.0, 1.0, d.z >= 0.0), o.z);
+  }
+
+  if (sa < 0.5 && sb < 0.5) {
+    // ESFERA x ESFERA — distância de centros contra a soma dos raios.
+    let rs = raio(ha) + raio(hb);
+    let d2 = dot(d, d);
+    if (d2 >= rs * rs || d2 <= 0.0001) { return vazio; }
+    let dist = sqrt(d2);
+    return vec4<f32>(d / dist, rs - dist);
+  }
+
+  // ESFERA x CAIXA — ponto da caixa mais próximo do centro da esfera.
+  // sinal converte a normal (que sai da caixa para a esfera) na convenção
+  // B->A: +1 quando A é a esfera, -1 quando A é a caixa.
+  var bc = pa; var bh = ha; var sc = pb; var r = raio(hb); var sinal = -1.0;
+  if (sb > 0.5) { bc = pb; bh = hb; sc = pa; r = raio(ha); sinal = 1.0; }
+  let q = clamp(sc - bc, -bh, bh);
+  let w = sc - (bc + q);
+  let d2 = dot(w, w);
+  if (d2 >= r * r) { return vazio; }
+  if (d2 > 0.000001) {
+    let dist = sqrt(d2);
+    return vec4<f32>(w / dist * sinal, r - dist);
+  }
+  // centro DENTRO da caixa: empurra pela face de menor folga.
+  let g = bh - abs(q);
+  if (g.y <= g.x && g.y <= g.z) { return vec4<f32>(0.0, select(-1.0, 1.0, q.y >= 0.0) * sinal, 0.0, g.y + r); }
+  if (g.x <= g.z) { return vec4<f32>(select(-1.0, 1.0, q.x >= 0.0) * sinal, 0.0, 0.0, g.x + r); }
+  return vec4<f32>(0.0, 0.0, select(-1.0, 1.0, q.z >= 0.0) * sinal, g.z + r);
+}
+
+// O grid vive na cauda do world, gravado como i32 por outro pipeline — daí o
+// bitcast e a indexação de componente: world aqui é um array de vec4<f32>.
+fn gridAt(k: u32) -> i32 {
+  return bitcast<i32>(world[k / 4u][k % 4u]);
+}
+
+// Um f32 do world por índice PLANO. O mesmo motivo do gridAt: world é um
+// array de vec4 e a região de materiais é escrita como f32 corrido.
+fn worldAt(k: u32) -> f32 {
+  return world[k / 4u][k % 4u];
+}
+
+// O material de um CORPO: gravidade, quique, arrasto, atrito, chão do centro, tipo.
+// O formato é o de engine/rigid/materials.ts, que é o mesmo que o solver em
+// Rust lê — uma segunda descrição dele aqui seria a forma de os dois backends
+// discordarem sobre qual número é o atrito.
+// layer/mask ficam FORA: só a variante com filtro os lê, por mascaraDoCorpo.
+struct Material { g: f32, quique: f32, arrasto: f32, atrito: f32, chao: f32, tipo: f32 }
+
+fn materialDoCorpo(i: u32) -> Material {
+  let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
+  return Material(worldAt(at), worldAt(at + 1u), worldAt(at + 2u),
+                  worldAt(at + 3u), worldAt(at + 4u), worldAt(at + 5u));
+}
+
+// Só (layer, mask) de um corpo VIZINHO: é tudo que o filtro precisa ANTES do
+// teste de contato. O material inteiro são oito leituras do world e na cena
+// densa havia uma por candidato; agora ele só é lido depois que o contato
+// existe, e estas duas só na variante com filtro (a cena tem alguma máscara).
+fn mascaraDoCorpo(i: u32) -> vec2<u32> {
+  let at = ${RB_MAT_AT}u + ${RB_MAT_BODIES_AT}u + i * ${MAT_BODY_REC}u;
+  return vec2<u32>(bitcast<u32>(worldAt(at + ${MAT_BODY_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_BODY_MASK}u)));
+}
+
+// O de um ESTÁTICO: só quique e atrito. Ele não cai, não arrasta e é o chão.
+fn materialDoEstatico(k: u32) -> Material {
+  let at = ${RB_MAT_AT}u + k * ${MAT_STATIC_REC}u;
+  return Material(0.0, worldAt(at), 0.0, worldAt(at + 1u), -1.0e30, 1.0);
+}
+
+// O mesmo que mascaraDoCorpo, para um estático.
+fn mascaraDoEstatico(k: u32) -> vec2<u32> {
+  let at = ${RB_MAT_AT}u + k * ${MAT_STATIC_REC}u;
+  return vec2<u32>(bitcast<u32>(worldAt(at + ${MAT_STATIC_LAYER}u)), bitcast<u32>(worldAt(at + ${MAT_STATIC_MASK}u)));
+}
+
+// O filtro de colisão, simétrico: os dois lados precisam se aceitar. x = layer,
+// y = mask, no formato de mascaraDoCorpo/mascaraDoEstatico.
+fn filtrado(a: vec2<u32>, b: vec2<u32>) -> bool {
+  return (a.y & b.x) == 0u || (b.y & a.x) == 0u;
+}
+
+// Quanto da velocidade de aproximação volta. A média dos dois, e nada abaixo de
+// uma unidade por segundo: um contato de repouso que quicasse se realimentaria
+// para sempre — é o corte de restituição que mata o tremor da pilha.
+fn quique(aprox: f32, a: f32, b: f32) -> f32 {
+  if (aprox < -1.0) { return (a + b) * 0.5; }
+  return 0.0;
+}
+
+// Uma constante de atrito AFERIDA a 0.35, reescalada pelo atrito do par. A
+// média geométrica é o que deixa o gelo dominar um par sem torná-lo sem atrito.
+fn perdaPorAtrito(forca: f32, a: f32, b: f32) -> f32 {
+  let rel = sqrt(max((a / 0.35) * (b / 0.35), 0.0));
+  return clamp(forca * rel, 0.0, 1.0);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let n = arrayLength(&pos);
+  if (id.x >= n) { return; }
+  if (worldAt(${WORLD_PARAM_LAYOUT_VERSION}u) != ${PHYSICS_LAYOUT_VERSION.toFixed(1)}) { return; }
+  let dt = worldAt(${WORLD_PARAM_DT}u);
+  let m = u32(worldAt(${WORLD_PARAM_NUM_STATICS}u));
+  let cs = max(worldAt(${WORLD_PARAM_CELL_SIZE}u), 0.001);
+  var p = pos[id.x].xyz;
+  var slp = pos[id.x].w;
+  var v = vel[id.x].xyz;
+  let forma = vel[id.x].w;      // 0 = esfera, 1 = caixa (COL_SPHERE/COL_BOX)
+  let h = ext[id.x].xyz;
+  let im = ext[id.x].w;
+  let meu = materialDoCorpo(id.x);
+${minhaMascara}
+  // ── TIPOS DE CORPO: 1 = estático, 2 = cinemático, 3 (ou 0 default) = dinâmico ──
+  if (meu.tipo == ${BODY_STATIC.toFixed(1)}) {
+    pos[id.x] = vec4<f32>(p, ${RB_SLEEP_FRAMES});
+    vel[id.x] = vec4<f32>(0.0, 0.0, 0.0, forma);
+    return;
+  }
+  if (meu.tipo == ${BODY_KINEMATIC.toFixed(1)}) {
+    p = p + v * dt;
+    pos[id.x] = vec4<f32>(p, 0.0);
+    vel[id.x] = vec4<f32>(v, forma);
+    return;
+  }
+
+  // ── DORMINDO: só escaneia por um vizinho RÁPIDO encostando (senão sai) ───
+  // A varredura de acordar também passou pelo grid. Ela era O(n) POR CORPO
+  // DORMINDO, ou seja, a cena em repouso — o caso que o sleeping existe para
+  // baratear — era justamente a que pagava n² inteiro todo passo.
+  let bx0 = i32(floor(p.x / cs));
+  let by0 = i32(floor(p.y / cs));
+  let bz0 = i32(floor(p.z / cs));
+  if (slp >= ${RB_SLEEP_FRAMES}) {
+    var acordar = false;
+    for (var cz: i32 = -1; cz <= 1; cz = cz + 1) {
+    for (var cy: i32 = -1; cy <= 1; cy = cy + 1) {
+    for (var cx: i32 = -1; cx <= 1; cx = cx + 1) {
+      let cell = cellHash(bx0 + cx, by0 + cy, bz0 + cz);
+      let cnt = u32(clamp(gridAt(${RB_GRID_I32_N}u + cell), 0, ${RB_SLOT_N}));
+      for (var s: u32 = 0u; s < cnt; s = s + 1u) {
+        let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + s));
+        if (j == id.x) { continue; }
+        // Aqui o material do vizinho nem é preciso: acordar só depende de haver
+        // contato. Com filtro, basta layer/mask.
+${filtroCorpo}        let vj = vel[j].xyz;
+        if (dot(vj, vj) > 0.64) {                  // vizinho a > 0.8 u/s
+          let c = contato(p, h, forma, pos[j].xyz, ext[j].xyz, vel[j].w);
+          if (c.w > 0.0) { acordar = true; }
+        }
+      }
+    }}}
+    if (!acordar) { return; }
+    slp = 0.0;
+  }
+
+  // ── INTEGRAÇÃO (passo fixo; teto anti-tunneling de 48 u/s) ───────────────
+  //
+  // A gravidade é do CORPO e não mais uma constante daqui. Um corpo sem
+  // integrador recebe zero e NÃO cai — que é o que ele já fazia no caminho da
+  // CPU, onde ninguém o move. Antes o kernel integrava todo mundo, então a
+  // mesma cena caía ou não conforme o backend escolhido.
+  v.y = v.y - meu.g * dt;
+  let sp2 = dot(v, v);
+  if (sp2 > 2304.0) { v = v * (48.0 / sqrt(sp2)); }
+  v = v * max(1.0 - meu.arrasto * dt, 0.0);
+  p = p + v * dt;
+  // Tocou em alguma coisa neste passo? É o que decide se pode DORMIR (ver o
+  // contador no fim). Começa falso a cada passo, como o resto do estado local.
+  var apoiado = false;
+  // O chão implícito do integrador: uma cena sem chão nenhum ainda tem um.
+  if (p.y < meu.chao) {
+    apoiado = true;
+    p.y = meu.chao;
+    if (v.y < 0.0) { v.y = -v.y * meu.quique; }
+    if (abs(v.y) < 0.15) { v.y = 0.0; }
+  }
+
+  // ── ESTÁTICOS (AABBs do world): expulsa pelo eixo mais raso, absorve ─────
+  for (var k: u32 = 0u; k < m; k = k + 1u) {
+${filtroEstatico}    let base = ${WORLD_HEADER_VEC4S}u + k * ${STATIC_RECORD_VEC4S}u;
+    let sc = world[base].xyz;
+    let sh = world[base + 1u].xyz;
+    // A REDONDEZA do estático vive no w do centro: 1 = esfera. Invertido em
+    // relação à forma de um corpo de propósito — todo escritor anterior a este
+    // campo deixava 0 ali e queria dizer CAIXA. Antes a forma era ignorada e um
+    // chão marcado como esfera colidia como caixa; pior, rbSyncStatics nem o
+    // enviava, então tudo o atravessava.
+    let formaEst = select(1.0, 0.0, world[base].w > 0.5);
+    let c = contato(p, h, forma, sc, sh, formaEst);
+    if (c.w > 0.0) {
+      // O material completo só quando há contato de verdade (ver mascaraDoCorpo).
+      let dele = materialDoEstatico(k);
+      apoiado = true;
+      let nr = c.xyz;
+      // Estático não cede: a correção inteira é minha (85%, slop 0.04).
+      p = p + nr * max(c.w - 0.04, 0.0) * 0.85;
+      let vn = dot(v, nr);
+      // Só a componente que ENTRA no estático é zerada — para um eixo puro isto
+      // é exatamente o if (v.y * s < 0) { v.y = 0 } de antes. O quique é o que
+      // sobra depois dela, e sai do material dos DOIS lados.
+      if (vn < 0.0) { v = v - nr * vn * (1.0 + quique(vn, meu.quique, dele.quique)); }
+      // atrito de chão: contato vertical freia o deslize
+      if (nr.y > 0.5) {
+        let fica = 1.0 - perdaPorAtrito(0.08, meu.atrito, dele.atrito);
+        v.x = v.x * fica; v.z = v.z * fica;
+      }
+    }
+  }
+
+  // ── PARES DINÂMICOS (gather: eu aplico SÓ a minha metade) ────────────────
+  // Jacobi precisa de RELAXAÇÃO menor que o sequencial: um corpo soterrado
+  // soma correções de DEZENAS de vizinhos no mesmo passo — com 0.85 a pilha
+  // profunda explodia (o castelo "sumiu" no colapso total). 0.30 por par +
+  // teto de deslocamento total por passo mantêm o monte coeso.
+  let pAntes = p;
+  // Célula RECALCULADA: p já andou (integração + estáticos) desde a varredura
+  // de acordar, e indexar pela posição velha deixaria escapar o par que o
+  // próprio passo criou.
+  let gx0 = i32(floor(p.x / cs));
+  let gy0 = i32(floor(p.y / cs));
+  let gz0 = i32(floor(p.z / cs));
+  for (var cz: i32 = -1; cz <= 1; cz = cz + 1) {
+  for (var cy: i32 = -1; cy <= 1; cy = cy + 1) {
+  for (var cx: i32 = -1; cx <= 1; cx = cx + 1) {
+    let cell = cellHash(gx0 + cx, gy0 + cy, gz0 + cz);
+    let cnt = u32(clamp(gridAt(${RB_GRID_I32_N}u + cell), 0, ${RB_SLOT_N}));
+    for (var sl: u32 = 0u; sl < cnt; sl = sl + 1u) {
+    let j = u32(gridAt(${RB_GRID_I32_N + RB_NCELLS_N}u + cell * ${RB_SLOT_N}u + sl));
+    if (j == id.x) { continue; }
+${filtroCorpo}    let pj = pos[j].xyz;
+    let hj = ext[j].xyz;
+    let c = contato(p, h, forma, pj, hj, vel[j].w);
+    if (c.w <= 0.0) { continue; }
+    // O material completo do vizinho só DEPOIS do contato: na cena densa quase
+    // todo candidato é contato, mas os que não são deixam de pagar 8 leituras.
+    let dele = materialDoCorpo(j);
+    apoiado = true;
+    let nr = c.xyz;
+    let imj = ext[j].w;
+    let share = im / max(im + imj, 0.0001);
+    let vj = vel[j].xyz;
+    // Velocidade relativa projetada na normal. Negativa = nos aproximando.
+    let vn = dot(v - vj, nr);
+    let volta = 1.0 + quique(vn, meu.quique, dele.quique);
+    // As regras da coluna valiam para o EIXO Y; agora valem para a normal
+    // vertical, que é o mesmo teste que a CPU faz (resting, |ny| > 0.5). Para
+    // um contato caixa-caixa alinhado a normal É um eixo, então nada muda ali.
+    if (nr.y > 0.5 || nr.y < -0.5) {
+      if (vn < -1.0) {
+        // impacto de verdade: impulso normal. Pedra não quica, e com o material
+        // default nada quica — mas agora quem tem quique, quica.
+        v = v - nr * vn * share * volta;
+        slp = 0.0;
+      } else if (vn < 0.5 && nr.y > 0.5) {
+        // HERANÇA DE APOIO: estou EM CIMA, descendo devagar — herdo o vy do
+        // suporte (sem impulso: impulso aqui é o ciclo-limite de coluna)
+        v.y = vj.y;
+        // atrito de empilhamento
+        let pega = perdaPorAtrito(0.10, meu.atrito, dele.atrito);
+        v.x = v.x + (vj.x - v.x) * pega;
+        v.z = v.z + (vj.z - v.z) * pega;
+      }
+    } else if (vn < 0.0) {
+      v = v - nr * vn * share * volta;
+      if (vn < -1.0) { slp = 0.0; }
+    }
+    p = p + nr * max(c.w - 0.04, 0.0) * 0.30 * share;
+  }}}}
+  // teto de correção posicional POR PASSO (anti-explosão de monte profundo)
+  let dcorr = p - pAntes;
+  let dlen = length(dcorr);
+  if (dlen > 0.25) { p = pAntes + dcorr * (0.25 / dlen); }
+
+  // quem caiu do mundo estaciona (mesma regra da demo do castelo)
+  if (p.y < -18.0) { p = vec3<f32>(p.x, -18.0, p.z); v = vec3<f32>(0.0, 0.0, 0.0); }
+
+  // QUARENTENA DE NaN (visto ao vivo: posicoes NaN sumiam o castelo e NaN
+  // nunca dorme — comparacoes com NaN sao falsas). Corpo contaminado e
+  // estacionado em -18 com v=0 em vez de espalhar NaN pelos vizinhos no
+  // proximo gather. A CACA a origem fica registrada para a proxima sessao.
+  if (p.x != p.x || p.y != p.y || p.z != p.z ||
+      v.x != v.x || v.y != v.y || v.z != v.z) {
+    p = vec3<f32>(0.0, -18.0, 0.0);
+    v = vec3<f32>(0.0, 0.0, 0.0);
+    slp = 10.0;
+  }
+
+  // ── SLEEPING: velocidade baixa E APOIO. As duas, e a segunda é nova ──────
+  //
+  // Só a velocidade põe um corpo para dormir NO AR: no alto de um quique ele
+  // fica lento por tantos passos quanto o arco for raso, e dez deles é um pulo
+  // de poucos centímetros. Ele fica pendurado ali, porque um corpo dormindo só
+  // acorda com um vizinho RÁPIDO encostando, e o vazio não é um.
+  //
+  // Era inalcançável enquanto a restituição foi zero constante — nada quicava,
+  // então um corpo só ficava lento no chão. A região de materiais a tornou
+  // alcançável, e uma caixa com quique 0,5 ficou pendurada em y = 1,135 pelo
+  // tempo que se quisesse olhar. Tocar em alguma coisa é a condição que sempre
+  // se quis dizer: um corpo em repouso repousa SOBRE algo.
+  if (apoiado && dot(v, v) < ${RB_SLEEP_SPEED2}) { slp = slp + 1.0; } else { slp = 0.0; }
+
+  pos[id.x] = vec4<f32>(p, slp);
+  vel[id.x] = vec4<f32>(v, forma);   // a forma sobrevive ao passo
+}
+`;
+}
+
+export function rbInit(n: number, expectedLayoutVersion: number = PHYSICS_LAYOUT_VERSION): number {
+  if (gpu.available() === 0) return 0;
+  // Compara com a CONSTANTE, nunca com o número: com o literal, subir
+  // PHYSICS_LAYOUT_VERSION faria a GPU recusar o próprio layout que escreve.
+  if (expectedLayoutVersion !== PHYSICS_LAYOUT_VERSION) {
+    io.print("[rigid] rbInit falhou: versao de layout incompativel (" + expectedLayoutVersion + " != " + PHYSICS_LAYOUT_VERSION + ")");
+    return 0;
+  }
+  rbAnyMask = 0;
+  rbN = n;
+  rbGroups = ((n + 63) / 64) | 0;
+  // Uma leitura em voo pertence aos buffers ANTIGOS: entregue nos novos, ela
+  // poria o estado de outra contagem de corpos no espelho recém-escrito.
+  rbCancel();
+  if (rbPipe !== 0 && rbPipeGrid !== 0 && rbPipeClear !== 0) {
+    // Os três pipelines NÃO dependem de `n` (o kernel usa `arrayLength`), então
+    // uma mudança de contagem só troca os buffers. Recompilar três shaders a
+    // cada spawn era um engasgo por objeto criado, e os buffers antigos ficavam
+    // na VRAM para sempre.
+    gpu.bufferFree(rbGPos); gpu.bufferFree(rbGVel);
+    gpu.bufferFree(rbGExt); gpu.bufferFree(rbGWorld);
+    return rbAlloc(n);
+  }
+
+  // CONSTRUÇÃO do grid: um corpo, um bucket. Note que quem indexa é o CENTRO —
+  // um corpo cabe em mais de uma célula, e o que garante que o par não escapa é
+  // a célula ser >= o maior DIÂMETRO (ver rbWriteWorld), não o corpo caber nela.
+  const gridSrc = `
+@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> world: array<atomic<i32>>;
+${RB_HASH_FN}
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let n = arrayLength(&pos);
+  if (id.x >= n) { return; }
+  let cs = max(bitcast<f32>(atomicLoad(&world[${WORLD_PARAM_CELL_SIZE}])), 0.001);
+  let p = pos[id.x].xyz;
+  let c = cellHash(i32(floor(p.x / cs)), i32(floor(p.y / cs)), i32(floor(p.z / cs)));
+  let s = atomicAdd(&world[${RB_GRID_I32_N}u + c], 1);
+  if (s < ${RB_SLOT_N}) {
+    atomicStore(&world[${RB_GRID_I32_N + RB_NCELLS_N}u + c * ${RB_SLOT_N}u + u32(s)], i32(id.x));
+  } else {
+    atomicAdd(&world[${RB_GRID_OVERFLOW_I32}u], 1);
+  }
+}
+`;
+
+  // Zera SÓ as contagens (as vagas viram lixo inalcançável, como no fluido).
+  //
+  // Um kernel em vez do `gpu.write` de zeros que o fluido usa: lá o buffer de
+  // grid é próprio e o upload é de 32 KB; aqui o zero teria de cair no MEIO do
+  // `world`, o que exige `writeAt` — e `writeAt` mudou de forma na superfície
+  // nova (passou a receber objeto de opções) enquanto o shim ainda o chama
+  // posicional. Um dispatch não depende disso e não paga travessia por
+  // sub-passo, que é tráfego que o caminho quente não tem por que pagar.
+  const clearSrc = `
+@group(0) @binding(0) var<storage, read_write> world: array<atomic<i32>>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  if (id.x == 0u) {
+    atomicStore(&world[${RB_GRID_OVERFLOW_I32}u], 0);
+  }
+  if (id.x >= ${RB_NCELLS_N}u) { return; }
+  atomicStore(&world[${RB_GRID_I32_N}u + id.x], 0);
+}
+`;
+
+  rbPipe = gpu.shader(rbKernelSrc(0));
+  if (rbPipe === 0) return 0;
+  rbPipeGrid = gpu.shader(gridSrc);
+  if (rbPipeGrid === 0) return 0;
+  rbPipeClear = gpu.shader(clearSrc);
+  if (rbPipeClear === 0) return 0;
+  return rbAlloc(n);
+}
+
+/// Liga os buffers ATUAIS à variante com filtro. Separado de `rbAlloc` porque
+/// ela pode nascer depois da alocação (ver `rbPipeComFiltro`).
+function rbBindFiltro(): void {
+  gpu.bind_buffer(rbPipeFiltro, 0, rbGPos);
+  gpu.bind_buffer(rbPipeFiltro, 1, rbGVel);
+  gpu.bind_buffer(rbPipeFiltro, 2, rbGExt);
+  gpu.bind_buffer(rbPipeFiltro, 3, rbGWorld);
+}
+
+/// A variante com filtro, compilada sob demanda. Sob demanda e não no `rbInit`
+/// porque compilar custa: ~1,0 s de host bloqueado para esta variante (0,9 s os
+/// três pipelines do `rbInit`; RTX 2080 Ti, DX12), e a cena sem máscara não tem
+/// por que pagar isso. A cena com máscara paga uma vez, no primeiro kick.
+///
+/// A variante EXISTIR não custa nada em regime — medido pareado no mesmo
+/// processo (compila, assenta 2 s, mede, libera com um `shaderFree` experimental
+/// no host, assenta, mede; 48 pares):
+/// −1,0% em n = 4000 e −0,1% em n = 8000. O "+5–14% por um pipeline extra
+/// nunca despachado" medido antes era o transitório da COMPILAÇÃO: o host fica
+/// ~1 s sem submeter, a placa (que roda esta carga em P8, 420–600 MHz) muda de
+/// estado de energia, e o passo fica 8–24% mais lento por ~1,5 s. Um laço de CPU
+/// de 1 s sem compilar nada reproduz o mesmo efeito, e 3 s depois ele some.
+/// Por isso o bench denso aquece 3 s antes de medir.
+///
+/// O que a cena com máscara paga em regime é o TRABALHO do filtro (duas leituras
+/// do `world` por candidato): +7,6% e +7,3% por passo em n = 4000 e 8000 com a
+/// variante forçada numa cena sem máscara, igual aos +6,7% e +6,8% da cena com
+/// máscara de verdade (48 pares cada).
+/// Devolve 0 se o WGSL não compilar (o `gpu.shader` já imprime o erro); o
+/// `rbKick` então não despacha, porque simular sem o filtro seria física errada
+/// em silêncio.
+function rbPipeComFiltro(): i64 {
+  if (rbPipeFiltro === 0 && rbPipeFiltroFalhou === 0) {
+    rbPipeFiltro = gpu.shader(rbKernelSrc(1));
+    if (rbPipeFiltro !== 0) rbBindFiltro(); else rbPipeFiltroFalhou = 1;
+  }
+  return rbPipeFiltro;
+}
+
+/// Aloca os buffers de `n` corpos e os liga aos pipelines já compilados.
+function rbAlloc(n: number): number {
+  rbMaxHalf = 0.0;
+  rbGPos = gpu.buffer(n * 16);
+  rbGVel = gpu.buffer(n * 16);
+  rbGExt = gpu.buffer(n * 16);
+  // O `world` cresceu para caber o grid na cauda; o espelho do host NÃO — a CPU
+  // só escreve params + estáticos, e o grid é escrito e lido só pela GPU.
+  rbGWorld = gpu.buffer((RB_WORLD_HEAD + n * MAT_BODY_REC) * 4);
+  rbPosBuf = buffer.alloc(n * 16);
+  rbVelBuf = buffer.alloc(n * 16);
+  rbExtBuf = buffer.alloc(n * 16);
+  rbWorldBuf = buffer.alloc((WORLD_HEADER_VEC4S + RB_MAX_STATICS * STATIC_RECORD_VEC4S) * 16);
+  // A região de materiais tem espelho PRÓPRIO, e sobe por `write_at` no offset
+  // dela. O espelho do cabeçalho não pode crescer até lá: entre um e outro há
+  // 1 MB de grid que só a GPU escreve, e subir isso por sincronização seria
+  // pagar o grid inteiro na travessia para escrever 8 KB de material.
+  rbMatBuf = new Float32Array(matBytesFor(n));
+  rbMatBufU32 = new Uint32Array(rbMatBuf.buffer);
+  matFillDefaults(rbMatBuf, 0, n, rbMatBufU32);
+  gpu.bind_buffer(rbPipe, 0, rbGPos);
+  gpu.bind_buffer(rbPipe, 1, rbGVel);
+  gpu.bind_buffer(rbPipe, 2, rbGExt);
+  gpu.bind_buffer(rbPipe, 3, rbGWorld);
+  if (rbPipeFiltro !== 0) rbBindFiltro();
+  gpu.bind_buffer(rbPipeGrid, 0, rbGPos);
+  gpu.bind_buffer(rbPipeGrid, 1, rbGWorld);
+  gpu.bind_buffer(rbPipeClear, 0, rbGWorld);
+  return 1;
+}
+
+/// Define o estado de um corpo nos espelhos (spawn/handoff). `mass<=0` = INFINITA (inverso 0): o corpo
+/// colide e empurra, e nada o empurra de volta. É o que o `Transform.mass` do
+/// jogo já significava e o que o layout do buffer sempre disse ("0 is
+/// immovable"); aqui `mass<=0` virava inverso 1, então um corpo declarado
+/// imóvel era o mais leve da cena. Nenhum chamador passava 0 — a suíte e os
+/// benches passam 1, 4 e 32 — então o que muda é o significado de um valor que
+/// ninguém usava, e não a física de quem já usava.
+export function rbSetBody(i: number, x: f64, y: f64, z: f64,
+                          hx: f64, hy: f64, hz: f64, mass: f64): void {
+  buffer.write_f32(rbPosBuf, (i * 4) * 4, x);
+  buffer.write_f32(rbPosBuf, (i * 4 + 1) * 4, y);
+  buffer.write_f32(rbPosBuf, (i * 4 + 2) * 4, z);
+  buffer.write_f32(rbPosBuf, (i * 4 + 3) * 4, 0.0);
+  buffer.write_f32(rbVelBuf, (i * 4) * 4, 0.0);
+  buffer.write_f32(rbVelBuf, (i * 4 + 1) * 4, 0.0);
+  buffer.write_f32(rbVelBuf, (i * 4 + 2) * 4, 0.0);
+  // CAIXA por default. Não é preferência: era o que TODO corpo era antes desta
+  // mudança, então quem já chamava `rbSetBody` continua vendo exatamente a
+  // física de ontem — inclusive `tools/test_gpurigid.ts`, que é a rede da
+  // campanha do castelo e não pode mudar de significado junto com o kernel.
+  // Quem tem uma esfera chama `rbSetShape` depois.
+  buffer.write_f32(rbVelBuf, (i * 4 + 3) * 4, 1.0);
+  buffer.write_f32(rbExtBuf, (i * 4) * 4, hx);
+  buffer.write_f32(rbExtBuf, (i * 4 + 1) * 4, hy);
+  buffer.write_f32(rbExtBuf, (i * 4 + 2) * 4, hz);
+  buffer.write_f32(rbExtBuf, (i * 4 + 3) * 4, mass > 0.0 ? 1.0 / mass : 0.0);
+  // A célula é dimensionada pelo MAIOR corpo (ver rbWriteWorld); acompanhar
+  // aqui é o único lugar que vê todas as extensões sem varrer nada de novo.
+  if (hx > rbMaxHalf) rbMaxHalf = hx;
+  if (hy > rbMaxHalf) rbMaxHalf = hy;
+  if (hz > rbMaxHalf) rbMaxHalf = hz;
+}
+
+/// Retorna o contador de overflow de células do grid espacial na GPU.
+export function rbGridOverflow(): number {
+  if (rbPipe === 0) return 0;
+  gpu.read(rbGWorld, rbWorldBuf, (RB_GRID_OVERFLOW_I32 + 1) * 4);
+  return buffer.read_i32(rbWorldBuf, RB_GRID_OVERFLOW_I32 * 4);
+}
+
+/// Escreve params + estáticos do espelho para a GPU.
+///
+/// O TAMANHO DA CÉLULA sai daqui, e é a única decisão de verdade do grid: dois
+/// corpos só se tocam se os centros distarem menos que `hi + hj` em cada eixo,
+/// então uma célula de lado >= 2*maiorMeiaExtensão garante que todo par que
+/// colide cai em células vizinhas — e a varredura de 27 é exata, não uma
+/// aproximação. Menor que isso perderia contato e mudaria a física; maior só
+/// desperdiça candidatos.
+let rbDt: f64 = RB_DT;
+/// O `dt` de CADA sub-passo. O kernel integra o `dt` inteiro por sub-passo —
+/// `rbKick(2)` com o default avança 2/60 s — então quem quer que um kick valha
+/// N passos fixos escreve aqui `passo / subPassosPorPasso`. O default fica em
+/// `RB_DT` porque `test_gpurigid.ts` foi calibrado com ele. Vale a partir do
+/// próximo `rbUpload`/`rbSyncStatics`, que é quem sobe os params.
+export function rbSetDt(dt: f64): void { rbDt = dt > 0.0 ? dt : RB_DT; }
+
+function rbWriteWorld(): void {
+  if (rbPipe === 0) return;
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_DT * 4, rbDt);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_NUM_STATICS * 4, rbStatics * 1.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_CELL_SIZE * 4, rbMaxHalf > 0.0 ? rbMaxHalf * 2.0 : 1.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_SUBSTEPS * 4, 1.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4, PHYSICS_LAYOUT_VERSION * 1.0);
+  // O kernel WGSL não lê mais este slot — a escolha é de VARIANTE, no rbKick
+  // (ver rbPipeFiltro). Ele continua escrito porque é o mesmo cabeçalho que o
+  // solver em Rust lê, e um slot com significado não fica com lixo.
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_ANY_MASK * 4, rbAnyMask > 0 ? 1.0 : 0.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_RESERVED_A * 4, 0.0);
+  buffer.write_f32(rbWorldBuf, WORLD_PARAM_RESERVED_B * 4, 0.0);
+  gpu.write(rbGWorld, rbWorldBuf, (WORLD_HEADER_VEC4S + rbStatics * STATIC_RECORD_VEC4S) * 16);
+}
+
+/// A FORMA do colisor: `COL_SPHERE` (0) ou `COL_BOX` (1) de `gameobject.ts`.
+///
+/// Separada de `rbSetBody` em vez de ser um nono parâmetro dele porque este
+/// projeto não usa parâmetro com default em lugar nenhum — a varredura não achou
+/// um só — e um argumento novo no fim de uma função com oito calaria em todos os
+/// chamadores existentes como `undefined`, que aqui vira `NaN` e depois uma
+/// forma que não é nem esfera nem caixa. `rbSetVel` já é um escritor pequeno
+/// pelo mesmo motivo.
+///
+/// Chame DEPOIS de `rbSetBody`, que reescreve o campo com o default.
+export function rbSetShape(i: number, shape: number): void {
+  buffer.write_f32(rbVelBuf, (i * 4 + 3) * 4, shape === 0 ? 0.0 : 1.0);
+}
+
+/// Escreve velocidade (disparos/handoff) e ACORDA o corpo.
+export function rbSetVel(i: number, vx: f64, vy: f64, vz: f64): void {
+  buffer.write_f32(rbVelBuf, (i * 4) * 4, vx);
+  buffer.write_f32(rbVelBuf, (i * 4 + 1) * 4, vy);
+  buffer.write_f32(rbVelBuf, (i * 4 + 2) * 4, vz);
+  buffer.write_f32(rbPosBuf, (i * 4 + 3) * 4, 0.0);
+}
+
+/// Cutuca UM corpo na GPU: escreve pos+vel do espelho SÓ dele (write_at).
+/// É o caminho do disparo/respawn em pleno jogo — o upload completo
+/// reescrevia as velocidades de TODOS com valores velhos do espelho.
+///
+/// A chamada era `write_at(buf, espelho, off, off, 16)`, a forma da superfície
+/// ANTIGA; o shim é `write_at(buf, off, dados)`, então o espelho ia parar no
+/// lugar do offset e nada era escrito. Ninguém viu porque ninguém chamava.
+export function rbPoke(i: number): void {
+  if (rbPipe === 0) return;
+  gpu.write_at(rbGPos, i * 16, rbPosBuf.subarray(i * 16, i * 16 + 16));
+  gpu.write_at(rbGVel, i * 16, rbVelBuf.subarray(i * 16, i * 16 + 16));
+}
+
+/// Reposiciona UM corpo (teleporte: gizmo do editor, script): centro novo,
+/// velocidade ZERO, acordado — e já cutucado na GPU. A forma (`vel.w`) é
+/// preservada. Ver `crSetPos` para o porquê do zero.
+export function rbSetPos(i: number, x: f64, y: f64, z: f64): void {
+  buffer.write_f32(rbPosBuf, (i * 4) * 4, x);
+  buffer.write_f32(rbPosBuf, (i * 4 + 1) * 4, y);
+  buffer.write_f32(rbPosBuf, (i * 4 + 2) * 4, z);
+  rbSetVel(i, 0.0, 0.0, 0.0);
+  rbPoke(i);
+}
+
+/// Sobe TODO o estado dos espelhos para a GPU (chamar após spawn/handoff).
+export function rbUpload(): void {
+  if (rbPipe === 0) return;
+  gpu.write(rbGPos, rbPosBuf, rbN * 16);
+  gpu.write(rbGVel, rbVelBuf, rbN * 16);
+  gpu.write(rbGExt, rbExtBuf, rbN * 16);
+  rbUploadMaterials();
+  // Também os params: o tamanho da célula só é conhecido depois dos rbSetBody,
+  // e há duas ordens de chamada em uso (o teste sincroniza estáticos ANTES de
+  // criar os corpos, o bench DEPOIS). Escrever nos dois pontos é o que faz o
+  // grid nascer dimensionado em qualquer uma das duas.
+  rbWriteWorld();
+}
+
+/// Envia os ESTÁTICOS da cena (forma de CAIXA + stationary) para o kernel.
+///
+/// A forma vem de `collider.ts`, como nos dinâmicos. Ela NÃO vinha: esta função
+/// lia `o.colShape` e `t.sx * 0.5` direto enquanto o `pbSync` já perguntava ao
+/// component, e a fiação que consertou os dinâmicos passou por aqui sem ver.
+///
+/// Não aparecia em teste nenhum e a razão é exata: para um estático SEM
+/// `Collider` os dois caminhos dão o mesmo número, porque o default `hx = 0,5`
+/// foi escolhido para reproduzir o `t.sx * 0.5` legado. O primeiro chão com um
+/// component é que teria colidido com o tamanho errado — um bug que espera por
+/// um dado, que é a espécie que chega em produção.
+export function rbSyncStatics(sc: Scene): void {
+  if (rbPipe === 0) return;
+  const objs: GameObject[] = sc.objects;
+  const trs: Transform[] = sc.trs;
+  const n = objs.length;
+  let m = 0;
+  let i = 0;
+  while (i < n && m < RB_MAX_STATICS) {
+    const o: GameObject = objs[i];
+    // `collideFlag` (mesh + raiz) é o critério da `collectColliders` da CPU: sem
+    // ele um nó vazio marcado estático era parede invisível só neste backend.
+    //
+    // A FORMA não filtra mais (era `=== COL_BOX`): um estático redondo não era
+    // enviado, então tudo o atravessava em silêncio. Casca (2) continua fora, e
+    // `rigidNeedsFallback` manda a cena para a CPU antes de chegar aqui.
+    if (o.collideFlag !== 0 && shapeOf(o) < 2 && o.active !== 0 && o.stationary !== 0) {
+      if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) rbAnyMask = 1;
+      const t: Transform = trs[i];
+      const base = WORLD_HEADER_FLOATS + m * STATIC_RECORD_FLOATS;
+      buffer.write_f32(rbWorldBuf, (base) * 4, centerWorldX(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 1) * 4, centerWorldY(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 2) * 4, centerWorldZ(o, t));
+      // a REDONDEZA (ver o kernel): 1 = esfera, 0 = caixa
+      buffer.write_f32(rbWorldBuf, (base + 3) * 4, shapeOf(o) === 0 ? 1.0 : 0.0);
+      buffer.write_f32(rbWorldBuf, (base + 4) * 4, halfXOf(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 5) * 4, halfYOf(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 6) * 4, halfZOf(o, t));
+      buffer.write_f32(rbWorldBuf, (base + 7) * 4, 0.0);
+      matWriteStatic(rbMatBuf, 0, m, t, o, rbMatBufU32);
+      m = m + 1;
+    }
+    i = i + 1;
+  }
+  rbStatics = m;
+  rbWriteWorld();
+  rbUploadMaterials();
+}
+
+/// O MATERIAL do corpo `i` — gravidade, quique, arrasto, atrito e chão. Sai do
+/// integrador e do `Transform`; ver `materials.ts`, que é onde a regra mora.
+/// Escreve só o espelho: `rbUpload` sobe a região inteira de uma vez.
+export function rbSetMaterial(i: number, o: GameObject, t: Transform): void {
+  matWriteBody(rbMatBuf, 0, i, o, t, rbMatBufU32);
+  if (o.layer !== LAYER_DEFAULT || o.mask !== MASK_ALL) rbAnyMask = 1;
+}
+
+/// Sobe a região de materiais para a cauda do `world`, por `write_at`: entre o
+/// cabeçalho e ela há 1 MB de grid que só a GPU escreve.
+function rbUploadMaterials(): void {
+  if (rbPipe === 0 || rbMatBuf.length === 0) return;
+  gpu.write_at(rbGWorld, RB_MAT_AT * 4, rbMatBuf);
+}
+
+let rbTicket: i64 = 0;
+let rbTicketAge = 0;
+let rbKickou = 0;
+let rbKickedStep = 0;
+let rbLastReadbackStep = 0;
+let rbDeliveredSteps = 0;
+
+/// Retorna o passo exato da simulação do último readback concluído da GPU.
+export function rbGpuLastReadbackStep(): number {
+  return rbLastReadbackStep;
+}
+
+/// Define manualmente o passo do último readback (para sincronizações síncronas / rigidFlush).
+export function rbSetLastReadbackStep(step: number): void {
+  rbLastReadbackStep = step;
+}
+
+/// Reinicia o rastreamento de passos entregues à GPU para alinhar com o stepCount inicial.
+export function rbResetStepTracking(initialStep: number): void {
+  rbDeliveredSteps = initialStep;
+  rbLastReadbackStep = initialStep;
+  rbKickedStep = initialStep;
+}
+
+/// Avança o contador de passos entregues para compensar passos descartados por saturação de PB_MAX_DEVIDOS.
+export function rbAdvanceDroppedSteps(n: number): void {
+  rbDeliveredSteps = rbDeliveredSteps + n;
+}
+
+/// Abandona a leitura em voo. Para quem reescreve os corpos (ressincronização):
+/// o resultado pendente descreve o estado de ANTES e não pode cair no espelho.
+export function rbCancel(): void {
+  rbTicket = 0;
+  rbTicketAge = 0;
+  rbKickedStep = 0;
+}
+
+/// 1 se o ÚLTIMO `rbService` submeteu passos. Ele devolve 0 tanto para "não
+/// chegou nada" quanto para "primeiro frame, acabei de submeter", e quem conta
+/// tempo simulado precisa distinguir os dois.
+export function rbKicked(): number { return rbKickou; }
+
+/// FÍSICA COMO SERVIÇO (assíncrona): nunca espera a GPU. Se o resultado do
+/// passo anterior CHEGOU, aplica nos espelhos, despacha o próximo passo e
+/// agenda a próxima leitura; senão, devolve 0 e o jogo desenha o estado
+/// antigo. Devolve 1 quando os espelhos têm estado novo.
+export function rbService(substeps: number, steps: number = 1): number {
+  rbKickou = 0;
+  if (rbPipe === 0) return 0;
+  if (rbTicket === 0) {
+    rbKickou = 1;
+    rbKick(substeps);
+    rbDeliveredSteps = rbDeliveredSteps + steps;
+    rbKickedStep = rbDeliveredSteps;
+    rbTicket = gpu.read_begin(rbGPos, rbN * 16);
+    return 0;
+  }
+  const got = gpu.read_poll(rbTicket, rbPosBuf);
+  if (got === 0) {
+    // WATCHDOG: ticket preso (>60 frames sem resposta) e abandonado — a
+    // simulacao NUNCA pode congelar por uma leitura perdida.
+    rbTicketAge = rbTicketAge + 1;
+    if (rbTicketAge > 60) { rbTicket = 0; rbTicketAge = 0; rbKickedStep = 0; }
+    return 0;
+  }
+  rbTicketAge = 0;
+  rbTicket = 0;
+  if (got < 0) return 0;
+  rbLastReadbackStep = rbKickedStep;
+  rbKickou = 1;
+  rbKick(substeps);
+  rbDeliveredSteps = rbDeliveredSteps + steps;
+  rbKickedStep = rbDeliveredSteps;
+  rbTicket = gpu.read_begin(rbGPos, rbN * 16);
+  return 1;
+}
+
+/// PULL: lê o resultado do frame anterior (o ÚNICO ponto que espera a GPU).
+export function rbPull(): void {
+  if (rbPipe === 0) return;
+  gpu.read(rbGPos, rbPosBuf, rbN * 16);
+  rbLastReadbackStep = rbDeliveredSteps;
+}
+/// KICK: submete `substeps` passos novos SEM esperar.
+export function rbKick(substeps: number): void {
+  if (rbPipe === 0) return;
+  const ver = buffer.read_f32(rbWorldBuf, WORLD_PARAM_LAYOUT_VERSION * 4);
+  // Mesma regra do rbInit: o slot é comparado com a constante que o escreveu.
+  if (ver !== PHYSICS_LAYOUT_VERSION * 1.0) {
+    io.print("[rigid] GPU recusou: versao de layout incompativel (" + ver + " != " + PHYSICS_LAYOUT_VERSION + ")");
+    return;
+  }
+  // A variante com filtro só quando alguma máscara existe (ver rbPipeFiltro).
+  const pipe = rbAnyMask > 0 ? rbPipeComFiltro() : rbPipe;
+  if (pipe === 0) return;
+  let s = 0;
+  while (s < substeps) {
+    // Três dispatches por sub-passo, e a ordem é obrigatória: o grid descreve as
+    // posições DESTE sub-passo, então reconstruí-lo depois de colidir daria uma
+    // vizinhança de um passo atrás. É a mesma sequência do fluido
+    // (`gpufluid.ts:524`), com o zero feito por kernel em vez de upload.
+    gpu.dispatch(rbPipeClear, RB_CLEAR_GROUPS, 1, 1);
+    gpu.dispatch(rbPipeGrid, rbGroups, 1, 1);
+    gpu.dispatch(pipe, rbGroups, 1, 1);
+    s = s + 1;
+  }
+}
+/// Compat: pull + kick (um frame completo).
+export function rbStep(substeps: number): void {
+  rbPull();
+  rbKick(substeps);
+}
+
+/// Sincroniza TAMBÉM as velocidades (handoff GPU->CPU; posições já vêm no step).
+export function rbReadState(): void {
+  if (rbPipe === 0) return;
+  gpu.read(rbGPos, rbPosBuf, rbN * 16);
+  gpu.read(rbGVel, rbVelBuf, rbN * 16);
+}

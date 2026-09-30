@@ -1,0 +1,28 @@
+rts-fps — FPS de demonstracao do motor rts-game (TypeScript compilado nativo pelo RTS)
+
+Como jogar
+  Abra rts-fps.exe. O arquivo rts-fps.rtsdata e a pasta assets/ precisam ficar
+  na mesma pasta do executavel.
+  Clique na janela para capturar o mouse; Esc solta.
+
+Controles
+  WASD        anda
+  mouse       mira
+  espaco      pula
+  clique      atira
+  R           recarrega
+  G           granada
+  N / M       adiciona / remove bot
+  F3          painel de depuracao (fps, tempo de simulacao, consultas)
+
+Requisitos
+  Windows 10/11 x64 com placa de video compativel com DirectX 12 ou Vulkan.
+
+Modo local contra bots. O multiplayer (servidor dedicado / hospedado) ainda esta em desenvolvimento.
+
+Creditos
+  Armas: Kenney Blaster Kit (kenney.nl), licenca CC0 (assets/kenney/LICENCA-Kenney-CC0.txt).
+  Personagens animados: Kenney Blocky Characters (kenney.nl), licenca CC0
+  (assets/kenney/personagens/LICENCA-Kenney-Blocky-Characters-CC0.txt).
+  Sons: Kenney Sci-fi Sounds e Impact Sounds (kenney.nl), licenca CC0
+  (assets/audio/LICENCA-Kenney-CC0.txt). Musica: gerada pelo jogo.

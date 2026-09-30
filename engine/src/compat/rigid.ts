@@ -1,0 +1,40 @@
+// `rts:rigid` — o solver de corpos rígidos PARALELO do motor, em Rust.
+//
+// O shim mais fino possível, pelo mesmo motivo do `gpu.ts`: a superfície já
+// existe no motor e o que faltava era ser CHAMADA. Dois membros, sem
+// renomeação — o motor já os expõe em camelCase.
+//
+//   step(pos, vel, ext, world) -> número de corpos movidos, 0 = recusa
+//   threads()                  -> quantas threads um passo é espalhado
+//
+// Quem usa isto é `engine/rigid/cpurigid.ts`, que é o terceiro backend ao lado
+// do kernel WGSL de `gpurigid.ts`. O layout dos quatro buffers é o MESMO do
+// kernel — foi condição de desenho do lado Rust — então os dois leem a mesma
+// descrição de corpo e a paridade tem chance de significar algo.
+
+import { step, threads } from "rts:rigid";
+import * as rtsRigid from "rts:rigid";
+
+/// Códigos de necessidade da superfície rts:rigid.supports(need)
+export const NEED_LEVEL_BASE = 9;
+export const NEED_LEVEL_SIMPLES = 9;
+export const NEED_LEVEL_ORIENTADA = 10;
+export const NEED_LEVEL_COMPLETA = 11;
+
+/// Converte o nível de simulação (0, 1, 2) no código de necessidade de rts:rigid.supports().
+export function needForLevel(nivel: number): number {
+  return NEED_LEVEL_BASE + nivel;
+}
+
+export default {
+  step,
+  threads,
+  supports(need: number): number {
+    const fn = (rtsRigid as any).supports;
+    return typeof fn === "function" ? fn(need) : 0;
+  },
+  overflows(): number {
+    const fn = (rtsRigid as any).overflows;
+    return typeof fn === "function" ? fn() : 0;
+  },
+};
