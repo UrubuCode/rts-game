@@ -1,0 +1,40 @@
+import { ProceduralWorld } from "@engine/core/procedural_world";
+import { VegetationMask } from "@engine/core/vegetation_mask";
+import { FpsWorldChunkJob } from "@engine/core/world_geometry";
+import { FpsWorldField } from "@engine/core/world_streaming";
+import { createComponent } from "@engine/components";
+import { recreateBehavior } from "@editor/sceneio";
+import { Scene } from "@engine/core/scene";
+import { Behavior } from "@engine/core/behavior";
+
+const mask=new VegetationMask("");mask.paint(-32,16,24,-1);
+if(mask.sample(-32,16)!==0||mask.sample(100,100)!==1)throw new Error("Mask bounds");
+const restored=new VegetationMask(mask.serialize());
+if(restored.sample(-20,16)!==mask.sample(-20,16))throw new Error("Mask roundtrip");
+restored.paint(-32,16,24,1);if(restored.sample(-32,16)!==1)throw new Error("Mask restore");
+let rejected=false;try{new VegetationMask("[0,0,0,-1]");}catch(e){rejected=true;}
+if(!rejected)throw new Error("Invalid mask accepted");
+const component=createComponent("ProceduralWorld");
+if(!(component instanceof ProceduralWorld))throw new Error("Missing component factory");
+component.seed=71;component.treeDensity=.3;component.brushX=-32;component.brushZ=16;component.paintVegetation(-1);
+const copy=recreateBehavior(component.toData());
+if(!(copy instanceof ProceduralWorld)||copy.vegetationMask!==component.vegetationMask||copy.seed!==71||copy.treeDensity!==.3)throw new Error("Component roundtrip");
+for(let i=0;i<copy.fieldCount();i++)if(copy.fieldName(i)==="vegetationMask")throw new Error("Mask exposed as raw inspector field");
+const empty=new FpsWorldChunkJob(new FpsWorldField(42),0,2);empty.treeDensity=0;empty.grassDensity=0;
+while(!empty.done)empty.step();
+if(empty.geometry[8].v.length!==0||empty.geometry[11].v.length!==0||empty.geometry[16].v.length!==0)throw new Error("Zero density ignored");
+const full=new FpsWorldChunkJob(new FpsWorldField(42),0,2);full.grassDensity=1;full.maxSlope=89;
+while(!full.done)full.step();
+if(full.geometry[8].v.length===0||full.geometry[16].v.length===0)throw new Error("Vegetation not generated");
+const cleared=new FpsWorldChunkJob(new FpsWorldField(42),0,2);cleared.grassDensity=1;cleared.maxSlope=89;
+cleared.mask.paint(64,320,2048,-1);cleared.mask.paint(64,320,2048,-1);
+while(!cleared.done)cleared.step();
+if(cleared.geometry[8].v.length!==0||cleared.geometry[16].v.length!==0)throw new Error("Paint mask ignored");
+class ReleaseProbe extends Behavior { calls:number=0;releaseResources():void{this.calls++;} }
+const scene=new Scene();const a=scene.createGameObject("a"),probe=new ReleaseProbe();a.addBehavior(probe);a.removeBehavior(a.behaviors.indexOf(probe));
+if(probe.calls!==1)throw new Error("Component cleanup");
+const b=scene.createGameObject("b"),removed=new ReleaseProbe();b.addBehavior(removed);scene.removeAt(scene.objects.indexOf(b));
+if(removed.calls!==1)throw new Error("Object cleanup");
+const c=scene.createGameObject("c"),clearedProbe=new ReleaseProbe();c.addBehavior(clearedProbe);scene.clear();scene.clear();
+if(clearedProbe.calls!==1)throw new Error("Scene cleanup");
+println("PASS procedural world: factory, serialized mask, density, painted exclusion, grass, resource lifecycle");

@@ -307,7 +307,11 @@ export class Scene {
     // restaurado, ver coroutine_scheduler.ts) e qualquer outra troca de cena.
     coroutineStopEverywhere();
     let i = 0;
-    while (i < this.objects.length) { this.objects[i].uiOwner = null; i = i + 1; }
+    while (i < this.objects.length) {
+      const obj=this.objects[i];
+      for(let bi=0;bi<obj.behaviors.length;bi++)obj.behaviors[bi].releaseResources();
+      obj.uiOwner = null; i = i + 1;
+    }
     this.objects = [];
     this.trs = [];
     this.uiObjs.length = 0;
@@ -450,7 +454,7 @@ export class Scene {
     // Destruir o objeto PARA as corrotinas de todos os seus behaviors (Unity:
     // destroy nunca deixa uma corrotina retomando um objeto que já era).
     let bi = 0;
-    while (bi < removedObj.behaviors.length) { coroutineStopAllOf(removedObj.behaviors[bi]); bi = bi + 1; }
+    while (bi < removedObj.behaviors.length) { coroutineStopAllOf(removedObj.behaviors[bi]); removedObj.behaviors[bi].releaseResources(); bi = bi + 1; }
     removedObj.sceneIndex = 0 - 1;
     removedObj.uiOwner = null;
     if (removedObj.uiIdx >= 0) this.uiForget(removedObj);

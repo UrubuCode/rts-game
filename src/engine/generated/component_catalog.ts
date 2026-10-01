@@ -113,6 +113,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/route_path.ts"
   },
   {
+    "name": "ProceduralWorld",
+    "category": "Mundo",
+    "description": "Mundo procedural com streaming, LOD e máscara de vegetação salva na cena.",
+    "keywords": "terrain mundo procedural chunks vegetação árvores mato pincel",
+    "source": "src/engine/core/procedural_world.ts"
+  },
+  {
     "name": "Terrain",
     "category": "Mundo",
     "description": "Terreno heightfield com pincel de altura e relevo salvo na cena.",

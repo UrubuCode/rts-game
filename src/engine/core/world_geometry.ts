@@ -1,6 +1,7 @@
 import { FpsWorldField } from "./world_streaming";
-export function fpsGeometryMaterial(kind:number):number{return kind===11?8:kind===12?0:kind===13?1:kind===14?4:kind===15?9:kind;}
-export function fpsGeometryDetail(kind:number):number{return kind>=11?2:kind===2||kind===10?0:1;}
+import { VegetationMask } from "./vegetation_mask";
+export function fpsGeometryMaterial(kind:number):number{return kind===11||kind===16?8:kind===12?0:kind===13?1:kind===14?4:kind===15?9:kind;}
+export function fpsGeometryDetail(kind:number):number{return kind===16?1:kind>=11?2:kind===2||kind===10?0:1;}
 const FPS_WORLD_BASIS=[0,0,1,1,0,0,0,1,0,0,0,-1,-1,0,0,0,1,0,1,0,0,0,0,-1,0,1,0,-1,0,0,0,0,1,0,1,0,0,1,0,1,0,0,0,0,-1,0,-1,0,1,0,0,0,0,1];
 class FpsWorldGeometry {
   v:number[]=[];i:number[]=[];
@@ -22,11 +23,30 @@ export class FpsWorldChunkJob {
   chunk:FpsWorldChunk;phase:number=0;done:boolean=false;
   geometry:FpsWorldGeometry[]=[];
   colliders:number[]=[];
+  treeDensity:number=1;grassDensity:number=0;maxSlope:number=45;
+  mask:VegetationMask=new VegetationMask("");
   private field:FpsWorldField;
   private p:number[]=[0,0,0];private s:number[]=[0,0,0];
   private column:number=0;private lotPart:number=0;
   private lotHigh:number=0;private lotWidth:number=0;private lotHeight:number=0;private lotUrban:boolean=false;
-  constructor(field:FpsWorldField,x:number,z:number){this.field=field;this.chunk=new FpsWorldChunk(x,z);for(let i=0;i<16;i++)this.geometry.push(new FpsWorldGeometry());}
+  constructor(field:FpsWorldField,x:number,z:number){this.field=field;this.chunk=new FpsWorldChunk(x,z);for(let i=0;i<17;i++)this.geometry.push(new FpsWorldGeometry());}
+  private vegetation(x:number,z:number,density:number):boolean {
+    const wx=this.chunk.x*128+x,wz=this.chunk.z*128+z,h=this.ground(x,z);
+    const dx=(this.ground(x+1,z)-this.ground(x-1,z))/2,dz=(this.ground(x,z+1)-this.ground(x,z-1))/2;
+    return h>=1&&h<92&&Math.atan(Math.sqrt(dx*dx+dz*dz))*180/Math.PI<=this.maxSlope&&this.field.random(Math.floor(wx*17),Math.floor(wz*19))<density*this.mask.sample(wx,wz);
+  }
+  private grass(index:number):void {
+    if(this.lotUrban||this.grassDensity<=0)return;
+    const x=32+(index%3)*32,z=32+Math.floor(index/3)*32,g=this.geometry[16];
+    for(let i=0;i<24;i++){
+      const tx=x-12+this.field.random(this.chunk.x*128+x+i*13,this.chunk.z*128+z)*24;
+      const tz=z-12+this.field.random(this.chunk.x*128+x,this.chunk.z*128+z+i*17)*24;
+      if(!this.vegetation(tx,tz,this.grassDensity))continue;
+      const y=this.ground(tx,tz),n=g.v.length/8;
+      g.v.push(tx-.2,y,tz,0,1,0,0,0,tx+.2,y,tz,0,1,0,1,0,tx,y+.6,tz+.1,0,1,0,.5,1);
+      g.i.push(n,n+2,n+1,n,n+1,n+2);
+    }
+  }
   private box(kind:number,p:number[],s:number[]):void{this.geometry[kind].box(p,s);}
   private size(w:number,h:number,d:number):void{this.s[0]=w;this.s[1]=h;this.s[2]=d;}
   private block(kind:number,x:number,y:number,z:number):void{
@@ -80,7 +100,7 @@ export class FpsWorldChunkJob {
         const i=this.lotPart;
         const tx=x-10+this.field.random(wx+i*3,wz+1)*20,tz=z-10+this.field.random(wx+1,wz+i*7)*20;
         const ty=this.ground(tx,tz),th=5+this.field.random(wx+i,wz+3)*5;
-        if(ty>=1){
+        if(this.vegetation(tx,tz,this.treeDensity)){
           this.colliders.push(tx-.325,ty,tz-.325,tx+.325,ty+th*.8,tz+.325);
           this.size(.65,th*.8,.65);this.block(9,tx,ty+th*.4,tz);
           // A base prolongada cobre pequenas diferenças de altura do terreno simplificado.
@@ -104,7 +124,7 @@ export class FpsWorldChunkJob {
         else if(col===1||row===1||col===15||row===15){if(h<10&&h>1)this.quad(3,col*8,row*8,8);}
       }
       this.column+=4;if(this.column<16)return;this.column=0;
-    }else if(this.phase<25){if(!this.lot(this.phase-16))return;}
+    }else if(this.phase<25){if(!this.lot(this.phase-16))return;this.grass(this.phase-16);}
     else if(this.phase===25)this.quad(10,0,0,128);
     else this.coarseTerrain(this.phase-26);
     this.phase++;if(this.phase===42)this.done=true;

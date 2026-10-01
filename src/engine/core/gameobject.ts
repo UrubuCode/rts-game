@@ -257,7 +257,7 @@ export class GameObject {
     let i = 0;
     while (i < this.behaviors.length) {
       if (i !== idx) next.push(this.behaviors[i]);
-      else this.behaviors[i].owner = null;   // não pertence mais a este objeto — quem cacheou (ex.: AnimationPlayer.skeleton) re-resolve
+      else { this.behaviors[i].releaseResources(); this.behaviors[i].owner = null; }
       i = i + 1;
     }
     this.behaviors = next;

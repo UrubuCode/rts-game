@@ -6,7 +6,7 @@ param(
     [int]$Seed = 42,
     [string]$RuntimePath = '',
     [string]$TargetPath = '',
-    [ValidateSet('courtyard', 'city', 'terrain', 'loading', 'loading_preview', 'infinite')]
+    [ValidateSet('courtyard', 'city', 'terrain', 'loading', 'loading_preview', 'infinite', 'world_component')]
     [string]$Scene = 'courtyard'
 )
 $ErrorActionPreference = 'Stop'

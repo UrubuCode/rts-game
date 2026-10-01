@@ -30,6 +30,7 @@ export class FpsWorldStream {
   chunks:FpsWorldChunk[]=[];generated:number=0;unloaded:number=0;maxStepMs:number=0;
   cacheHits:number=0;cache:FpsChunkCache;
   budget:FpsResourceBudget=new FpsResourceBudget(128*1024*1024,4096);
+  vegetation:any=null;offsetY:number=0;
   collision:FpsWorldCollision=new FpsWorldCollision();
   error:string="";disposed:boolean=false;visibleChunks:number=0;culledChunks:number=0;drawCalls:number=0;
   private win:number;private job:FpsWorldChunkLoader|null=null;private pending:FpsWorldChunk|null=null;
@@ -91,7 +92,7 @@ export class FpsWorldStream {
         for(let k=0;k<this.chunks.length;k++)if(this.chunks[k].x===x&&this.chunks[k].z===z){found=true;break;}
         if(!found){
           this.pending=new FpsWorldChunk(x,z,this.budget);
-          this.job=new FpsWorldChunkLoader(this.field.seed,x,z,(mesh:any)=>{this.receiveMesh(mesh);});break;
+          this.job=new FpsWorldChunkLoader(this.field.seed,x,z,(mesh:any)=>{this.receiveMesh(mesh);});this.job.vegetation=this.vegetation;break;
         }
       }
     }
@@ -107,11 +108,12 @@ export class FpsWorldStream {
     this.visibleChunks=0;this.culledChunks=0;this.drawCalls=0;
     if(camera!==undefined)frustumBeginBuf(camera);
     const d=this.drawBuffer;
+    d[1]=this.offsetY;
     for(let i=0;i<this.chunks.length;i++){
       const c=this.chunks[i];d[0]=c.x*128-originX;d[2]=c.z*128-originZ;
       if(camera!==undefined){
         const half=(c.maxY-c.minY)/2,radius=Math.sqrt(8192+half*half);
-        if(inFrustumFast(d[0]+64,(c.minY+c.maxY)/2,d[2]+64,radius+24)===0){this.culledChunks++;continue;}
+        if(inFrustumFast(d[0]+64,this.offsetY+(c.minY+c.maxY)/2,d[2]+64,radius+24)===0){this.culledChunks++;continue;}
         const dx=d[0]+64-camera[0],dz=d[2]+64-camera[2];c.lod=fpsChunkLod(c.lod,Math.sqrt(dx*dx+dz*dz));
       }
       this.visibleChunks++;

@@ -82,6 +82,8 @@ export class Behavior {
 
   /// Chamado uma vez quando o objeto entra na cena (Awake/Start do Unity).
   mount(): void {}
+  /// Libera recursos externos ao remover componente/objeto ou trocar cena. Deve ser idempotente.
+  releaseResources(): void {}
   /// Chamado todo frame com o delta em SEGUNDOS.
   update(dt: f64): void {}
 

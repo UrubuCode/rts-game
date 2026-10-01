@@ -63,8 +63,47 @@ class FpsChunkWindow {
     }
     contains(x, z) { return Math.abs(x - this.cx) <= this.radius && Math.abs(z - this.cz) <= this.radius; }
 }
-function fpsGeometryMaterial(kind) { return kind === 11 ? 8 : kind === 12 ? 0 : kind === 13 ? 1 : kind === 14 ? 4 : kind === 15 ? 9 : kind; }
-function fpsGeometryDetail(kind) { return kind >= 11 ? 2 : kind === 2 || kind === 10 ? 0 : 1; }
+/** Máscara autoral esparsa: círculos de densidade, em coordenadas locais do mundo. */
+class VegetationMask {
+    constructor(data) {
+        this.strokes = [];
+        if (data.length === 0)
+            return;
+        if (data.length > 50000)
+            throw new Error("Máscara de vegetação muito grande");
+        const values = JSON.parse(data);
+        if (!Array.isArray(values) || values.length % 4 !== 0 || values.length > 1024)
+            throw new Error("Máscara de vegetação inválida");
+        for (let i = 0; i < values.length; i++) {
+            if (!Number.isFinite(values[i]) || Math.abs(values[i]) > 10000000)
+                throw new Error("Valor inválido na máscara");
+            if (i % 4 === 2 && (values[i] <= 0 || values[i] > 2048))
+                throw new Error("Raio inválido");
+            if (i % 4 === 3 && Math.abs(values[i]) > 1)
+                throw new Error("Força inválida");
+            this.strokes.push(values[i]);
+        }
+    }
+    paint(x, z, radius, strength) {
+        if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(radius) || !Number.isFinite(strength) || Math.abs(x) > 10000000 || Math.abs(z) > 10000000 || radius <= 0 || radius > 2048 || Math.abs(strength) > 1)
+            throw new Error("Pincel inválido");
+        if (this.strokes.length >= 1024)
+            throw new Error("Limite de 256 pinceladas atingido");
+        this.strokes.push(x, z, radius, strength);
+    }
+    sample(x, z) {
+        let density = 1;
+        for (let i = 0; i < this.strokes.length; i += 4) {
+            const dx = x - this.strokes[i], dz = z - this.strokes[i + 1], t = 1 - Math.sqrt(dx * dx + dz * dz) / this.strokes[i + 2];
+            if (t > 0)
+                density = Math.max(0, Math.min(1, density + this.strokes[i + 3] * t * t * (3 - 2 * t)));
+        }
+        return density;
+    }
+    serialize() { return JSON.stringify(this.strokes); }
+}
+function fpsGeometryMaterial(kind) { return kind === 11 || kind === 16 ? 8 : kind === 12 ? 0 : kind === 13 ? 1 : kind === 14 ? 4 : kind === 15 ? 9 : kind; }
+function fpsGeometryDetail(kind) { return kind === 16 ? 1 : kind >= 11 ? 2 : kind === 2 || kind === 10 ? 0 : 1; }
 const FPS_WORLD_BASIS = [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, -1, -1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, -1, 0, 1, 0, 0, 0, 0, 1];
 class FpsWorldGeometry {
     constructor() {
@@ -93,6 +132,10 @@ class FpsWorldChunkJob {
         this.done = false;
         this.geometry = [];
         this.colliders = [];
+        this.treeDensity = 1;
+        this.grassDensity = 0;
+        this.maxSlope = 45;
+        this.mask = new VegetationMask("");
         this.p = [0, 0, 0];
         this.s = [0, 0, 0];
         this.column = 0;
@@ -103,8 +146,27 @@ class FpsWorldChunkJob {
         this.lotUrban = false;
         this.field = field;
         this.chunk = new FpsWorldChunk(x, z);
-        for (let i = 0; i < 16; i++)
+        for (let i = 0; i < 17; i++)
             this.geometry.push(new FpsWorldGeometry());
+    }
+    vegetation(x, z, density) {
+        const wx = this.chunk.x * 128 + x, wz = this.chunk.z * 128 + z, h = this.ground(x, z);
+        const dx = (this.ground(x + 1, z) - this.ground(x - 1, z)) / 2, dz = (this.ground(x, z + 1) - this.ground(x, z - 1)) / 2;
+        return h >= 1 && h < 92 && Math.atan(Math.sqrt(dx * dx + dz * dz)) * 180 / Math.PI <= this.maxSlope && this.field.random(Math.floor(wx * 17), Math.floor(wz * 19)) < density * this.mask.sample(wx, wz);
+    }
+    grass(index) {
+        if (this.lotUrban || this.grassDensity <= 0)
+            return;
+        const x = 32 + (index % 3) * 32, z = 32 + Math.floor(index / 3) * 32, g = this.geometry[16];
+        for (let i = 0; i < 24; i++) {
+            const tx = x - 12 + this.field.random(this.chunk.x * 128 + x + i * 13, this.chunk.z * 128 + z) * 24;
+            const tz = z - 12 + this.field.random(this.chunk.x * 128 + x, this.chunk.z * 128 + z + i * 17) * 24;
+            if (!this.vegetation(tx, tz, this.grassDensity))
+                continue;
+            const y = this.ground(tx, tz), n = g.v.length / 8;
+            g.v.push(tx - .2, y, tz, 0, 1, 0, 0, 0, tx + .2, y, tz, 0, 1, 0, 1, 0, tx, y + .6, tz + .1, 0, 1, 0, .5, 1);
+            g.i.push(n, n + 2, n + 1, n, n + 1, n + 2);
+        }
     }
     box(kind, p, s) { this.geometry[kind].box(p, s); }
     size(w, h, d) { this.s[0] = w; this.s[1] = h; this.s[2] = d; }
@@ -186,7 +248,7 @@ class FpsWorldChunkJob {
                 const i = this.lotPart;
                 const tx = x - 10 + this.field.random(wx + i * 3, wz + 1) * 20, tz = z - 10 + this.field.random(wx + 1, wz + i * 7) * 20;
                 const ty = this.ground(tx, tz), th = 5 + this.field.random(wx + i, wz + 3) * 5;
-                if (ty >= 1) {
+                if (this.vegetation(tx, tz, this.treeDensity)) {
                     this.colliders.push(tx - .325, ty, tz - .325, tx + .325, ty + th * .8, tz + .325);
                     this.size(.65, th * .8, .65);
                     this.block(9, tx, ty + th * .4, tz);
@@ -236,6 +298,7 @@ class FpsWorldChunkJob {
         else if (this.phase < 25) {
             if (!this.lot(this.phase - 16))
                 return;
+            this.grass(this.phase - 16);
         }
         else if (this.phase === 25)
             this.quad(10, 0, 0, 128);
@@ -284,6 +347,8 @@ import { time } from "rts";
 try {
  const start=performance.now();
  const job=new FpsWorldChunkJob(new FpsWorldField(workerData.seed),workerData.x,workerData.z);
+ const vegetation=workerData.vegetation;
+ if(vegetation){job.treeDensity=vegetation.trees;job.grassDensity=vegetation.grass;job.maxSlope=vegetation.slope;job.mask=new VegetationMask(vegetation.mask);}
  while(!job.done&&!isTerminating())job.step();
  const buildMs=performance.now()-start;
  let kind=0,base=0,index=0,metadata=false;
