@@ -31,10 +31,11 @@ export class FpsWorldField {
 /** Reused coordinate arrays, rebuilt only on chunk boundary crossings. */
 export class FpsChunkWindow {
   cx:number=2147483647;cz:number=2147483647;radius:number;
+  chunkSize:number=128;
   x:number[]=[];z:number[]=[];
-  constructor(radius:number){this.radius=Math.max(1,Math.min(4,Math.floor(radius)));}
+  constructor(radius:number,chunkSize?:number){if(!Number.isFinite(radius))throw new Error("Invalid chunk radius");this.radius=Math.max(1,Math.min(4,Math.floor(radius)));if(chunkSize!==undefined)this.chunkSize=chunkSize;if(!Number.isFinite(this.chunkSize)||this.chunkSize<=0)throw new Error("Invalid chunk size");}
   move(x:number,z:number):boolean {
-    const cx=Math.floor(x/FPS_WORLD_CHUNK),cz=Math.floor(z/FPS_WORLD_CHUNK);
+    const cx=Math.floor(x/this.chunkSize),cz=Math.floor(z/this.chunkSize);
     if(cx===this.cx&&cz===this.cz)return false;
     this.cx=cx;this.cz=cz;this.x.length=0;this.z.length=0;
     for(let r=0;r<=this.radius;r++)for(let dz=-r;dz<=r;dz++)for(let dx=-r;dx<=r;dx++){

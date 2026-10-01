@@ -4,6 +4,8 @@ param(
     [int]$Frames = 0,
     [string]$Capture = '',
     [int]$Seed = 42,
+    [ValidateSet('heightfield', 'voxel')]
+    [string]$Generator = 'heightfield',
     [string]$RuntimePath = '',
     [string]$TargetPath = '',
     [ValidateSet('courtyard', 'city', 'terrain', 'loading', 'loading_preview', 'infinite', 'world_component')]
@@ -33,16 +35,19 @@ if (!(Test-Path -LiteralPath $pbrExe)) { throw 'Binário ausente. Rode novamente
 $pbrOldFrames = $env:RTS_PBR_FRAMES
 $pbrOldCapture = $env:RTS_PBR_CAPTURE
 $pbrOldSeed = $env:RTS_CITY_SEED
+$pbrOldGenerator = $env:RTS_WORLD_GENERATOR
 Push-Location $pbrRoot
 try {
     $env:RTS_PBR_FRAMES = [string]$Frames
     $env:RTS_PBR_CAPTURE = $Capture
     $env:RTS_CITY_SEED = [string]$Seed
+    $env:RTS_WORLD_GENERATOR = $Generator
     & $pbrExe "examples/pbr_$Scene.ts"
     if ($LASTEXITCODE -ne 0) { throw 'A cena PBR terminou com erro.' }
 } finally {
     $env:RTS_PBR_FRAMES = $pbrOldFrames
     $env:RTS_PBR_CAPTURE = $pbrOldCapture
     $env:RTS_CITY_SEED = $pbrOldSeed
+    $env:RTS_WORLD_GENERATOR = $pbrOldGenerator
     Pop-Location
 }

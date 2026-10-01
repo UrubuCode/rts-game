@@ -200,7 +200,7 @@ class GeneratedReflection extends ComponentReflection {
       return 0;
     }
     if (component instanceof Component16) {
-      return 10;
+      return 16;
     }
     if (component instanceof Component17) {
       return 0;
@@ -381,15 +381,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component16) {
       if (index === 0) return "Seed";
-      if (index === 1) return "Chunk Radius";
-      if (index === 2) return "Memory Mi B";
-      if (index === 3) return "Tree Density";
-      if (index === 4) return "Grass Density";
-      if (index === 5) return "Max Slope";
-      if (index === 6) return "Brush X";
-      if (index === 7) return "Brush Z";
-      if (index === 8) return "Brush Radius";
-      if (index === 9) return "Brush Strength";
+      if (index === 1) return "Generator";
+      if (index === 2) return "Generator Settings";
+      if (index === 3) return "Biomes";
+      if (index === 4) return "Biome Scale";
+      if (index === 5) return "Height Scale";
+      if (index === 6) return "Caves";
+      if (index === 7) return "Chunk Radius";
+      if (index === 8) return "Memory Mi B";
+      if (index === 9) return "Tree Density";
+      if (index === 10) return "Grass Density";
+      if (index === 11) return "Max Slope";
+      if (index === 12) return "Brush X";
+      if (index === 13) return "Brush Z";
+      if (index === 14) return "Brush Radius";
+      if (index === 15) return "Brush Strength";
       return "";
     }
     if (component instanceof Component17) {
@@ -638,15 +644,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component16) {
       if (index === 0) return "seed";
-      if (index === 1) return "chunkRadius";
-      if (index === 2) return "memoryMiB";
-      if (index === 3) return "treeDensity";
-      if (index === 4) return "grassDensity";
-      if (index === 5) return "maxSlope";
-      if (index === 6) return "brushX";
-      if (index === 7) return "brushZ";
-      if (index === 8) return "brushRadius";
-      if (index === 9) return "brushStrength";
+      if (index === 1) return "generator";
+      if (index === 2) return "generatorSettings";
+      if (index === 3) return "biomes";
+      if (index === 4) return "biomeScale";
+      if (index === 5) return "heightScale";
+      if (index === 6) return "caves";
+      if (index === 7) return "chunkRadius";
+      if (index === 8) return "memoryMiB";
+      if (index === 9) return "treeDensity";
+      if (index === 10) return "grassDensity";
+      if (index === 11) return "maxSlope";
+      if (index === 12) return "brushX";
+      if (index === 13) return "brushZ";
+      if (index === 14) return "brushRadius";
+      if (index === 15) return "brushStrength";
       return "";
     }
     if (component instanceof Component17) {
@@ -895,15 +907,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component16) {
       if (index === 0) return "number";
-      if (index === 1) return "number";
-      if (index === 2) return "number";
-      if (index === 3) return "number";
+      if (index === 1) return "string";
+      if (index === 2) return "string";
+      if (index === 3) return "boolean";
       if (index === 4) return "number";
       if (index === 5) return "number";
-      if (index === 6) return "number";
+      if (index === 6) return "boolean";
       if (index === 7) return "number";
       if (index === 8) return "number";
       if (index === 9) return "number";
+      if (index === 10) return "number";
+      if (index === 11) return "number";
+      if (index === 12) return "number";
+      if (index === 13) return "number";
+      if (index === 14) return "number";
+      if (index === 15) return "number";
       return "number";
     }
     if (component instanceof Component17) {
@@ -1161,6 +1179,12 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 7) return "";
       if (index === 8) return "";
       if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
+      if (index === 13) return "";
+      if (index === 14) return "";
+      if (index === 15) return "";
       return "";
     }
     if (component instanceof Component17) {
@@ -1418,6 +1442,12 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 7) return "";
       if (index === 8) return "";
       if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
+      if (index === 13) return "";
+      if (index === 14) return "";
+      if (index === 15) return "";
       return "";
     }
     if (component instanceof Component17) {
@@ -1666,15 +1696,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component16) {
       if (index === 0) return component["seed"];
-      if (index === 1) return component["chunkRadius"];
-      if (index === 2) return component["memoryMiB"];
-      if (index === 3) return component["treeDensity"];
-      if (index === 4) return component["grassDensity"];
-      if (index === 5) return component["maxSlope"];
-      if (index === 6) return component["brushX"];
-      if (index === 7) return component["brushZ"];
-      if (index === 8) return component["brushRadius"];
-      if (index === 9) return component["brushStrength"];
+      if (index === 1) return 0;
+      if (index === 2) return 0;
+      if (index === 3) return (component["biomes"] ? 1 : 0);
+      if (index === 4) return component["biomeScale"];
+      if (index === 5) return component["heightScale"];
+      if (index === 6) return (component["caves"] ? 1 : 0);
+      if (index === 7) return component["chunkRadius"];
+      if (index === 8) return component["memoryMiB"];
+      if (index === 9) return component["treeDensity"];
+      if (index === 10) return component["grassDensity"];
+      if (index === 11) return component["maxSlope"];
+      if (index === 12) return component["brushX"];
+      if (index === 13) return component["brushZ"];
+      if (index === 14) return component["brushRadius"];
+      if (index === 15) return component["brushStrength"];
       return 0;
     }
     if (component instanceof Component17) {
@@ -1923,8 +1959,8 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component16) {
       if (index === 0) return "";
-      if (index === 1) return "";
-      if (index === 2) return "";
+      if (index === 1) return component["generator"];
+      if (index === 2) return component["generatorSettings"];
       if (index === 3) return "";
       if (index === 4) return "";
       if (index === 5) return "";
@@ -1932,6 +1968,12 @@ class GeneratedReflection extends ComponentReflection {
       if (index === 7) return "";
       if (index === 8) return "";
       if (index === 9) return "";
+      if (index === 10) return "";
+      if (index === 11) return "";
+      if (index === 12) return "";
+      if (index === 13) return "";
+      if (index === 14) return "";
+      if (index === 15) return "";
       return "";
     }
     if (component instanceof Component17) {
@@ -2180,15 +2222,21 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component16) {
       if (index === 0) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["seed"] = value; component.onValidate("seed"); return; }
-      if (index === 1) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["chunkRadius"] = value; component.onValidate("chunkRadius"); return; }
-      if (index === 2) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["memoryMiB"] = value; component.onValidate("memoryMiB"); return; }
-      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["treeDensity"] = value; component.onValidate("treeDensity"); return; }
-      if (index === 4) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["grassDensity"] = value; component.onValidate("grassDensity"); return; }
-      if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["maxSlope"] = value; component.onValidate("maxSlope"); return; }
-      if (index === 6) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushX"] = value; component.onValidate("brushX"); return; }
-      if (index === 7) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushZ"] = value; component.onValidate("brushZ"); return; }
-      if (index === 8) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushRadius"] = value; component.onValidate("brushRadius"); return; }
-      if (index === 9) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushStrength"] = value; component.onValidate("brushStrength"); return; }
+
+
+      if (index === 3) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["biomes"] = value !== 0; component.onValidate("biomes"); return; }
+      if (index === 4) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["biomeScale"] = value; component.onValidate("biomeScale"); return; }
+      if (index === 5) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["heightScale"] = value; component.onValidate("heightScale"); return; }
+      if (index === 6) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["caves"] = value !== 0; component.onValidate("caves"); return; }
+      if (index === 7) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["chunkRadius"] = value; component.onValidate("chunkRadius"); return; }
+      if (index === 8) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["memoryMiB"] = value; component.onValidate("memoryMiB"); return; }
+      if (index === 9) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["treeDensity"] = value; component.onValidate("treeDensity"); return; }
+      if (index === 10) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["grassDensity"] = value; component.onValidate("grassDensity"); return; }
+      if (index === 11) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["maxSlope"] = value; component.onValidate("maxSlope"); return; }
+      if (index === 12) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushX"] = value; component.onValidate("brushX"); return; }
+      if (index === 13) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushZ"] = value; component.onValidate("brushZ"); return; }
+      if (index === 14) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushRadius"] = value; component.onValidate("brushRadius"); return; }
+      if (index === 15) { if (value !== value || value <= -1e30 || value >= 1e30) return; component["brushStrength"] = value; component.onValidate("brushStrength"); return; }
       return;
     }
     if (component instanceof Component17) {
@@ -2436,6 +2484,12 @@ class GeneratedReflection extends ComponentReflection {
     }
     if (component instanceof Component16) {
 
+      if (index === 1) { component["generator"] = value; component.onValidate("generator"); return; }
+      if (index === 2) { component["generatorSettings"] = value; component.onValidate("generatorSettings"); return; }
+
+
+
+
 
 
 
@@ -2622,7 +2676,7 @@ class GeneratedReflection extends ComponentReflection {
       return null;
     }
     if (component instanceof Component16) {
-      return { type: "script:src/engine/core/procedural_world.ts#ProceduralWorld", fields: { "seed": component["seed"], "chunkRadius": component["chunkRadius"], "memoryMiB": component["memoryMiB"], "treeDensity": component["treeDensity"], "grassDensity": component["grassDensity"], "maxSlope": component["maxSlope"], "brushX": component["brushX"], "brushZ": component["brushZ"], "brushRadius": component["brushRadius"], "brushStrength": component["brushStrength"], "vegetationMask": component["vegetationMask"] } };
+      return { type: "script:src/engine/core/procedural_world.ts#ProceduralWorld", fields: { "seed": component["seed"], "generator": component["generator"], "generatorSettings": component["generatorSettings"], "biomes": component["biomes"], "biomeScale": component["biomeScale"], "heightScale": component["heightScale"], "caves": component["caves"], "chunkRadius": component["chunkRadius"], "memoryMiB": component["memoryMiB"], "treeDensity": component["treeDensity"], "grassDensity": component["grassDensity"], "maxSlope": component["maxSlope"], "brushX": component["brushX"], "brushZ": component["brushZ"], "brushRadius": component["brushRadius"], "brushStrength": component["brushStrength"], "vegetationMask": component["vegetationMask"] } };
     }
     if (component instanceof Component17) {
       return null;
@@ -3215,6 +3269,12 @@ export function restoreRegisteredComponent(data: any): any {
     const component = new Component16();
     if (data.fields === undefined || data.fields === null) return component;
       if (typeof data.fields["seed"] === "number" && data.fields["seed"] === data.fields["seed"] && data.fields["seed"] > -1e30 && data.fields["seed"] < 1e30) component["seed"] = data.fields["seed"];
+      if (typeof data.fields["generator"] === "string" && true) component["generator"] = data.fields["generator"];
+      if (typeof data.fields["generatorSettings"] === "string" && true) component["generatorSettings"] = data.fields["generatorSettings"];
+      if (typeof data.fields["biomes"] === "boolean" && true) component["biomes"] = data.fields["biomes"];
+      if (typeof data.fields["biomeScale"] === "number" && data.fields["biomeScale"] === data.fields["biomeScale"] && data.fields["biomeScale"] > -1e30 && data.fields["biomeScale"] < 1e30) component["biomeScale"] = data.fields["biomeScale"];
+      if (typeof data.fields["heightScale"] === "number" && data.fields["heightScale"] === data.fields["heightScale"] && data.fields["heightScale"] > -1e30 && data.fields["heightScale"] < 1e30) component["heightScale"] = data.fields["heightScale"];
+      if (typeof data.fields["caves"] === "boolean" && true) component["caves"] = data.fields["caves"];
       if (typeof data.fields["chunkRadius"] === "number" && data.fields["chunkRadius"] === data.fields["chunkRadius"] && data.fields["chunkRadius"] > -1e30 && data.fields["chunkRadius"] < 1e30) component["chunkRadius"] = data.fields["chunkRadius"];
       if (typeof data.fields["memoryMiB"] === "number" && data.fields["memoryMiB"] === data.fields["memoryMiB"] && data.fields["memoryMiB"] > -1e30 && data.fields["memoryMiB"] < 1e30) component["memoryMiB"] = data.fields["memoryMiB"];
       if (typeof data.fields["treeDensity"] === "number" && data.fields["treeDensity"] === data.fields["treeDensity"] && data.fields["treeDensity"] > -1e30 && data.fields["treeDensity"] < 1e30) component["treeDensity"] = data.fields["treeDensity"];

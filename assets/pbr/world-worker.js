@@ -36,15 +36,22 @@ class FpsWorldField {
 }
 /** Reused coordinate arrays, rebuilt only on chunk boundary crossings. */
 class FpsChunkWindow {
-    constructor(radius) {
+    constructor(radius, chunkSize) {
         this.cx = 2147483647;
         this.cz = 2147483647;
+        this.chunkSize = 128;
         this.x = [];
         this.z = [];
+        if (!Number.isFinite(radius))
+            throw new Error("Invalid chunk radius");
         this.radius = Math.max(1, Math.min(4, Math.floor(radius)));
+        if (chunkSize !== undefined)
+            this.chunkSize = chunkSize;
+        if (!Number.isFinite(this.chunkSize) || this.chunkSize <= 0)
+            throw new Error("Invalid chunk size");
     }
     move(x, z) {
-        const cx = Math.floor(x / FPS_WORLD_CHUNK), cz = Math.floor(z / FPS_WORLD_CHUNK);
+        const cx = Math.floor(x / this.chunkSize), cz = Math.floor(z / this.chunkSize);
         if (cx === this.cx && cz === this.cz)
             return false;
         this.cx = cx;
@@ -62,6 +69,109 @@ class FpsChunkWindow {
         return true;
     }
     contains(x, z) { return Math.abs(x - this.cx) <= this.radius && Math.abs(z - this.cz) <= this.radius; }
+}
+/** Contrato de CPU. Geradores não acessam janela, GPU ou estado do editor. */
+class WorldMeshData {
+    constructor() {
+        this.v = [];
+        this.i = [];
+        this.material = 0;
+        this.lod = 0;
+    }
+}
+class WorldGenerationProfile {
+    constructor() {
+        this.generator = "heightfield";
+        this.biomeScale = 512;
+        this.heightScale = 28;
+        this.biomes = false;
+        this.caves = true;
+        this.options = {};
+    }
+    validate() {
+        if (this.generator.length === 0 || this.generator.length > 64)
+            throw new Error("Identificador de gerador inválido");
+        if (!Number.isFinite(this.biomeScale) || this.biomeScale < 64 || this.biomeScale > 8192)
+            throw new Error("Escala de biomas inválida");
+        if (!Number.isFinite(this.heightScale) || this.heightScale < 1 || this.heightScale > 48)
+            throw new Error("Altura de geração inválida");
+        if (this.options === null || typeof this.options !== "object" || Array.isArray(this.options) || JSON.stringify(this.options).length > 65536)
+            throw new Error("Opções da extensão inválidas");
+    }
+    static fromData(data) {
+        const p = new WorldGenerationProfile();
+        if (data) {
+            p.generator = data.generator;
+            p.biomeScale = data.biomeScale;
+            p.heightScale = data.heightScale;
+            p.biomes = data.biomes === true;
+            p.caves = data.caves === true;
+            if (data.options !== undefined)
+                p.options = JSON.parse(JSON.stringify(data.options));
+        }
+        p.validate();
+        return p;
+    }
+}
+class WorldGenerationRequest {
+    constructor(seed, x, z, profile) {
+        this.vegetation = null;
+        this.seed = seed;
+        this.x = x;
+        this.z = z;
+        this.profile = profile;
+    }
+}
+class WorldGeneratorRegistry {
+    constructor() {
+        this.factories = new Map();
+        this.sizes = new Map();
+    }
+    register(id, size, factory) {
+        if (this.factories.has(id) || id.length === 0 || !Number.isFinite(size) || size <= 0)
+            throw new Error("Registro de gerador inválido: " + id);
+        this.factories.set(id, factory);
+        this.sizes.set(id, size);
+    }
+    chunkSize(id) {
+        const size = this.sizes.get(id);
+        if (size === undefined)
+            throw new Error("Gerador não registrado: " + id);
+        return size;
+    }
+    create(request) {
+        request.profile.validate();
+        const factory = this.factories.get(request.profile.generator);
+        if (factory === undefined)
+            throw new Error("Gerador não registrado: " + request.profile.generator);
+        return factory(request);
+    }
+}
+/** Clima e relevo contínuos em coordenadas globais, sem depender da ordem dos chunks. */
+class WorldBiomeField extends FpsWorldField {
+    constructor(seed, scale, heightScale) { super(seed); this.scale = scale; this.heightScale = heightScale; }
+    temperature(x, z) { return this.noise(x / this.scale + 101, z / this.scale - 73); }
+    humidity(x, z) { return this.noise(x / this.scale - 211, z / this.scale + 137); }
+    // 0 planície, 1 floresta, 2 deserto, 3 tundra.
+    biomeAt(x, z) {
+        const t = this.temperature(x, z), h = this.humidity(x, z);
+        return t < .3 ? 3 : t > .6 && h < .45 ? 2 : h > .55 ? 1 : 0;
+    }
+    height(x, z) {
+        const continental = this.noise(x / 180 + 13, z / 180 - 9), detail = this.noise(x / 48 - 7, z / 48 + 31);
+        // Mistura contínua; o limiar do bioma não cria um degrau no relevo.
+        return 5 + continental * this.heightScale * (.7 + .3 * this.humidity(x, z)) + (detail - .5) * 4;
+    }
+    vegetationDensity(x, z) {
+        const t = this.temperature(x, z), h = this.humidity(x, z);
+        return Math.max(.08, Math.min(1, h * 1.5)) * Math.max(.15, Math.min(1, t * 3));
+    }
+    cave(x, y, z) {
+        // Campo volumétrico contínuo; amostras independentes do índice do chunk.
+        const q = Math.floor(y / 10), u = y / 10 - q, t = u * u * (3 - 2 * u);
+        const a = this.noise(x / 18 + q * 19, z / 18 - q * 23), b = this.noise(x / 18 + (q + 1) * 19, z / 18 - (q + 1) * 23);
+        return a + (b - a) * t > .64;
+    }
 }
 /** Máscara autoral esparsa: círculos de densidade, em coordenadas locais do mundo. */
 class VegetationMask {
@@ -102,14 +212,10 @@ class VegetationMask {
     }
     serialize() { return JSON.stringify(this.strokes); }
 }
-function fpsGeometryMaterial(kind) { return kind === 11 || kind === 16 ? 8 : kind === 12 ? 0 : kind === 13 ? 1 : kind === 14 ? 4 : kind === 15 ? 9 : kind; }
-function fpsGeometryDetail(kind) { return kind === 16 ? 1 : kind >= 11 ? 2 : kind === 2 || kind === 10 ? 0 : 1; }
+function fpsGeometryMaterial(kind) { return kind === 11 || kind === 16 ? 8 : kind === 12 ? 0 : kind === 13 ? 1 : kind === 14 || kind === 17 || kind === 19 ? 4 : kind === 18 || kind === 20 ? 11 : kind === 15 ? 9 : kind; }
+function fpsGeometryDetail(kind) { return kind === 16 || kind === 17 || kind === 18 ? 1 : kind >= 11 ? 2 : kind === 2 || kind === 10 ? 0 : 1; }
 const FPS_WORLD_BASIS = [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, -1, -1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, -1, 0, 1, 0, 0, 0, 0, 1];
-class FpsWorldGeometry {
-    constructor() {
-        this.v = [];
-        this.i = [];
-    }
+class FpsWorldGeometry extends WorldMeshData {
     box(p, s) {
         const b = FPS_WORLD_BASIS;
         for (let f = 0; f < 6; f++) {
@@ -146,13 +252,28 @@ class FpsWorldChunkJob {
         this.lotUrban = false;
         this.field = field;
         this.chunk = new FpsWorldChunk(x, z);
-        for (let i = 0; i < 17; i++)
-            this.geometry.push(new FpsWorldGeometry());
+        for (let i = 0; i < 21; i++) {
+            const g = new FpsWorldGeometry();
+            g.material = fpsGeometryMaterial(i);
+            g.lod = fpsGeometryDetail(i);
+            this.geometry.push(g);
+        }
+    }
+    terrainKind(x, z, far) {
+        if (this.field instanceof WorldBiomeField) {
+            const biome = this.field.biomeAt(this.chunk.x * 128 + x, this.chunk.z * 128 + z);
+            if (biome === 2)
+                return far ? 19 : 17;
+            if (biome === 3)
+                return far ? 20 : 18;
+        }
+        return (far ? 12 : 0) + (this.ground(x, z) > 48 ? 1 : 0);
     }
     vegetation(x, z, density) {
         const wx = this.chunk.x * 128 + x, wz = this.chunk.z * 128 + z, h = this.ground(x, z);
         const dx = (this.ground(x + 1, z) - this.ground(x - 1, z)) / 2, dz = (this.ground(x, z + 1) - this.ground(x, z - 1)) / 2;
-        return h >= 1 && h < 92 && Math.atan(Math.sqrt(dx * dx + dz * dz)) * 180 / Math.PI <= this.maxSlope && this.field.random(Math.floor(wx * 17), Math.floor(wz * 19)) < density * this.mask.sample(wx, wz);
+        const biome = this.field instanceof WorldBiomeField ? this.field.vegetationDensity(wx, wz) : 1;
+        return h >= 1 && h < 92 && Math.atan(Math.sqrt(dx * dx + dz * dz)) * 180 / Math.PI <= this.maxSlope && this.field.random(Math.floor(wx * 17), Math.floor(wz * 19)) < density * biome * this.mask.sample(wx, wz);
     }
     grass(index) {
         if (this.lotUrban || this.grassDensity <= 0)
@@ -281,7 +402,7 @@ class FpsWorldChunkJob {
         if (this.phase < 16) {
             const row = this.phase;
             for (let col = this.column; col < this.column + 4; col++) {
-                const h = this.ground(col * 8 + 4, row * 8 + 4), kind = h > 48 ? 1 : 0;
+                const h = this.ground(col * 8 + 4, row * 8 + 4), kind = this.terrainKind(col * 8 + 4, row * 8 + 4, false);
                 this.quad(kind, col * 8, row * 8, 8);
                 if (col === 0 || row === 0)
                     this.quad(2, col * 8, row * 8, 8);
@@ -310,7 +431,7 @@ class FpsWorldChunkJob {
     }
     coarseTerrain(cell) {
         const x = (cell % 4) * 32, z = Math.floor(cell / 4) * 32;
-        const g = this.geometry[this.ground(x + 16, z + 16) > 48 ? 13 : 12];
+        const g = this.geometry[this.terrainKind(x + 16, z + 16, true)];
         // Bordas externas preservam cada amostra de 8 unidades do LOD próximo.
         // A ordem do contorno mantém a orientação dos triângulos voltada para cima.
         for (let side = 0; side < 4; side++) {
@@ -340,15 +461,117 @@ class FpsWorldChunkJob {
         }
     }
 }
+const VOXEL_FACE_BASIS = [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, -1, -1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, -1, 0, 1, 0, 0, 0, 0, 1];
+/** Extensão inicial: colunas 16×32×16 de blocos de 2 unidades. Halo evita faces entre chunks. */
+class VoxelGenerationJob {
+    constructor(request) {
+        this.done = false;
+        this.geometry = [];
+        this.colliders = [];
+        this.blocks = new Uint8Array(18 * 34 * 18);
+        this.column = 0;
+        this.meshing = false;
+        this.request = request;
+        this.field = new WorldBiomeField(request.seed, request.profile.biomeScale, request.profile.heightScale);
+        const materials = [0, 1, 5, 4, 11];
+        for (let i = 0; i < 5; i++) {
+            const g = new WorldMeshData();
+            g.material = materials[i];
+            this.geometry.push(g);
+        }
+    }
+    blockAt(x, y, z) {
+        if (x < -1 || x > 16 || z < -1 || z > 16 || y < -1 || y > 32)
+            return 0;
+        return this.blocks[((z + 1) * 34 + y + 1) * 18 + x + 1];
+    }
+    fillColumn(index) {
+        const x = index % 18 - 1, z = Math.floor(index / 18) - 1, wx = (this.request.x * 16 + x) * 2, wz = (this.request.z * 16 + z) * 2;
+        const top = Math.min(30, Math.max(2, Math.floor(this.field.height(wx, wz) / 2)));
+        const biome = this.request.profile.biomes ? this.field.biomeAt(wx, wz) : 0;
+        const surface = biome === 2 ? 4 : biome === 3 ? 5 : 1;
+        for (let y = -1; y <= 32; y++) {
+            let block = y > top ? 0 : y === top ? surface : y >= top - 2 ? 3 : 2;
+            if (block !== 0 && y > 1 && y < top - 2 && this.request.profile.caves && this.field.cave(wx, y * 2, wz))
+                block = 0;
+            this.blocks[((z + 1) * 34 + y + 1) * 18 + x + 1] = block;
+        }
+    }
+    face(g, p, side) {
+        const basis = VOXEL_FACE_BASIS, a = side * 9, n = g.v.length / 8;
+        for (let c = 0; c < 4; c++) {
+            const u = c === 0 || c === 3 ? -1 : 1, t = c < 2 ? -1 : 1;
+            g.v.push(p[0] + basis[a] + basis[a + 3] * u + basis[a + 6] * t, p[1] + basis[a + 1] + basis[a + 4] * u + basis[a + 7] * t, p[2] + basis[a + 2] + basis[a + 5] * u + basis[a + 8] * t, basis[a], basis[a + 1], basis[a + 2], u < 0 ? 0 : 1, t < 0 ? 0 : 1);
+        }
+        g.i.push(n, n + 1, n + 2, n, n + 2, n + 3);
+    }
+    meshColumn(index) {
+        const x = index % 16, z = Math.floor(index / 16), p = [x * 2 + 1, 0, z * 2 + 1];
+        let run = -1;
+        for (let y = 0; y <= 32; y++) {
+            const block = y < 32 ? this.blockAt(x, y, z) : 0;
+            if (block === 0) {
+                if (run >= 0) {
+                    this.colliders.push(x * 2, run * 2, z * 2, x * 2 + 2, y * 2, z * 2 + 2);
+                    run = -1;
+                }
+                continue;
+            }
+            if (run < 0)
+                run = y;
+            p[1] = y * 2 + 1;
+            const g = this.geometry[block - 1], b = VOXEL_FACE_BASIS;
+            for (let side = 0; side < 6; side++) {
+                const a = side * 9;
+                if (this.blockAt(x + b[a], y + b[a + 1], z + b[a + 2]) === 0)
+                    this.face(g, p, side);
+            }
+        }
+    }
+    step() {
+        if (this.done)
+            return;
+        if (!this.meshing) {
+            this.fillColumn(this.column++);
+            if (this.column === 324) {
+                this.column = 0;
+                this.meshing = true;
+            }
+        }
+        else {
+            this.meshColumn(this.column++);
+            if (this.column === 256)
+                this.done = true;
+        }
+    }
+}
+function createWorldGeneratorRegistry() {
+    const registry = new WorldGeneratorRegistry();
+    registry.register("heightfield", 128, (request) => {
+        const p = request.profile;
+        const field = p.biomes ? new WorldBiomeField(request.seed, p.biomeScale, p.heightScale) : new FpsWorldField(request.seed);
+        const job = new FpsWorldChunkJob(field, request.x, request.z), v = request.vegetation;
+        if (v) {
+            job.treeDensity = v.trees;
+            job.grassDensity = v.grass;
+            job.maxSlope = v.slope;
+            job.mask = new VegetationMask(v.mask);
+        }
+        return job;
+    });
+    registry.register("voxel", 32, (request) => new VoxelGenerationJob(request));
+    return registry;
+}
 
 
 import { parentPort,workerData,receiveMessageOnPort,isTerminating } from "node:worker_threads";
 import { time } from "rts";
 try {
  const start=performance.now();
- const job=new FpsWorldChunkJob(new FpsWorldField(workerData.seed),workerData.x,workerData.z);
- const vegetation=workerData.vegetation;
- if(vegetation){job.treeDensity=vegetation.trees;job.grassDensity=vegetation.grass;job.maxSlope=vegetation.slope;job.mask=new VegetationMask(vegetation.mask);}
+ const profile=WorldGenerationProfile.fromData(workerData.profile);
+ const requestData=new WorldGenerationRequest(workerData.seed,workerData.x,workerData.z,profile);
+ requestData.vegetation=workerData.vegetation;
+ const job=createWorldGeneratorRegistry().create(requestData);
  while(!job.done&&!isTerminating())job.step();
  const buildMs=performance.now()-start;
  let kind=0,base=0,index=0,metadata=false;
@@ -362,7 +585,7 @@ try {
   // 768 é divisível por caixas (24), quads (4) e triângulos do terreno distante (3).
   while(index<g.i.length&&g.i[index]<end){indices.push(g.i[index]-base);index++;}
   const vertices=g.v.slice(base*8,end*8);
-  parentPort.postMessage(JSON.stringify({kind:"mesh",material:fpsGeometryMaterial(kind),lod:fpsGeometryDetail(kind),vertices:vertices,indices:indices}));
+  parentPort.postMessage(JSON.stringify({kind:"mesh",material:g.material,lod:g.lod,vertices:vertices,indices:indices}));
   base=end;
  }
 }catch(error){parentPort.postMessage(JSON.stringify({kind:"error",message:String(error)}));}

@@ -1,6 +1,9 @@
 import { meshUpload,meshFree,materialFree } from "rts:egui";
 import { FpsWorldField,FpsChunkWindow } from "../core/world_streaming";
-import { FpsWorldChunkLoader } from "../core/world_chunk_loading";
+import { WorldChunkLoader } from "../core/world_chunk_loading";
+import { WorldGenerationProfile } from "../core/world_generation";
+import { createWorldGeneratorRegistry } from "../core/world_generators";
+import { WorldBiomeField } from "../core/world_biomes";
 import { FpsChunkCache } from "../core/chunk_cache";
 import { FpsResourceBudget } from "../core/resource_budget";
 import { fpsChunkLod } from "../core/chunk_lod";
@@ -9,7 +12,7 @@ import { Material } from "../core/material";
 import { resolvePbrMaterial } from "./pbr_material";
 import { drawGPUMeshBuf,DRAW_FLOATS,frustumBeginBuf,inFrustumFast } from "./gpu3d";
 
-const FPS_WORLD_COLORS=[0x728464,0x81796d,0x343b45,0x9a958a,0xc4ad91,0x9b654d,0x617282,0xffc486,0x354e3c,0x594538,0x477985];
+const FPS_WORLD_COLORS=[0x728464,0x81796d,0x343b45,0x9a958a,0xc4ad91,0x9b654d,0x617282,0xffc486,0x354e3c,0x594538,0x477985,0xe7eff2];
 export class FpsWorldChunk {
   x:number;z:number;ids:number[]=[];kinds:number[]=[];details:number[]=[];byteSize:number=0;
   lod:number=0;minY:number=0;maxY:number=0;
@@ -25,18 +28,22 @@ export class FpsWorldChunk {
   }
 }
 /** Bounded resident set. New chunks publish atomically; stale jobs are discarded. */
-export class FpsWorldStream {
+export class WorldStream {
   field:FpsWorldField;window:FpsChunkWindow;
+  private profile:WorldGenerationProfile;chunkSize:number;
   chunks:FpsWorldChunk[]=[];generated:number=0;unloaded:number=0;maxStepMs:number=0;
   cacheHits:number=0;cache:FpsChunkCache;
   budget:FpsResourceBudget=new FpsResourceBudget(128*1024*1024,4096);
   vegetation:any=null;offsetY:number=0;
   collision:FpsWorldCollision=new FpsWorldCollision();
   error:string="";disposed:boolean=false;visibleChunks:number=0;culledChunks:number=0;drawCalls:number=0;
-  private win:number;private job:FpsWorldChunkLoader|null=null;private pending:FpsWorldChunk|null=null;
+  private win:number;private job:WorldChunkLoader|null=null;private pending:FpsWorldChunk|null=null;
   private materials:number[]=[];private drawBuffer:Float64Array=new Float64Array(DRAW_FLOATS);
-  constructor(win:number,seed:number,radius:number){
-    this.win=win;this.field=new FpsWorldField(seed);this.window=new FpsChunkWindow(radius);
+  constructor(win:number,seed:number,radius:number,profile?:WorldGenerationProfile){
+    this.profile=WorldGenerationProfile.fromData(profile);
+    this.chunkSize=createWorldGeneratorRegistry().chunkSize(this.profile.generator);
+    this.win=win;this.field=this.profile.biomes||this.profile.generator==="voxel"?new WorldBiomeField(seed,this.profile.biomeScale,this.profile.heightScale):new FpsWorldField(seed);
+    this.window=new FpsChunkWindow(radius,this.chunkSize);this.collision=new FpsWorldCollision(this.chunkSize);
     this.cache=new FpsChunkCache(25,32*1024*1024,(chunk:any)=>{chunk.dispose(this.win);this.unloaded++;});
     for(let i=0;i<FPS_WORLD_COLORS.length;i++){
       const m=new Material();m.pbr=1;m.roughness=i===10?.16:i===6?.25:.87;m.metallic=i===6?.45:0;
@@ -66,11 +73,11 @@ export class FpsWorldStream {
   private receiveMesh(mesh:any):void {
     if(this.pending===null)return;
     if(mesh.kind==="colliders"){
-      if(!Array.isArray(mesh.boxes)||mesh.boxes.length>4096||mesh.boxes.length%6!==0)throw new Error("Invalid chunk colliders");
+      if(!Array.isArray(mesh.boxes)||mesh.boxes.length>24576||mesh.boxes.length%6!==0)throw new Error("Invalid chunk colliders");
       for(let i=0;i<mesh.boxes.length;i++)if(!Number.isFinite(mesh.boxes[i]))throw new Error("Invalid collider coordinate");
       this.pending.colliders=mesh.boxes;return;
     }
-    if(!Array.isArray(mesh.vertices)||!Array.isArray(mesh.indices)||mesh.vertices.length===0||mesh.vertices.length>6144||mesh.vertices.length%8!==0||mesh.indices.length===0||mesh.indices.length>4608||mesh.indices.length%3!==0||!Number.isInteger(mesh.material)||mesh.material<0||mesh.material>=11||!Number.isInteger(mesh.lod)||mesh.lod<0||mesh.lod>2)throw new Error("Invalid chunk mesh packet");
+    if(!Array.isArray(mesh.vertices)||!Array.isArray(mesh.indices)||mesh.vertices.length===0||mesh.vertices.length>6144||mesh.vertices.length%8!==0||mesh.indices.length===0||mesh.indices.length>4608||mesh.indices.length%3!==0||!Number.isInteger(mesh.material)||mesh.material<0||mesh.material>=FPS_WORLD_COLORS.length||!Number.isInteger(mesh.lod)||mesh.lod<0||mesh.lod>2)throw new Error("Invalid chunk mesh packet");
     for(let i=0;i<mesh.vertices.length;i++)if(!Number.isFinite(mesh.vertices[i]))throw new Error("Invalid chunk vertex");
     for(let i=0;i<mesh.indices.length;i++)if(!Number.isInteger(mesh.indices[i])||mesh.indices[i]<0||mesh.indices[i]>=mesh.vertices.length/8)throw new Error("Invalid chunk index");
     const bytes=(mesh.vertices.length+mesh.indices.length)*4;
@@ -92,7 +99,7 @@ export class FpsWorldStream {
         for(let k=0;k<this.chunks.length;k++)if(this.chunks[k].x===x&&this.chunks[k].z===z){found=true;break;}
         if(!found){
           this.pending=new FpsWorldChunk(x,z,this.budget);
-          this.job=new FpsWorldChunkLoader(this.field.seed,x,z,(mesh:any)=>{this.receiveMesh(mesh);});this.job.vegetation=this.vegetation;break;
+          this.job=new WorldChunkLoader(this.field.seed,x,z,(mesh:any)=>{this.receiveMesh(mesh);});this.job.profile=this.profile;this.job.vegetation=this.vegetation;break;
         }
       }
     }
@@ -110,11 +117,11 @@ export class FpsWorldStream {
     const d=this.drawBuffer;
     d[1]=this.offsetY;
     for(let i=0;i<this.chunks.length;i++){
-      const c=this.chunks[i];d[0]=c.x*128-originX;d[2]=c.z*128-originZ;
+      const c=this.chunks[i];d[0]=c.x*this.chunkSize-originX;d[2]=c.z*this.chunkSize-originZ;
       if(camera!==undefined){
-        const half=(c.maxY-c.minY)/2,radius=Math.sqrt(8192+half*half);
-        if(inFrustumFast(d[0]+64,this.offsetY+(c.minY+c.maxY)/2,d[2]+64,radius+24)===0){this.culledChunks++;continue;}
-        const dx=d[0]+64-camera[0],dz=d[2]+64-camera[2];c.lod=fpsChunkLod(c.lod,Math.sqrt(dx*dx+dz*dz));
+        const half=(c.maxY-c.minY)/2,radius=Math.sqrt(this.chunkSize*this.chunkSize/2+half*half),center=this.chunkSize/2;
+        if(inFrustumFast(d[0]+center,this.offsetY+(c.minY+c.maxY)/2,d[2]+center,radius+24)===0){this.culledChunks++;continue;}
+        const dx=d[0]+center-camera[0],dz=d[2]+center-camera[2];c.lod=fpsChunkLod(c.lod,Math.sqrt(dx*dx+dz*dz));
       }
       this.visibleChunks++;
       for(let k=0;k<c.ids.length;k++){
@@ -132,4 +139,8 @@ export class FpsWorldStream {
     this.collision.clear();
     for(let i=0;i<this.materials.length;i++)materialFree(this.win,this.materials[i]);this.materials.length=0;
   }
+}
+/** @deprecated Use WorldStream com um WorldGenerationProfile. */
+export class FpsWorldStream extends WorldStream {
+  constructor(win:number,seed:number,radius:number){super(win,seed,radius);}
 }

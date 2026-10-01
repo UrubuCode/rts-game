@@ -1,5 +1,7 @@
 import { Behavior,KIND_RENDERER } from "./behavior";
-import { FpsWorldStream } from "../render/world_stream_render";
+import { WorldStream } from "../render/world_stream_render";
+import { WorldGenerationProfile } from "./world_generation";
+import { WorldBiomeField } from "./world_biomes";
 import { FpsWorldField } from "./world_streaming";
 import { VegetationMask } from "./vegetation_mask";
 import { frustumParams,frustumNear,frustumFar } from "../render/gpu3d";
@@ -14,6 +16,9 @@ import { activeInScene } from "./gameobject";
  */
 export class ProceduralWorld extends Behavior {
   seed:number=42;
+  generator:string="heightfield";
+  generatorSettings:string="{}";
+  biomes:boolean=false;biomeScale:number=512;heightScale:number=28;caves:boolean=true;
   chunkRadius:number=2;
   memoryMiB:number=128;
   treeDensity:number=1;
@@ -22,7 +27,7 @@ export class ProceduralWorld extends Behavior {
   brushX:number=0;brushZ:number=0;brushRadius:number=24;brushStrength:number=1;
   /** @hideInInspector */
   vegetationMask:string="";
-  private world:FpsWorldStream|null=null;
+  private world:WorldStream|null=null;
   private window:number=0;
   private field:FpsWorldField=new FpsWorldField(42);
   private frustum:number[]=[0,0,0,0,0,0,0,0,0];
@@ -37,6 +42,8 @@ export class ProceduralWorld extends Behavior {
   mount():void{this.onValidate("");}
   onValidate(field:string):void {
     this.seed=Number.isFinite(this.seed)?Math.floor(this.seed)>>>0:42;
+    this.biomeScale=this.limit(this.biomeScale,64,8192,512);
+    this.heightScale=this.limit(this.heightScale,1,48,28);
     this.chunkRadius=this.limit(this.chunkRadius,1,4,2)|0;
     this.memoryMiB=this.limit(this.memoryMiB,16,512,128);
     this.treeDensity=this.limit(this.treeDensity,0,1,1);
@@ -51,7 +58,7 @@ export class ProceduralWorld extends Behavior {
   private limit(value:number,min:number,max:number,fallback:number):number{return Number.isFinite(value)?Math.max(min,Math.min(max,value)):fallback;}
   regenerate():void {
     this.releaseResources();this.failed=false;this.lastChunks=-1;
-    this.field=new FpsWorldField(this.seed);this.message="Preparando mundo em background...";
+    this.field=this.biomes||this.generator==="voxel"?new WorldBiomeField(this.seed,this.biomeScale,this.heightScale):new FpsWorldField(this.seed);this.message="Preparando mundo em background...";
   }
   releaseResources():void {
     if(this.world!==null)this.world.dispose();this.world=null;this.window=0;
@@ -63,7 +70,10 @@ export class ProceduralWorld extends Behavior {
     try{
       this.onValidate("");
       new VegetationMask(this.vegetationMask);
-      this.world=new FpsWorldStream(win,this.seed,this.chunkRadius);this.window=win;
+      const profile=new WorldGenerationProfile();profile.generator=this.generator;profile.biomes=this.biomes;profile.biomeScale=this.biomeScale;profile.heightScale=this.heightScale;profile.caves=this.caves;
+      if(this.generatorSettings.length>65536)throw new Error("Configuração da extensão muito grande");
+      profile.options=JSON.parse(this.generatorSettings);
+      this.world=new WorldStream(win,this.seed,this.chunkRadius,profile);this.window=win;
       this.world.budget.maxBytes=this.memoryMiB*1024*1024;
       this.world.vegetation={trees:this.treeDensity,grass:this.grassDensity,slope:this.maxSlope,mask:this.vegetationMask};
     }catch(error){this.releaseResources();this.failed=true;this.message=String(error);}
@@ -96,6 +106,11 @@ export class ProceduralWorld extends Behavior {
   }
   onInspectorGUI(ui:InspectorUI):void {
     ui.field("seed");ui.field("chunkRadius");ui.field("memoryMiB");
+    ui.field("generator");ui.label("Extensões: heightfield ou voxel");
+    if(this.generator!=="heightfield"&&this.generator!=="voxel")ui.field("generatorSettings");
+    ui.field("biomes");ui.field("biomeScale");ui.field("heightScale");ui.field("caves");
+    ui.label("Cavernas: voxel. No heightfield, ative biomas para usar as escalas.");
+    if(this.generator==="voxel"){ui.label("Voxels: blocos e cavernas. Pintura de vegetação não se aplica.");ui.label(this.message);if(ui.button("Regenerar mundo"))this.regenerate();return;}
     ui.field("treeDensity");ui.field("grassDensity");ui.field("maxSlope");
     ui.label("Pincel local XZ: máscara compartilhada por árvores e mato.");
     ui.field("brushX");ui.field("brushZ");ui.field("brushRadius");ui.field("brushStrength");

@@ -1,10 +1,11 @@
 import { FpsWorldField } from "./world_streaming";
 import { VegetationMask } from "./vegetation_mask";
-export function fpsGeometryMaterial(kind:number):number{return kind===11||kind===16?8:kind===12?0:kind===13?1:kind===14?4:kind===15?9:kind;}
-export function fpsGeometryDetail(kind:number):number{return kind===16?1:kind>=11?2:kind===2||kind===10?0:1;}
+import { WorldMeshData } from "./world_generation";
+import { WorldBiomeField } from "./world_biomes";
+export function fpsGeometryMaterial(kind:number):number{return kind===11||kind===16?8:kind===12?0:kind===13?1:kind===14||kind===17||kind===19?4:kind===18||kind===20?11:kind===15?9:kind;}
+export function fpsGeometryDetail(kind:number):number{return kind===16||kind===17||kind===18?1:kind>=11?2:kind===2||kind===10?0:1;}
 const FPS_WORLD_BASIS=[0,0,1,1,0,0,0,1,0,0,0,-1,-1,0,0,0,1,0,1,0,0,0,0,-1,0,1,0,-1,0,0,0,0,1,0,1,0,0,1,0,1,0,0,0,0,-1,0,-1,0,1,0,0,0,0,1];
-class FpsWorldGeometry {
-  v:number[]=[];i:number[]=[];
+class FpsWorldGeometry extends WorldMeshData {
   box(p:number[],s:number[]):void {
     const b=FPS_WORLD_BASIS;
     for(let f=0;f<6;f++){
@@ -29,11 +30,16 @@ export class FpsWorldChunkJob {
   private p:number[]=[0,0,0];private s:number[]=[0,0,0];
   private column:number=0;private lotPart:number=0;
   private lotHigh:number=0;private lotWidth:number=0;private lotHeight:number=0;private lotUrban:boolean=false;
-  constructor(field:FpsWorldField,x:number,z:number){this.field=field;this.chunk=new FpsWorldChunk(x,z);for(let i=0;i<17;i++)this.geometry.push(new FpsWorldGeometry());}
+  constructor(field:FpsWorldField,x:number,z:number){this.field=field;this.chunk=new FpsWorldChunk(x,z);for(let i=0;i<21;i++){const g=new FpsWorldGeometry();g.material=fpsGeometryMaterial(i);g.lod=fpsGeometryDetail(i);this.geometry.push(g);}}
+  private terrainKind(x:number,z:number,far:boolean):number {
+    if(this.field instanceof WorldBiomeField){const biome=this.field.biomeAt(this.chunk.x*128+x,this.chunk.z*128+z);if(biome===2)return far?19:17;if(biome===3)return far?20:18;}
+    return (far?12:0)+(this.ground(x,z)>48?1:0);
+  }
   private vegetation(x:number,z:number,density:number):boolean {
     const wx=this.chunk.x*128+x,wz=this.chunk.z*128+z,h=this.ground(x,z);
     const dx=(this.ground(x+1,z)-this.ground(x-1,z))/2,dz=(this.ground(x,z+1)-this.ground(x,z-1))/2;
-    return h>=1&&h<92&&Math.atan(Math.sqrt(dx*dx+dz*dz))*180/Math.PI<=this.maxSlope&&this.field.random(Math.floor(wx*17),Math.floor(wz*19))<density*this.mask.sample(wx,wz);
+    const biome=this.field instanceof WorldBiomeField?this.field.vegetationDensity(wx,wz):1;
+    return h>=1&&h<92&&Math.atan(Math.sqrt(dx*dx+dz*dz))*180/Math.PI<=this.maxSlope&&this.field.random(Math.floor(wx*17),Math.floor(wz*19))<density*biome*this.mask.sample(wx,wz);
   }
   private grass(index:number):void {
     if(this.lotUrban||this.grassDensity<=0)return;
@@ -118,7 +124,7 @@ export class FpsWorldChunkJob {
     if(this.phase<16){
       const row=this.phase;
       for(let col=this.column;col<this.column+4;col++){
-        const h=this.ground(col*8+4,row*8+4),kind=h>48?1:0;
+        const h=this.ground(col*8+4,row*8+4),kind=this.terrainKind(col*8+4,row*8+4,false);
         this.quad(kind,col*8,row*8,8);
         if(col===0||row===0)this.quad(2,col*8,row*8,8);
         else if(col===1||row===1||col===15||row===15){if(h<10&&h>1)this.quad(3,col*8,row*8,8);}
@@ -131,7 +137,7 @@ export class FpsWorldChunkJob {
   }
   private coarseTerrain(cell:number):void {
     const x=(cell%4)*32,z=Math.floor(cell/4)*32;
-    const g=this.geometry[this.ground(x+16,z+16)>48?13:12];
+    const g=this.geometry[this.terrainKind(x+16,z+16,true)];
     // Bordas externas preservam cada amostra de 8 unidades do LOD próximo.
     // A ordem do contorno mantém a orientação dos triângulos voltada para cima.
     for(let side=0;side<4;side++){

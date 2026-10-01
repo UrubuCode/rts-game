@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 const require=createRequire(import.meta.url);
 let ts;try{ts=require('typescript');}catch{try{ts=require('../engine/node_modules/typescript');}catch{ts=require('../build/engine-audit/node_modules/typescript');}}
-const files=['world_streaming.ts','vegetation_mask.ts','world_geometry.ts'];
+const files=['world_streaming.ts','world_generation.ts','world_biomes.ts','vegetation_mask.ts','world_geometry.ts','voxel_generation.ts','world_generators.ts'];
 const sourceRoot=fs.existsSync('engine/src/engine/core/world_geometry.ts')?'engine/src':'src';
 const source=files.map(file=>fs.readFileSync(sourceRoot+'/engine/core/'+file,'utf8').replace(/^import .*;\r?\n/gm,'').replace(/^export /gm,'')).join('\n');
 const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.ESNext}}).outputText;
@@ -12,9 +12,10 @@ import { parentPort,workerData,receiveMessageOnPort,isTerminating } from "node:w
 import { time } from "rts";
 try {
  const start=performance.now();
- const job=new FpsWorldChunkJob(new FpsWorldField(workerData.seed),workerData.x,workerData.z);
- const vegetation=workerData.vegetation;
- if(vegetation){job.treeDensity=vegetation.trees;job.grassDensity=vegetation.grass;job.maxSlope=vegetation.slope;job.mask=new VegetationMask(vegetation.mask);}
+ const profile=WorldGenerationProfile.fromData(workerData.profile);
+ const requestData=new WorldGenerationRequest(workerData.seed,workerData.x,workerData.z,profile);
+ requestData.vegetation=workerData.vegetation;
+ const job=createWorldGeneratorRegistry().create(requestData);
  while(!job.done&&!isTerminating())job.step();
  const buildMs=performance.now()-start;
  let kind=0,base=0,index=0,metadata=false;
@@ -28,7 +29,7 @@ try {
   // 768 é divisível por caixas (24), quads (4) e triângulos do terreno distante (3).
   while(index<g.i.length&&g.i[index]<end){indices.push(g.i[index]-base);index++;}
   const vertices=g.v.slice(base*8,end*8);
-  parentPort.postMessage(JSON.stringify({kind:"mesh",material:fpsGeometryMaterial(kind),lod:fpsGeometryDetail(kind),vertices:vertices,indices:indices}));
+  parentPort.postMessage(JSON.stringify({kind:"mesh",material:g.material,lod:g.lod,vertices:vertices,indices:indices}));
   base=end;
  }
 }catch(error){parentPort.postMessage(JSON.stringify({kind:"error",message:String(error)}));}

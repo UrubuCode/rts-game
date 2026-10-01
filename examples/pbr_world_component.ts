@@ -8,8 +8,10 @@ import { drawSceneObjects,prepararDesenho,DS_FLOATS,fParams } from "@engine/rend
 
 const win=openWindow("RTS | ProceduralWorld como componente",1280,800,0);initMeshes(win);setVsync(win,1);
 const scene=new Scene(),object=scene.createGameObject("Mundo procedural"),world=new ProceduralWorld();
-world.chunkRadius=1;object.addBehavior(world);scene.computeWorld();
+world.chunkRadius=1;world.seed=Number(process.env.RTS_CITY_SEED||"42");object.addBehavior(world);scene.computeWorld();
+if(process.env.RTS_WORLD_GENERATOR==="voxel"){world.generator="voxel";world.biomes=true;world.chunkRadius=2;}
 const camera=new Float64Array([4,38,-42,0,-.13,1.05,1.6,.15,390,0,5]),cfg=new Float64Array(DS_FLOATS);
+if(world.generator==="voxel"){camera[0]=20;camera[1]=52;camera[2]=-20;camera[3]=.35;camera[4]=-.65;}
 setLightsBuf(win,new Float64Array([0,0,0,0,-.25,-.23,-1,1,.7,.46,3,0,0,0,1,0]),1);
 setSkyBuf(win,new Float64Array([1,.14,.23,.39,.94,.5,.28,.1,.13,.16,-.25,-.23,-1,.029,0,1,0,2,1,1,1,.4]));setExposure(win,1.05);
 const limit=Number(process.env.RTS_PBR_FRAMES||"0"),capture=process.env.RTS_PBR_CAPTURE||"";
@@ -41,7 +43,8 @@ while(pump(win)&&isOpen(win)){
   if(limit>0&&readyFrames>=limit){
     if(phase===0){
       if(world.resourceBytes()<=0)throw new Error("No component mesh resources");
-      world.brushX=32;world.brushZ=32;world.paintVegetation(-1);
+      if(world.generator==="voxel")world.regenerate();
+      else{world.brushX=32;world.brushZ=32;world.paintVegetation(-1);}
       if(world.resourceBytes()!==0)throw new Error("Painting leaked resources");
       phase=1;readyFrames=0;
     }else break;
@@ -50,4 +53,4 @@ while(pump(win)&&isOpen(win)){
 scene.clear();scene.clear();
 if(world.resourceBytes()!==0)throw new Error("Scene cleanup leaked resources");
 close(win);
-if(limit>0){if(phase!==1||readyFrames<limit)throw new Error("Component test interrupted");println("PASS component GPU: scene renderer, worker, painted rebuild, scene clear and repeated cleanup");}
+if(limit>0){if(phase!==1||readyFrames<limit)throw new Error("Component test interrupted");println("PASS component GPU: "+world.generator+", scene renderer, worker, rebuild, scene clear and repeated cleanup");}

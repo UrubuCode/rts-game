@@ -31,8 +31,9 @@ a máscara é serializada como dados ocultos na cena, não como geometria.
 A distribuição respeita também água, altura e inclinação. Uma máscara cheia
 não obriga a nascer vegetação em locais proibidos. O mato atual usa triângulos
 simples próximos da câmera, sem textura ou vento; as árvores são protótipos.
-Modelos/prefabs por espécie, biomas, texturas de solo e parâmetros do relevo
-ainda precisam de um perfil de geração configurável.
+Modelos/prefabs por espécie e texturas próprias de solo ainda faltam.
+Biomas, extensão voxel e parâmetros de relevo estão descritos em
+[geração extensível](world-extensions.md).
 
 ## Streaming e ciclo de vida
 
