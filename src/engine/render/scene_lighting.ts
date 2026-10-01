@@ -2,6 +2,7 @@
 // nenhum Light, a luz pontual legada (bloco "light" da cena / ws `light`) vale
 // como antes. Sem alocação: buffers do módulo.
 import type { Scene } from "../core/scene";
+import { setExposure } from "rts:egui";
 import { registrarFalhaAsset } from "@engine/core/falhas";
 import { MAX_LUZES, FLOATS_POR_LUZ, LUZ_DIRECIONAL, direcaoSol } from "../core/light";
 import { setLightsBuf, setLgtBuf, setShadowBuf, setSkyBuf, setFogBuf, loadTexture } from "./gpu3d";
@@ -108,7 +109,13 @@ function carregarTexturaDoCeu(win: number, caminho: string): void {
 /// ACOPLAMENTO DE ORDEM: chame isto DEPOIS de `aplicarLuzes` no mesmo frame —
 /// o fallback do sol (quando `ambiente.sol` está vazio ou não acha a direcional
 /// nomeada) usa `ultimaN`/`luzBuf`, que só `aplicarLuzes` preenche.
+let pbrExposureWindow = -1;
+let pbrExposureValue = -1;
 export function aplicarAmbiente(win: number, sc: Scene): number {
+  if (pbrExposureWindow !== win || pbrExposureValue !== sc.ambiente.exposicao) {
+    setExposure(win, sc.ambiente.exposicao);
+    pbrExposureWindow = win; pbrExposureValue = sc.ambiente.exposicao;
+  }
   // Prioridade da direção do sol do céu (independente do slot 0/sombra):
   // 1) a direcional nomeada em `ambiente.sol`; 2) a principal da última
   // `aplicarLuzes` (slot 0, escolhida por sombra); 3) SOL_PADRAO fixo.

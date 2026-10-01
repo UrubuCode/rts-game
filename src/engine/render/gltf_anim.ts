@@ -11,6 +11,8 @@
 // DE ÍNDICE — por isso a hierarquia aqui é gravada em PRÉ-ORDEM (pai sempre
 // antes do filho).
 
+
+import { Material } from "../core/material";
 import buffer from "@compat/buffer.ts";
 import type { Buf } from "@compat/buffer.ts";
 
@@ -46,6 +48,7 @@ export class AnimClip {
 /// `boneParent[i] < i` sempre (pré-ordem): compor a pose é UM laço `i = 0..N`
 /// sem precisar resolver dependência de pai — o pai já foi composto.
 export class SkeletonAsset {
+  partMaterial: (Material | null)[] = [];
   path: string;
   boneNames: string[];
   boneParent: number[];                          // -1 = raiz
@@ -91,13 +94,15 @@ const skeletonCache = new Map<string, SkeletonAsset>();
 /// Cacheado por `path`: a 2ª chamada devolve a MESMA instância. Se ela veio de
 /// uma carga sem janela (ou de outra janela) e agora chega um `win` real, as
 /// peças sobem para ESSA janela aqui — o asset não fica "preso" sem malha.
-export function loadSkeletonAsset(win: number, path: string): SkeletonAsset {
+// UI checkpoints must not reenter model loaders (model.ts shares its BIN offset).
+// Individual reads/primitives/channels remain synchronous; yielding is cooperative.
+export function loadSkeletonAsset(win: number, path: string, checkpoint?: () => void): SkeletonAsset {
   const hit = skeletonCache.get(path);
   if (hit !== undefined) {
-    if (skeletonNeedsUpload(hit, win)) uploadSkeletonParts(win, hit);
+    if (skeletonNeedsUpload(hit, win)) uploadSkeletonParts(win, hit, checkpoint);
     return hit;
   }
-  const asset = buildSkeletonAsset(win, path);
+  const asset = buildSkeletonAsset(win, path, checkpoint);
   if (win !== 0) asset.uploadedWin = win;
   skeletonCache.set(path, asset);
   return asset;
@@ -113,7 +118,7 @@ export function skeletonNeedsUpload(asset: SkeletonAsset, win: number): boolean 
 /// texturas; nós e clipes ficam como estão) e, com `win` real, sobe para a
 /// GPU e grava `uploadedWin`. Devolve quantas peças foram reconstruídas.
 /// `win = 0` percorre o mesmo caminho sem tocar na GPU (teste headless).
-export function uploadSkeletonParts(win: number, asset: SkeletonAsset): number {
+export function uploadSkeletonParts(win: number, asset: SkeletonAsset, checkpoint?: () => void): number {
   const chunks = glbChunks(asset.path);
   const g = chunks.json;
   const bin = chunks.bin;
@@ -121,6 +126,7 @@ export function uploadSkeletonParts(win: number, asset: SkeletonAsset): number {
   let built = 0;
   let k = 0;
   while (k < asset.partSrcMesh.length) {
+    if (checkpoint !== undefined) checkpoint();
     const mi = asset.partSrcMesh[k];
     const pi = asset.partSrcPrim[k];
     const mesh = g.meshes[mi];
@@ -136,6 +142,7 @@ export function uploadSkeletonParts(win: number, asset: SkeletonAsset): number {
           try { texId = loadTexture(win, part.texPath); } catch (e) { texId = 0; }
         }
         asset.partTex[k] = texId;
+        asset.partMaterial[k] = part.pbrMaterial;
       }
       built = built + 1;
     }
@@ -146,7 +153,7 @@ export function uploadSkeletonParts(win: number, asset: SkeletonAsset): number {
   return built;
 }
 
-function buildSkeletonAsset(win: number, path: string): SkeletonAsset {
+function buildSkeletonAsset(win: number, path: string, checkpoint?: () => void): SkeletonAsset {
   const chunks = glbChunks(path);   // lança com o motivo se o arquivo faltar/for inválido
   const g = chunks.json;
   const bin = chunks.bin;
@@ -177,6 +184,7 @@ function buildSkeletonAsset(win: number, path: string): SkeletonAsset {
   while (ri >= 0) { stackNode.push(rootIdxs[ri] | 0); stackParent.push(0 - 1); ri = ri - 1; }
 
   while (stackNode.length > 0) {
+    if (checkpoint !== undefined) checkpoint();
     const nIdx = stackNode.pop() as number;
     const parentBone = stackParent.pop() as number;
     const node = nodes[nIdx];
@@ -203,7 +211,7 @@ function buildSkeletonAsset(win: number, path: string): SkeletonAsset {
   asset.restR = toF64Array(restR);
   asset.restS = toF64Array(restS);
 
-  readClips(g, bin, nodeToBone, asset);
+  readClips(g, bin, nodeToBone, asset, checkpoint);
 
   buffer.free(bin);
   return asset;
@@ -299,6 +307,7 @@ function buildParts(g: any, bin: Buf, meshIdx: number, boneIdx: number, baseDir:
       asset.partSrcPrim.push(pi);
       asset.partMesh.push(meshId);
       asset.partTex.push(texId);
+      asset.partMaterial.push(part.pbrMaterial);
       asset.partColor.push(packColor(part.cr, part.cg, part.cb));
     }
     pi = pi + 1;
@@ -315,7 +324,7 @@ function packColor(cr: number, cg: number, cb: number): number {
 // Lê `animations[]` → um AnimClip por animação, um canal por (osso, path)
 // suportado (translation/rotation/scale — glTF ainda tem `weights`, sem uso
 // aqui porque não há morph target nestes personagens).
-function readClips(g: any, bin: Buf, nodeToBone: number[], asset: SkeletonAsset): void {
+function readClips(g: any, bin: Buf, nodeToBone: number[], asset: SkeletonAsset, checkpoint?: () => void): void {
   const anims = g.animations;
   if (anims === undefined) return;
   let ai = 0;
@@ -329,6 +338,7 @@ function readClips(g: any, bin: Buf, nodeToBone: number[], asset: SkeletonAsset)
     if (channels !== undefined && samplers !== undefined) {
       let ci = 0;
       while (ci < channels.length) {
+        if (checkpoint !== undefined) checkpoint();
         readChannel(g, bin, channels[ci], samplers, nodeToBone, clip);
         ci = ci + 1;
       }

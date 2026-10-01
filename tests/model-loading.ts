@@ -1,0 +1,20 @@
+import fs from "@compat/fs.ts";
+import { loadSkeletonAsset } from "@engine/render/gltf_anim";
+// Exercise actual GLB UTF-8 decoding, cooperative checkpoints and asset caching.
+const json=JSON.stringify({asset:{version:"2.0"},scene:0,scenes:[{nodes:[0]}],nodes:[{name:"Pedestre João 日本"}]});
+const encoded=new TextEncoder().encode(json);
+const padded=Math.ceil(encoded.length/4)*4;
+const bytes=new Uint8Array(12+8+padded+8+4);
+const view=new DataView(bytes.buffer);
+view.setUint32(0,0x46546c67,true);view.setUint32(4,2,true);view.setUint32(8,bytes.length,true);
+view.setUint32(12,padded,true);view.setUint32(16,0x4e4f534a,true);
+bytes.fill(32,20,20+padded);bytes.set(encoded,20);
+view.setUint32(20+padded,4,true);view.setUint32(24+padded,0x004e4942,true);
+const path="build/model-loading-utf8.glb";fs.write(path,bytes);
+let checkpoints=0;
+const asset=loadSkeletonAsset(0,path,()=>{checkpoints++;});
+if(asset.boneNames[0]!=="Pedestre João 日本")throw new Error("GLB UTF-8 name corrupted");
+if(checkpoints===0)throw new Error("Loader did not yield a checkpoint");
+const again=loadSkeletonAsset(0,path,()=>{throw new Error("Cache reparsed model");});
+if(again!==asset)throw new Error("Model cache was not reused");
+println("PASS model-loading: UTF-8 GLB, checkpoints, cache reuse");

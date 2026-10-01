@@ -54,7 +54,8 @@ const EXCECOES = {
   'src/engine/fluid/fluid.ts': { flSpawnBlock: 'fluido — setup' },
   'src/engine/fluid/gpufluid.ts': { gfSpawnBlock: 'fluido — setup', gfSetState: 'fluido — setup' },
   'src/engine/render/draw.ts': { drawCube: 'rasterizador por software legado (harness)', drawGrid: 'idem', drawSeg: 'idem' },
-  'src/engine/render/gltf_anim.ts': { quatFromMat3: 'ao carregar o glTF', buildParts: 'idem', readChannel: 'idem' },
+  'src/engine/render/gltf_anim.ts': { quatFromMat3: 'ao carregar o glTF', buildParts: 'idem', readChannel: 'idem', readClips: 'importação das animações, apenas ao carregar o glTF' },
+  'src/engine/render/loading_screen.ts': { rect: 'monta geometria retida somente na criação ou mudança de tamanho da janela', text: 'monta rótulos retidos somente na criação ou mudança de tamanho da janela' },
   'src/engine/render/gpu3d.ts': {
     pushV: 'monta as malhas primitivas uma vez (initMeshes)', uploadTexture: 'uma vez por textura',
     drawGPUMesh: 'invólucro antigo para demos/harness; o motor usa drawGPUMeshBuf', drawGPU: 'idem (drawGPUBuf)',

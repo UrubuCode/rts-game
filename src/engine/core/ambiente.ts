@@ -37,6 +37,8 @@ export class LuzAmbienteConfig {
   constructor() { this.modo = "legado"; this.cor = rgb(1.0, 1.0, 1.0); this.intensidade = 0.25; }
 }
 export class Ambiente {
+  /// Multiplicador de exposição HDR; zero preserva a conversão antiga.
+  exposicao: number = 0.0;
   ceu: CeuConfig; neblina: NeblinaConfig; luzAmbiente: LuzAmbienteConfig;
   /// Nome do GameObject da direcional que dá a direção do sol ("" = a primeira).
   sol: string;
@@ -54,6 +56,7 @@ export class Ambiente {
 
 function copiar3(dst: Float64Array, src: Float64Array): void { dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; }
 export function copiarAmbiente(dst: Ambiente, src: Ambiente): void {
+  dst.exposicao = src.exposicao;
   dst.ceu.modo = src.ceu.modo; copiar3(dst.ceu.topo, src.ceu.topo); copiar3(dst.ceu.horizonte, src.ceu.horizonte);
   copiar3(dst.ceu.chao, src.ceu.chao); dst.ceu.estrelas = src.ceu.estrelas; dst.ceu.exposicao = src.ceu.exposicao;
   dst.ceu.textura = src.ceu.textura; dst.ceu.tamanhoSol = src.ceu.tamanhoSol;
@@ -66,6 +69,7 @@ export function ambientePadrao(dst: Ambiente): void { copiarAmbiente(dst, new Am
 function arr3(v: Float64Array): number[] { const a: number[] = [v[0], v[1], v[2]]; return a; }
 export function ambienteToData(a: Ambiente): any {
   return {
+    exposicao: a.exposicao,
     ceu: { modo: a.ceu.modo, topo: arr3(a.ceu.topo), horizonte: arr3(a.ceu.horizonte), chao: arr3(a.ceu.chao),
            estrelas: a.ceu.estrelas, exposicao: a.ceu.exposicao, textura: a.ceu.textura, tamanhoSol: a.ceu.tamanhoSol },
     neblina: { cor: arr3(a.neblina.cor), densidade: a.neblina.densidade },
@@ -111,6 +115,7 @@ function lerBloco(v: any, campo: string): any {
 export function ambienteFromData(dst: Ambiente, d: any): void {
   if (d === null || typeof d !== "object") throw erro("", "deve ser um objeto");
   const t = new Ambiente();
+  t.exposicao = Math.min(64, lerNumero(d.exposicao, "exposicao", 0));
   const c = lerBloco(d.ceu, "ceu");
   const n = lerBloco(d.neblina, "neblina");
   const l = lerBloco(d.luzAmbiente, "luzAmbiente");

@@ -1,0 +1,10 @@
+import { FpsResourceBudget } from "@engine/core/resource_budget";
+const fpsBudget=new FpsResourceBudget(100,2);
+if(!fpsBudget.reserve(40)||!fpsBudget.reserve(50))throw new Error("Valid reservation failed");
+if(fpsBudget.reserve(1)||fpsBudget.bytes!==90||fpsBudget.meshes!==2)throw new Error("Mesh cap exceeded");
+fpsBudget.release(40,1);
+if(fpsBudget.reserve(51)||fpsBudget.reserve(-1)||fpsBudget.reserve(NaN))throw new Error("Invalid reservation accepted");
+if(!fpsBudget.reserve(50)||fpsBudget.peakBytes!==100)throw new Error("Budget reuse failed");
+fpsBudget.release(100,2);
+if(fpsBudget.bytes!==0||fpsBudget.meshes!==0)throw new Error("Resource leak");
+println("PASS resource-budget: byte/handle limits, failed reservation rollback, reuse, peak accounting");

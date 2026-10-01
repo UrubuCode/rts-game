@@ -9,7 +9,11 @@ import { scene, S } from "./control/session";
 import { Scene } from "../engine/core/scene";
 import { GameObject, getNextGameObjectId, setNextGameObjectId } from "../engine/core/gameobject";
 import { Behavior } from "../engine/core/behavior";
-import { Material } from "../engine/core/material";
+import { Material, materialFromData } from "../engine/core/material";
+import { RoutePath } from "../engine/core/route_path";
+import { RouteAgent } from "../engine/core/route_agent";
+import { Terrain } from "../engine/core/terrain";
+import { SceneLoadOperation } from "../engine/core/scene_loading";
 import { MeshRenderer } from "../engine/core/meshrenderer";
 import { Skeleton } from "../engine/core/skeleton";
 import { Camera } from "../engine/core/camera";
@@ -46,14 +50,24 @@ export function recreateBehavior(sd: any): Behavior {
   componentMetadata.provider.restoreLegacyFields(component, sd.componentFields);
   // A restauração gerada copia os números como vieram do arquivo; a Camera
   // divide pela lente, então passa pela mesma validação do Inspector.
-  if (component instanceof Camera) component.onValidate("");
+  if (component instanceof Camera || component instanceof RouteAgent) component.onValidate("");
   if (component instanceof AudioSource) component.migrarModo(sd.fields !== undefined && sd.fields !== null ? sd.fields : sd);
   if (sd._enabled !== undefined) component.enabled = sd._enabled !== 0 ? 1 : 0;
   if (sd._collapsed !== undefined) component.collapsed = sd._collapsed !== 0 ? 1 : 0;
   return component;
 }
 
+// Returns a staging scene only when complete; the caller chooses when to swap.
+// Imported model factories and mount hooks still need bounded asset preparation.
+export function loadSceneAsync(path:string):SceneLoadOperation {
+  const ids=new Set<number>();
+  return new SceneLoadOperation(path,(data:any)=>buildObject(data,undefined,ids));
+}
+
 function recreateBehaviorInner(sd: any): Behavior {
+  if (sd.type === "terrain") return Terrain.fromData(sd);
+  if (sd.type === "routePath") return RoutePath.fromData(sd);
+  if (sd.type === "material" || sd.t === "material") return materialFromData(sd);
   const registered = restoreRegisteredComponent(sd);
   if (registered !== null) return registered;
   const t = sd.type !== undefined ? sd.type : sd.t;

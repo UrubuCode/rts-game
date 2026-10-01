@@ -99,6 +99,27 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/rigidbody.ts"
   },
   {
+    "name": "RouteAgent",
+    "category": "IA e Navegacao",
+    "description": "Segue o RoutePath do mesmo objeto: espera, vira e anda.",
+    "keywords": "agente rota npc estados patrulha",
+    "source": "src/engine/core/route_agent.ts"
+  },
+  {
+    "name": "RoutePath",
+    "category": "IA e Navegacao",
+    "description": "Pontos XZ locais, conexoes e pausas de uma rota.",
+    "keywords": "rota waypoint caminho patrulha",
+    "source": "src/engine/core/route_path.ts"
+  },
+  {
+    "name": "Terrain",
+    "category": "Mundo",
+    "description": "Terreno heightfield com pincel de altura e relevo salvo na cena.",
+    "keywords": "terreno terrain relevo altura pincel",
+    "source": "src/engine/core/terrain.ts"
+  },
+  {
     "name": "Camera",
     "category": "Renderização",
     "description": "Câmera do jogo: perspectiva ou ortográfica, viewport, fundo e ordem de desenho.",

@@ -12,8 +12,9 @@ import { Transform } from "../core/transform";
 import { Scene } from "../core/scene";
 import { renderX, renderY, renderZ } from "../core/interpolate";
 import { drawGPUMeshBuf, drawBatch, meshIdFor, meshRadius, frustumNear, frustumFar,
-         DRAW_FLOATS, D_X, D_Y, D_Z, D_RX, D_RY, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX, D_TILE } from "./gpu3d";
+         DRAW_FLOATS, D_X, D_Y, D_Z, D_RX, D_RY, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX, D_TILE, D_MATERIAL } from "./gpu3d";
 import { resolveMaterialTexture } from "./material_tex";
+import { resolvePbrMaterial } from "./pbr_material";
 
 // ── LOTE: os buffers de instância, REAPROVEITADOS entre frames ──────────────
 //
@@ -214,9 +215,11 @@ export function drawSceneObjects(sc: Scene, n: number, win: number, cfg: Float64
       if (o.textureId > 0) texArg = o.textureId;
       let emisArg = o.emissive;
       let tileArg = 0.0;
+      let materialArg = 0;
       if (o.matIdx >= 0) {
         const m = o.behaviors[o.matIdx];
         const tid = resolveMaterialTexture(win, m);
+        if (m.matPbr() !== 0) materialArg = resolvePbrMaterial(win, m);
         tileArg = m.matTile();
         if (tid > 0) texArg = tid; else texArg = m.matTexMode();
         emisArg = m.matEmissive();
@@ -231,7 +234,7 @@ export function drawSceneObjects(sc: Scene, n: number, win: number, cfg: Float64
       const rz = renderZ(sc, oi, alpha);
       // Tiling não viaja no lote (4 códigos por objeto): quem tem vai pelo
       // desenho individual, que carrega o `tile`.
-      if (emitirEmLote !== 0 && tileArg <= 0.0) {
+      if (emitirEmLote !== 0 && tileArg <= 0.0 && materialArg === 0) {
         // ACUMULA. A escrita num array tipado é local; o que ela substitui é uma
         // ida ao nativo por objeto, e é essa a diferença que a medição procura.
         const ft = loteN * 8;
@@ -252,6 +255,7 @@ export function drawSceneObjects(sc: Scene, n: number, win: number, cfg: Float64
         const d = drawBuf;
         d[D_X] = rx; d[D_Y] = ry; d[D_Z] = rz; d[D_RX] = tr.wrx; d[D_RY] = tr.wry;
         d[D_SX] = tr.sx; d[D_SY] = tr.sy; d[D_SZ] = tr.sz;
+        d[D_MATERIAL] = materialArg;
         d[D_COR] = col; d[D_EMISSIVO] = emisArg; d[D_TEX] = texArg; d[D_TILE] = tileArg;
         drawGPUMeshBuf(win, customMesh > 0 ? customMesh : meshIdFor(meshKind), d);
       }

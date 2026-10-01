@@ -8,6 +8,7 @@
 // asset browser produz ao arrastar (assets.ts: assetDragPayload).
 
 import { scene, S } from "./control/session";
+import { materialFromData } from "../engine/core/material";
 import { GameObject } from "../engine/core/gameobject";
 import { instantiatePrefab } from "./sceneio";
 import { sceneDocument } from "./scene_document";
@@ -125,7 +126,8 @@ function partToObject(sm: SubMesh, name: string, srcPath: string, partIdx: numbe
   go.meshPath = srcPath;
   go.meshPart = partIdx;                // pra reconstruir a submesh certa no load
   go.stationary = 1;
-  if (sm.texPath.length > 0) {
+  if (sm.pbrMaterial !== null) go.addBehavior(materialFromData(sm.pbrMaterial.toData()));
+  else if (sm.texPath.length > 0) {
     const tid = loadTexture(win, sm.texPath) | 0;
     if (tid > 0) go.applyTexture(tid, sm.texPath);
   }
@@ -264,7 +266,10 @@ export function applyMeshToObject(idx: number, path: string, win: number): numbe
   o.refreshCollide();
   o.meshPath = path;
   o.cr = sm.cr; o.cg = sm.cg; o.cb = sm.cb;
-  if (sm.texPath.length > 0) {
+  if (sm.pbrMaterial !== null) {
+    if (o.matIdx >= 0) o.removeBehavior(o.matIdx);
+    o.addBehavior(materialFromData(sm.pbrMaterial.toData()));
+  } else if (sm.texPath.length > 0) {
     const tid = loadTexture(win, sm.texPath) | 0;
     if (tid > 0) o.applyTexture(tid, sm.texPath);
   }

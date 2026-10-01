@@ -17,9 +17,12 @@ import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
 
 import { upload } from "./gpu3d";
+import { Material } from "../core/material";
+import { gltfMaterial } from "./gltf_material";
 
 /// Uma parte do modelo: geometria na VRAM + a aparência que veio do arquivo.
 export class SubMesh {
+  pbrMaterial: Material | null = null;
   meshId: number;      // id na VRAM (0 = inválida)
   name: string;        // nome do grupo/objeto/primitive (pra nomear o GameObject)
   cr: number; cg: number; cb: number;   // cor difusa 0..255 (do .mtl / glTF baseColor)
@@ -130,6 +133,7 @@ function clamp255(v: f64): number {
 // ── .OBJ ────────────────────────────────────────────────────────────────────
 // Acumulador de uma submesh em construção (um grupo `o`/`g` ou um `usemtl`).
 export class Part {
+  pbrMaterial: Material | null = null;
   verts: f64[];        // [x,y,z, nx,ny,nz, u,v] por vértice
   inds: number[];
   vi: number;          // próximo índice a emitir
@@ -163,7 +167,7 @@ export function loadObjParts(win: i64, path: string): SubMesh[] {
       if (id > 0) {
         const sm = new SubMesh(id, p.name);
         sm.cr = p.cr; sm.cg = p.cg; sm.cb = p.cb;
-        sm.texPath = p.texPath;
+        sm.texPath = p.texPath; sm.pbrMaterial = p.pbrMaterial;
         out.push(sm);
       }
     }
@@ -310,24 +314,14 @@ function pushCorner(vi: number, ti: number, ni: number, fnx: f64, fny: f64, fnz:
 // vértices. `.glb` empacota tudo num arquivo (header + chunk JSON + chunk BIN);
 // `.gltf` é o JSON solto com os .bin ao lado.
 //
-// Importamos GEOMETRIA ESTÁTICA + cor/textura base — que é o que esta engine
-// sabe desenhar. Skinning/animação/PBR (metallic, normal map) são ignorados de
-// propósito: não há esqueleto nem canais extras no shader.
+// Importamos geometria e materiais metallic-roughness PBR. A hierarquia e os
+// clipes de animação são lidos por gltf_anim.ts; skinning por pesos não é suportado.
 
 // Extrai [off, off+len) de um buffer como string. `buffer.to_string(b)` converte
 // o buffer INTEIRO (não aceita range), então montamos por bytes — em BLOCOS, que
 // concatenar caractere a caractere num JSON de megabytes seria O(n²).
 function sliceUtf8(b: Buf, off: number, len: number): string {
-  let out = "";
-  let chunk = "";
-  let i = 0;
-  while (i < len) {
-    chunk = chunk + String.fromCharCode(buffer.read_u8(b, off + i));
-    if (chunk.length >= 1024) { out = out + chunk; chunk = ""; }
-    i = i + 1;
-  }
-  if (chunk.length > 0) out = out + chunk;
-  return out;
+  return new TextDecoder("utf-8").decode(b.subarray(off, off + len));
 }
 
 const GLB_MAGIC = 0x46546C67;   // "glTF" em little-endian
@@ -356,7 +350,7 @@ export function loadGltfParts(win: i64, path: string): SubMesh[] {
       if (id > 0) {
         const sm = new SubMesh(id, p.name);
         sm.cr = p.cr; sm.cg = p.cg; sm.cb = p.cb;
-        sm.texPath = p.texPath;
+        sm.texPath = p.texPath; sm.pbrMaterial = p.pbrMaterial;
         out.push(sm);
       }
     }
@@ -521,12 +515,18 @@ export function buildPrimitive(g: any, prim: any, bin: Buf, mname: string,
   p.inds = idx;
   p.vi = nv;
   applyGltfMaterial(g, prim, p, baseDir);
+  p.pbrMaterial = gltfMaterial(g, prim.material !== undefined ? prim.material : -1, baseDir, bin.subarray(binOff));
+  p.texPath = p.pbrMaterial.texturePath;
   return p;
 }
 
-// Cor base + textura difusa do material da primitive (ignora metallic/roughness/
-// normal map: o shader tem uma difusa só).
+// Cor base linear do glTF convertida para o tint sRGB da engine.
+function gltfColorByte(value: number): number {
+  const x = Math.max(0, Math.min(1, value));
+  return clamp255((x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1.0 / 2.4) - 0.055) * 255);
+}
 function applyGltfMaterial(g: any, prim: any, sm: Part, baseDir: string): void {
+  sm.cr = 255; sm.cg = 255; sm.cb = 255;
   if (prim.material === undefined) return;
   const mats = g.materials;
   if (mats === undefined) return;
@@ -536,7 +536,7 @@ function applyGltfMaterial(g: any, prim: any, sm: Part, baseDir: string): void {
   if (pbr === undefined) return;
   const bcf = pbr.baseColorFactor;
   if (bcf !== undefined && bcf.length >= 3) {
-    sm.cr = clamp255(bcf[0] * 255.0); sm.cg = clamp255(bcf[1] * 255.0); sm.cb = clamp255(bcf[2] * 255.0);
+    sm.cr = gltfColorByte(bcf[0]); sm.cg = gltfColorByte(bcf[1]); sm.cb = gltfColorByte(bcf[2]);
   }
   // textura: material → texture → image → uri (só imagem EXTERNA; embutida no
   // BIN exigiria escrever um arquivo temporário, o que não fazemos aqui).

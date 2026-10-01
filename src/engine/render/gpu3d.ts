@@ -47,6 +47,7 @@ import {
 } from "rts:egui";
 import math from "@compat/math.ts";
 import { decodePNG } from "./png";
+import { Buffer } from "node:buffer";
 import fs from "@compat/fs.ts";
 
 const PI: number = 3.14159265358979;
@@ -278,12 +279,16 @@ const texCache = new Map<string, number>();
 /// chega aqui direto. `key` só serve pro cache; passe `""` pra não memorizar.
 export function uploadTexture(win: number, pixels: Uint8Array, w: number, h: number, key: string): number {
   if (key.length > 0) {
-    const hit = texCache.get(key);
+    const hit = texCache.get(win + ":" + key);
     if (hit !== undefined && hit > 0) return hit;
   }
   const texId = textureUpload(win, pixels, w, h);
-  if (texId > 0 && key.length > 0) texCache.set(key, texId);
+  if (texId > 0 && key.length > 0) texCache.set(win + ":" + key, texId);
   return texId;
+}
+/// Publish a background-prepared native texture into the normal model cache.
+export function cacheTexture(win:number,path:string,id:number):void {
+  if(id>0)texCache.set(win+":"+path,id);
 }
 
 /// Carrega uma textura de IMAGEM do disco e devolve o id de GPU (cacheado pelo
@@ -297,8 +302,12 @@ export function uploadTexture(win: number, pixels: Uint8Array, w: number, h: num
 const LOAD_TEXTURE_MAX_PIXELS = 4096;
 
 export function loadTexture(win: number, path: string): number {
-  const hit = texCache.get(path);
+  const hit = texCache.get(win + ":" + path);
   if (hit !== undefined && hit > 0) return hit;
+  if (path.indexOf("data:image/png;base64,") === 0) {
+    const embedded = decodePNG(Buffer.from(path.substring(22), "base64"), LOAD_TEXTURE_MAX_PIXELS);
+    return uploadTexture(win, embedded.pixels, embedded.width, embedded.height, path);
+  }
   if (!path.toLowerCase().endsWith(".png")) {
     throw new Error("loadTexture: so PNG e suportado neste runtime (sem rts:imgdec); '" + path + "' nao e .png");
   }
@@ -314,22 +323,23 @@ export function loadTexture(win: number, path: string): number {
 // `drawGPUBuf(win, kind, d)`: o chamador preenche um Float64Array de módulo e o
 // objeto de opções do nativo é reaproveitado (o nativo copia os campos).
 /// Layout de `d`: x, y, z, rx, ry, sx, sy, sz, cor, emissivo, tex, tile, qx, qy, qz, qw.
-export const DRAW_FLOATS: number = 16;
+export const DRAW_FLOATS: number = 17;
+export const D_MATERIAL = 16;
 export const D_X = 0; export const D_Y = 1; export const D_Z = 2;
 export const D_RX = 3; export const D_RY = 4;
 export const D_SX = 5; export const D_SY = 6; export const D_SZ = 7;
 export const D_COR = 8; export const D_EMISSIVO = 9; export const D_TEX = 10; export const D_TILE = 11;
 export const D_QX = 12; export const D_QY = 13; export const D_QZ = 14; export const D_QW = 15;
 const optMesh = { mesh: 0, x: 0.0, y: 0.0, z: 0.0, rx: 0.0, ry: 0.0,
-  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0 };
+  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0, material: 0 };
 const optMeshQ = { mesh: 0, x: 0.0, y: 0.0, z: 0.0, rx: 0.0, ry: 0.0, qx: 0.0, qy: 0.0, qz: 0.0, qw: 1.0,
-  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0 };
+  sx: 1.0, sy: 1.0, sz: 1.0, color: 0, emissive: 0.0, tex: 0, tile: 0.0, material: 0 };
 
 /// Enfileira um draw do mesh id `meshId` com o transform/material de `d` (DRAW_FLOATS).
 export function drawGPUMeshBuf(win: number, meshId: number, d: Float64Array): void {
   optMesh.mesh = meshId; optMesh.x = d[0]; optMesh.y = d[1]; optMesh.z = d[2]; optMesh.rx = d[3]; optMesh.ry = d[4];
   optMesh.sx = d[5]; optMesh.sy = d[6]; optMesh.sz = d[7]; optMesh.color = d[8]; optMesh.emissive = d[9];
-  optMesh.tex = d[10]; optMesh.tile = d[11];
+  optMesh.tex = d[10]; optMesh.tile = d[11]; optMesh.material = d.length > 16 ? d[16] : 0;
   drawMesh(win, optMesh);
 }
 
@@ -339,7 +349,7 @@ export function drawGPUMeshQBuf(win: number, meshId: number, d: Float64Array): v
   optMeshQ.mesh = meshId; optMeshQ.x = d[0]; optMeshQ.y = d[1]; optMeshQ.z = d[2];
   optMeshQ.qx = d[12]; optMeshQ.qy = d[13]; optMeshQ.qz = d[14]; optMeshQ.qw = d[15];
   optMeshQ.sx = d[5]; optMeshQ.sy = d[6]; optMeshQ.sz = d[7]; optMeshQ.color = d[8]; optMeshQ.emissive = d[9];
-  optMeshQ.tex = d[10]; optMeshQ.tile = 0.0;
+  optMeshQ.tex = d[10]; optMeshQ.tile = d[11]; optMeshQ.material = d.length > 16 ? d[16] : 0;
   drawMesh(win, optMeshQ);
 }
 

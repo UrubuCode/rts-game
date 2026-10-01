@@ -14,11 +14,13 @@
 // Sem alocação por frame: os buffers por osso nascem uma vez em `ensureAsset`
 // (tamanho = número de ossos) e os temporários do `compose` no construtor.
 
+
+import { resolvePbrMaterial } from "../render/pbr_material";
 import { Behavior, KIND_RENDERER } from "./behavior";
 import { registrarFalhaAsset } from "@engine/core/falhas";
 import { SkeletonAsset, loadSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
 import { logWarn } from "./logger";
-import { drawGPUMeshQBuf, meshRadius, DRAW_FLOATS, D_X, D_Y, D_Z, D_QX, D_QY, D_QZ, D_QW, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX } from "../render/gpu3d";
+import { drawGPUMeshQBuf, meshRadius, DRAW_FLOATS, D_X, D_Y, D_Z, D_QX, D_QY, D_QZ, D_QW, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX, D_MATERIAL } from "../render/gpu3d";
 import { quatFromYawPitchInto } from "../render/quat";
 
 /// Valores por osso num registro salvo: [osso, tx,ty,tz, rx,ry,rz,rw, sx,sy,sz].
@@ -344,6 +346,9 @@ export class Skeleton extends Behavior {
         d[D_QX] = this.worldR[b * 4]; d[D_QY] = this.worldR[b * 4 + 1]; d[D_QZ] = this.worldR[b * 4 + 2]; d[D_QW] = this.worldR[b * 4 + 3];
         d[D_SX] = this.worldS[b * 3]; d[D_SY] = this.worldS[b * 3 + 1]; d[D_SZ] = this.worldS[b * 3 + 2];
         d[D_COR] = tint >= 0 ? tint : a.partColor[i]; d[D_EMISSIVO] = 0; d[D_TEX] = a.partTex[i];
+        const material = a.partMaterial[i];
+        d[D_MATERIAL] = material !== null && material !== undefined && material.pbr !== 0 ? resolvePbrMaterial(win, material) : 0;
+        if (material !== null && material !== undefined) d[D_EMISSIVO] = material.emissive;
         drawGPUMeshQBuf(win, mesh, d);
       }
       i = i + 1;

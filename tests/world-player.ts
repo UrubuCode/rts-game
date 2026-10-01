@@ -1,0 +1,17 @@
+import { FpsWorldPlayer } from "@engine/core/world_player";
+import { FpsWorldField } from "@engine/core/world_streaming";
+import { FpsWorldCollision } from "@engine/core/world_collision";
+const fpsPlayer=new FpsWorldPlayer(new FpsWorldField(42));
+fpsPlayer.step(0,0,0,.016);const fpsGround=fpsPlayer.y;
+fpsPlayer.step(1,0,0,1);if(Math.abs(fpsPlayer.z+37)>0.01)throw new Error("Player movement failed");
+fpsPlayer.jump();fpsPlayer.step(0,0,0,.05);if(fpsPlayer.y<=fpsGround)throw new Error("Jump failed");
+for(let i=0;i<120;i++)fpsPlayer.step(0,0,0,.016);
+if(!fpsPlayer.grounded||Math.abs(fpsPlayer.y-fpsGround)>.01)throw new Error("Landing failed");
+println("PASS world-player: movement, jump and terrain landing");
+const fpsWalls=new FpsWorldCollision();fpsWalls.add(0,0,[8,0,0,9,10,30]);
+fpsPlayer.x=4;fpsPlayer.z=4;fpsPlayer.y=3;fpsPlayer.collision=fpsWalls;
+fpsPlayer.running=true;fpsPlayer.step(0,1,0,1);
+if(fpsPlayer.x>=7.65)throw new Error("Player tunneled through wall");
+const fpsBeforeZ=fpsPlayer.z;fpsPlayer.step(1,1,0,.5);
+if(fpsPlayer.z<=fpsBeforeZ||fpsPlayer.x>=7.65)throw new Error("Wall sliding failed");
+println("PASS world-player: substepped wall collision and sliding");

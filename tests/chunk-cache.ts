@@ -1,0 +1,13 @@
+import { FpsChunkCache } from "@engine/core/chunk_cache";
+let fpsReleased=0;
+const fpsCache=new FpsChunkCache(2,100,()=>{fpsReleased++;});
+const fpsA={x:0,z:0,byteSize:30},fpsB={x:1,z:0,byteSize:30},fpsC={x:2,z:0,byteSize:30};
+fpsCache.put(fpsA);fpsCache.put(fpsB);
+if(fpsCache.take(0,0)!==fpsA)throw new Error("Cache did not preserve object identity");
+fpsCache.put(fpsA);fpsCache.put(fpsC);
+if(fpsCache.take(1,0)!==null||fpsReleased!==1)throw new Error("Oldest chunk not evicted");
+if(fpsCache.take(0,0)!==fpsA)throw new Error("Recently reused chunk lost");
+fpsCache.put({x:4,z:4,byteSize:110});
+if(fpsCache.bytes>100||fpsCache.count>2)throw new Error("Cache exceeded budget");
+fpsCache.clear();if(fpsCache.bytes!==0||fpsCache.count!==0)throw new Error("Cache did not release memory");
+println("PASS chunk-cache: identity, reuse, least-recent eviction, byte/count limits, disposal");
