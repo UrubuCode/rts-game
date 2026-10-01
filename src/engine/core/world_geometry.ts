@@ -1,4 +1,6 @@
 import { FpsWorldField } from "./world_streaming";
+export function fpsGeometryMaterial(kind:number):number{return kind===11?8:kind===12?0:kind===13?1:kind===14?4:kind===15?9:kind;}
+export function fpsGeometryDetail(kind:number):number{return kind>=11?2:kind===2||kind===10?0:1;}
 const FPS_WORLD_BASIS=[0,0,1,1,0,0,0,1,0,0,0,-1,-1,0,0,0,1,0,1,0,0,0,0,-1,0,1,0,-1,0,0,0,0,1,0,1,0,0,1,0,1,0,0,0,0,-1,0,-1,0,1,0,0,0,0,1];
 class FpsWorldGeometry {
   v:number[]=[];i:number[]=[];
@@ -24,7 +26,7 @@ export class FpsWorldChunkJob {
   private p:number[]=[0,0,0];private s:number[]=[0,0,0];
   private column:number=0;private lotPart:number=0;
   private lotHigh:number=0;private lotWidth:number=0;private lotHeight:number=0;private lotUrban:boolean=false;
-  constructor(field:FpsWorldField,x:number,z:number){this.field=field;this.chunk=new FpsWorldChunk(x,z);for(let i=0;i<12;i++)this.geometry.push(new FpsWorldGeometry());}
+  constructor(field:FpsWorldField,x:number,z:number){this.field=field;this.chunk=new FpsWorldChunk(x,z);for(let i=0;i<16;i++)this.geometry.push(new FpsWorldGeometry());}
   private box(kind:number,p:number[],s:number[]):void{this.geometry[kind].box(p,s);}
   private size(w:number,h:number,d:number):void{this.s[0]=w;this.s[1]=h;this.s[2]=d;}
   private block(kind:number,x:number,y:number,z:number):void{
@@ -61,6 +63,8 @@ export class FpsWorldChunkJob {
         this.colliders.push(x-w/2,high,z-w/2,x+w/2,high+height,z+w/2);
         this.size(27,.2,27);this.block(3,x,high+.05,z);
         this.size(w,height,w);this.block(kind,x,high+height/2,z);
+        // Um único grupo de material por bairro distante, sem fachadas e telhados extras.
+        this.block(14,x,high+height/2,z);
         this.size(w+.7,.4,w+.7);this.block(3,x,high+height+.2,z);
       }else if(this.lotPart<=height){
         const floor=Math.floor((this.lotPart-1)/3),col=(this.lotPart-1)%3;
@@ -79,6 +83,8 @@ export class FpsWorldChunkJob {
         if(ty>=1){
           this.colliders.push(tx-.325,ty,tz-.325,tx+.325,ty+th*.8,tz+.325);
           this.size(.65,th*.8,.65);this.block(9,tx,ty+th*.4,tz);
+          // A base prolongada cobre pequenas diferenças de altura do terreno simplificado.
+          this.size(.65,th*.8+8,.65);this.block(15,tx,ty+th*.4-4,tz);
           this.size(th*.65,th*.55,th*.65);this.block(8,tx,ty+th*.65,tz);
           this.size(th*.4,th*.4,th*.4);this.block(8,tx,ty+th*.95,tz);
           this.size(th*.65,th*.8,th*.65);this.block(11,tx,ty+th*.75,tz);
@@ -100,6 +106,26 @@ export class FpsWorldChunkJob {
       this.column+=4;if(this.column<16)return;this.column=0;
     }else if(this.phase<25){if(!this.lot(this.phase-16))return;}
     else if(this.phase===25)this.quad(10,0,0,128);
-    this.phase++;if(this.phase===26)this.done=true;
+    else this.coarseTerrain(this.phase-26);
+    this.phase++;if(this.phase===42)this.done=true;
+  }
+  private coarseTerrain(cell:number):void {
+    const x=(cell%4)*32,z=Math.floor(cell/4)*32;
+    const g=this.geometry[this.ground(x+16,z+16)>48?13:12];
+    // Bordas externas preservam cada amostra de 8 unidades do LOD próximo.
+    // A ordem do contorno mantém a orientação dos triângulos voltada para cima.
+    for(let side=0;side<4;side++){
+      const boundary=side===0?x===0:side===1?z===96:side===2?x===96:z===0;
+      const count=boundary?4:1;
+      for(let part=0;part<count;part++){
+        const a=part*32/count,b=(part+1)*32/count,n=g.v.length/8;
+        this.vertex(g,x+16,z+16,0);
+        if(side===0){this.vertex(g,x,z+a,0);this.vertex(g,x,z+b,0);}
+        else if(side===1){this.vertex(g,x+a,z+32,0);this.vertex(g,x+b,z+32,0);}
+        else if(side===2){this.vertex(g,x+32,z+32-a,0);this.vertex(g,x+32,z+32-b,0);}
+        else{this.vertex(g,x+32-a,z,0);this.vertex(g,x+32-b,z,0);}
+        g.i.push(n,n+1,n+2);
+      }
+    }
   }
 }

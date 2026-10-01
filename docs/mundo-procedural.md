@@ -95,7 +95,7 @@ inicialização do pipeline gráfico ainda pode pausar. Log de viagem:
 
 Terreno heightfield, água opaca estática, árvores estilizadas e grade de ruas.
 Ainda não há cavernas/voxels destrutíveis, construção persistida por chunk,
-biomas completos, LOD de terreno, impostores ou população distribuída. A câmera livre voa e mantém uma altura mínima sobre o terreno. A geração
+biomas completos, impostores ou população distribuída. A câmera livre voa e mantém uma altura mínima sobre o terreno. A geração
 em background e o descarregamento são a base para acrescentar esses sistemas.
 
 ## Recursos, visibilidade e colisões
@@ -110,8 +110,8 @@ o teste GPU verifica os contadores zerados e encerramento repetido.
 O desenho corta chunks fora do frustum, com margem para sombras. O LOD de
 objetos remove detalhes de janelas e troca copas por malhas mais simples:
 passa para longe acima de 190 unidades e volta abaixo de 155, evitando
-alternância perto do limite. O terreno ainda usa a mesma resolução. Não há
-occlusion culling, HLOD de bairros ou imagens impostoras nesta versão.
+alternância perto do limite. O terreno agora tem dois níveis, descritos em [LOD do mundo](world-lod.md). Não há
+occlusion culling, HLOD entre múltiplos chunks ou imagens impostoras nesta versão.
 
 As caixas de colisão são geradas no worker e publicadas junto do chunk completo.
 Ao desativar um chunk, suas colisões são removidas. O personagem desliza pelas

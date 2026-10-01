@@ -23,10 +23,10 @@ try {
   while(kind<job.geometry.length&&base>=job.geometry[kind].v.length/8){kind++;base=0;index=0;}
   if(kind===job.geometry.length){parentPort.postMessage(JSON.stringify({kind:"done",buildMs:buildMs}));break;}
   const g=job.geometry[kind],end=Math.min(base+768,g.v.length/8),indices=[];
-  // 768 is divisible by both the 24-vertex boxes and 4-vertex terrain patches.
+  // 768 é divisível por caixas (24), quads (4) e triângulos do terreno distante (3).
   while(index<g.i.length&&g.i[index]<end){indices.push(g.i[index]-base);index++;}
   const vertices=g.v.slice(base*8,end*8);
-  parentPort.postMessage(JSON.stringify({kind:"mesh",material:kind===11?8:kind,lod:kind===11?2:kind===6||kind===7||kind===8?1:0,vertices:vertices,indices:indices}));
+  parentPort.postMessage(JSON.stringify({kind:"mesh",material:fpsGeometryMaterial(kind),lod:fpsGeometryDetail(kind),vertices:vertices,indices:indices}));
   base=end;
  }
 }catch(error){parentPort.postMessage(JSON.stringify({kind:"error",message:String(error)}));}

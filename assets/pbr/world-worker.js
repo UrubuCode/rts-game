@@ -63,6 +63,8 @@ class FpsChunkWindow {
     }
     contains(x, z) { return Math.abs(x - this.cx) <= this.radius && Math.abs(z - this.cz) <= this.radius; }
 }
+function fpsGeometryMaterial(kind) { return kind === 11 ? 8 : kind === 12 ? 0 : kind === 13 ? 1 : kind === 14 ? 4 : kind === 15 ? 9 : kind; }
+function fpsGeometryDetail(kind) { return kind >= 11 ? 2 : kind === 2 || kind === 10 ? 0 : 1; }
 const FPS_WORLD_BASIS = [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, -1, -1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, -1, 0, -1, 0, 1, 0, 0, 0, 0, 1];
 class FpsWorldGeometry {
     constructor() {
@@ -101,7 +103,7 @@ class FpsWorldChunkJob {
         this.lotUrban = false;
         this.field = field;
         this.chunk = new FpsWorldChunk(x, z);
-        for (let i = 0; i < 12; i++)
+        for (let i = 0; i < 16; i++)
             this.geometry.push(new FpsWorldGeometry());
     }
     box(kind, p, s) { this.geometry[kind].box(p, s); }
@@ -156,6 +158,8 @@ class FpsWorldChunkJob {
                 this.block(3, x, high + .05, z);
                 this.size(w, height, w);
                 this.block(kind, x, high + height / 2, z);
+                // Um único grupo de material por bairro distante, sem fachadas e telhados extras.
+                this.block(14, x, high + height / 2, z);
                 this.size(w + .7, .4, w + .7);
                 this.block(3, x, high + height + .2, z);
             }
@@ -186,6 +190,9 @@ class FpsWorldChunkJob {
                     this.colliders.push(tx - .325, ty, tz - .325, tx + .325, ty + th * .8, tz + .325);
                     this.size(.65, th * .8, .65);
                     this.block(9, tx, ty + th * .4, tz);
+                    // A base prolongada cobre pequenas diferenças de altura do terreno simplificado.
+                    this.size(.65, th * .8 + 8, .65);
+                    this.block(15, tx, ty + th * .4 - 4, tz);
                     this.size(th * .65, th * .55, th * .65);
                     this.block(8, tx, ty + th * .65, tz);
                     this.size(th * .4, th * .4, th * .4);
@@ -232,9 +239,42 @@ class FpsWorldChunkJob {
         }
         else if (this.phase === 25)
             this.quad(10, 0, 0, 128);
+        else
+            this.coarseTerrain(this.phase - 26);
         this.phase++;
-        if (this.phase === 26)
+        if (this.phase === 42)
             this.done = true;
+    }
+    coarseTerrain(cell) {
+        const x = (cell % 4) * 32, z = Math.floor(cell / 4) * 32;
+        const g = this.geometry[this.ground(x + 16, z + 16) > 48 ? 13 : 12];
+        // Bordas externas preservam cada amostra de 8 unidades do LOD próximo.
+        // A ordem do contorno mantém a orientação dos triângulos voltada para cima.
+        for (let side = 0; side < 4; side++) {
+            const boundary = side === 0 ? x === 0 : side === 1 ? z === 96 : side === 2 ? x === 96 : z === 0;
+            const count = boundary ? 4 : 1;
+            for (let part = 0; part < count; part++) {
+                const a = part * 32 / count, b = (part + 1) * 32 / count, n = g.v.length / 8;
+                this.vertex(g, x + 16, z + 16, 0);
+                if (side === 0) {
+                    this.vertex(g, x, z + a, 0);
+                    this.vertex(g, x, z + b, 0);
+                }
+                else if (side === 1) {
+                    this.vertex(g, x + a, z + 32, 0);
+                    this.vertex(g, x + b, z + 32, 0);
+                }
+                else if (side === 2) {
+                    this.vertex(g, x + 32, z + 32 - a, 0);
+                    this.vertex(g, x + 32, z + 32 - b, 0);
+                }
+                else {
+                    this.vertex(g, x + 32 - a, z, 0);
+                    this.vertex(g, x + 32 - b, z, 0);
+                }
+                g.i.push(n, n + 1, n + 2);
+            }
+        }
     }
 }
 
@@ -254,10 +294,10 @@ try {
   while(kind<job.geometry.length&&base>=job.geometry[kind].v.length/8){kind++;base=0;index=0;}
   if(kind===job.geometry.length){parentPort.postMessage(JSON.stringify({kind:"done",buildMs:buildMs}));break;}
   const g=job.geometry[kind],end=Math.min(base+768,g.v.length/8),indices=[];
-  // 768 is divisible by both the 24-vertex boxes and 4-vertex terrain patches.
+  // 768 é divisível por caixas (24), quads (4) e triângulos do terreno distante (3).
   while(index<g.i.length&&g.i[index]<end){indices.push(g.i[index]-base);index++;}
   const vertices=g.v.slice(base*8,end*8);
-  parentPort.postMessage(JSON.stringify({kind:"mesh",material:kind===11?8:kind,lod:kind===11?2:kind===6||kind===7||kind===8?1:0,vertices:vertices,indices:indices}));
+  parentPort.postMessage(JSON.stringify({kind:"mesh",material:fpsGeometryMaterial(kind),lod:fpsGeometryDetail(kind),vertices:vertices,indices:indices}));
   base=end;
  }
 }catch(error){parentPort.postMessage(JSON.stringify({kind:"error",message:String(error)}));}
