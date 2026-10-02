@@ -1,5 +1,8 @@
 # Mar Aberto: protótipo de navegação
 
+Próximas implementações: [tarefa sequencial ENG-NAV-001](superpowers/plans/2026-10-02-water-navigation-foundation.md)
+e [especificação da fundação](superpowers/specs/2026-10-02-water-navigation-foundation.md).
+
 ```powershell
 .\run-pbr.ps1 -Scene sailing -RuntimePath ..\rts-pbr -TargetPath ..\pbr-target
 ```
