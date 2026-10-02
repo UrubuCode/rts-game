@@ -1,3 +1,4 @@
+import { splineInput } from "@editor/spline_gizmo";
 // ═══════════════════════════════════════════════════════════════════════════
 // Engine RTS — editor + game loop + RENDER DE CENA (faces sólidas + z-buffer).
 // Estilo Unity: tudo é GameObject, ciclo mount → update(dt) → render pass.
@@ -130,6 +131,7 @@ const desenhoCfg = new Float64Array(DS_FLOATS);
 /// Câmera do editor na tela (gizmo.VISTA_FLOATS), preenchida uma vez por quadro; projeções
 /// do gizmo e do drop escrevem em buffers fixos (Task 10.5: sem array novo por chamada).
 const vistaEditor = new Float64Array(VISTA_FLOATS);
+const splineMouse = new Float64Array(4);
 const gizmoTela = new Float64Array(GIZMO_FLOATS);
 const pontoMundo = new Float64Array(3);
 const pontoDrop = new Float64Array(4);
@@ -899,7 +901,10 @@ function frame(): void {
     }
   }
 
-  if (mPressed !== 0 && inViewport && dndOn === 0) {
+  splineMouse[0]=mx;splineMouse[1]=my;splineMouse[2]=mPressed;splineMouse[3]=mDownNow;
+  const splineConsumed=splineInput(vistaEditor,splineMouse,inViewport&&dndOn===0);
+  if(splineConsumed){dragging=0;gizmoAxis=-1;}
+  if (mPressed !== 0 && inViewport && dndOn === 0 && !splineConsumed) {
     // 1) tenta pegar um EIXO do gizmo (prioridade sobre selecionar outro objeto)
     let ax = 0 - 1;
     if (gzOK !== 0) ax = pickAxis(mx, my, gizmoTela);

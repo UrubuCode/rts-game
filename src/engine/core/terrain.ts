@@ -51,6 +51,11 @@ export class Terrain extends Behavior {
     this.dirty=true;this.updateBounds();
   }
   flatten():void {this.heights.fill(0);this.dirty=true;this.updateBounds();}
+  applyHeightmap(values:Float64Array):void {
+    if(values.length!==this.heights.length)throw new Error("Heightmap com tamanho incorreto");
+    for(let i=0;i<values.length;i++)if(!Number.isFinite(values[i])||Math.abs(values[i])>1000)throw new Error("Altura invalida");
+    this.heights.set(values);this.dirty=true;this.updateBounds();
+  }
   buildMesh():TerrainMesh {
     const out=new TerrainMesh(),n=this.resolution,step=this.size/n;
     for(let row=0;row<=n;row++)for(let col=0;col<=n;col++){

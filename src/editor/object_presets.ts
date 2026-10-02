@@ -1,3 +1,5 @@
+import { Spline } from "@engine/core/spline";
+import { WaterBody } from "@engine/core/water_body";
 // Opcoes de criacao do editor: um registro serve aos dois menus e a fabrica.
 // Luzes e câmera vêm dos pacotes (itens @menuItem Criar/Luz/* e Criar/Câmera).
 import type { Behavior } from "@engine/core/behavior";
@@ -76,7 +78,11 @@ function presetChuva(): Behavior[] {
   return [p];
 }
 
+function presetRiver():Behavior[]{return [new Spline(),new WaterBody()];}
+function presetLake():Behavior[]{const s=new Spline();s.closed=true;s.points="[[-10,0,-10,6,3,0],[10,0,-10,6,3,0],[10,0,10,6,3,0],[-10,0,10,6,3,0]]";s.onValidate("points");return [s,new WaterBody()];}
 export const OBJECT_PRESETS: ObjectPreset[] = [
+  { label: "Rio", name: "River", meshKind: 0, r: 0, g: 0, b: 0, componentes: presetRiver },
+  { label: "Lago", name: "Lake", meshKind: 0, r: 0, g: 0, b: 0, componentes: presetLake },
   { label: "Cubo", name: "Cube", meshKind: 1, r: 150, g: 180, b: 220 },
   { label: "Esfera", name: "Sphere", meshKind: 4, r: 220, g: 170, b: 150 },
   { label: "Pirâmide", name: "Pyramid", meshKind: 2, r: 170, g: 210, b: 170 },

@@ -35,6 +35,8 @@ const ONLY = arg('only', '');
 const OUT = arg('out', path.join('bench', 'out', `frame-bench-${LABEL}.json`));
 
 const CENARIOS = [
+  { tag: 'spline-water-off', file: 'examples/pbr_water_spline.ts', env: { RTS_WATER_DISABLED: '1' } },
+  { tag: 'spline-water-on', file: 'examples/pbr_water_spline.ts', env: { RTS_WATER_DISABLED: '0' } },
   { tag: 'water-off', file: 'examples/pbr_water.ts', env: { RTS_WATER_DISABLED: '1' } },
   { tag: 'water-on', file: 'examples/pbr_water.ts', env: { RTS_WATER_DISABLED: '0' } },
   // Sem seleção = -1: a sessão abre com o objeto 0 selecionado (S.selected = 0).

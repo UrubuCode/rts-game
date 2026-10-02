@@ -1,5 +1,6 @@
 import { Behavior } from "./behavior";
 import { WaterSurface } from "./water_surface";
+import { WaterBody } from "./water_body";
 import { ProceduralWorld } from "./procedural_world";
 import { activeInScene } from "./gameobject";
 import { BODY_DYNAMIC } from "../rigid/materials";
@@ -14,6 +15,9 @@ export class Buoyancy extends Behavior {
   drag:number=2;
   volumeScale:number=1;
   private body:Behavior|null=null;
+  private flow:Float64Array=new Float64Array(4);
+  private flowX:number=0;
+  private flowZ:number=0;
   mount():void {
     this.body=null;
     if(this.owner!==null)for(let i=0;i<this.owner.behaviors.length;i++){
@@ -27,6 +31,7 @@ export class Buoyancy extends Behavior {
     this.volumeScale=Number.isFinite(this.volumeScale)?Math.max(.001,Math.min(1000,this.volumeScale)):1;
   }
   private surfaceHeight():number {
+    this.flowX=0;this.flowZ=0;
     const owner=this.owner;if(owner===null||owner.uiOwner===null)return NaN;
     const objects=owner.uiOwner.objects,t=this.host;
     let height=NaN;
@@ -37,7 +42,11 @@ export class Buoyancy extends Behavior {
         let h=NaN;
         if(b instanceof WaterSurface&&b.contains(t.px,t.pz))h=b.heightAt(t.px,t.pz);
         else if(b instanceof ProceduralWorld)h=b.waterHeightAt(t.px,t.pz);
-        if(Number.isFinite(h)&&(!Number.isFinite(height)||h>height))height=h;
+        else if(b instanceof WaterBody)h=b.waterHeightAt(t.px,t.pz);
+        if(Number.isFinite(h)&&(!Number.isFinite(height)||h>height)){
+          height=h;this.flowX=0;this.flowZ=0;
+          if(b instanceof WaterBody&&b.sample(t.px,t.pz,this.flow)){this.flowX=this.flow[2];this.flowZ=this.flow[3];}
+        }
       }
     }
     return height;
@@ -52,7 +61,7 @@ export class Buoyancy extends Behavior {
     const step=Math.min(dt,.1),volume=Math.abs(t.sx*t.sy*t.sz)*this.volumeScale;
     t.vy+=Math.abs(b.bodyGravity())*this.fluidDensity*volume*submerged/t.mass*step;
     const attenuation=Math.exp(-this.drag*submerged*step);
-    t.vx*=attenuation;t.vy*=attenuation;t.vz*=attenuation;t.asleep=0;t.quiet=0;
+    t.vx=this.flowX+(t.vx-this.flowX)*attenuation;t.vy*=attenuation;t.vz=this.flowZ+(t.vz-this.flowZ)*attenuation;t.asleep=0;t.quiet=0;
   }
   releaseResources():void{this.body=null;}
 }

@@ -1,5 +1,7 @@
 # Água: superfície, reflexos e flutuação
 
+Para desenhar rios e lagos com pontos editáveis, veja [Rios e lagos por curvas](water-splines.md).
+
 `WaterSurface` é um componente da categoria Renderização, com parâmetros preservados ao salvar, duplicar e entrar/sair do Play.
 
 ## Demonstração

@@ -127,11 +127,25 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/procedural_world.ts"
   },
   {
+    "name": "Spline",
+    "category": "Mundo",
+    "description": "Curva editável reutilizável para rios, estradas e rotas.",
+    "keywords": "spline curva pontos caminho rio",
+    "source": "src/engine/core/spline.ts"
+  },
+  {
     "name": "Terrain",
     "category": "Mundo",
     "description": "Terreno heightfield com pincel de altura e relevo salvo na cena.",
     "keywords": "terreno terrain relevo altura pincel",
     "source": "src/engine/core/terrain.ts"
+  },
+  {
+    "name": "WaterBody",
+    "category": "Mundo",
+    "description": "Rio ou lago definido por Spline, com corrente e escavação de Terrain.",
+    "keywords": "agua water rio lago spline corrente",
+    "source": "src/engine/core/water_body.ts"
   },
   {
     "name": "NetworkManager",

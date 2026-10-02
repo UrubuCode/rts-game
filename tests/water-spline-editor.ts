@@ -1,0 +1,23 @@
+import { Spline } from "@engine/core/spline";
+import { WaterBody } from "@engine/core/water_body";
+import { Terrain } from "@engine/core/terrain";
+import { GameObject } from "@engine/core/gameobject";
+import { scene,S } from "@editor/control/session";
+import { history } from "@editor/undo";
+import { splineInput } from "@editor/spline_gizmo";
+import { projPt } from "@editor/gizmo";
+function check(ok:boolean,msg:string):void{if(!ok)throw new Error(msg);println("[OK] "+msg);}
+scene.clear();const o=new GameObject("Spline"),curve=new Spline();o.addBehavior(curve);scene.add(o);scene.computeWorld();S.selected=0;S.simulating=0;
+const view=new Float64Array([0,12,-30,1,0,Math.cos(-.35),Math.sin(-.35),600,1280,800]);
+const p=new Float64Array(6),screen=new Float64Array(3),mouse=new Float64Array(4);
+curve.point(0,p);projPt(screen,view,p);mouse[0]=screen[0];mouse[1]=screen[1];mouse[2]=1;mouse[3]=1;
+const before=curve.points;check(splineInput(view,mouse,true),"seleciona ponto na vista");
+mouse[2]=0;mouse[0]+=60;check(splineInput(view,mouse,true)&&curve.points!==before,"arrasta ponto no plano XZ");
+mouse[3]=0;splineInput(view,mouse,true);history.undo();
+const restored=scene.objects[0].behaviors[0] as Spline;check(restored.points===before,"um Desfazer restaura gesto inteiro");
+history.redo();check((scene.objects[0].behaviors[0] as Spline).points!==before,"Refazer restaura edicao");
+scene.clear();const river=new GameObject("River"),c=new Spline(),water=new WaterBody();river.addBehavior(c);river.addBehavior(water);scene.add(river);
+const ground=new GameObject("Ground"),terrain=new Terrain();ground.addBehavior(terrain);scene.add(ground);scene.computeWorld();water.terrainObject="Ground";
+history.snapshot();water.carveTerrain();check(terrain.heightAt(0,0)<-1,"escava terrain");history.undo();
+check((scene.objects[1].behaviors[0] as Terrain).heightAt(0,0)===0,"Desfazer restaura heightmap");
+scene.clear();println("[PASSOU] water-spline-editor");

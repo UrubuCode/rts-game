@@ -23,6 +23,7 @@ export class WaterSurface extends Behavior {
   private time:number=0;
   private data:Float64Array=new Float64Array(24);
   setWaveOrigin(x:number,z:number):void{this.data[20]=x;this.data[21]=z;}
+  setSurfaceMesh(id:number):void{this.data[22]=id;}
   kind():number{return KIND_RENDERER;}
   drawsSelf():number{return 1;}
   rBoundRadius():number{return Math.sqrt(this.width*this.width+this.length*this.length)*.5+this.waveAmplitude*1.35;}

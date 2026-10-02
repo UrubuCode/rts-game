@@ -450,3 +450,4 @@ export const UI_ANIMATOR = {
   timeDigits: 2, triggerRowH: 22,
   stopPreview: "Parar prévia",
 };
+export const UI_SPLINE = { pickRadius:12 };
