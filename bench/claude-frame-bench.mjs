@@ -35,6 +35,8 @@ const ONLY = arg('only', '');
 const OUT = arg('out', path.join('bench', 'out', `frame-bench-${LABEL}.json`));
 
 const CENARIOS = [
+  { tag: 'sailing-hidden', file: 'examples/pbr_sailing.ts', env: { RTS_SAILING_RENDER_DISABLED: '1' } },
+  { tag: 'sailing-visible', file: 'examples/pbr_sailing.ts', env: { RTS_SAILING_RENDER_DISABLED: '0' } },
   { tag: 'spline-water-off', file: 'examples/pbr_water_spline.ts', env: { RTS_WATER_DISABLED: '1' } },
   { tag: 'spline-water-on', file: 'examples/pbr_water_spline.ts', env: { RTS_WATER_DISABLED: '0' } },
   { tag: 'water-off', file: 'examples/pbr_water.ts', env: { RTS_WATER_DISABLED: '1' } },

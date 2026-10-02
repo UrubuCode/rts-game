@@ -106,6 +106,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/rigidbody.ts"
   },
   {
+    "name": "SailboatController",
+    "category": "Física",
+    "description": "Navegação de veleiro com vento, leme, âncora e apoio nas ondas.",
+    "keywords": "barco boat navio vela leme oceano",
+    "source": "src/engine/core/sailboat_controller.ts"
+  },
+  {
     "name": "RouteAgent",
     "category": "IA e Navegacao",
     "description": "Segue o RoutePath do mesmo objeto: espera, vira e anda.",
@@ -202,6 +209,13 @@ export const COMPONENT_CATALOG = [
     "description": "Desenha a malha do objeto.",
     "keywords": "malha modelo mesh",
     "source": "src/engine/core/meshrenderer.ts"
+  },
+  {
+    "name": "SailboatRenderer",
+    "category": "Renderização",
+    "description": "Veleiro procedural com casco, convés, mastro e vela; acompanha pitch e roll.",
+    "keywords": "barco navio sailboat vela",
+    "source": "src/engine/core/sailboat_renderer.ts"
   },
   {
     "name": "Skeleton",
