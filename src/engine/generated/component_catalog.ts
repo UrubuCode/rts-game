@@ -78,6 +78,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/scripts/particlesystem.ts"
   },
   {
+    "name": "Buoyancy",
+    "category": "Física",
+    "description": "Empuxo e arrasto de água para um Rigidbody dinâmico.",
+    "keywords": "agua water buoyancy flutuacao empuxo",
+    "source": "src/engine/core/buoyancy.ts"
+  },
+  {
     "name": "Collider",
     "category": "Física",
     "description": "Define a forma usada na colisão.",

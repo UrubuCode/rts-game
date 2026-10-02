@@ -77,7 +77,7 @@ while(pump(fpsWin)&&isOpen(fpsWin)){
   beginFrame(fpsWin);if(fpsInput.key(fpsWin,2,0)){endFrame(fpsWin);break;}
   const now=performance.now(),dt=Math.min(.05,Math.max(0,(now-fpsLast)/1000));fpsLast=now;
   if(fpsStarted&&!fpsTest)fpsMove(dt);
-  fpsWorld.move(fpsWorldX,fpsWorldZ);fpsWorld.tick();
+  fpsWorld.move(fpsWorldX,fpsWorldZ);fpsWorld.tick();fpsWorld.update(dt);
   if(fpsWorld.error.length>0&&!fpsReportedLoadError){println("World load error: "+fpsWorld.error);fpsReportedLoadError=true;if(fpsTest)throw new Error(fpsWorld.error);}
   if(!fpsStarted){
     fpsLoadUI.draw(fpsWin,fpsWorld.error.length>0?"Falha ao carregar a região. Esc para sair.":"Formando relevo, rios e bairros",Math.min(1,fpsWorld.progress*fpsWorld.window.x.length/9));

@@ -9,6 +9,7 @@ import { FpsResourceBudget } from "../core/resource_budget";
 import { fpsChunkLod } from "../core/chunk_lod";
 import { FpsWorldCollision } from "../core/world_collision";
 import { Material } from "../core/material";
+import { WaterSurface } from "../core/water_surface";
 import { resolvePbrMaterial } from "./pbr_material";
 import { drawGPUMeshBuf,DRAW_FLOATS,frustumBeginBuf,inFrustumFast } from "./gpu3d";
 
@@ -29,6 +30,9 @@ export class FpsWorldChunk {
 }
 /** Bounded resident set. New chunks publish atomically; stale jobs are discarded. */
 export class WorldStream {
+  waterEnabled:boolean=true;
+  water:WaterSurface=new WaterSurface();
+  private waterPosition:Float64Array=new Float64Array(3);
   field:FpsWorldField;window:FpsChunkWindow;
   private profile:WorldGenerationProfile;chunkSize:number;
   chunks:FpsWorldChunk[]=[];generated:number=0;unloaded:number=0;maxStepMs:number=0;
@@ -42,6 +46,7 @@ export class WorldStream {
   constructor(win:number,seed:number,radius:number,profile?:WorldGenerationProfile){
     this.profile=WorldGenerationProfile.fromData(profile);
     this.chunkSize=createWorldGeneratorRegistry().chunkSize(this.profile.generator);
+    this.water.width=this.chunkSize;this.water.length=this.chunkSize;this.water.wavelength=18;this.water.waveAmplitude=.15;
     this.win=win;this.field=this.profile.biomes||this.profile.generator==="voxel"?new WorldBiomeField(seed,this.profile.biomeScale,this.profile.heightScale):new FpsWorldField(seed);
     this.window=new FpsChunkWindow(radius,this.chunkSize);this.collision=new FpsWorldCollision(this.chunkSize);
     this.cache=new FpsChunkCache(25,32*1024*1024,(chunk:any)=>{chunk.dispose(this.win);this.unloaded++;});
@@ -69,6 +74,14 @@ export class WorldStream {
     for(let i=0;i<reused.length;i++){const c=reused[i];this.chunks.push(c);this.collision.add(c.x,c.z,c.colliders);}
   }
   get ready():boolean{return this.chunks.length===this.window.x.length&&this.window.x.length>0;}
+  update(dt:number):void{if(!this.disposed)this.water.update(dt);}
+  waterHeightAt(x:number,z:number):number {
+    if(this.disposed||!this.waterEnabled||this.profile.generator!=="heightfield")return NaN;
+    const cx=Math.floor(x/this.chunkSize),cz=Math.floor(z/this.chunkSize);
+    let resident=false;for(let i=0;i<this.chunks.length;i++)if(this.chunks[i].x===cx&&this.chunks[i].z===cz){resident=true;break;}
+    if(!resident||this.field.height(x,z)>=0)return NaN;
+    return this.water.heightAt(x,z)+this.offsetY;
+  }
   get progress():number{return (this.chunks.length+(this.job===null?0:Math.min(.95,this.job.meshes/30)))/Math.max(1,this.window.x.length);}
   private receiveMesh(mesh:any):void {
     if(this.pending===null)return;
@@ -112,6 +125,7 @@ export class WorldStream {
   }
   draw(originX:number,originZ:number,camera?:Float64Array):void {
     if(this.disposed)return;
+    this.water.setWaveOrigin(originX,originZ);
     this.visibleChunks=0;this.culledChunks=0;this.drawCalls=0;
     if(camera!==undefined)frustumBeginBuf(camera);
     const d=this.drawBuffer;
@@ -126,7 +140,12 @@ export class WorldStream {
       this.visibleChunks++;
       for(let k=0;k<c.ids.length;k++){
         const detail=c.details[k];if((detail===1&&c.lod===1)||(detail===2&&c.lod===0))continue;
-        const kind=c.kinds[k];d[8]=FPS_WORLD_COLORS[kind];d[16]=this.materials[kind];drawGPUMeshBuf(this.win,c.ids[k],d);
+        const kind=c.kinds[k];
+        if(kind===10&&this.profile.generator==="heightfield"){
+          if(this.waterEnabled&&c.minY<0){const p=this.waterPosition;p[0]=d[0]+this.chunkSize/2;p[1]=this.offsetY;p[2]=d[2]+this.chunkSize/2;this.water.drawSelf(this.win,p,-1);this.drawCalls++;}
+          continue;
+        }
+        d[8]=FPS_WORLD_COLORS[kind];d[16]=this.materials[kind];drawGPUMeshBuf(this.win,c.ids[k],d);
         this.drawCalls++;
       }
     }

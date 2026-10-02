@@ -7,6 +7,8 @@ import fpsPbrInput from "@compat/input.ts";
 import { Scene } from "@engine/core/scene";
 import { GameObject } from "@engine/core/gameobject";
 import { WaterSurface } from "@engine/core/water_surface";
+import { Buoyancy } from "@engine/core/buoyancy";
+import { Rigidbody } from "@scripts/rigidbody";
 import { Terrain } from "@engine/core/terrain";
 import { Material } from "@engine/core/material";
 import { initMeshes, upload, setCamBuf, setLgtBuf, setLightsBuf, setShadowBuf, setSkyBuf, frustumBeginBuf, frustumParams, winWidth, winHeight } from "@engine/render/gpu3d";
@@ -37,6 +39,9 @@ for(let i=0;i<18;i++){
  const angle=i*2.4;const radius=18+Math.sin(i*3)*2;
  const rock=solid("Pedra",[Math.cos(angle)*radius,.4+Math.sin(i)*.4,Math.sin(angle)*radius],[1.3+Math.sin(i)*.4,1.5,1.1],0x84877b);rock.meshKind=4;
 }
+solid("Farol",[-5,3,7],[1.5,6,1.5],0xa83c2d);solid("Topo",[-5,6.1,7],[2,.3,2],0xede8d9);
+const floating=solid("Caixa flutuante",[1,1.8,-4],[1.4,1,1],0xc99a54);
+const floatingBody=new Rigidbody();floatingBody.mass=.5;floatingBody.floorY=-20;floating.addBehavior(new Buoyancy());floating.addBehavior(floatingBody);floating.mount();
 pbrScene.computeWorld();
 const pbrFrames = Number(process.env.RTS_PBR_FRAMES || "0");
 const pbrCapture = process.env.RTS_PBR_CAPTURE || "";
@@ -82,10 +87,10 @@ while(pump(pbrWin)&&isOpen(pbrWin)) {
   setCamBuf(pbrWin,pbrCamera);frustumBeginBuf(pbrCamera);frustumParams(fParams);
   prepararDesenho(pbrCfg,fParams,-1,1);drawSceneObjects(pbrScene,pbrScene.objects.length,pbrWin,pbrCfg);
   drawText(pbrWin,{x:28,y:25,text:"RTS / WATER LAB",size:24,color:0xfff5f1e8});
-  drawText(pbrWin,{x:28,y:58,text:"Ondas GPU | Refracao | Profundidade | Espuma nas margens",size:15,color:0xffd5d9dd});
+  drawText(pbrWin,{x:28,y:58,text:"Reflexos SSR | Caixa com empuxo | Ondas GPU | Refracao",size:15,color:0xffd5d9dd});
   drawText(pbrWin,{x:28,y:82,text:pbrFpsText,size:18,color:0xfff5f1e8});
   drawText(pbrWin,{x:28,y:108,text:"WASD: mover | Mouse direito: olhar | Q/E: altura | Shift: acelerar | R: restaurar | Esc: sair",size:15,color:0xfff5f1e8});
-  if(pbrFrame===8&&pbrCapture.length>0) {
+  if(pbrFrame===Number(process.env.RTS_PBR_CAPTURE_FRAME||"8")&&pbrCapture.length>0) {
     if(!captureScene(pbrWin,pbrCapture,1280,800))throw new Error("PBR capture failed");
     // Capture consumes the queued geometry; refill it for the visible frame.
     drawSceneObjects(pbrScene,pbrScene.objects.length,pbrWin,pbrCfg);

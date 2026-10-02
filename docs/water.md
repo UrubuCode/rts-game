@@ -1,102 +1,63 @@
-# Água: superfície e partículas
+# Água: superfície, reflexos e flutuação
 
-`WaterSurface` é um componente da engine, disponível na categoria
-**Renderização** do seletor do editor. Salvar a cena, duplicar e entrar/sair
-do Play preservam os parâmetros; o relógio da animação é transitório.
+`WaterSurface` é um componente da categoria Renderização, com parâmetros preservados ao salvar, duplicar e entrar/sair do Play.
 
 ## Demonstração
-
-```powershell
-.\run-pbr.ps1 -Scene water
-```
-
-Na worktree de desenvolvimento, indique os diretórios compartilhados:
 
 ```powershell
 .\run-pbr.ps1 -Scene water -RuntimePath ..\rts-pbr -TargetPath ..\pbr-target
 ```
 
-WASD move a câmera; mouse direito gira; Q/E alteram altura; Shift acelera;
-R restaura a câmera; Esc ou X encerram. `-Frames 12 -Capture build/water.ppm`
-captura a cena e termina automaticamente. O runtime precisa do patch
-`patches/render-pbr-runtime.patch`, atualizado nesta entrega, sobre a mesma
-base descrita em [render-pbr.md](render-pbr.md).
+WASD move, mouse direito gira, Q/E alteram altura, Shift acelera, R restaura e Esc ou X encerram. O runtime usa `patches/render-pbr-runtime.patch` sobre a base de [render-pbr.md](render-pbr.md).
 
-## Configuração
+## Superfície
 
-Adicione `WaterSurface` a um GameObject vazio e ajuste sua posição para o
-nível da água. A superfície é horizontal, no plano XZ; use `width` e `length`
-para dimensões, com rotação zero e escala 1 no objeto e seus ancestrais.
-Coloque o leito e as margens como geometria opaca na mesma cena.
+Adicione WaterSurface a um objeto vazio no nível da água. A superfície é horizontal: mantenha rotação zero e escala 1 no objeto e ancestrais. Coloque leito e margens como geometria opaca.
 
 | Campo | Efeito |
 |---|---|
-| `width`, `length` | Extensão horizontal |
-| `waveAmplitude`, `wavelength`, `waveSpeed` | Altura, comprimento e velocidade das ondas |
-| `red`, `green`, `blue` | Cor linear da água profunda |
-| `absorption` | Rapidez com que a profundidade oculta o fundo |
-| `opacity` | Intensidade da cor absorvida; o reflexo continua independente |
-| `refraction` | Deslocamento máximo de amostragem, em pixels |
-| `foamWidth` | Faixa de espuma próxima de interseções com o cenário |
-| `resolution` | Subdivisões por eixo, entre 8 e 128; padrão 64 |
+| `width`, `length` | Dimensões XZ |
+| `waveAmplitude`, `wavelength`, `waveSpeed` | Ondas |
+| `red`, `green`, `blue` | Cor linear profunda |
+| `absorption`, `opacity` | Absorção e intensidade da cor |
+| `refraction` | Deslocamento da amostra em pixels |
+| `foamWidth` | Espuma nas interseções |
+| `resolution` | Subdivisões por eixo: 8–128, padrão 64 |
+| `reflectionStrength` | Intensidade SSR; zero desliga |
+| `reflectionDistance`, `reflectionSteps` | Alcance e passos SSR |
 
-`heightAt(worldX, worldZ)` consulta as mesmas ondas usadas na GPU, após
-atualizar os transforms mundiais da cena. Serve de base para interação;
-não aplica forças nem verifica se a coordenada está dentro do retângulo.
+`heightAt(x,z)` consulta as ondas; `contains(x,z)` testa os limites. Atualize os transforms mundiais antes de consultar.
 
-## Renderização
+A grade é gerada e animada na GPU. O passe copia cor HDR e depth opacos para absorção, refração, Fresnel, reflexo e espuma, respeitando o viewport. Sem água enfileirada, não há cópias e os alvos são liberados. Usam aproximadamente 12 bytes por pixel. Teto: 128 superfícies por quadro; superfícies sobrepostas não compõem refração entre si.
 
-O vertex shader gera a grade e desloca seus vértices; não há reconstrução
-de malha nem upload de vértices a cada quadro. O passe copia cor HDR e depth
-da cena opaca, calcula absorção pela profundidade, distorce a amostra do
-fundo, mistura reflexão do céu procedural por Fresnel e desenha espuma nas
-interseções. A amostragem é limitada ao viewport da câmera. Partículas são
-desenhadas depois. Sem água enfileirada não há esse passe/cópias, e suas
-texturas temporárias são liberadas.
+SSR reflete somente geometria opaca visível na tela. Refina interseções e rejeita o leito submerso; sem resultado usa o céu. Objetos ocultos, fora da tela e transparentes não aparecem. Sem acumulação temporal, silhuetas podem apresentar descontinuidades. Faltam cáusticas, câmera submersa, panorama HDR, ondas de impacto e correntes.
 
-Há um teto de 32 superfícies por quadro. Superfícies sobrepostas não compõem
-refração entre si; projete regiões sem sobreposição. Os alvos temporários
-usam aproximadamente 12 bytes por pixel (cor HDR + depth), além dos alvos
-já existentes do renderer.
+## Flutuação
 
-Ainda não inclui reflexos dos prédios/árvores, reflexão de panorama HDR,
-cáusticas, câmera submersa, ondas de impacto, flutuação ou correntes fluviais.
-Também não substitui automaticamente a água estática dos geradores por
-chunks. Essa integração, com recorte, LOD e fase compartilhada entre chunks,
-é uma etapa separada. Esta entrega é a primeira superfície visual reutilizável.
+Adicione `Buoyancy` e `Rigidbody` ao mesmo GameObject raiz. Ajuste a massa e coloque `Rigidbody.floorY` abaixo do leito: o piso implícito pode impedir o afundamento. O empuxo usa o volume da caixa definido pela escala, fração submersa e gravidade do corpo. Densidade 1 equivale a uma unidade de massa por unidade cúbica. `volumeScale` corrige o volume; `drag` controla o arrasto. `waterObject` restringe a busca pelo nome do objeto; vazio procura superfícies ativas.
 
-## Correção das partículas GPU
+Funciona nos caminhos CPU, GPU e Rust. É uma aproximação vertical, sem torque ou volume real da malha. A busca percorre componentes da cena por corpo; grandes frotas ainda precisam de índice espacial.
 
-`drawWaterGPU(win, buffer, count, radius)` volta a acessar o pipeline nativo
-existente. A API `rts:egui.drawWater` foi restaurada com opções reutilizadas;
-o buffer de compute é usado diretamente como vertex buffer, sem readback por
-partícula. Contagem acima da capacidade, raio inválido e buffer sem uso de
-vértice são recusados. O wrapper antigo deixa de lançar incondicionalmente.
+## Chunks
 
-O visual desse caminho continua sendo partículas esféricas; não reconstrói
-uma superfície contínua de líquido. O pipeline legado compartilha o raio do
-primeiro lote entre os lotes do quadro: use raio uniforme. A simulação SPH
-existente não foi reescrita nesta entrega.
+`ProceduralWorld.waterEnabled` habilita água animada no gerador `heightfield` integrado. Alterar essa opção no Inspector não regenera chunks. Geradores voxel e extensões próprias continuam responsáveis por sua água. Na API direta, chame `WorldStream.update(dt)` antes do desenho e configure `world.water` para personalizar o visual.
+
+Chunks compartilham resolução e relógio. A origem das ondas acompanha o deslocamento das coordenadas de renderização; retornar ao cache preserva a fase. `waterHeightAt(x,z)` retorna NaN fora dos chunks residentes ou sobre terra seca. Buoyancy consulta essa água através de ProceduralWorld.
+
+Geração em background, cache e descarte continuam no streaming existente. A água ainda não tem LOD próprio. A malha opaca antiga permanece no pacote/cache, mas seu desenho é substituído. O depth do terreno oculta a água abaixo da terra; não há recorte geométrico da costa.
+
+## Partículas GPU
+
+`drawWaterGPU(win, buffer, count, radius)` usa diretamente o buffer de compute como vertex buffer, sem readback. Contagem, raio e uso do buffer são validados. O visual continua esférico e não reconstrói líquido contínuo. O pipeline legado compartilha o raio do primeiro lote: use raio uniforme. O solver SPH existente não foi reescrito.
 
 ## Validação
 
-- 36 testes nativos de scene3d passaram na RTX 2080 Ti/DX12, incluindo
-  comparação de pixels de água desligada/ligada, ondas em tempos diferentes,
-  refração, ausência de resíduos após remoção e desenho de partículas GPU.
-- `tests/water-surface.ts`: catálogo, serialização, limites, equações de
-  altura, pausa da animação e Play/Stop.
-- `tests/water-gpu-api.ts`: janela de três quadros, buffer real de compute,
-  limites de contagem/raio e encerramento automático.
-- `tests/test_gpufluid.ts`: 9 verificações passaram no solver GPU existente.
-- `tests/water-frame-gc.ts`: 200 mil updates e chamadas do componente com
-  janela nula, zero coletas entre marcadores. Não mede alocações do driver.
-- Testes do gerador de componentes, catálogo e verificação de parâmetros passaram.
-- O teste longo `test_fluid_facade.ts` foi interrompido durante a etapa CPU;
-  não foi contabilizado como aprovação da troca CPU/GPU.
+- 36 testes nativos de scene3d passaram na RTX 2080 Ti/DX12, incluindo pixels de água, ondas, refração, SSR, remoção e partículas GPU.
+- `water-surface.ts`: catálogo, serialização, limites, ondas e Play/Stop.
+- `buoyancy.ts`: equilíbrio em 60/120 Hz, afundamento, limites, serialização e três caminhos de física.
+- `water-world.ts`: carregamento, toggle, descarte, cache e origem móvel.
+- Sondas WaterSurface, Buoyancy e streaming: 200 mil iterações por caminho, zero coletas entre marcadores; não medem alocações do driver.
+- Testes do catálogo, geração, parâmetros e PlayMode passaram.
+- Na etapa anterior, API GPU e 9 verificações do solver GPU passaram. O teste longo `test_fluid_facade.ts` foi interrompido na CPU e não conta como aprovação da troca CPU/GPU.
 
-Benchmark `bench/claude-frame-bench.mjs --only water-off,water-on`: mesma cena,
-1280×800, runtime debug, VSync desligado, 60 quadros de aquecimento + 300
-medidos, uma execução de cada. Média de quadro: **3,045 ms sem água e
-3,135 ms com água**; CPU TS: 2,379 → 2,397 ms; zero GC em ambas. A carga
-média da máquina variou de 27,6% a 33,9%. É uma amostra curta de uma cena
-pequena, não uma garantia de desempenho de mundos extensos.
+Benchmark `water-stage2`, mesma cena, 1280×800, debug, VSync desligado: 60 quadros de aquecimento e 300 medidos, uma execução por cenário. Média: **3,994 ms sem água; 4,008 ms com água e SSR**. CPU TS: 3,253 → 3,234 ms; zero GC. Carga média da máquina: 29,5% e 31,0%. A caixa com física está nos dois cenários. A diferença está sujeita ao ruído; não mede custo GPU isolado nem garante desempenho em mundos extensos.

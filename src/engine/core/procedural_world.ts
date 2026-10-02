@@ -23,6 +23,7 @@ export class ProceduralWorld extends Behavior {
   memoryMiB:number=128;
   treeDensity:number=1;
   grassDensity:number=.65;
+  waterEnabled:boolean=true;
   maxSlope:number=35;
   brushX:number=0;brushZ:number=0;brushRadius:number=24;brushStrength:number=1;
   /** @hideInInspector */
@@ -53,6 +54,7 @@ export class ProceduralWorld extends Behavior {
     this.brushZ=this.limit(this.brushZ,-10000000,10000000,0);
     this.brushRadius=this.limit(this.brushRadius,.1,2048,24);
     this.brushStrength=this.limit(this.brushStrength,0,1,1);
+    if(field==="waterEnabled"){if(this.world!==null)this.world.waterEnabled=this.waterEnabled;return;}
     if(field.indexOf("brush")!==0)this.regenerate();
   }
   private limit(value:number,min:number,max:number,fallback:number):number{return Number.isFinite(value)?Math.max(min,Math.min(max,value)):fallback;}
@@ -64,6 +66,11 @@ export class ProceduralWorld extends Behavior {
     if(this.world!==null)this.world.dispose();this.world=null;this.window=0;
   }
   isReady():boolean{return this.world!==null&&this.world.ready;}
+  update(dt:number):void{if(this.world!==null){this.world.waterEnabled=this.waterEnabled;this.world.offsetY=this.host.wy;this.world.update(dt);}}
+  waterHeightAt(x:number,z:number):number {
+    if(this.world===null||!this.waterEnabled)return NaN;
+    return this.world.waterHeightAt(x-this.host.wx,z-this.host.wz);
+  }
   resourceBytes():number{return this.world===null?0:this.world.budget.bytes;}
   loadError():string{return this.failed?this.message:this.world===null?"":this.world.error;}
   private initialize(win:number):void {
@@ -74,6 +81,7 @@ export class ProceduralWorld extends Behavior {
       if(this.generatorSettings.length>65536)throw new Error("Configuração da extensão muito grande");
       profile.options=JSON.parse(this.generatorSettings);
       this.world=new WorldStream(win,this.seed,this.chunkRadius,profile);this.window=win;
+      this.world.waterEnabled=this.waterEnabled;
       this.world.budget.maxBytes=this.memoryMiB*1024*1024;
       this.world.vegetation={trees:this.treeDensity,grass:this.grassDensity,slope:this.maxSlope,mask:this.vegetationMask};
     }catch(error){this.releaseResources();this.failed=true;this.message=String(error);}
@@ -111,7 +119,7 @@ export class ProceduralWorld extends Behavior {
     ui.field("biomes");ui.field("biomeScale");ui.field("heightScale");ui.field("caves");
     ui.label("Cavernas: voxel. No heightfield, ative biomas para usar as escalas.");
     if(this.generator==="voxel"){ui.label("Voxels: blocos e cavernas. Pintura de vegetação não se aplica.");ui.label(this.message);if(ui.button("Regenerar mundo"))this.regenerate();return;}
-    ui.field("treeDensity");ui.field("grassDensity");ui.field("maxSlope");
+    ui.field("treeDensity");ui.field("grassDensity");ui.field("maxSlope");ui.field("waterEnabled");
     ui.label("Pincel local XZ: máscara compartilhada por árvores e mato.");
     ui.field("brushX");ui.field("brushZ");ui.field("brushRadius");ui.field("brushStrength");
     if(ui.button("Abrir clareira")){ui.alterar();this.paintVegetation(-this.brushStrength);}

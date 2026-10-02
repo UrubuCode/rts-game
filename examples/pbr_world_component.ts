@@ -32,6 +32,7 @@ while(pump(win)&&isOpen(win)){
   if(input.key(win,104,0))camera[1]+=speed;
   if(input.key(win,116,0))camera[1]-=speed;
   }
+  scene.update(dt);scene.computeWorld();
   camera[6]=winWidth(win)/Math.max(1,winHeight(win));
   beginFrame(win);setCamBuf(win,camera);frustumBeginBuf(camera);frustumParams(fParams);prepararDesenho(cfg,fParams,-1,1);
   drawSceneObjects(scene,scene.objects.length,win,cfg);
