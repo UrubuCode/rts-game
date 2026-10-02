@@ -306,9 +306,10 @@ export class Scene {
     // saída do Play (as cópias descartadas nunca retomam tocando o original
     // restaurado, ver coroutine_scheduler.ts) e qualquer outra troca de cena.
     coroutineStopEverywhere();
+    const disposing=this.objects.slice();
     let i = 0;
-    while (i < this.objects.length) {
-      const obj=this.objects[i];
+    while (i < disposing.length) {
+      const obj=disposing[i];
       for(let bi=0;bi<obj.behaviors.length;bi++)obj.behaviors[bi].releaseResources();
       obj.uiOwner = null; i = i + 1;
     }
@@ -1558,7 +1559,7 @@ function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]):
 function updateAll(objs: GameObject[], dt: f64): void {
   const n = objs.length;
   let i = 0;
-  while (i < n) {
+  while (i < n && i < objs.length) {
     const o: GameObject = objs[i];
     if (o.active !== 0) {
       const bs: Behavior[] = o.behaviors;
@@ -1585,7 +1586,8 @@ function updateAll(objs: GameObject[], dt: f64): void {
         }
       }
     }
-    i = i + 1;
+    // Um script pode remover o objeto atual; o seguinte ocupa este índice.
+    if (objs[i] === o) i = i + 1;
   }
 }
 

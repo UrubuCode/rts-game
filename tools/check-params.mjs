@@ -27,6 +27,7 @@ const alvos = ['src', 'assets/scripts', 'assets/pacotes', 'main.ts', 'game.ts'].
 // editor e do jogo padrão (ou em subsistemas opcionais ainda não migrados), com
 // o motivo. Chave: caminho relativo com "/"; valor: nome → justificativa.
 const EXCECOES = {
+  'src/engine/net/protocol.ts': { netEscreverCabecalho: 'wrapper legado compatível para scripts antigos; caminho interno por tick usa writeHeader com dois parâmetros', netEscreverCabecalhoVersao: 'wrapper legado compatível; usado nos testes de versões; caminho interno usa writeHeader' },
   'src/compat/app.ts': { createAppAt: 'abre a janela uma vez' },
   'src/compat/render.ts': { image: 'shim antigo usado só pelo harness TCP (fora de serviço); o editor usa @compat/draw2d' },
   'src/editor/thumbs.ts': {

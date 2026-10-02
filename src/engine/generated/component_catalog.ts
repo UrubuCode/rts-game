@@ -127,6 +127,27 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/terrain.ts"
   },
   {
+    "name": "NetworkManager",
+    "category": "Rede",
+    "description": "Servidor ou cliente UDP com replicação autoritativa de GameObjects.",
+    "keywords": "multiplayer network manager conexão servidor cliente",
+    "source": "src/engine/core/network_manager.ts"
+  },
+  {
+    "name": "NetworkObject",
+    "category": "Rede",
+    "description": "Identidade de rede; estados irmãos são replicados pelo servidor.",
+    "keywords": "multiplayer network object identidade dono",
+    "source": "src/engine/core/network_object.ts"
+  },
+  {
+    "name": "NetworkTransform",
+    "category": "Rede",
+    "description": "Replica posição e yaw do GameObject a partir do servidor.",
+    "keywords": "multiplayer network transform rede posição",
+    "source": "src/engine/core/network_transform.ts"
+  },
+  {
     "name": "Camera",
     "category": "Renderização",
     "description": "Câmera do jogo: perspectiva ou ortográfica, viewport, fundo e ordem de desenho.",
