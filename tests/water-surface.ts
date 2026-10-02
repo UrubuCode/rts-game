@@ -1,0 +1,21 @@
+import { WaterSurface } from "@engine/core/water_surface";
+import { createComponent,componentToData } from "@engine/components";
+import { recreateBehavior } from "@editor/sceneio";
+import { scene } from "@editor/control/session";
+import { playMode } from "@editor/play_mode";
+function check(ok:boolean,message:string):void {if(!ok)throw new Error(message);println("[OK] "+message);}
+const water=createComponent("WaterSurface") as WaterSurface;
+water.width=48;water.waveSpeed=2;water.opacity=.45;
+const restored=recreateBehavior(componentToData(water)) as WaterSurface;
+check(restored instanceof WaterSurface&&restored.width===48&&restored.opacity===.45,"água no catálogo e round-trip");
+water.width=NaN;water.resolution=900;water.wavelength=0;water.onValidate("");
+check(water.width===32&&water.resolution===128&&water.wavelength===.1,"limites inválidos corrigidos");
+water.wavelength=5;water.host.wy=3;water.update(.1);
+const k=2*Math.PI/5,t=.2;
+const expected=3+water.waveAmplitude*(Math.sin(k*(4*.8+7*.6)+t)+.35*Math.sin(k*1.7*(-4*.6+7*.8)+t*1.3));
+check(Math.abs(water.heightAt(4,7)-expected)<.000001,"consulta reproduz equações do shader");
+water.enabled=0;water.update(.1);check(water.heightAt(4,7)===expected,"disable pausa animação");water.enabled=1;
+scene.clear();const go=scene.createGameObject("Lago");go.addBehavior(water);
+check(playMode.play(),"Play clona WaterSurface");scene.update(.03);playMode.stop();
+check(scene.objects[0]===go,"Stop restaura autoria");scene.clear();
+println("[PASSOU] water-surface");

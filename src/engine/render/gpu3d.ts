@@ -25,22 +25,11 @@
 // Os `f64`/`i64` das assinaturas viraram `number`: eram anotações de
 // representação do motor antigo, e o novo tem uma só. Ninguém que chama sente.
 //
-// ── O QUE NÃO EXISTE NO MOTOR NOVO ──────────────────────────────────────────
-//
-//  · `rts:imgdec` — o decodificador de PNG/JPG/BMP/WebP. Sem ele não há como ir
-//    de um arquivo até pixels RGBA8, então `loadTexture` LANÇA (ver a doc dela).
-//  · `egui.drawWater` — o draw INSTANCIADO de partículas lendo um buffer de
-//    compute. Não foi renomeado nem substituído: não está na superfície nova
-//    (`crates/rts-ui/src/scene.rs` lista os dez membros do pass 3D, e ele não é
-//    um deles). `drawWaterGPU` lança pelo mesmo motivo.
-//
-// Nos dois casos a escolha foi lançar em vez de devolver 0: um 0 silencioso vira
-// uma textura invisível ou uma água que não aparece, e o tempo até alguém
-// entender por quê é maior que o do erro.
-
+// PNGs usam o decoder da engine; o runtime fornece uploads de texturas.
+// O patch PBR inclui drawWater: instancia o buffer de compute sem readback.
 import {
   meshUpload, textureUpload, setCamera, setLight, setShadow as eguiSetShadow,
-  drawMesh, drawMeshBatch, setVsync as eguiSetVsync,
+  drawWater as eguiDrawWater, drawMesh, drawMeshBatch, setVsync as eguiSetVsync,
   winWidth as eguiWinWidth, winHeight as eguiWinHeight,
   setLights as eguiSetLights, setSky as eguiSetSky, setFog as eguiSetFog,
   setViewport as eguiSetViewport, setClearColor as eguiSetClearColor, setSkybox as eguiSetSkybox,
@@ -217,10 +206,7 @@ export function initMeshes(win: number): void {
   // (768 tris) × 16k partículas = 12M tris/frame de gordura pura; a baixa dá
   // 1,5M e ninguém vê a diferença numa gota de 0.3 de raio.
   //
-  // Continua sendo subida mesmo com `drawWaterGPU` sem destino no motor novo: é
-  // uma mesh comum, e quem quiser desenhar as partículas uma a uma com
-  // `drawGPUMesh` precisa exatamente deste id. Jogá-la fora agora custaria
-  // reescrevê-la no dia em que o draw instanciado voltar.
+  // Reutilizada pelo draw instanciado e pelo fallback de desenho individual.
   const wv: number[] = [];
   const wf: number[] = [];
   const WLAT = 6;
@@ -541,25 +527,12 @@ export function inFrustumFast(wx: number, wy: number, wz: number, radius: number
   return 1;
 }
 
-/// AUSENTE NO MOTOR NOVO — lança.
-///
-/// Desenhava `count` partículas em UMA chamada, lendo as instâncias (vec4: xyz +
-/// densidade assinada) direto do buffer de compute `gbuf`, com o culling de
-/// casca no vertex shader. Dependia de `egui.drawWater`, que NÃO está entre os
-/// dez membros do pass 3D da superfície nova (`crates/rts-ui/src/scene.rs`:
-/// meshUpload, meshFree, textureUpload, setCamera, setCameraLookAt,
-/// setClearColor, setSkybox, setLight, setShadow, drawMesh).
-///
-/// Não há como emular: o ponto dele era a GPU ler as posições sem readback, e
-/// fazer N `drawGPUMesh` exigiria trazer as partículas de volta pra CPU — o
-/// custo exato que o draw instanciado existe para evitar. Quem aceitar esse
-/// custo escreve o laço no chamador, com `lowPolySphereId()` como mesh.
-export function drawWaterGPU(win: number, gbuf: number, count: number, scale: number): number {
-  throw new Error(
-    "drawWaterGPU ausente no motor novo: `egui.drawWater` (draw instanciado lendo " +
-    "um buffer de compute) não existe na superfície nova. Sem ele, desenhar " +
-    count + " partículas exige um drawGPUMesh por partícula, com readback do buffer."
-  );
+// Op??es reutilizadas: a API nativa valida tamanho/uso do buffer de compute.
+const waterDrawOptions={count:0,scale:.3};
+export function drawWaterGPU(win:number,gbuf:number,count:number,scale:number):number {
+  if(!Number.isInteger(count)||count<=0||!Number.isFinite(scale)||scale<=0)return 0;
+  initMeshes(win);waterDrawOptions.count=count;waterDrawOptions.scale=scale;
+  return eguiDrawWater(win,idSphereLow,gbuf,waterDrawOptions);
 }
 
 /// O mesh id de um meshKind — a MESMA tabela que `drawGPU` aplica.

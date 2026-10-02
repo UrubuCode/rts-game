@@ -1,19 +1,20 @@
 diff --git a/crates/rts-egui/src/frame/scene3d/mod.rs b/crates/rts-egui/src/frame/scene3d/mod.rs
-index 56a79d4..4f7b7bf 100644
+index 56a79d49c..88e6a2b99 100644
 --- a/crates/rts-egui/src/frame/scene3d/mod.rs
 +++ b/crates/rts-egui/src/frame/scene3d/mod.rs
-@@ -33,6 +33,10 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
+@@ -33,6 +33,11 @@ fn init_buffer(device: &wgpu::Device, label: &str, data: &[u8], usage: wgpu::Buf
  }
  
  mod lights;
 +mod pbr;
 +mod post;
++mod water_surface;
 +pub(crate) mod mipmaps;
 +mod capture;
  mod math;
  mod particles;
  mod pipeline;
-@@ -41,6 +45,8 @@ mod shader;
+@@ -41,6 +46,8 @@ mod shader;
  mod views;
  #[cfg(test)]
  mod tests;
@@ -22,11 +23,12 @@ index 56a79d4..4f7b7bf 100644
  
  use math::{identity, light_view_proj};
  pub use math::{Cam3D, model_matrix, model_matrix_quat, view_proj, view_proj_lookat};
-@@ -59,6 +65,14 @@ struct GpuMesh {
+@@ -59,6 +66,15 @@ struct GpuMesh {
  }
  
  pub struct Scene3D {
 +    post: post::Post,
++    surface: water_surface::WaterSurfacePass,
 +    material_bgl: wgpu::BindGroupLayout,
 +    default_material: Option<wgpu::BindGroup>,
 +    materials: HashMap<u64, pbr::MaterialGpu>,
@@ -37,7 +39,15 @@ index 56a79d4..4f7b7bf 100644
      pipeline: wgpu::RenderPipeline,
      sky_pipeline: wgpu::RenderPipeline,
      shadow_pipeline: wgpu::RenderPipeline,
-@@ -90,7 +104,7 @@ pub struct Scene3D {
+@@ -74,6 +90,7 @@ pub struct Scene3D {
+     textures: HashMap<u64, wgpu::BindGroup>,
+     next_tex: u64,
+     depth_view: wgpu::TextureView,
++    depth_texture: wgpu::Texture,
+     depth_w: u32,
+     depth_h: u32,
+     meshes: HashMap<u64, GpuMesh>,
+@@ -90,7 +107,7 @@ pub struct Scene3D {
      // (mesh, model, color, emissive, tex_flag, tex_id, tile) — tex_flag vai pro
      // shader (0/1/2), tex_id seleciona o bind group da textura no render loop,
      // tile > 0 = UV em coordenada de mundo (repetições por unidade).
@@ -46,7 +56,7 @@ index 56a79d4..4f7b7bf 100644
      water_pipeline: wgpu::RenderPipeline,
      /// (mesh, buffer de instâncias [vec4/partícula], count, escala) — drenada
      /// junto de `draws`. O buffer vem CLONADO do rts:gpu (mesmo device).
-@@ -126,6 +140,10 @@ pub struct Scene3D {
+@@ -126,6 +143,10 @@ pub struct Scene3D {
  
  impl Scene3D {
  
@@ -57,7 +67,7 @@ index 56a79d4..4f7b7bf 100644
      pub fn upload_mesh(&mut self, device: &wgpu::Device, verts: &[f32], indices: &[u32]) -> u64 {
          let vbuf = init_buffer(device, "scene3d vbuf", f32_bytes(verts), wgpu::BufferUsages::VERTEX);
          let ibuf = init_buffer(device, "scene3d ibuf", u32_bytes(indices), wgpu::BufferUsages::INDEX);
-@@ -165,7 +183,7 @@ impl Scene3D {
+@@ -165,7 +186,7 @@ impl Scene3D {
      /// `tex`: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (imagem).
      /// `tile`: 0 = UV da malha; > 0 = UV em mundo, `tile` repetições por unidade.
      pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64, tile: f32) {
@@ -66,7 +76,7 @@ index 56a79d4..4f7b7bf 100644
      }
  
      /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh`, lendo cada
-@@ -209,12 +227,21 @@ impl Scene3D {
+@@ -209,12 +230,21 @@ impl Scene3D {
          if w == 0 || h == 0 || rgba.len() < (w as usize) * (h as usize) * 4 {
              return 0;
          }
@@ -89,7 +99,15 @@ index 56a79d4..4f7b7bf 100644
      /// Fundo CHAPADO da vista corrente (desliga o céu nela). Ideal pro viewport
      /// do editor.
      pub fn set_clear_color(&mut self, rgba: [f32; 4]) { self.vq.set_fundo(views::Fundo::Cor(rgba)); }
-@@ -254,42 +281,35 @@ fn make_tex_bg(
+@@ -225,6 +255,7 @@ impl Scene3D {
+         if w != self.depth_w || h != self.depth_h {
+             let (v, _t) = make_depth(device, w.max(1), h.max(1));
+             self.depth_view = v;
++            self.depth_texture = _t;
+             self.depth_w = w;
+             self.depth_h = h;
+         }
+@@ -254,42 +285,35 @@ fn make_tex_bg(
      rgba: &[u8],
      w: u32,
      h: u32,
@@ -145,13 +163,22 @@ index 56a79d4..4f7b7bf 100644
  }
  
  fn make_depth(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::TextureView, wgpu::Texture) {
-@@ -321,4 +341,3 @@ fn make_shadow(device: &wgpu::Device, size: u32) -> (wgpu::TextureView, wgpu::Te
+@@ -300,7 +324,7 @@ fn make_depth(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::TextureView, wgpu
+         sample_count: 1,
+         dimension: wgpu::TextureDimension::D2,
+         format: DEPTH_FORMAT,
+-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
++        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+         view_formats: &[],
+     });
+     let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+@@ -321,4 +345,3 @@ fn make_shadow(device: &wgpu::Device, size: u32) -> (wgpu::TextureView, wgpu::Te
      let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
      (view, tex)
  }
 -
 diff --git a/crates/rts-egui/src/frame/scene3d/pipeline.rs b/crates/rts-egui/src/frame/scene3d/pipeline.rs
-index c51df26..08156a4 100644
+index c51df26bb..3f65030af 100644
 --- a/crates/rts-egui/src/frame/scene3d/pipeline.rs
 +++ b/crates/rts-egui/src/frame/scene3d/pipeline.rs
 @@ -70,6 +70,9 @@ fn make_particle_pipeline(
@@ -186,18 +213,20 @@ index c51df26..08156a4 100644
              immediate_size: 0,
          });
          // layout do shadow pass: só group 0 (light_vp vem do uniform da câmera)
-@@ -450,7 +454,9 @@ impl Scene3D {
+@@ -450,7 +454,11 @@ impl Scene3D {
              mapped_at_creation: false,
          });
  
 -        Scene3D {
++        let surface = water_surface::WaterSurfacePass::new(device, &cam_bgl);
 +        let mut scene = Scene3D {
++            surface, depth_texture: _t,
 +            post, material_bgl, default_material: None, materials: HashMap::new(), next_material: 1, material_sky: 0,
 +            default_tex_view, texture_views: HashMap::new(),
              pipeline,
              sky_pipeline,
              shadow_pipeline,
-@@ -488,6 +494,8 @@ impl Scene3D {
+@@ -488,6 +496,8 @@ impl Scene3D {
              part_pending_batches: Vec::new(),
              particle_inst_buf,
              particle_inst_cap: 64,
@@ -208,21 +237,28 @@ index c51df26..08156a4 100644
      }
  }
 diff --git a/crates/rts-egui/src/frame/scene3d/render.rs b/crates/rts-egui/src/frame/scene3d/render.rs
-index ad6f124..f0df45c 100644
+index ad6f124e8..4e986776c 100644
 --- a/crates/rts-egui/src/frame/scene3d/render.rs
 +++ b/crates/rts-egui/src/frame/scene3d/render.rs
-@@ -17,6 +17,10 @@ impl Scene3D {
+@@ -17,11 +17,17 @@ impl Scene3D {
          h: u32,
      ) -> bool {
          self.ensure_depth(device, w, h);
 +        self.post.resize(device, w, h);
++        self.surface.prepare(device,queue,[w,h]);
 +        self.refresh_material_environment(device);
 +        let output = view;
 +        let view = &self.post.view;
  
          // um slot `Cam` por vista (offset dinâmico) + o `Env` do frame
          let water = self.water_draws.first().map(|d| d.3).unwrap_or(0.0);
-@@ -57,19 +61,19 @@ impl Scene3D {
+         let nviews = self.vq.len();
+         for i in 0..nviews {
++            if !self.surface.pending.is_empty(){if let Some(px)=viewport_px(self.vq.get(i).rect,w,h){queue.write_buffer(&self.surface.viewport,i as u64*256,f32_bytes(&px.map(|v|v as f32)));}}
+             let floats = cam_floats(self.vq.get(i), self.light, &self.light_vp, water);
+             queue.write_buffer(&self.cam_buf, i as u64 * CAM_STRIDE, f32_bytes(&floats));
+         }
+@@ -57,19 +63,19 @@ impl Scene3D {
          // por draw — dois objetos com texturas diferentes não podem entrar na
          // mesma chamada. Na prática quase tudo usa a textura default.
          let mut ordem: Vec<usize> = (0..self.draws.len()).collect();
@@ -248,7 +284,7 @@ index ad6f124..f0df45c 100644
              inst.extend_from_slice(model);
              inst.extend_from_slice(color);
              inst.push(*emissive);
-@@ -126,7 +130,7 @@ impl Scene3D {
+@@ -126,7 +132,7 @@ impl Scene3D {
              // critério de agrupamento seria uma segunda ordenação do buffer de
              // instâncias, e as duas teriam de concordar sobre qual instância
              // está em qual posição.
@@ -257,7 +293,7 @@ index ad6f124..f0df45c 100644
                  if let Some(m) = self.meshes.get(&mesh_id) {
                      let off = (inicio as u64) * 96;
                      let bytes = (n as u64) * 96;
-@@ -179,6 +183,7 @@ impl Scene3D {
+@@ -179,6 +185,7 @@ impl Scene3D {
              pass.set_scissor_rect(px[0], px[1], px[2], px[3]);
              pass.set_bind_group(0, &self.cam_bg, &[(i as u64 * CAM_STRIDE) as u32]);
              pass.set_bind_group(1, &self.shadow_bg, &[]);
@@ -265,7 +301,7 @@ index ad6f124..f0df45c 100644
              // 1. fundo da vista: céu, ou cor chapada (view_bg.w = 1) só dentro
              // do retângulo. `limpar = false` não pinta nada (só a profundidade).
              if v.limpar {
-@@ -190,10 +195,11 @@ impl Scene3D {
+@@ -190,10 +197,11 @@ impl Scene3D {
              // a textura do objeto (tex_id>=2) ou a 1×1 branca default.
              pass.set_pipeline(&self.pipeline);
              pass.set_bind_group(2, &self.default_tex_bg, &[]);
@@ -278,24 +314,44 @@ index ad6f124..f0df45c 100644
                      let off = (inicio as u64) * 96;
                      let bytes = (n as u64) * 96;
                      pass.set_vertex_buffer(0, m.vbuf.slice(..));
-@@ -202,6 +208,7 @@ impl Scene3D {
+@@ -202,6 +210,24 @@ impl Scene3D {
                      pass.draw_indexed(0..m.icount, 0, 0..n);
                  }
              }
 +            pass.set_bind_group(3, self.default_material.as_ref().unwrap(), &[]);
++
++            if !self.surface.pending.is_empty() {
++                drop(pass);
++                self.surface.copy(encoder,&self.post.texture,&self.depth_texture);
++                pass=encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
++                    label:Some("water and transparent pass"),color_attachments:&[Some(wgpu::RenderPassColorAttachment{view,resolve_target:None,depth_slice:None,ops:wgpu::Operations{load:wgpu::LoadOp::Load,store:wgpu::StoreOp::Store}})],
++                    depth_stencil_attachment:Some(wgpu::RenderPassDepthStencilAttachment{view:&self.depth_view,depth_ops:Some(wgpu::Operations{load:wgpu::LoadOp::Load,store:wgpu::StoreOp::Store}),stencil_ops:None}),timestamp_writes:None,occlusion_query_set:None,multiview_mask:None,
++                });
++                pass.set_viewport(px[0] as f32,px[1] as f32,px[2] as f32,px[3] as f32,0.0,1.0);pass.set_scissor_rect(px[0],px[1],px[2],px[3]);
++                pass.set_pipeline(&self.surface.pipeline);pass.set_bind_group(0,&self.cam_bg,&[(i as u64*CAM_STRIDE) as u32]);pass.set_bind_group(1,self.surface.bind.as_ref().unwrap(),&[(i as u64*256) as u32]);
++                for (index,data) in self.surface.pending.chunks_exact(20).enumerate(){
++                    let offset=index as u64*80;pass.set_vertex_buffer(0,self.surface.instances.slice(offset..offset+80));
++                    let cells=data[16] as u32;pass.draw(0..cells*cells*6,0..1);
++                }
++                // Restaura os bindings usados pelos pipelines legados de part?culas.
++                pass.set_bind_group(1,&self.shadow_bg,&[]);pass.set_bind_group(2,&self.default_tex_bg,&[]);pass.set_bind_group(3,self.default_material.as_ref().unwrap(),&[]);
++            }
              // 2.5 PARTÍCULAS: billboard instanciado, DEPOIS das malhas opacas
              // (depth já escrito) e ANTES da água. Depth TEST ligado (ficam
              // atrás de paredes), WRITE desligado (translúcidas entre si, não
-@@ -262,6 +269,7 @@ impl Scene3D {
+@@ -262,8 +288,10 @@ impl Scene3D {
              });
          }
  
 +        self.post.render(queue, encoder, output);
          self.draws.clear();
          self.water_draws.clear();
++        self.surface.pending.clear();
          self.part_pending.clear();
+         self.part_pending_batches.clear();
+         self.vq.end_frame();
 diff --git a/crates/rts-egui/src/frame/scene3d/shader.rs b/crates/rts-egui/src/frame/scene3d/shader.rs
-index eb43728..1277b9c 100644
+index eb4372851..1277b9c16 100644
 --- a/crates/rts-egui/src/frame/scene3d/shader.rs
 +++ b/crates/rts-egui/src/frame/scene3d/shader.rs
 @@ -1,7 +1,7 @@
@@ -352,7 +408,7 @@ index eb43728..1277b9c 100644
 -"#;
 +"#, include_str!("pbr.wgsl"));
 diff --git a/crates/rts-egui/src/lib.rs b/crates/rts-egui/src/lib.rs
-index 10ef7f5..969ce6e 100644
+index 10ef7f520..969ce6eb7 100644
 --- a/crates/rts-egui/src/lib.rs
 +++ b/crates/rts-egui/src/lib.rs
 @@ -42,6 +42,8 @@ mod glbackend;
@@ -365,7 +421,7 @@ index 10ef7f5..969ce6e 100644
  // Lógica pura, como o resto do crate: a casca do motor antigo é `abi::gpu`, a do
  // novo é `rts-ui`. Este módulo sobe e baixa bytes e não sabe de onde vêm.
 diff --git a/crates/rts-egui/src/scene_api.rs b/crates/rts-egui/src/scene_api.rs
-index d14f856..47a9629 100644
+index d14f856a7..b5958080b 100644
 --- a/crates/rts-egui/src/scene_api.rs
 +++ b/crates/rts-egui/src/scene_api.rs
 @@ -10,6 +10,44 @@ use crate::ctx::with_ctx;
@@ -413,8 +469,31 @@ index d14f856..47a9629 100644
  // Re-exportadas na raiz do crate (`rts_egui::PART_FLOATS`, mesmo nome do lado
  // TS) — ver `frame::scene3d::particles` pelo layout completo dos 9 floats.
  // `pub use` também traz os nomes para este arquivo, então `draw_particles`
+@@ -342,12 +380,13 @@ pub fn draw_particles_tex(win: u64, floats: &[f32], tex: u64, n: i64, modo: i64)
+ /// `scale` = raio de desenho. 1 ok, 0 = buffer/janela inválidos.
+ ///
+ pub fn draw_water(win: u64, mesh: u64, gbuf: u64, count: i64, scale: f64) -> i64 {
+-    if count <= 0 {
++    if count <= 0 || !scale.is_finite() || scale <= 0.0 {
+         return 0;
+     }
+     let Some(buf) = crate::compute::buffer_handle(gbuf) else {
+         return 0;
+     };
++    if count as u64 > buf.size()/16 || !buf.usage().contains(wgpu::BufferUsages::VERTEX) {return 0;}
+     with_scene(
+         win,
+         |s, _| {
+@@ -438,3 +477,7 @@ mod tests {
+         assert_eq!(draw_particles_tex(0, &buf, 999_999, 1, MODO_ALFA), 0);
+     }
+ }
++
++pub fn draw_water_surface(win:u64,data:&[f64])->i64 {
++    with_scene(win,|s,_|s.queue_water_surface(data),0)
++}
 diff --git a/crates/rts-host/examples/ui_fixture.rs b/crates/rts-host/examples/ui_fixture.rs
-index cdc8fa9..5096166 100644
+index cdc8fa9a9..50961666a 100644
 --- a/crates/rts-host/examples/ui_fixture.rs
 +++ b/crates/rts-host/examples/ui_fixture.rs
 @@ -26,6 +26,7 @@
@@ -435,7 +514,7 @@ index cdc8fa9..5096166 100644
      program.run();
  }
 diff --git a/crates/rts-ui/src/scene.rs b/crates/rts-ui/src/scene.rs
-index 9ece244..5f86c83 100644
+index 9ece244fd..c10eda197 100644
 --- a/crates/rts-ui/src/scene.rs
 +++ b/crates/rts-ui/src/scene.rs
 @@ -14,6 +14,12 @@
@@ -469,7 +548,16 @@ index 9ece244..5f86c83 100644
      ("setCamera", set_camera),
      ("setCameraLookAt", set_camera_look_at),
      ("setClearColor", set_clear_color),
-@@ -100,6 +116,24 @@ fn doubles(raw: &[u8]) -> Vec<f64> {
+@@ -51,6 +67,8 @@ pub const MEMBERS: &[(&str, Provided)] = &[
+     ("setSky", set_sky),
+     ("setFog", set_fog),
+     ("setViewport", set_viewport),
++    ("drawWater", draw_water),
++    ("drawWaterSurface", draw_water_surface),
+     ("drawMesh", draw_mesh),
+     ("drawMeshBatch", draw_mesh_batch),
+     ("drawParticles", draw_particles),
+@@ -100,6 +118,24 @@ fn doubles(raw: &[u8]) -> Vec<f64> {
      raw.chunks_exact(8).map(|w| f64::from_ne_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]])).collect()
  }
  
@@ -494,7 +582,7 @@ index 9ece244..5f86c83 100644
  /// `setCamera(win, { x, y, z, yaw, pitch, fov, aspect, near, far, ortho, orthoSize })`
  /// — câmera de voo da vista corrente. Ângulos em RADIANOS; base canhota, `yaw` 0
  /// olha para +Z. `ortho != 0` = ortográfica com meia altura `orthoSize`.
-@@ -211,9 +245,9 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
+@@ -211,9 +247,9 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
          spec,
          &[
              "mesh", "x", "y", "z", "rx", "ry", "sx", "sy", "sz", "color", "emissive", "tex", "tile",
@@ -506,7 +594,7 @@ index 9ece244..5f86c83 100644
      );
      let quat = if read[13] != 0.0 || read[14] != 0.0 || read[15] != 0.0 || read[16] != 0.0 {
          Some([read[13], read[14], read[15], read[16]])
-@@ -230,6 +264,7 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
+@@ -230,6 +266,7 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
          read[12],
          quat,
      );
@@ -514,9 +602,21 @@ index 9ece244..5f86c83 100644
      value::nothing()
  }
  
+@@ -292,3 +329,12 @@ extern "C" fn draw_particles_tex(_e: u64, _t: u64, win: u64, spec: u64, _b: u64,
+     let drawn = rts_egui::draw_particles_tex(handle(win), &floats(&raw), r[0] as u64, r[1] as i64, r[2] as i64);
+     value::from_number(drawn as f64)
+ }
++
++extern "C" fn draw_water(_e:u64,_t:u64,win:u64,mesh:u64,buffer:u64,spec:u64)->u64 {
++    let p=options(spec,&["count","scale"],&[0.0,0.3]);
++    value::from_number(rts_egui::draw_water(handle(win),handle(mesh),handle(buffer),p[0] as i64,p[1]) as f64)
++}
++extern "C" fn draw_water_surface(_e:u64,_t:u64,win:u64,data:u64,_b:u64,_c:u64)->u64 {
++    let Some(raw)=bytes(data) else {return value::from_number(0.0)};
++    value::from_number(rts_egui::draw_water_surface(handle(win),&doubles(&raw)) as f64)
++}
 diff --git a/crates/rts-egui/src/frame/scene3d/capture.rs b/crates/rts-egui/src/frame/scene3d/capture.rs
 new file mode 100644
-index 0000000..e3eae24
 --- /dev/null
 +++ b/crates/rts-egui/src/frame/scene3d/capture.rs
 @@ -0,0 +1,37 @@
@@ -559,7 +659,6 @@ index 0000000..e3eae24
 +}
 diff --git a/crates/rts-egui/src/frame/scene3d/mipmaps.rs b/crates/rts-egui/src/frame/scene3d/mipmaps.rs
 new file mode 100644
-index 0000000..5b505c3
 --- /dev/null
 +++ b/crates/rts-egui/src/frame/scene3d/mipmaps.rs
 @@ -0,0 +1,116 @@
@@ -681,7 +780,6 @@ index 0000000..5b505c3
 +}
 diff --git a/crates/rts-egui/src/frame/scene3d/pbr.rs b/crates/rts-egui/src/frame/scene3d/pbr.rs
 new file mode 100644
-index 0000000..6d75e48
 --- /dev/null
 +++ b/crates/rts-egui/src/frame/scene3d/pbr.rs
 @@ -0,0 +1,88 @@
@@ -775,7 +873,6 @@ index 0000000..6d75e48
 +}
 diff --git a/crates/rts-egui/src/frame/scene3d/pbr.wgsl b/crates/rts-egui/src/frame/scene3d/pbr.wgsl
 new file mode 100644
-index 0000000..286fb56
 --- /dev/null
 +++ b/crates/rts-egui/src/frame/scene3d/pbr.wgsl
 @@ -0,0 +1,86 @@
@@ -867,10 +964,9 @@ index 0000000..286fb56
 +}
 diff --git a/crates/rts-egui/src/frame/scene3d/pbr_gpu_tests.rs b/crates/rts-egui/src/frame/scene3d/pbr_gpu_tests.rs
 new file mode 100644
-index 0000000..d604e8b
 --- /dev/null
 +++ b/crates/rts-egui/src/frame/scene3d/pbr_gpu_tests.rs
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,118 @@
 +//! Opt-in GPU acceptance test: actual pixels, not only shader validation.
 +use super::*;
 +const W: u32 = 768;
@@ -964,18 +1060,43 @@ index 0000000..d604e8b
 +    for id in reference_materials {scene.free_material(id);}
 +    scene.free_material(mat); assert!(scene.materials.is_empty());
 +}
++#[test]
++#[ignore = "requer GPU; valida pixels da água e caminho instanciado"]
++fn water_gpu_pixels_and_lifecycle() {
++    let instance=wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
++    let adapter=pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions{power_preference:wgpu::PowerPreference::HighPerformance,compatible_surface:None,force_fallback_adapter:false})).unwrap();
++    let (dev,queue)=pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor{label:Some("water acceptance"),required_features:wgpu::Features::empty(),required_limits:wgpu::Limits::default(),memory_hints:Default::default(),experimental_features:wgpu::ExperimentalFeatures::disabled(),trace:wgpu::Trace::Off})).unwrap();
++    let mut scene=Scene3D::new(&dev,&queue,wgpu::TextureFormat::Rgba8UnormSrgb);
++    scene.set_camera(view_proj_lookat([0.0,4.0,-7.0],[0.0,0.0,0.0],0.85,W as f32/H as f32,0.1,100.0));scene.set_exposure(1.0);
++    let (v,ix)=sphere();let mesh=scene.upload_mesh(&dev,&v,&ix);
++    let floor=|s:&mut Scene3D|{s.queue_draw(mesh,model_matrix(0.0,-1.5,0.0,0.0,0.0,8.0,1.0,8.0),[0.4,0.3,0.1,1.0],0.0,1,1.0);};
++    floor(&mut scene);let dry=render_readback(&mut scene,&dev,&queue);
++    let mut data=[0.0,0.0,0.0,10.0,10.0,0.0,0.15,4.0,1.0,0.4,0.85,12.0,0.02,0.18,0.16,0.3,64.0,0.0,0.0,0.0];
++    assert_eq!(scene.queue_water_surface(&data[..19]),0);
++    data[0]=f64::NAN;assert_eq!(scene.queue_water_surface(&data),0);data[0]=0.0;
++    floor(&mut scene);assert_eq!(scene.queue_water_surface(&data),1);let wet=render_readback(&mut scene,&dev,&queue);
++    assert!(delta(&dry,&wet)>100_000,"água altera pixels");assert!(scene.surface.pending.is_empty());
++    data[5]=2.0;floor(&mut scene);scene.queue_water_surface(&data);let animated=render_readback(&mut scene,&dev,&queue);
++    assert!(delta(&wet,&animated)>10_000,"ondas animam sem reconstruir malha");
++    data[11]=0.0;floor(&mut scene);scene.queue_water_surface(&data);let no_refraction=render_readback(&mut scene,&dev,&queue);
++    assert!(delta(&animated,&no_refraction)>100,"refração muda o fundo");
++    floor(&mut scene);let cleared=render_readback(&mut scene,&dev,&queue);assert_eq!(dry,cleared,"sem resíduos após remover água");
++    let positions=init_buffer(&dev,"particle position",f32_bytes(&[0.0,0.0,0.0,1.0]),wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::STORAGE);
++    floor(&mut scene);scene.queue_water(mesh,positions,1,0.6);let particle=render_readback(&mut scene,&dev,&queue);
++    assert!(delta(&dry,&particle)>1000,"partículas leem buffer GPU");assert!(scene.water_draws.is_empty());
++}
 diff --git a/crates/rts-egui/src/frame/scene3d/post.rs b/crates/rts-egui/src/frame/scene3d/post.rs
 new file mode 100644
-index 0000000..57f3d65
 --- /dev/null
 +++ b/crates/rts-egui/src/frame/scene3d/post.rs
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,77 @@
 +//! Floating point scene target and display conversion, before the egui overlay.
 +use super::*;
 +pub(super) const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 +
 +pub(super) struct Post {
 +    pub view: wgpu::TextureView,
++    pub texture: wgpu::Texture,
 +    size: [u32; 2],
 +    layout: wgpu::BindGroupLayout,
 +    bind: wgpu::BindGroup,
@@ -985,13 +1106,13 @@ index 0000000..57f3d65
 +    pub settings: [f32; 4],
 +}
 +
-+fn target(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView {
++fn target(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
 +    device.create_texture(&wgpu::TextureDescriptor {
 +        label: Some("HDR scene"), size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
 +        mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
-+        format: FORMAT, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
++        format: FORMAT, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
 +        view_formats: &[],
-+    }).create_view(&wgpu::TextureViewDescriptor::default())
++    })
 +}
 +fn bind(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, view: &wgpu::TextureView, params: &wgpu::Buffer) -> wgpu::BindGroup {
 +    device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("HDR resolve"), layout,
@@ -1025,13 +1146,14 @@ index 0000000..57f3d65
 +            primitive: Default::default(), depth_stencil: None, multisample: Default::default(), multiview_mask: None, cache: None,
 +        });
 +        let params = init_buffer(device, "HDR exposure", f32_bytes(&[0.0, 1.0, 0.0, 0.0]), wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
-+        let view = target(device, 1, 1);
++        let texture = target(device, 1, 1);
++        let view = texture.create_view(&Default::default());
 +        let bind = bind(device, &layout, &view, &params);
-+        Self { view, size: [1, 1], layout, bind, params, pipeline, settings: [0.0, 1.0, 0.0, 0.0] }
++        Self { view, texture, size: [1, 1], layout, bind, params, pipeline, settings: [0.0, 1.0, 0.0, 0.0] }
 +    }
 +    pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32) {
 +        if self.size == [w, h] { return; }
-+        self.view = target(device, w, h); self.size = [w, h];
++        self.texture = target(device, w, h); self.view = self.texture.create_view(&Default::default()); self.size = [w, h];
 +        self.bind = bind(device, &self.layout, &self.view, &self.params);
 +    }
 +    pub fn render(&self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
@@ -1047,7 +1169,6 @@ index 0000000..57f3d65
 +}
 diff --git a/crates/rts-egui/src/frame/scene3d/post.wgsl b/crates/rts-egui/src/frame/scene3d/post.wgsl
 new file mode 100644
-index 0000000..b29c14e
 --- /dev/null
 +++ b/crates/rts-egui/src/frame/scene3d/post.wgsl
 @@ -0,0 +1,14 @@
@@ -1065,9 +1186,137 @@ index 0000000..b29c14e
 +    let mapped = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
 +    return vec4<f32>(mapped, src.a);
 +}
+diff --git a/crates/rts-egui/src/frame/scene3d/water_surface.rs b/crates/rts-egui/src/frame/scene3d/water_surface.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/water_surface.rs
+@@ -0,0 +1,61 @@
++use super::*;
++const FLOATS:usize=20;
++const MAX_SURFACES:usize=32;
++pub(super) struct WaterSurfacePass {
++    pub pipeline:wgpu::RenderPipeline,
++    layout:wgpu::BindGroupLayout,
++    pub viewport:wgpu::Buffer,
++    pub bind:Option<wgpu::BindGroup>,
++    color:Option<wgpu::Texture>, depth:Option<wgpu::Texture>,
++    size:[u32;2], pub instances:wgpu::Buffer, pub pending:Vec<f32>,
++}
++fn texture(device:&wgpu::Device,size:[u32;2],format:wgpu::TextureFormat)->wgpu::Texture {
++    device.create_texture(&wgpu::TextureDescriptor {label:Some("water opaque copy"),size:wgpu::Extent3d{width:size[0],height:size[1],depth_or_array_layers:1},mip_level_count:1,sample_count:1,dimension:wgpu::TextureDimension::D2,format,usage:wgpu::TextureUsages::COPY_DST|wgpu::TextureUsages::TEXTURE_BINDING,view_formats:&[]})
++}
++impl WaterSurfacePass {
++    pub fn new(device:&wgpu::Device,cam:&wgpu::BindGroupLayout)->Self {
++        let layout=device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor{label:Some("water inputs"),entries:&[
++            wgpu::BindGroupLayoutEntry{binding:0,visibility:wgpu::ShaderStages::FRAGMENT,ty:wgpu::BindingType::Texture{sample_type:wgpu::TextureSampleType::Float{filterable:false},view_dimension:wgpu::TextureViewDimension::D2,multisampled:false},count:None},
++            wgpu::BindGroupLayoutEntry{binding:1,visibility:wgpu::ShaderStages::FRAGMENT,ty:wgpu::BindingType::Texture{sample_type:wgpu::TextureSampleType::Depth,view_dimension:wgpu::TextureViewDimension::D2,multisampled:false},count:None},
++            wgpu::BindGroupLayoutEntry{binding:2,visibility:wgpu::ShaderStages::FRAGMENT,ty:wgpu::BindingType::Buffer{ty:wgpu::BufferBindingType::Uniform,has_dynamic_offset:true,min_binding_size:wgpu::BufferSize::new(16)},count:None},
++        ]});
++        let pl=device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{label:Some("water surface"),bind_group_layouts:&[Some(cam),Some(&layout)],immediate_size:0});
++        let shader=device.create_shader_module(wgpu::ShaderModuleDescriptor{label:Some("water surface"),source:wgpu::ShaderSource::Wgsl(include_str!("water_surface.wgsl").into())});
++        let attributes=wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4];
++        let pipeline=device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
++            label:Some("water surface"),layout:Some(&pl),
++            vertex:wgpu::VertexState{module:&shader,entry_point:Some("vs"),buffers:&[wgpu::VertexBufferLayout{array_stride:80,step_mode:wgpu::VertexStepMode::Instance,attributes:&attributes}],compilation_options:Default::default()},
++            fragment:Some(wgpu::FragmentState{module:&shader,entry_point:Some("fs"),targets:&[Some(wgpu::ColorTargetState{format:post::FORMAT,blend:None,write_mask:wgpu::ColorWrites::ALL})],compilation_options:Default::default()}),
++            primitive:wgpu::PrimitiveState{cull_mode:None,..Default::default()},
++            depth_stencil:Some(wgpu::DepthStencilState{format:DEPTH_FORMAT,depth_write_enabled:Some(true),depth_compare:Some(wgpu::CompareFunction::LessEqual),stencil:Default::default(),bias:Default::default()}),
++            multisample:Default::default(),multiview_mask:None,cache:None,
++        });
++        let instances=device.create_buffer(&wgpu::BufferDescriptor{label:Some("water instances"),size:(FLOATS*4*MAX_SURFACES) as u64,usage:wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false});
++        let viewport=device.create_buffer(&wgpu::BufferDescriptor{label:Some("water viewports"),size:2048,usage:wgpu::BufferUsages::UNIFORM|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false});
++        Self{pipeline,layout,viewport,bind:None,color:None,depth:None,size:[0,0],instances,pending:Vec::with_capacity(FLOATS*MAX_SURFACES)}
++    }
++    pub fn prepare(&mut self,device:&wgpu::Device,queue:&wgpu::Queue,size:[u32;2]) {
++        if self.pending.is_empty(){self.bind=None;self.color=None;self.depth=None;self.size=[0,0];return;}
++        if self.size!=size {
++            let color=texture(device,size,post::FORMAT);let depth=texture(device,size,DEPTH_FORMAT);
++            self.bind=Some(device.create_bind_group(&wgpu::BindGroupDescriptor{label:Some("water inputs"),layout:&self.layout,entries:&[
++                wgpu::BindGroupEntry{binding:0,resource:wgpu::BindingResource::TextureView(&color.create_view(&Default::default()))},
++                wgpu::BindGroupEntry{binding:1,resource:wgpu::BindingResource::TextureView(&depth.create_view(&Default::default()))},
++                wgpu::BindGroupEntry{binding:2,resource:wgpu::BindingResource::Buffer(wgpu::BufferBinding{buffer:&self.viewport,offset:0,size:wgpu::BufferSize::new(16)})},
++            ]}));self.color=Some(color);self.depth=Some(depth);self.size=size;
++        }
++        queue.write_buffer(&self.instances,0,f32_bytes(&self.pending));
++    }
++    pub fn copy(&self,encoder:&mut wgpu::CommandEncoder,color:&wgpu::Texture,depth:&wgpu::Texture) {
++        let size=wgpu::Extent3d{width:self.size[0],height:self.size[1],depth_or_array_layers:1};
++        encoder.copy_texture_to_texture(color.as_image_copy(),self.color.as_ref().unwrap().as_image_copy(),size);
++        encoder.copy_texture_to_texture(depth.as_image_copy(),self.depth.as_ref().unwrap().as_image_copy(),size);
++    }
++}
++impl Scene3D {
++    pub fn queue_water_surface(&mut self,data:&[f64])->i64 {
++        if data.len()!=FLOATS||data.iter().any(|v|!v.is_finite()||v.abs()>1e8)||data[3]<=0.0||data[4]<=0.0||data[7]<0.1||self.surface.pending.len()>=FLOATS*MAX_SURFACES{return 0;}
++        let start=self.surface.pending.len();self.surface.pending.extend(data.iter().map(|v|*v as f32));
++        let p=&mut self.surface.pending[start..];p[6]=p[6].clamp(0.0,10.0);p[9]=p[9].clamp(0.01,10.0);p[10]=p[10].clamp(0.0,1.0);p[11]=p[11].clamp(0.0,32.0);p[15]=p[15].clamp(0.01,10.0);p[16]=p[16].clamp(8.0,128.0).floor();1
++    }
++}
+diff --git a/crates/rts-egui/src/frame/scene3d/water_surface.wgsl b/crates/rts-egui/src/frame/scene3d/water_surface.wgsl
+new file mode 100644
+--- /dev/null
++++ b/crates/rts-egui/src/frame/scene3d/water_surface.wgsl
+@@ -0,0 +1,58 @@
++struct Cam {
++ view_proj:mat4x4<f32>,light:vec4<f32>,cam_pos:vec4<f32>,cam_right:vec4<f32>,cam_up:vec4<f32>,cam_fwd:vec4<f32>,light_vp:mat4x4<f32>,water:vec4<f32>,view_bg:vec4<f32>,proj:vec4<f32>,
++};
++struct Light {a:vec4<f32>,b:vec4<f32>,c:vec4<f32>,d:vec4<f32>};
++struct Env {info:vec4<f32>,amb:vec4<f32>,sky0:vec4<f32>,sky_top:vec4<f32>,sky_horizon:vec4<f32>,sky_ground:vec4<f32>,sun_dir:vec4<f32>,fog:vec4<f32>,lights:array<Light,8>};
++@group(0) @binding(0) var<uniform> cam:Cam;
++@group(0) @binding(1) var<uniform> env:Env;
++@group(1) @binding(0) var opaque:texture_2d<f32>;
++@group(1) @binding(1) var depth:texture_depth_2d;
++@group(1) @binding(2) var<uniform> viewport:vec4<f32>;
++struct Out {
++ @builtin(position) clip:vec4<f32>,@location(0) world:vec3<f32>,
++ @location(1) @interpolate(flat) wave:vec4<f32>,
++ @location(2) @interpolate(flat) params:vec4<f32>,
++ @location(3) @interpolate(flat) tint:vec4<f32>,
++};
++// Ondas em coordenadas mundiais: superfícies vizinhas com parâmetros iguais se encontram.
++fn waves(p:vec2<f32>,w:vec4<f32>)->vec3<f32> {
++ let k=6.2831853/w.w;let a=k*(p.x*.8+p.y*.6)+w.y;
++ let b=k*1.7*(p.x*-.6+p.y*.8)+w.y*1.3;
++ return vec3<f32>(w.z*(sin(a)+.35*sin(b)),w.z*k*(.8*cos(a)-.357*cos(b)),w.z*k*(.6*cos(a)+.476*cos(b)));
++}
++@vertex fn vs(@builtin(vertex_index) vid:u32,@location(0) center:vec4<f32>,@location(1) wave:vec4<f32>,@location(2) params:vec4<f32>,@location(3) tint:vec4<f32>,@location(4) detail:vec4<f32>)->Out {
++ let corners=array<vec2<f32>,6>(vec2(0.,0.),vec2(1.,0.),vec2(0.,1.),vec2(1.,0.),vec2(1.,1.),vec2(0.,1.));
++ let cells=u32(detail.x);let cell=vid/6u;let uv=(vec2<f32>(f32(cell%cells),f32(cell/cells))+corners[vid%6u])/f32(cells);
++ let xz=center.xz+(uv-.5)*vec2(center.w,wave.x);
++ let w=vec4(wave.x,wave.y*params.x,wave.z,wave.w);
++ let world=vec3(xz.x,center.y+waves(xz,w).x,xz.y);
++ var o:Out;o.clip=cam.view_proj*vec4(world,1.);o.world=world;o.wave=w;o.params=params;o.tint=tint;return o;
++}
++fn view_depth(d:f32)->f32 {
++ let row=vec3(cam.view_proj[0][2],cam.view_proj[1][2],cam.view_proj[2][2]);
++ let a=dot(row,cam.cam_fwd.xyz);let b=dot(row,cam.cam_pos.xyz)+cam.view_proj[3][2];
++ if(cam.proj.x>.5){return (d-b)/a;}
++ return b/min(-.000001,d-a);
++}
++@fragment fn fs(o:Out)->@location(0) vec4<f32> {
++ let size=vec2<i32>(textureDimensions(opaque));let lo=vec2<i32>(viewport.xy);let hi=min(size-1,lo+vec2<i32>(viewport.zw)-1);let pixel=clamp(vec2<i32>(o.clip.xy),lo,hi);
++ let d=textureLoad(depth,pixel,0);let dz=max(0.,view_depth(d)-view_depth(o.clip.z));
++ let wave=waves(o.world.xz,o.wave);
++ let ripple=.025*sin(o.world.x*4.+o.world.z*2.+o.wave.y*1.8);
++ let n=normalize(vec3(-wave.y+ripple,1.,-wave.z-ripple));
++ let v=normalize(cam.cam_pos.xyz-o.world);let f=.02+.98*pow(1.-max(0.,dot(n,v)),5.);
++ let shift=vec2<i32>(n.xz*o.params.w*min(dz,1.));
++ var refracted=clamp(pixel+shift,lo,hi);
++ if(textureLoad(depth,refracted,0)<o.clip.z){refracted=pixel;}
++ let background=textureLoad(opaque,refracted,0).rgb;
++ let absorption=1.-exp(-dz*o.tint.w);
++ let transmitted=mix(background,o.tint.rgb,absorption*o.params.z);
++ let reflected=reflect(-v,n);let sky=mix(env.sky_horizon.rgb,env.sky_top.rgb,pow(clamp(reflected.y,0.,1.),.5))*max(.2,env.sky0.y);
++ let sun=pow(max(0.,dot(reflected,normalize(-env.sun_dir.xyz))),180.)*vec3(3.,2.5,1.8);
++ let foam=(1.-smoothstep(0.,o.params.y,dz))*(.55+.25*sin(o.world.x*7.+o.world.z*4.+o.wave.y*2.));
++ var color=mix(transmitted,sky+sun,f);color=mix(color,vec3(.8,.9,.85),foam*.8);
++ // A borda converge para a cena original quando a lâmina de água desaparece.
++ color=mix(background,color,smoothstep(0.,.08,dz));
++ let fog=1.-exp(-env.fog.w*length(cam.cam_pos.xyz-o.world));color=mix(color,env.fog.rgb,clamp(fog,0.,1.));
++ return vec4(color,1.);
++}
 diff --git a/crates/rts-egui/src/texture_jobs.rs b/crates/rts-egui/src/texture_jobs.rs
 new file mode 100644
-index 0000000..cf812ca
 --- /dev/null
 +++ b/crates/rts-egui/src/texture_jobs.rs
 @@ -0,0 +1,199 @@

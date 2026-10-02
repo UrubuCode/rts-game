@@ -190,6 +190,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/skeleton.ts"
   },
   {
+    "name": "WaterSurface",
+    "category": "Renderização",
+    "description": "Água com ondas GPU, refração, absorção por profundidade e espuma nas margens.",
+    "keywords": "water água rio lago oceano ondas",
+    "source": "src/engine/core/water_surface.ts"
+  },
+  {
     "name": "Bobber",
     "category": "Scripts",
     "description": "Move o objeto para cima e baixo.",

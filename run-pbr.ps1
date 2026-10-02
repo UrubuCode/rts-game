@@ -8,7 +8,7 @@ param(
     [string]$Generator = 'heightfield',
     [string]$RuntimePath = '',
     [string]$TargetPath = '',
-    [ValidateSet('courtyard', 'city', 'terrain', 'loading', 'loading_preview', 'infinite', 'world_component')]
+    [ValidateSet('water', 'courtyard', 'city', 'terrain', 'loading', 'loading_preview', 'infinite', 'world_component')]
     [string]$Scene = 'courtyard'
 )
 $ErrorActionPreference = 'Stop'

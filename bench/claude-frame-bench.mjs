@@ -35,6 +35,8 @@ const ONLY = arg('only', '');
 const OUT = arg('out', path.join('bench', 'out', `frame-bench-${LABEL}.json`));
 
 const CENARIOS = [
+  { tag: 'water-off', file: 'examples/pbr_water.ts', env: { RTS_WATER_DISABLED: '1' } },
+  { tag: 'water-on', file: 'examples/pbr_water.ts', env: { RTS_WATER_DISABLED: '0' } },
   // Sem seleção = -1: a sessão abre com o objeto 0 selecionado (S.selected = 0).
   { tag: 'ed-padrao', file: 'main.ts', env: { RTS_SCENE: 'scenes/shadowdemo.json', RTS_BENCH_SELECT: '-1' } },
   { tag: 'ed-padrao-sel', file: 'main.ts', env: { RTS_SCENE: 'scenes/shadowdemo.json', RTS_BENCH_SELECT: '1' } },

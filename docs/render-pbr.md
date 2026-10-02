@@ -29,6 +29,11 @@ Câmera livre: WASD movimenta; segurar o botão direito e mover o mouse gira a v
 
 ## Componentes de rotas e terreno
 
+A superfície de água tem um componente próprio, `WaterSurface`, com ondas,
+refração e espuma. Execute `-Scene water`; veja [água](water.md) para os
+parâmetros, validação e limites. O passe específico de água não habilita
+transparência genérica para todos os materiais PBR.
+
 `RoutePath`, `RouteAgent` e `Terrain` estão registrados no catálogo da engine ativa e preservados pela serialização da cena. Veja [rotas e terreno](rotas-e-terreno.md) para configuração, controles e limites. O fechamento por Esc foi testado com entrada simulada nos mesmos laços usados pelas demonstrações; o caminho do X usa a condição nativa `isOpen`.
 
 O novo [carregador assíncrono](carregamento-assincrono.md) prepara o JSON em um worker e distribui a criação de objetos entre quadros. A cidade procedural também apresenta progresso durante a construção. O custo de compilação anterior à janela é medido separadamente com `RTS_LOAD_TIMING=1`.
