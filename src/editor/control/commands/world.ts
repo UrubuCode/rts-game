@@ -4,6 +4,7 @@ import { history } from "../../undo";
 import { loteAtivo } from "../lote";
 import { Behavior } from "@engine/core/behavior";
 import { Spline } from "@engine/core/spline";
+import { RiverMaskTool } from "@engine/core/river_mask_tool";
 import { Terrain } from "@engine/core/terrain";
 import { TerrainImageTool } from "@engine/core/terrain_image_tool";
 import { WaterBody } from "@engine/core/water_body";
@@ -35,6 +36,12 @@ export function cmdSpline(parts:string[]):string {
   const op=parts[2];
   if(op==="info"&&parts.length===3)return "[spline] "+JSON.stringify({closed:c.closed,points:JSON.parse(c.points),error:c.error()});
   if(!editAllowed())return EDIT_ERROR;
+  if((op==="trace"||op==="applytrace")&&parts.length===3){
+    const tool=component(parts,"RiverMaskTool");if(!(tool instanceof RiverMaskTool))return missing("RiverMaskTool");
+    if(op==="trace"){tool.preview();return "[spline-preview] "+tool.previewData();}
+    tool.target();if(!tool.ready())return "[erro] gere a previa com spline <obj> trace";
+    history.snapshot();tool.apply();return "[ok] spline applytrace";
+  }
   if(op==="set"){
     const values=numbers(parts,4,6),index=numeroEstrito(parts[3]??"");
     if(values===null||!Number.isInteger(index)||index<0||index>=c.count())return "[erro] spline set: indice e seis numeros obrigatorios";
@@ -65,6 +72,12 @@ export function cmdTerrain(parts:string[]):string {
     return "[terrain] "+JSON.stringify({height:c.heightAt(p[0],p[1]),space:"local"});
   }
   if(!editAllowed())return EDIT_ERROR;
+  if(op==="paint"&&parts.length===4&&(parts[3]==="on"||parts[3]==="off")){
+    const tool=component(parts,"TerrainImageTool");if(!(tool instanceof TerrainImageTool))return missing("TerrainImageTool");
+    if(loteAtivo())return "[erro] modo do pincel nao participa de batch";
+    if(parts[3]==="on"&&!tool.prepareBrush())return "[erro] pincel invalido; verifique imagem, raio e intensidade no Inspector";
+    tool.paintInViewport=parts[3]==="on";return "[ok] terrain paint "+parts[3];
+  }
   if((op==="heightmap"||op==="stamp")&&parts.length===3){
     const tool=component(parts,"TerrainImageTool");if(!(tool instanceof TerrainImageTool))return missing("TerrainImageTool");
     const values=tool.prepare(op==="stamp");history.snapshot();tool.apply(values);return "[ok] terrain "+op;

@@ -225,6 +225,26 @@ test('@menuItem only counts as a JSDoc tag: prose and // comments are ignored, n
   write('assets/pacotes/p/m.ts', 'export class A { /** @menuItem Criar/X */ x: number = 1; }');
   assert.throws(() => discoverEditorExtensions(root), /so vale em um metodo static/);
 });
+test('campos temporarios podem aparecer sem entrar na serializacao ou restauracao', t => {
+  const { root, write } = fixture(t);
+  write('assets/scripts/Tool.ts', importBase + `export class Tool extends Behavior {
+    saved: number = 1;
+    /** @nonSerialized
+     * @showInInspector */
+    selectedPoint: number = 0;
+    /** @nonSerialized */
+    cache: object = {};
+  }`);
+  const entries=discoverComponents(root);
+  assert.deepEqual(entries[0].fields.map(f=>f.name),['saved','selectedPoint']);
+  assert.equal(entries[0].fields[1].serialized,false);
+  const out=renderComponents(entries)['src/engine/generated/components.ts'];
+  assert.match(out,/component\["selectedPoint"\] = value/);
+  assert.doesNotMatch(out,/data\.fields\["selectedPoint"\]/);
+  const serializer=out.slice(out.indexOf('  serialize('),out.indexOf('  legacyFields('));
+  assert.match(serializer,/"saved"/);assert.doesNotMatch(serializer,/selectedPoint/);
+});
+
 test('fieldName is generated for visible fields', t => {
   const { root, write } = fixture(t);
   write('assets/scripts/F.ts', importBase + 'export class F extends Behavior { velocidade: number = 1; nome: string = ""; }');

@@ -1,5 +1,6 @@
 import { Behavior, KIND_RENDERER } from "./behavior";
 import { Material } from "./material";
+import { HeightmapImage } from "./heightmap_image";
 import type { InspectorUI } from "./inspector_ui";
 import type { Gizmos } from "./gizmos";
 import { meshUpload, meshFree } from "rts:egui";
@@ -51,6 +52,18 @@ export class Terrain extends Behavior {
     this.dirty=true;this.updateBounds();
   }
   flatten():void {this.heights.fill(0);this.dirty=true;this.updateBounds();}
+  /** Pincel ja decodificado; args: centro X/Z, raio, intensidade. Sem alocar. */
+  stampImage(image:HeightmapImage,args:Float64Array):void {
+    const x=args[0],z=args[1],radius=args[2],amount=args[3],n=this.resolution;
+    if(!Number.isFinite(x)||!Number.isFinite(z)||!Number.isFinite(radius)||radius<=0||!Number.isFinite(amount))return;
+    const minX=Math.max(0,Math.ceil(((x-radius)/this.size+.5)*n)),maxX=Math.min(n,Math.floor(((x+radius)/this.size+.5)*n));
+    const minZ=Math.max(0,Math.ceil(((z-radius)/this.size+.5)*n)),maxZ=Math.min(n,Math.floor(((z+radius)/this.size+.5)*n));
+    for(let row=minZ;row<=maxZ;row++)for(let col=minX;col<=maxX;col++){
+      const u=((col/n-.5)*this.size-x)/(2*radius)+.5,v=((row/n-.5)*this.size-z)/(2*radius)+.5,k=row*(n+1)+col;
+      this.heights[k]=Math.max(-1000,Math.min(1000,this.heights[k]+image.sample(u,v)*amount));
+    }
+    this.dirty=true;this.updateBounds();
+  }
   applyHeightmap(values:Float64Array):void {
     if(values.length!==this.heights.length)throw new Error("Heightmap com tamanho incorreto");
     for(let i=0;i<values.length;i++)if(!Number.isFinite(values[i])||Math.abs(values[i])>1000)throw new Error("Altura invalida");

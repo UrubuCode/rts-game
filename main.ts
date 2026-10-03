@@ -1,4 +1,5 @@
 import { splineInput } from "@editor/spline_gizmo";
+import { terrainBrushInput } from "@editor/terrain_brush";
 // ═══════════════════════════════════════════════════════════════════════════
 // Engine RTS — editor + game loop + RENDER DE CENA (faces sólidas + z-buffer).
 // Estilo Unity: tudo é GameObject, ciclo mount → update(dt) → render pass.
@@ -902,7 +903,8 @@ function frame(): void {
   }
 
   splineMouse[0]=mx;splineMouse[1]=my;splineMouse[2]=mPressed;splineMouse[3]=mDownNow;
-  const splineConsumed=splineInput(vistaEditor,splineMouse,inViewport&&dndOn===0);
+  const terrainConsumed=terrainBrushInput(vistaEditor,splineMouse,inViewport&&dndOn===0);
+  const splineConsumed=terrainConsumed||splineInput(vistaEditor,splineMouse,inViewport&&dndOn===0);
   if(splineConsumed){dragging=0;gizmoAxis=-1;}
   if (mPressed !== 0 && inViewport && dndOn === 0 && !splineConsumed) {
     // 1) tenta pegar um EIXO do gizmo (prioridade sobre selecionar outro objeto)

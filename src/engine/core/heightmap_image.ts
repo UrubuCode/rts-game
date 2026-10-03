@@ -4,6 +4,8 @@ import fs from "@compat/fs";
 /** Mapa linear de dados: sem conversao sRGB. PNG 8-bit, ate 1024 por eixo. */
 export class HeightmapImage {
   private image:DecodedImage;
+  width():number{return this.image.width;}
+  height():number{return this.image.height;}
   constructor(path:string){
     if(!path.toLowerCase().endsWith(".png"))throw new Error("Heightmap: use PNG de 8 bits, sem interlace.");
     this.image=decodePNG(fs.read_all(path),1024);

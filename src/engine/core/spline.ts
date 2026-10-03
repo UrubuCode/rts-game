@@ -10,21 +10,29 @@ export class Spline extends Behavior {
   closed:boolean=false;
   /** @hideInInspector */
   points:string="[[-12,0,-10,6,2,2],[0,0,0,8,3,2],[12,0,10,6,2,2]]";
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   editPoints:boolean=true;
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   pointIndex:number=0;
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   pointX:number=-12;
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   pointY:number=0;
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   pointZ:number=-10;
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   pointWidth:number=6;
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   pointDepth:number=2;
-  /** @nonSerialized */
+  /** @nonSerialized
+   * @showInInspector */
   pointSpeed:number=2;
   private values:number[][]=[];
   private version:number=0;
@@ -52,7 +60,7 @@ export class Spline extends Behavior {
     if(field==="pointIndex"){this.selectPoint(this.pointIndex);return;}
     if(field.indexOf("point")===0&&field!=="points"){
       this.a[0]=this.pointX;this.a[1]=this.pointY;this.a[2]=this.pointZ;this.a[3]=this.pointWidth;this.a[4]=this.pointDepth;this.a[5]=this.pointSpeed;
-      this.setPoint(this.pointIndex,this.a);return;
+      if(!this.setPoint(this.pointIndex,this.a))this.selectPoint(this.pointIndex);return;
     }
     if(field!=="editPoints")this.readPoints();
   }

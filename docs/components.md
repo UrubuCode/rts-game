@@ -121,7 +121,7 @@ export class MinhaNave extends Behavior {
 - Campos herdados são incluídos; a infraestrutura de `Behavior` é excluída.
 - Static, readonly, métodos e getters não são campos editáveis.
 - `@serializeField` expõe/serializa private ou protected; não suporta `#private`.
-- `@hideInInspector` salva o campo, mas não o desenha. `@nonSerialized` exclui ambos.
+- `@hideInInspector` salva o campo, mas não o desenha. `@nonSerialized` exclui ambos por padrão. Combine `@nonSerialized` e `@showInInspector` para um campo primitivo temporário aparecer no Inspector/WS sem ser salvo ou restaurado da cena (por exemplo, seleção e controles de ponto de uma spline).
 - `onValidate(field: string)` pode atualizar dados derivados após a edição.
 - Nomes de classes duplicados geram erro, em vez de selecionar a classe errada.
 - O construtor precisa aceitar zero argumentos. Um preset especial pode ser um

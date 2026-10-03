@@ -60,11 +60,14 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
     "boat <obj> reset :: zera movimento no Play :: boat Barco reset"]),
   c("buoyancy", "consulta", MUTA_NAO, ["buoyancy <obj> info :: agua, fracao submersa e corrente; empuxo atual apenas vertical :: buoyancy Caixa info"]),
   c("spline", "objetos", MUTA_PROPRIO, [
+    "spline <obj> trace :: converte PNG do RiverMaskTool em previa JSON, sem mudar a Spline :: spline Rio trace",
+    "spline <obj> applytrace :: aplica a previa do RiverMaskTool com Desfazer :: spline Rio applytrace",
     "spline <obj> info :: pontos locais e estado em JSON :: spline Rio info",
     "spline <obj> set <indice> <x> <y> <z> <largura> <profundidade> <velocidade> :: altera ponto local com Desfazer, fora do Play :: spline Rio set 0 0 0 0 8 2 1",
     "spline <obj> insert|remove <indice> :: insere apos o indice ou remove, com Desfazer :: spline Rio insert 0",
     "spline <obj> closed on|off :: fecha lago ou abre rio, com Desfazer :: spline Rio closed on"]),
   c("terrain", "objetos", MUTA_PROPRIO, [
+    "terrain <obj> paint on|off :: ativa pincel PNG por arrasto; modo local do editor, fora de Play e batch :: terrain Chao paint on",
     "terrain <obj> heightmap|stamp :: aplica PNG configurado no TerrainImageTool; valida antes de Desfazer :: terrain Chao heightmap",
     "terrain <obj> info :: dimensoes e capacidades do heightfield :: terrain Chao info",
     "terrain <obj> height <x> <z> :: consulta altura local :: terrain Chao height 0 0",

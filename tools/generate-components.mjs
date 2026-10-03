@@ -113,7 +113,8 @@ export function discoverComponents(root = projectRoot, project = createProject(r
           for (const member of members) {
             if (!ts.isPropertyDeclaration(member) && !ts.isParameter(member)) continue;
             const fieldTags = tags(member);
-            const excluded = hasModifier(member, ts.SyntaxKind.StaticKeyword) || hasModifier(member, ts.SyntaxKind.ReadonlyKeyword) || fieldTags.has('nonSerialized');
+            const serialized = !fieldTags.has('nonSerialized');
+            const excluded = hasModifier(member, ts.SyntaxKind.StaticKeyword) || hasModifier(member, ts.SyntaxKind.ReadonlyKeyword) || (!serialized && !fieldTags.has('showInInspector'));
             const hidden = hasModifier(member, ts.SyntaxKind.PrivateKeyword) || hasModifier(member, ts.SyntaxKind.ProtectedKeyword) || ts.isPrivateIdentifier(member.name);
             if (excluded || (hidden && !fieldTags.has('serializeField'))) continue;
             if (!ts.isIdentifier(member.name)) fail(member, 'Campos serializados precisam de nome simples; #private nao pode ser exposto.');
@@ -131,7 +132,7 @@ export function discoverComponents(root = projectRoot, project = createProject(r
               if (kind !== 'string') fail(member, '@asset so vale em campo string.');
               if (!ASSET_KINDS.includes(asset)) fail(member, `@asset "${asset}" invalido. Use um de: ${ASSET_KINDS.join(', ')}.`);
             }
-            fields.set(member.name.text, { name: member.name.text, kind, range, asset,
+            fields.set(member.name.text, { name: member.name.text, kind, range, asset, serialized,
               label: fieldTags.get('label') || humanize(member.name.text),
               visible: !fieldTags.has('hideInInspector'),
             });
@@ -178,7 +179,7 @@ function renderRegistry(entries, marker) {
   const access = field => `component[${quote(field.name)}]`;
   const coerce = (field, value) => field.kind === 'boolean' ? `${value} !== 0` : field.range ? `Math.max(${field.range[0]}, Math.min(${field.range[1]}, ${value}))` : value;
   function restoreFields(entry, source) {
-    return entry.fields.map(field => {
+    return entry.fields.filter(field => field.serialized !== false).map(field => {
       const prop = `${source}[${quote(field.name)}]`;
       const valid = field.kind === 'number' ? `${prop} === ${prop} && ${prop} > -1e30 && ${prop} < 1e30` : 'true';
       const value = field.range ? `Math.max(${field.range[0]}, Math.min(${field.range[1]}, ${prop}))` : prop;
@@ -206,9 +207,9 @@ function renderRegistry(entries, marker) {
         `      if (index === ${index}) { ${stringMode ? '' : 'if (value !== value || value <= -1e30 || value >= 1e30) return; '}${access(field)} = ${coerce(field, 'value')}; component.onValidate(${quote(field.name)}); return; }`).join('\n') + '\n      return;');
   }
   provider += method('serialize', '', 'any', 'null', entry => entry.customSerialization ? '      return null;' :
-    `      return { type: ${quote(entry.id)}, fields: { ${entry.fields.map(field => `${quote(field.name)}: ${access(field)}`).join(', ')} } };`);
+    `      return { type: ${quote(entry.id)}, fields: { ${entry.fields.filter(field => field.serialized !== false).map(field => `${quote(field.name)}: ${access(field)}`).join(', ')} } };`);
   provider += method('legacyFields', '', 'any', 'null', entry => entry.customSerialization && !entry.customInspector ?
-    `      return { ${entry.fields.map(field => `${quote(field.name)}: ${access(field)}`).join(', ')} };` : '      return null;');
+    `      return { ${entry.fields.filter(field => field.serialized !== false).map(field => `${quote(field.name)}: ${access(field)}`).join(', ')} };` : '      return null;');
   provider += method('restoreLegacyFields', ', fields: any', 'void', '', entry => entry.customSerialization && !entry.customInspector ?
     `      if (fields === null || fields === undefined) return;\n${restoreFields(entry, 'fields')}\n      return;` : '      return;');
   provider += method('drawsGizmos', '', 'boolean', 'false', entry => '      return ' + (entry.gizmos ? 'true' : 'false') + ';');

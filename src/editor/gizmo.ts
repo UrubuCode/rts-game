@@ -42,7 +42,7 @@ export function projPt(out: Float64Array, v: Float64Array, p: Float64Array): voi
 }
 
 // Direção (não normalizada) do raio da câmera pelo pixel (sx, sy), em `out[0..2]`.
-function raioDaTela(out: Float64Array, v: Float64Array, sx: f64, sy: f64): void {
+export function raioDaTela(out: Float64Array, v: Float64Array, sx: f64, sy: f64): void {
   // desfaz a perspectiva: em espaço de câmera, um raio com z2=1 tem
   // x1 = (sx - W/2)/focalW  e  y2 = (H/2 - sy)/focalW.
   const rx1 = (sx - v[8] * 0.5) / v[7];

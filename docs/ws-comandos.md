@@ -38,10 +38,13 @@ Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio
 
 | Sintaxe | O que faz | Exemplo | Desfazer | async |
 |---|---|---|---|---|
+| `spline <obj> trace` | converte PNG do RiverMaskTool em previa JSON, sem mudar a Spline | `spline Rio trace` | proprio |  |
+| `spline <obj> applytrace` | aplica a previa do RiverMaskTool com Desfazer | `spline Rio applytrace` | proprio |  |
 | `spline <obj> info` | pontos locais e estado em JSON | `spline Rio info` | proprio |  |
 | `spline <obj> set <indice> <x> <y> <z> <largura> <profundidade> <velocidade>` | altera ponto local com Desfazer, fora do Play | `spline Rio set 0 0 0 0 8 2 1` | proprio |  |
 | `spline <obj> insert\|remove <indice>` | insere apos o indice ou remove, com Desfazer | `spline Rio insert 0` | proprio |  |
 | `spline <obj> closed on\|off` | fecha lago ou abre rio, com Desfazer | `spline Rio closed on` | proprio |  |
+| `terrain <obj> paint on\|off` | ativa pincel PNG por arrasto; modo local do editor, fora de Play e batch | `terrain Chao paint on` | proprio |  |
 | `terrain <obj> heightmap\|stamp` | aplica PNG configurado no TerrainImageTool; valida antes de Desfazer | `terrain Chao heightmap` | proprio |  |
 | `terrain <obj> info` | dimensoes e capacidades do heightfield | `terrain Chao info` | proprio |  |
 | `terrain <obj> height <x> <z>` | consulta altura local | `terrain Chao height 0 0` | proprio |  |

@@ -134,6 +134,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/procedural_world.ts"
   },
   {
+    "name": "RiverMaskTool",
+    "category": "Mundo",
+    "description": "Converte mascara PNG branca sobre preto em spline de rio, com previa.",
+    "keywords": "rio mascara river spline trace imagem",
+    "source": "src/engine/core/river_mask_tool.ts"
+  },
+  {
     "name": "Spline",
     "category": "Mundo",
     "description": "Curva editável reutilizável para rios, estradas e rotas.",
