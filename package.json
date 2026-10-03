@@ -12,7 +12,12 @@
     "check:game-build": "node tools/rts-run.mjs tools/game-build/check-registro.ts",
     "test:components": "node --test tests/component-generation.test.mjs",
     "build:editor": "node tools/rts-build.mjs main.ts build/RTSEditor.exe",
-    "build:game": "node tools/rts-build.mjs tools/game-build/entry.ts build/RTSGame.exe"
+    "build:game": "node tools/rts-build.mjs tools/game-build/entry.ts build/RTSGame.exe",
+    "runtime:prepare": "node tools/prepare-runtime.mjs",
+    "test:runtime-contract": "node --test tests/runtime-contract.test.mjs",
+    "runtime:check": "node tools/check-runtime.mjs"
   },
-  "devDependencies": { "typescript": "5.9.3" }
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
 }

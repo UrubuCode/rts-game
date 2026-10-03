@@ -11,7 +11,7 @@ try {
   const compiler = findCompiler(projectRoot);
   console.log(`[components] ${generateComponents().length} classes descobertas`);
   fs.mkdirSync(path.dirname(path.resolve(projectRoot, destination)), { recursive: true });
-  const result = spawnSync(compiler, ['compile', '--no-compiler', entry, destination], { cwd: projectRoot, stdio: 'inherit' });
+  const result = spawnSync(compiler, ['compile', '--no-compiler', entry, destination], { cwd: projectRoot, stdio: 'inherit', env: { ...process.env, RTS_RUNTIME_RWK_ARCHIVE:path.join(path.dirname(compiler),'rts_runtime.lib') } });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } catch (error) { console.error(error.message); process.exitCode = 1; }

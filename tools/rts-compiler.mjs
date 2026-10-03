@@ -1,18 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { verifyRuntime } from './runtime-contract.mjs';
 
-/// Localiza o rts.exe: RTS_COMPILER, rts.exe na raiz, RTS_MOTOR, ../rts e, para
-/// worktrees dentro de build/, um checkout `rts` irmão de qualquer ancestral.
+// Builds oficiais exigem o par CLI/staticlib identificado pelo lock do projeto.
 export function findCompiler(projectRoot) {
-  const candidates = [process.env.RTS_COMPILER, path.join(projectRoot, 'rts.exe'),
-    process.env.RTS_MOTOR && path.join(process.env.RTS_MOTOR, 'target/release/rts.exe'),
-    path.resolve(projectRoot, '../rts/target/release/rts.exe')].filter(Boolean);
-  let ancestor = projectRoot;
-  while (path.dirname(ancestor) !== ancestor) {
-    candidates.push(path.join(ancestor, 'rts', 'target', 'release', 'rts.exe'));
-    ancestor = path.dirname(ancestor);
+  let directory;
+  if(process.env.RTS_COMPILER)directory=path.dirname(path.resolve(process.env.RTS_COMPILER));
+  else if(fs.existsSync(path.join(projectRoot,'runtime','runtime-build.json')))directory=path.join(projectRoot,'runtime');
+  else {
+    const selection=path.join(projectRoot,'build','runtime-selection.json');
+    if(!fs.existsSync(selection))throw new Error('Runtime fixado ausente. Execute npm run runtime:prepare.');
+    directory=JSON.parse(fs.readFileSync(selection,'utf8')).directory;
+    if(typeof directory!=='string'||!path.isAbsolute(directory))throw new Error('Selecao de runtime invalida.');
   }
-  const compiler = candidates.find(candidate => fs.existsSync(candidate));
-  if (!compiler) throw new Error('Defina RTS_COMPILER com o caminho do rts.exe, ou coloque o CLI na raiz do projeto.');
+  const compiler=verifyRuntime(projectRoot,directory);
+  if(process.env.RTS_COMPILER&&path.resolve(process.env.RTS_COMPILER).toLowerCase()!==compiler.toLowerCase())throw new Error('RTS_COMPILER precisa apontar para o rts.exe validado.');
   return compiler;
 }

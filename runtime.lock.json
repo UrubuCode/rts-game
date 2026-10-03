@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/UrubuCode/rts.git",
+  "commit": "c47f13b0a38c1245f2f5385596283a6cbc99f995",
+  "rust": "1.98.0",
+  "patch": "patches/render-pbr-runtime.patch",
+  "patchSha256": "ac04f99fa26f5af246699c3b3e3b610f3e80192acc1ff51d3ec2e2470b41b51b"
+}
