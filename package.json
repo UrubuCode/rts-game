@@ -2,6 +2,7 @@
   "name": "rts-game-tools",
   "private": true,
   "scripts": {
+    "test:world": "node tools/test-world.mjs",
     "icons": "node tools/generate-editor-icons.mjs",
     "icons:check": "node tools/generate-editor-icons.mjs --check",
     "components": "node tools/generate-components.mjs",

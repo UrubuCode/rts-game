@@ -2,7 +2,7 @@
 // que permite `loadTexture` voltar a funcionar para PNG (texturas de Material)
 // e o editor desenhar seus ícones. Suporta 8 bits por canal, sem interlace,
 // cor RGBA (tipo 6), RGB (tipo 2, sai com alfa 255) e paleta (tipo 3, com a
-// transparência do chunk tRNS), os cinco filtros de linha.
+// transparência do chunk tRNS), cinza (0), cinza+alpha (4) e os cinco filtros de linha.
 // Formato fora disso falha com mensagem, em vez de desenhar lixo.
 import { inflateSync } from "node:zlib";
 
@@ -49,7 +49,9 @@ export function decodePNG(bytes: any, maxPixels: number): DecodedImage {
       if (color === 6) channels = 4;
       else if (color === 2) channels = 3;
       else if (color === 3) { channels = 1; indexada = true; }
-      else throw new Error("PNG precisa ser RGBA, RGB ou paleta (tipo de cor " + color + ")");
+      else if (color === 0) channels = 1;
+      else if (color === 4) channels = 2;
+      else throw new Error("Tipo de cor PNG nao suportado: " + color);
     } else if (type === 1347179589) { // PLTE
       let q = 0; while (q < length) { paleta.push(bytes[data + q]); q = q + 1; }
     } else if (type === 1951551059) { // tRNS
@@ -105,7 +107,8 @@ export function decodePNG(bytes: any, maxPixels: number): DecodedImage {
   }
   let k = 0;
   while (k < width * height) {
-    rgba[k * 4] = linha[k * 3]; rgba[k * 4 + 1] = linha[k * 3 + 1]; rgba[k * 4 + 2] = linha[k * 3 + 2]; rgba[k * 4 + 3] = 255;
+    const base=k*channels;
+    rgba[k * 4] = linha[base]; rgba[k * 4 + 1] = channels===3?linha[base+1]:linha[base]; rgba[k * 4 + 2] = channels===3?linha[base+2]:linha[base]; rgba[k * 4 + 3] = channels===2?linha[base+1]:255;
     k = k + 1;
   }
   return new DecodedImage(width, height, rgba);

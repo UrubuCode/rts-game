@@ -54,6 +54,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run check:game-build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:world
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: AOT smoke e compilacao do editor e jogo
         shell: pwsh
         run: |

@@ -8,12 +8,13 @@ Protocolo: 1 comando por linha; resposta [ok] | [erro] <motivo> | [<etiqueta>] .
 
 Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio` (o comando tira só nos subcomandos que mudam a cena) ou `nenhum`; **async** = a resposta vem depois (a conexão espera por ela antes da linha seguinte; não cabe num `batch`).
 
-106 comandos.
+112 comandos.
 
 ## consulta
 
 | Sintaxe | O que faz | Exemplo | Desfazer | async |
 |---|---|---|---|---|
+| `buoyancy <obj> info` | agua, fracao submersa e corrente; empuxo atual apenas vertical | `buoyancy Caixa info` | nenhum |  |
 | `assets errors [clear]` | texturas, modelos, ceu e esqueletos que nao carregaram (tipo, caminho, vezes, motivo) | `assets errors` | nenhum |  |
 | `contexto` | retrato compacto do editor pra uma IA, gerado AGORA do runtime: comandos, componentes (com campos), menus, pacotes, sistemas e cena | `contexto` | nenhum |  |
 | `contexto json` | o mesmo em JSON completo | `contexto json` | nenhum |  |
@@ -37,6 +38,18 @@ Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio
 
 | Sintaxe | O que faz | Exemplo | Desfazer | async |
 |---|---|---|---|---|
+| `spline <obj> info` | pontos locais e estado em JSON | `spline Rio info` | proprio |  |
+| `spline <obj> set <indice> <x> <y> <z> <largura> <profundidade> <velocidade>` | altera ponto local com Desfazer, fora do Play | `spline Rio set 0 0 0 0 8 2 1` | proprio |  |
+| `spline <obj> insert\|remove <indice>` | insere apos o indice ou remove, com Desfazer | `spline Rio insert 0` | proprio |  |
+| `spline <obj> closed on\|off` | fecha lago ou abre rio, com Desfazer | `spline Rio closed on` | proprio |  |
+| `terrain <obj> heightmap\|stamp` | aplica PNG configurado no TerrainImageTool; valida antes de Desfazer | `terrain Chao heightmap` | proprio |  |
+| `terrain <obj> info` | dimensoes e capacidades do heightfield | `terrain Chao info` | proprio |  |
+| `terrain <obj> height <x> <z>` | consulta altura local | `terrain Chao height 0 0` | proprio |  |
+| `terrain <obj> brush <x> <z> <raio> <intensidade>` | pincel local de relevo, negativo rebaixa; Desfazer fora do Play | `terrain Chao brush 0 0 4 -1` | proprio |  |
+| `terrain <obj> flatten` | aplaina com Desfazer fora do Play | `terrain Chao flatten` | proprio |  |
+| `water <obj> info` | tipo de agua, Terrain alvo e erro | `water Rio info` | proprio |  |
+| `water <obj> sample <x> <z>` | altura, profundidade e corrente em coordenadas de mundo | `water Rio sample 0 0` | proprio |  |
+| `water <obj> carve` | escava o Terrain configurado com Desfazer fora do Play | `water Rio carve` | proprio |  |
 | `clear` | esvazia a cena (para o Play) | `clear` | dispatch |  |
 | `delete <obj>` | remove o objeto | `delete 3` | dispatch |  |
 | `delsel` | remove TODOS os objetos da multi-selecao (ou o unico selecionado) | `delsel` | dispatch |  |
@@ -206,6 +219,13 @@ Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio
 
 | Sintaxe | O que faz | Exemplo | Desfazer | async |
 |---|---|---|---|---|
+| `boat <obj> info` | estado JSON do veleiro | `boat Barco info` | nenhum |  |
+| `boat <obj> sail\|rudder <valor>` | controle no Play; vela 0..1, leme -1..1, sem batch/Desfazer | `boat Barco sail 1` | nenhum |  |
+| `boat <obj> anchor on\|off` | ancora idempotente no Play | `boat Barco anchor on` | nenhum |  |
+| `boat <obj> reset` | zera movimento no Play | `boat Barco reset` | nenhum |  |
+| `world <obj> info` | JSON: fila, progresso aproximado da janela atual, cache e memoria; nao inicia geracao | `world Mundo info` | proprio |  |
+| `world <obj> paint <x> <z> <raio> <intensidade>` | vegetacao local: -1 remove, 1 restaura; Desfazer fora do Play | `world Mundo paint 0 0 20 -1` | proprio |  |
+| `world <obj> regenerate` | descarta recursos e reinicia no proximo desenho; fora do Play e batch | `world Mundo regenerate` | proprio |  |
 | `build` | dispara o build do jogo (o mesmo do botao Build; snapshot em build/editor-build-<ms>, nao muda a cena) e responde quando termina: estado, pasta, exe e log | `build` | nenhum | sim |
 | `build status` | estado do build em andamento ou do ultimo | `build status` | nenhum | sim |
 | `dbg` | diagnostico: fisica, corpos, fps, ativos, wouldDraw, drawnLast | `dbg` | nenhum |  |

@@ -64,4 +64,8 @@ export class Buoyancy extends Behavior {
     t.vx=this.flowX+(t.vx-this.flowX)*attenuation;t.vy*=attenuation;t.vz=this.flowZ+(t.vz-this.flowZ)*attenuation;t.asleep=0;t.quiet=0;
   }
   releaseResources():void{this.body=null;}
+  diagnosticStatus():string {
+    const h=this.surfaceHeight(),t=this.host;
+    return JSON.stringify({waterObject:this.waterObject,waterFound:Number.isFinite(h),height:Number.isFinite(h)?h:null,submerged:Number.isFinite(h)&&Math.abs(t.sy)>.0001?Math.max(0,Math.min(1,(h-t.py+Math.abs(t.sy)*.5)/Math.abs(t.sy))):0,flowX:this.flowX,flowZ:this.flowZ,bodyAttached:this.body!==null,verticalOnly:true});
+  }
 }

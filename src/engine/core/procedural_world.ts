@@ -66,6 +66,9 @@ export class ProceduralWorld extends Behavior {
     if(this.world!==null)this.world.dispose();this.world=null;this.window=0;
   }
   isReady():boolean{return this.world!==null&&this.world.ready;}
+  streamingStatus():string {
+    return JSON.stringify({initialized:this.world!==null,ready:this.isReady(),seed:this.seed,generator:this.generator,message:this.message,error:this.loadError(),stream:this.world===null?null:JSON.parse(this.world.diagnosticStatus())});
+  }
   update(dt:number):void{if(this.world!==null){this.world.waterEnabled=this.waterEnabled;this.world.offsetY=this.host.wy;this.world.update(dt);}}
   waterHeightAt(x:number,z:number):number {
     if(this.world===null||!this.waterEnabled)return NaN;

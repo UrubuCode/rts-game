@@ -83,6 +83,10 @@ export class WorldStream {
     return this.water.heightAt(x,z)+this.offsetY;
   }
   get progress():number{return (this.chunks.length+(this.job===null?0:Math.min(.95,this.job.meshes/30)))/Math.max(1,this.window.x.length);}
+  diagnosticStatus():string {
+    const missing=Math.max(0,this.window.x.length-this.chunks.length);
+    return JSON.stringify({active:this.chunks.length,target:this.window.x.length,queued:Math.max(0,missing-(this.job===null?0:1)),inFlight:this.job===null?0:1,progress:Math.min(1,this.progress),cached:this.cache.count,cacheBytes:this.cache.bytes,cacheHits:this.cacheHits,resourceBytes:this.budget.bytes,generated:this.generated,unloaded:this.unloaded,visible:this.visibleChunks,culled:this.culledChunks,maxStepMs:this.maxStepMs,error:this.error});
+  }
   private receiveMesh(mesh:any):void {
     if(this.pending===null)return;
     if(mesh.kind==="colliders"){

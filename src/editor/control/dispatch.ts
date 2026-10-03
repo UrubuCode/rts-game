@@ -1,6 +1,7 @@
 // Despacho de comandos de controle — um SWITCH que roteia para o handler de cada
 // comando (definidos em commands/*.ts). Devolve a resposta em texto.
 import { cmdState, cmdRes, cmdVsync } from "./commands/query";
+import { cmdSpline, cmdTerrain, cmdWater, cmdBoat, cmdWorld, cmdBuoyancy } from "./commands/world";
 import { cmdSpawn } from "./commands/spawn";
 import { cmdMove, cmdScl, cmdRot, cmdMesh, cmdColor, cmdSpin, cmdTool, cmdSnap, cmdReset, cmdAlign } from "./commands/transform";
 import { cmdSelect, cmdDelete, cmdCam, cmdFocus, cmdPlay, cmdPause, cmdClear, cmdLoad, cmdInstScene, cmdDup, cmdSaveScene, cmdSelectAdd, cmdSelectClear, cmdRename, cmdView, cmdGrid, cmdVis, cmdDupN, cmdIso, cmdGroup, cmdUngroup, cmdFrameAll, cmdDelSel, cmdLight, cmdHier, cmdSnd, cmdLog, cmdFluid} from "./commands/scene";
@@ -141,6 +142,12 @@ function execCommandInner(w: number, h: number, line: string): string {
   // não pode zerar o redo, como no `anim ... state`), e `load` tira o próprio
   // snapshot só depois de validar o arquivo (commands/animator.ts).
   switch (cmd) {
+    case "spline": return cmdSpline(parts);
+    case "terrain": return cmdTerrain(parts);
+    case "water": return cmdWater(parts);
+    case "boat": return cmdBoat(parts);
+    case "world": return cmdWorld(parts);
+    case "buoyancy": return cmdBuoyancy(parts);
     case "undo": {
       if (history.undo() !== 0) return "[ok] undo (estado restaurado)";
       return "[undo] nada pra desfazer";

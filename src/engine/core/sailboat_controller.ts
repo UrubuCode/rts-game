@@ -36,6 +36,7 @@ export class SailboatController extends Behavior {
   sailAmount():number{return this.sail;}
   forwardSpeed():number{return this.speed;}
   isAnchored():boolean{return this.anchored;}
+  controlStatus():string{return JSON.stringify({rudder:this.rudder,sail:this.sail,anchored:this.anchored,speed:this.speed,hasWater:this.submerged});}
   hasWater():boolean{return this.submerged;}
   toggleAnchor():void{this.anchored=!this.anchored;}
   stopMotion():void{this.speed=0;this.host.vx=0;this.host.vz=0;}

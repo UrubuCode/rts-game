@@ -53,6 +53,31 @@ function c(nome: string, grupo: string, muta: number, usos: string[]): ComandoIn
 }
 
 export const BUILTIN_MANIFEST: ComandoInfo[] = [
+  c("boat", "sistema", MUTA_NAO, [
+    "boat <obj> info :: estado JSON do veleiro :: boat Barco info",
+    "boat <obj> sail|rudder <valor> :: controle no Play; vela 0..1, leme -1..1, sem batch/Desfazer :: boat Barco sail 1",
+    "boat <obj> anchor on|off :: ancora idempotente no Play :: boat Barco anchor on",
+    "boat <obj> reset :: zera movimento no Play :: boat Barco reset"]),
+  c("buoyancy", "consulta", MUTA_NAO, ["buoyancy <obj> info :: agua, fracao submersa e corrente; empuxo atual apenas vertical :: buoyancy Caixa info"]),
+  c("spline", "objetos", MUTA_PROPRIO, [
+    "spline <obj> info :: pontos locais e estado em JSON :: spline Rio info",
+    "spline <obj> set <indice> <x> <y> <z> <largura> <profundidade> <velocidade> :: altera ponto local com Desfazer, fora do Play :: spline Rio set 0 0 0 0 8 2 1",
+    "spline <obj> insert|remove <indice> :: insere apos o indice ou remove, com Desfazer :: spline Rio insert 0",
+    "spline <obj> closed on|off :: fecha lago ou abre rio, com Desfazer :: spline Rio closed on"]),
+  c("terrain", "objetos", MUTA_PROPRIO, [
+    "terrain <obj> heightmap|stamp :: aplica PNG configurado no TerrainImageTool; valida antes de Desfazer :: terrain Chao heightmap",
+    "terrain <obj> info :: dimensoes e capacidades do heightfield :: terrain Chao info",
+    "terrain <obj> height <x> <z> :: consulta altura local :: terrain Chao height 0 0",
+    "terrain <obj> brush <x> <z> <raio> <intensidade> :: pincel local de relevo, negativo rebaixa; Desfazer fora do Play :: terrain Chao brush 0 0 4 -1",
+    "terrain <obj> flatten :: aplaina com Desfazer fora do Play :: terrain Chao flatten"]),
+  c("water", "objetos", MUTA_PROPRIO, [
+    "water <obj> info :: tipo de agua, Terrain alvo e erro :: water Rio info",
+    "water <obj> sample <x> <z> :: altura, profundidade e corrente em coordenadas de mundo :: water Rio sample 0 0",
+    "water <obj> carve :: escava o Terrain configurado com Desfazer fora do Play :: water Rio carve"]),
+  c("world", "sistema", MUTA_PROPRIO, [
+    "world <obj> info :: JSON: fila, progresso aproximado da janela atual, cache e memoria; nao inicia geracao :: world Mundo info",
+    "world <obj> paint <x> <z> <raio> <intensidade> :: vegetacao local: -1 remove, 1 restaura; Desfazer fora do Play :: world Mundo paint 0 0 20 -1",
+    "world <obj> regenerate :: descarta recursos e reinicia no proximo desenho; fora do Play e batch :: world Mundo regenerate"]),
   c("addcomp", "componentes", MUTA_SIM, ["addcomp <obj> <Nome> :: anexa um componente ao objeto (nomes em complist) :: addcomp 1 Orbit"]),
   c("addskel", "esqueleto", MUTA_SIM, ["addskel <obj> <caminho.glb> :: adiciona Skeleton+AnimationPlayer ao objeto (ou troca o modelo do Skeleton existente) :: addskel 0 assets/models/kenney/character-a.glb"]),
   c("align", "transform", MUTA_SIM, ["align [obj] [passo] :: arredonda a POSICAO do objeto pro grid (padrao: selecionado, passo 0.5) :: align 3"]),

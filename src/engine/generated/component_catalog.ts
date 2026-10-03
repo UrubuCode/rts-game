@@ -148,6 +148,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/terrain.ts"
   },
   {
+    "name": "TerrainImageTool",
+    "category": "Mundo",
+    "description": "Importa relevo PNG ou aplica imagem como carimbo no Terrain do mesmo objeto.",
+    "keywords": "heightmap pincel imagem relevo terreno preto branco",
+    "source": "src/engine/core/terrain_image_tool.ts"
+  },
+  {
     "name": "WaterBody",
     "category": "Mundo",
     "description": "Rio ou lago definido por Spline, com corrente e escavação de Terrain.",
