@@ -301,17 +301,21 @@ export class Scene {
   }
 
   /// Esvazia a cena (pra carregar outra por cima).
-  clear(): void {
+  // false apenas para transferencia temporaria: o chamador assume os objetos.
+  clear(releaseResources: boolean = true): void {
     // Cancela TODA corrotina viva antes de descartar os objetos — cobre a
     // saída do Play (as cópias descartadas nunca retomam tocando o original
     // restaurado, ver coroutine_scheduler.ts) e qualquer outra troca de cena.
     coroutineStopEverywhere();
     const disposing=this.objects.slice();
+    let failure:any=null;let failed=false;
     let i = 0;
     while (i < disposing.length) {
       const obj=disposing[i];
-      for(let bi=0;bi<obj.behaviors.length;bi++)obj.behaviors[bi].releaseResources();
-      obj.uiOwner = null; i = i + 1;
+      if (releaseResources) {
+        try { obj.releaseResources(); } catch(error) { if(!failed){failure=error;failed=true;} }
+      }
+      obj.uiOwner = null;obj.sceneIndex=-1;i = i + 1;
     }
     this.objects = [];
     this.trs = [];
@@ -320,6 +324,7 @@ export class Scene {
     this.camObjs.length = 0;
     this.audioObjs.length = 0;
     this.markStaticDirty();
+    if(failed)throw failure;
   }
 
   /// Até MAX_LUZES luzes ativas em `buf` (16 números cada); devolve quantas.
@@ -455,7 +460,7 @@ export class Scene {
     // Destruir o objeto PARA as corrotinas de todos os seus behaviors (Unity:
     // destroy nunca deixa uma corrotina retomando um objeto que já era).
     let bi = 0;
-    while (bi < removedObj.behaviors.length) { coroutineStopAllOf(removedObj.behaviors[bi]); removedObj.behaviors[bi].releaseResources(); bi = bi + 1; }
+    while (bi < removedObj.behaviors.length) { coroutineStopAllOf(removedObj.behaviors[bi]); bi = bi + 1; }
     removedObj.sceneIndex = 0 - 1;
     removedObj.uiOwner = null;
     if (removedObj.uiIdx >= 0) this.uiForget(removedObj);
@@ -480,6 +485,8 @@ export class Scene {
         }
       }
     }
+    // A cena precisa estar consistente mesmo se um disposer falhar.
+    removedObj.releaseResources();
   }
 
   /// Computa a posição de MUNDO (wx,wy,wz) de cada objeto a partir do local

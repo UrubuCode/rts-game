@@ -1,0 +1,18 @@
+import fs from "@compat/fs.ts";
+import { acquireAudioClip } from "@engine/audio/clip";
+import { resourceCache } from "@engine/core/resources";
+import { initAudio, AUDIO_NULO, closeAudio, tocarClipe, mixarBloco } from "@engine/audio/audio";
+import { novoPedido, PEDIDO_LACO } from "@engine/audio/vozes";
+import { EspecWav, escreverWav } from "./wav_escritor";
+initAudio(AUDIO_NULO);
+const path="build/test-audio/resource-gc.wav";fs.create_dir_all("build/test-audio");
+const wav=new EspecWav();wav.quadros=128;wav.taxa=48000;wav.canais=1;fs.write(path,escreverWav(wav));
+const lease=acquireAudioClip(path)!;const request=novoPedido();request[PEDIDO_LACO]=1;
+tocarClipe(lease.value,request);lease.release();
+for(let i=0;i<100;i++)mixarBloco(1);
+console.log("AUDIO_RESOURCE_GC_BEGIN");
+for(let i=0;i<200000;i++)mixarBloco(1);
+console.log("AUDIO_RESOURCE_GC_END");
+if(resourceCache<any>("audio").stats().references!==1)throw new Error("referencia da voz perdida");
+closeAudio();if(resourceCache<any>("audio").stats().entries!==0)throw new Error("clipe nao descartado");
+console.log("resources-audio-gc OK");

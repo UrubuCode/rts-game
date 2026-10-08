@@ -18,7 +18,8 @@
 import { resolvePbrMaterial } from "../render/pbr_material";
 import { Behavior, KIND_RENDERER } from "./behavior";
 import { registrarFalhaAsset } from "@engine/core/falhas";
-import { SkeletonAsset, loadSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
+import { ResourceLease } from "./resources";
+import { SkeletonAsset, acquireSkeletonAsset, skeletonNeedsUpload } from "../render/gltf_anim";
 import { logWarn } from "./logger";
 import { drawGPUMeshQBuf, meshRadius, DRAW_FLOATS, D_X, D_Y, D_Z, D_QX, D_QY, D_QZ, D_QW, D_SX, D_SY, D_SZ, D_COR, D_EMISSIVO, D_TEX, D_MATERIAL } from "../render/gpu3d";
 import { quatFromYawPitchInto } from "../render/quat";
@@ -26,6 +27,7 @@ import { quatFromYawPitchInto } from "../render/quat";
 /// Valores por osso num registro salvo: [osso, tx,ty,tz, rx,ry,rz,rw, sx,sy,sz].
 /// `osso` é o NOME (formato atual) ou o índice (registros antigos).
 const POSE_REC_LEN: number = 11;
+const EMPTY_POSE = new Float64Array(0);
 /// Registros antigos/manuais podem vir sem escala (só osso + T + R).
 const POSE_REC_MIN: number = 8;
 
@@ -39,6 +41,8 @@ export class Skeleton extends Behavior {
   modelPath: string;
   /** @nonSerialized */
   asset: SkeletonAsset | null;
+  private assetLease: ResourceLease<SkeletonAsset> | null = null;
+  private loadedPath: string = "";
   /** @nonSerialized */
   poseT: Float64Array;
   /** @nonSerialized */
@@ -107,10 +111,21 @@ export class Skeleton extends Behavior {
   rBoundRadius(): f64 { return this.boundRadius; }
   typeName(): string { return "Skeleton"; }
 
+  releaseResources(): void {
+    if (this.assetLease !== null) { this.assetLease.release(); this.assetLease = null; }
+    this.asset = null; this.loadedPath = ""; this.poseDriver = null;
+    this.poseT = EMPTY_POSE; this.poseR = EMPTY_POSE; this.poseS = EMPTY_POSE;
+    this.manualT = EMPTY_POSE; this.manualR = EMPTY_POSE; this.manualS = EMPTY_POSE;
+    this.worldT = EMPTY_POSE; this.worldR = EMPTY_POSE; this.worldS = EMPTY_POSE;
+    this.overrideMask = [];
+    this.boundRadius = 0;
+    if (this.owner !== null && this.owner.rendIdx >= 0 && this.owner.behaviors[this.owner.rendIdx] === this) this.owner.boundRadius = 0;
+  }
+
   /// Trocar o modelo no Inspector descarta o asset; o próximo desenho recarrega.
   onValidate(field: string): void {
     if (field === "modelPath") {
-      this.asset = null; this.failedPath = ""; this.failedUploadWin = 0;
+      this.releaseResources(); this.failedPath = ""; this.failedUploadWin = 0;
       this.pendingPose = []; this.pendingNames = [];
       // o raio era do modelo antigo; o próximo ensureAsset publica o novo
       this.boundRadius = 0.0;
@@ -122,19 +137,24 @@ export class Skeleton extends Behavior {
   /// Sobe as peças do asset (fora de `ensureAsset`, que roda por quadro: no RTS
   /// uma função que contém `try/catch` aloca a cada chamada).
   subirPecas(win: number): void {
-    try { loadSkeletonAsset(win, this.modelPath); this.updateBound(); }
+    try {
+      const lease = acquireSkeletonAsset(win, this.modelPath);
+      const previous = this.assetLease; this.assetLease = lease; this.asset = lease.value;
+      if (previous !== null) previous.release();
+      this.failedUploadWin = 0; this.updateBound();
+    }
     catch (e) { this.failedUploadWin = win; logWarn("Skeleton: falha ao subir as pecas de " + this.modelPath); registrarFalhaAsset("esqueleto", this.modelPath, "upload: " + String(e)); }
   }
   /// Carrega o modelo (cache por caminho) e dimensiona os buffers por osso, uma
   /// vez. `win` = 0 não sobe nada para a GPU (testes sem janela); se o asset
-  /// veio de uma carga sem janela, a primeira chamada com janela real sobe as
-  /// peças (ver `loadSkeletonAsset`).
+  /// veio de carga sem janela, adota o asset GPU da janela preservando a pose.
   ensureAsset(win: number): void {
     const cur = this.asset;
-    if (cur !== null && cur.path === this.modelPath) {
+    if (cur !== null && this.loadedPath === this.modelPath) {
       if (skeletonNeedsUpload(cur, win) && this.failedUploadWin !== win) this.subirPecas(win);
       return;
     }
+    if (cur !== null) this.releaseResources();
     if (this.modelPath === "" || this.modelPath === this.failedPath) return;
     const a = this.tryLoad(win);
     if (a === null) return;   // falhou (já avisado; não tenta de novo)
@@ -418,7 +438,9 @@ export class Skeleton extends Behavior {
   // Carrega o modelo; null = falhou (registra o caminho e avisa uma vez).
   private tryLoad(win: number): SkeletonAsset | null {
     try {
-      return loadSkeletonAsset(win, this.modelPath);
+      const lease = acquireSkeletonAsset(win, this.modelPath);
+      this.assetLease = lease; this.loadedPath = this.modelPath;
+      return lease.value;
     } catch (e) {
       this.failedPath = this.modelPath;
       logWarn("Skeleton: nao carregou " + this.modelPath);

@@ -355,7 +355,7 @@ index ad6f124e8..ac8dadb9d 100644
          self.part_pending_batches.clear();
          self.vq.end_frame();
 diff --git a/crates/rts-egui/src/frame/scene3d/shader.rs b/crates/rts-egui/src/frame/scene3d/shader.rs
-index eb4372851..1277b9c16 100644
+index eb4372851..dbc0b8ec1 100644
 --- a/crates/rts-egui/src/frame/scene3d/shader.rs
 +++ b/crates/rts-egui/src/frame/scene3d/shader.rs
 @@ -1,7 +1,7 @@
@@ -389,7 +389,17 @@ index eb4372851..1277b9c16 100644
    o.color = color;
    o.world = world.xyz;
    o.emissive = iparams.x;
-@@ -291,6 +295,15 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
+@@ -281,7 +285,8 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
+   let face_x = !face_y && an.x >= an.z;
+   let uv_mundo = select(select(i.world.xy, i.world.zy, face_x), i.world.xz, face_y) * i.tile;
+   let uv = select(i.uv, uv_mundo, i.tile > 0.0);
+-  let texcol = textureSample(albedo_tex, albedo_samp, uv).rgb;
++  let texel = textureSample(albedo_tex, albedo_samp, uv);
++  let texcol = texel.rgb;
+   // i.tex: 0=nenhuma, 1=xadrez procedural, >=2 = textura real (imagem).
+   if (i.tex > 1.5) {
+     albedo = albedo * texcol;
+@@ -291,10 +296,22 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
      let chk = fract(c * 0.5) * 2.0;        // 0 ou 1
      albedo = albedo * mix(0.5, 1.0, chk);
    }
@@ -399,20 +409,28 @@ index eb4372851..1277b9c16 100644
 +  let ao = textureSample(pbr_ao, pbr_sampler, uv).r;
 +  let emission = textureSample(pbr_emission, pbr_sampler, uv).rgb;
 +  let psh = shadow_factor(i.world);
++  // Opaque mesh pass supports binary cutouts (foliage). Keep derivative
++  // sampling above the discard; translucent surfaces use their own passes.
++  if (i.tex > 1.5 && texel.a < 0.5) { discard; }
 +  if (pbr.emission.w > 0.5) {
 +    return vec4<f32>(neblina(shade_pbr(i, albedo, pn, mr, ao, emission, psh), i.world), i.color.a);
 +  }
    // emissivo (ex.: o Sol) — cor cheia, sem sombreamento
    if (i.emissive > 0.5) { return vec4<f32>(albedo, i.color.a); }
    let n = normalize(i.normal);
-@@ -331,4 +344,4 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
+-  let sh = shadow_factor(i.world);          // uma amostra, em fluxo uniforme
++  let sh = psh;                            // reutiliza a amostra uniforme
+   let vdir = normalize(cam.cam_pos.xyz - i.world);
+   var rgb: vec3<f32>;
+   let nluzes = min(u32(env.info.x), 8u);
+@@ -331,4 +348,4 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
    }
    return vec4<f32>(neblina(rgb, i.world), i.color.a);
  }
 -"#;
 +"#, include_str!("pbr.wgsl"));
 diff --git a/crates/rts-egui/src/lib.rs b/crates/rts-egui/src/lib.rs
-index 10ef7f520..969ce6eb7 100644
+index 10ef7f520..122ac2b23 100644
 --- a/crates/rts-egui/src/lib.rs
 +++ b/crates/rts-egui/src/lib.rs
 @@ -42,6 +42,8 @@ mod glbackend;
@@ -420,7 +438,7 @@ index 10ef7f520..969ce6eb7 100644
  mod widgets;
  mod scene_api;
 +mod texture_jobs;
-+pub use texture_jobs::{texture_load_begin,texture_load_poll,texture_load_progress,texture_load_error,texture_load_cancel};
++pub use texture_jobs::{texture_load_begin_data,texture_load_begin,texture_load_poll,texture_load_progress,texture_load_error,texture_load_cancel};
  // `rts:gpu` — compute WGSL sobre o MESMO device compartilhado do render.
  // Lógica pura, como o resto do crate: a casca do motor antigo é `abi::gpu`, a do
  // novo é `rts-ui`. Este módulo sobe e baixa bytes e não sabe de onde vêm.
@@ -518,14 +536,14 @@ index cdc8fa9a9..50961666a 100644
      program.run();
  }
 diff --git a/crates/rts-ui/src/scene.rs b/crates/rts-ui/src/scene.rs
-index 9ece244fd..c10eda197 100644
+index 9ece244fd..1d727fbca 100644
 --- a/crates/rts-ui/src/scene.rs
 +++ b/crates/rts-ui/src/scene.rs
 @@ -14,6 +14,12 @@
  
  use rts_core::entry::Provided;
  
-+extern "C" fn texture_load_begin(_e:u64,_t:u64,path:u64,_b:u64,_c:u64,_d:u64)->u64 {value::from_number(rts_egui::texture_load_begin(value::text(path)) as f64)}
++extern "C" fn texture_load_begin(_e:u64,_t:u64,path:u64,data:u64,_c:u64,_d:u64)->u64 {value::from_number(rts_egui::texture_load_begin_data(value::text(path), number(data, 0.0) > 0.5) as f64)}
 +extern "C" fn texture_load_poll(_e:u64,_t:u64,win:u64,id:u64,_c:u64,_d:u64)->u64 {value::from_number(rts_egui::texture_load_poll(handle(win),handle(id)) as f64)}
 +extern "C" fn texture_load_progress(_e:u64,_t:u64,id:u64,_b:u64,_c:u64,_d:u64)->u64 {value::from_number(rts_egui::texture_load_progress(handle(id)))}
 +extern "C" fn texture_load_error(_e:u64,_t:u64,id:u64,_b:u64,_c:u64,_d:u64)->u64 {value::from_text(&rts_egui::texture_load_error(handle(id)))}
@@ -1394,7 +1412,7 @@ diff --git a/crates/rts-egui/src/texture_jobs.rs b/crates/rts-egui/src/texture_j
 new file mode 100644
 --- /dev/null
 +++ b/crates/rts-egui/src/texture_jobs.rs
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,200 @@
 +//! Background PNG read/decode/mipmap preparation; only GPU submission stays on UI.
 +use crate::frame::{
 +    Backend,
@@ -1415,7 +1433,7 @@ new file mode 100644
 +    error: String,
 +}
 +thread_local! {static JOBS:RefCell<(u64,HashMap<u64,Job>)>=RefCell::new((1,HashMap::new()));}
-+fn decode(source: &str, stage: &AtomicU8) -> Result<PreparedTexture, String> {
++fn decode(source: &str, stage: &AtomicU8, data: bool) -> Result<PreparedTexture, String> {
 +    let bytes = if source.starts_with("data:") {
 +        rts_dom::imagem::bytes_da_data_url(source).ok_or("Invalid PNG data URI")?
 +    } else {
@@ -1433,18 +1451,19 @@ new file mode 100644
 +    let (rgba, w, h) =
 +        rts_dom::imagem::png::decodificar(&bytes).ok_or("Unsupported or corrupt PNG")?;
 +    stage.store(3, Ordering::Relaxed);
-+    let prepared = mipmaps::prepare(rgba, w, h, false);
++    let prepared = mipmaps::prepare(rgba, w, h, data);
 +    stage.store(4, Ordering::Relaxed);
 +    Ok(prepared)
 +}
-+pub fn texture_load_begin(source: String) -> u64 {
++pub fn texture_load_begin(source: String) -> u64 { texture_load_begin_data(source, false) }
++pub fn texture_load_begin_data(source: String, data: bool) -> u64 {
 +    let (tx, rx) = mpsc::channel();
 +    let stage = Arc::new(AtomicU8::new(1));
 +    let worker_stage = stage.clone();
 +    if std::thread::Builder::new()
 +        .name("rts-texture-loader".into())
 +        .spawn(move || {
-+            let result = std::panic::catch_unwind(|| decode(&source, &worker_stage))
++            let result = std::panic::catch_unwind(|| decode(&source, &worker_stage, data))
 +                .unwrap_or_else(|_| Err("PNG worker failed".into()));
 +            let _ = tx.send(result);
 +        })

@@ -1,0 +1,62 @@
+import { createAppAt } from "../src/compat/app";
+import { initMeshes, meshRadius } from "../src/engine/render/gpu3d";
+import { acquireModel, loadModel, clearModelCache } from "../src/engine/render/model";
+import { ResourceScope, resourceCache } from "../src/engine/core/resources";
+import { GameObject } from "../src/engine/core/gameobject";
+import { MeshRenderer } from "../src/engine/core/meshrenderer";
+import { Behavior } from "../src/engine/core/behavior";
+import { scene, S } from "../src/editor/control/session";
+import { playMode } from "../src/editor/play_mode";
+import { sceneFromJSON, sceneToJSON, buildObject } from "../src/editor/sceneio";
+import { SceneAssetLoadOperation } from "../src/engine/render/scene_asset_loading";
+import { writeFileSync, unlinkSync } from "node:fs";
+function check(ok:boolean,message:string):void {if(!ok)throw new Error(message);}
+const app=createAppAt("Model lifetime test",480,240,120,90),win=app._win;
+S.win=win;initMeshes(win);
+const path="assets/vendor/polyhaven/fern_02/runtime-0.gltf";
+const cache=resourceCache<any>("models");
+const scope=new ResourceScope();const warm=scope.keep(acquireModel(win,path));
+const original=new GameObject("Shared fern");
+original.setModelResource(acquireModel(win,"./"+path),path,0);
+const id=original.customMesh;
+check(id>0&&warm.value[0].meshId===id&&cache.stats().references===2,"preload compartilha upload com objeto");
+scope.release();check(cache.stats().references===1&&cache.stats().pinned===0,"handoff sem retencao permanente");
+const renderer=new MeshRenderer();renderer.customMesh=id;original.addBehavior(renderer);
+scene.add(original);
+const copy=original.cloneShallow();scene.add(copy);
+check(cache.stats().references===2,"duplicar retém modelo");
+scene.removeAt(1);check(original.customMesh===id&&cache.stats().references===1,"remover copia preserva original");
+const loads=cache.loads;
+for(let i=0;i<3;i++){
+  check(playMode.play(),"Play aceita modelo");
+  check(cache.stats().references===2,"autoria e simulacao possuem referencias");
+  scene.removeAt(0);check(cache.stats().references===1,"destruir durante Play preserva autoria");
+  playMode.stop();check(scene.objects[0]===original&&original.customMesh===id,"Parar restaura recurso original");
+}
+check(cache.loads===loads&&cache.stats().references===1,"Play repetido nao recarrega nem acumula referencias");
+original.addBehavior(new Behavior());check(!playMode.play(),"Play invalido recusado");
+check(cache.stats().references===1,"copias rejeitadas liberam referencias");original.removeBehavior(1);
+const saved=sceneToJSON();
+const bad=JSON.parse(saved);bad.objects.push({name:"Broken"});
+let failed=false;try{sceneFromJSON(JSON.stringify(bad));}catch{failed=true;}
+check(failed&&scene.objects[0]===original&&cache.stats().references===1,"cena invalida libera staging e preserva original");
+failed=false;try{buildObject({name:"Broken factory",meshPath:path});}catch{failed=true;}
+check(failed&&cache.stats().references===1,"factory que falha solta modelo adquirido");
+sceneFromJSON(saved);check(cache.loads===loads&&cache.stats().references===1,"restauracao compartilha antes de destruir anterior");
+scene.clear();check(cache.stats().entries===0,"ultima instancia libera cache");
+if(app.beginFrame())app.endFrame();
+check(meshRadius(id)===.87,"descarte remove metadado da GPU");
+sceneFromJSON(saved);const restored=scene.objects[0];
+check(restored.customMesh>0&&restored.customMesh!==id,"restauracao apos descarte carrega novo handle");
+check(restored.behaviors[restored.rendIdx].rCustomMesh()===restored.customMesh,"MeshRenderer nao restaura handle antigo do JSON");
+scene.clear();if(app.beginFrame())app.endFrame();
+const legacy=loadModel(win,path);const leased=acquireModel(win,path);
+check(legacy===leased.value&&cache.stats().pinned===1,"API legada mantem compatibilidade");
+clearModelCache();check(cache.stats().entries===1,"limpar cache nao invalida referencia ativa");
+leased.release();if(app.beginFrame())app.endFrame();check(cache.stats().entries===0,"ultima referencia apos clear libera modelo");
+const fixture="build/resources-preload-fixture.json";
+writeFileSync(fixture,JSON.stringify({objects:[{meshPath:path}]}));
+const preparation=new SceneAssetLoadOperation(win,fixture);preparation.tick();
+check(cache.stats().references===1,"preparacao possui modelo antes da montagem");
+preparation.cancel();check(cache.stats().entries===0,"cancelamento libera modelos preparados");unlinkSync(fixture);
+if(app.beginFrame())app.endFrame();app.close();console.log("resources-model-lifecycle OK");

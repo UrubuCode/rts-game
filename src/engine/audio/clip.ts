@@ -1,3 +1,4 @@
+import { resourceCache, resourcePath, ResourceLease } from "@engine/core/resources";
 // AudioClip: o asset de som (spec §3.3). Carregado de arquivo uma vez por
 // caminho e compartilhado por todas as fontes. As amostras ficam na TAXA DOS
 // CLIPES — a do dispositivo aberto — para que o `pitch` seja o único
@@ -24,6 +25,8 @@ const CLP_BYTES_POR_KB: number = 1024;
 const CLP_NOMES_CANAIS: string[] = ["", "mono", "estéreo"];
 
 export class AudioClip {
+  /** Identidade no gerenciador; vazio para a API procedural legada. */
+  resourceKey: string = "";
   id: number;
   nome: string;
   /// "" para clipe procedural.
@@ -48,8 +51,8 @@ export class AudioClip {
 }
 
 let clpTaxa: number = CLP_TAXA_PADRAO;
-const clpLista: AudioClip[] = [];
-const clpMapa: Map<string, AudioClip> = new Map<string, AudioClip>();
+const clpLista: (AudioClip | null)[] = [];
+const clpMapa = resourceCache<AudioClip>("audio");
 const clpFalhas: string[] = [];
 let clpDecods: number = 0;
 /// Cache dos tons: freq, dur e forma por entrada, e o id do clipe.
@@ -73,7 +76,7 @@ export function taxaDosClipes(): number { return clpTaxa; }
 export function clipPorId(id: number): AudioClip | null {
   if (id < 0 || id >= clpLista.length) return null;
   const c = clpLista[id];
-  return c.taxa === clpTaxa ? c : null;
+  return c !== null && c.taxa === clpTaxa ? c : null;
 }
 export function clipDecodificacoes(): number { return clpDecods; }
 
@@ -98,14 +101,37 @@ function clipNomeDoArquivo(caminho: string): string {
   return caminho.substring((a > b ? a : b) + 1);
 }
 
+/** API legada: retem o clipe ate clearAudioClipCache. */
 export function clipCarregar(caminho: string): AudioClip | null {
-  const achado = clpMapa.get(caminho);
-  if (achado !== undefined) return achado;
-  if (clpFalhas.indexOf(caminho) >= 0) return null;
-  const c = clipDecodificar(caminho);
-  if (c !== null) clpMapa.set(caminho, c);
-  return c;
+  const lease = acquireAudioClip(caminho);
+  if (lease === null) return null;
+  const clip = lease.value; clpMapa.set(clip.resourceKey, clip); lease.release();
+  return clip;
 }
+/** Referencia explicita para fontes, previews e consumidores de arquivos. */
+export function acquireAudioClip(path: string): ResourceLease<AudioClip> | null {
+  const key = clpTaxa + ":" + resourcePath(path);
+  let clip = clpMapa.get(key);
+  if (clip === undefined) {
+    if (clpFalhas.indexOf(path) >= 0) return null;
+    const decoded = clipDecodificar(path);
+    if (decoded === null) return null;
+    decoded.resourceKey = key; clip = decoded;
+  }
+  const value = clip;
+  return clpMapa.acquire(key, () => value, disposeAudioClip);
+}
+/** A voz/agendamento possui sua referencia independente da fonte. */
+export function retainAudioClip(clip: AudioClip): ResourceLease<AudioClip> | null {
+  if (clip.resourceKey === "") return null;
+  if (clipPorId(clip.id) !== clip) throw new Error("AudioClip descartado ou de outra taxa");
+  return clpMapa.acquire(clip.resourceKey, () => clip, disposeAudioClip);
+}
+function disposeAudioClip(clip: AudioClip): void {
+  // IDs nunca sao reciclados: um handle antigo nao aponta para outro som.
+  if (clpLista[clip.id] === clip) clpLista[clip.id] = null;
+}
+export function clearAudioClipCache(): void { clpMapa.clear(); }
 
 /// Caminho LENTO (carga): o único `try` do módulo fica aqui.
 function clipDecodificar(caminho: string): AudioClip | null {
@@ -148,7 +174,7 @@ export function toneClip(freq: f64, dur: f64, forma: number): AudioClip {
   let k = 0;
   while (k < clpNTons) {
     const b = k * 3;
-    if (clpTons[b] === freq && clpTons[b + 1] === dur && clpTons[b + 2] === forma) return clpLista[clpTonsId[k]];
+    if (clpTons[b] === freq && clpTons[b + 1] === dur && clpTons[b + 2] === forma) return clpLista[clpTonsId[k]]!;
     k = k + 1;
   }
   const quadros = Math.max(1, Math.round(dur * clpTaxa));

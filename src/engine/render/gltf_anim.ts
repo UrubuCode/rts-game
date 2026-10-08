@@ -1,3 +1,4 @@
+import { resourceCache, resourcePath, ResourceLease, deferResourceDisposal } from "@engine/core/resources";
 // Engine RTS — LEITOR DE NÓS + CLIPES DE ANIMAÇÃO do glTF (.glb/.gltf).
 //
 // model.ts já sabe ler geometria/material de um glTF; este módulo lê a outra
@@ -17,7 +18,7 @@ import buffer from "@compat/buffer.ts";
 import type { Buf } from "@compat/buffer.ts";
 
 import { dirOf, glbChunks, readAccessor, buildPrimitive } from "./model";
-import { upload, loadTexture } from "./gpu3d";
+import { upload, loadTexture, freeUploadedMesh } from "./gpu3d";
 
 // canal por (osso, propriedade) — mesma codificação do glTF `target.path`.
 const CH_TRANSLATION = 0;
@@ -86,26 +87,35 @@ export class SkeletonAsset {
 }
 
 // ── cache por path ──────────────────────────────────────────────────────────
-const skeletonCache = new Map<string, SkeletonAsset>();
+const skeletonCache = resourceCache<SkeletonAsset>("skeletons");
 
 /// Lê um `.glb`/`.gltf` → esqueleto (nós em pré-ordem) + peças + clipes.
 /// `win = 0` faz o parse SEM tocar na GPU (nenhum upload de malha, nenhum
 /// loadTexture) — uso em teste headless; `partMesh`/`partTex` ficam 0.
-/// Cacheado por `path`: a 2ª chamada devolve a MESMA instância. Se ela veio de
-/// uma carga sem janela (ou de outra janela) e agora chega um `win` real, as
-/// peças sobem para ESSA janela aqui — o asset não fica "preso" sem malha.
+/// Cache por janela e caminho normalizado. CPU (win=0) e cada janela possuem
+/// assets separados: adquirir para GPU nao modifica consumidores headless.
 // UI checkpoints must not reenter model loaders (model.ts shares its BIN offset).
 // Individual reads/primitives/channels remain synchronous; yielding is cooperative.
+/** API legada: retencao ate clearSkeletonCache. Prefira acquireSkeletonAsset. */
 export function loadSkeletonAsset(win: number, path: string, checkpoint?: () => void): SkeletonAsset {
-  const hit = skeletonCache.get(path);
-  if (hit !== undefined) {
-    if (skeletonNeedsUpload(hit, win)) uploadSkeletonParts(win, hit, checkpoint);
-    return hit;
-  }
-  const asset = buildSkeletonAsset(win, path, checkpoint);
-  if (win !== 0) asset.uploadedWin = win;
-  skeletonCache.set(path, asset);
-  return asset;
+  const lease = acquireSkeletonAsset(win, path, checkpoint);
+  skeletonCache.set(win + ":" + resourcePath(path), lease.value);
+  const asset = lease.value; lease.release(); return asset;
+}
+export function acquireSkeletonAsset(win: number, path: string, checkpoint?: () => void): ResourceLease<SkeletonAsset> {
+  return skeletonCache.acquire(win + ":" + resourcePath(path), () => buildSkeletonAsset(win, path, checkpoint), disposeSkeletonAsset);
+}
+export function clearSkeletonCache(): void { skeletonCache.clear(); }
+function disposeSkeletonAsset(asset: SkeletonAsset): void {
+  if (asset.uploadedWin === 0) return;
+  const win = asset.uploadedWin;
+  deferResourceDisposal(win, () => {
+    for (let i = 0; i < asset.partMesh.length; i++) {
+      if (asset.partMesh[i] > 0) freeUploadedMesh(win, asset.partMesh[i]);
+      const material = asset.partMaterial[i];
+      if (material !== null && material !== undefined) material.releaseResources();
+    }
+  });
 }
 
 /// 1 caso `asset` precise subir as peças para `win` (janela real ainda não
@@ -168,6 +178,8 @@ function buildSkeletonAsset(win: number, path: string, checkpoint?: () => void):
   if (rootIdxs === undefined) { buffer.free(bin); throw new Error("gltf_anim: cena sem 'nodes': " + path); }
 
   const asset = new SkeletonAsset(path);
+  asset.uploadedWin = win;
+  try {
   // nó (índice original do glTF) -> osso (índice em pré-ordem, o que esta
   // classe expõe). Precisa disso pra traduzir target.node dos canais.
   const nodeToBone: number[] = [];
@@ -213,8 +225,9 @@ function buildSkeletonAsset(win: number, path: string, checkpoint?: () => void):
 
   readClips(g, bin, nodeToBone, asset, checkpoint);
 
-  buffer.free(bin);
   return asset;
+  } catch (error) { disposeSkeletonAsset(asset); throw error; }
+  finally { buffer.free(bin); }
 }
 
 // Pose de repouso de UM nó: TRS explícito com os defaults do glTF, ou `matrix`

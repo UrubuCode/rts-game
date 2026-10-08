@@ -15,6 +15,7 @@ Colunas: **Desfazer** = `dispatch` (o despacho tira um snapshot antes), `proprio
 | Sintaxe | O que faz | Exemplo | Desfazer | async |
 |---|---|---|---|---|
 | `buoyancy <obj> info` | agua, fracao submersa e corrente; empuxo atual apenas vertical | `buoyancy Caixa info` | nenhum |  |
+| `assets resources` | recursos compartilhados, referencias, retencao e reutilizacao por categoria | `assets resources` | nenhum |  |
 | `assets errors [clear]` | texturas, modelos, ceu e esqueletos que nao carregaram (tipo, caminho, vezes, motivo) | `assets errors` | nenhum |  |
 | `contexto` | retrato compacto do editor pra uma IA, gerado AGORA do runtime: comandos, componentes (com campos), menus, pacotes, sistemas e cena | `contexto` | nenhum |  |
 | `contexto json` | o mesmo em JSON completo | `contexto json` | nenhum |  |

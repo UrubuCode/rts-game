@@ -1,6 +1,7 @@
 import { Behavior } from "./behavior";
 import { WaterSurface } from "./water_surface";
 import { WaterBody } from "./water_body";
+import { AdaptiveWater } from "./adaptive_water";
 import { activeInScene } from "./gameobject";
 /**
  * @componentCategory Física
@@ -46,13 +47,13 @@ export class SailboatController extends Behavior {
     const objects=owner.uiOwner.objects;
     for(let i=0;i<objects.length;i++){
       const o=objects[i];if(!activeInScene(objects,o)||(this.waterObject!==""&&o.name!==this.waterObject))continue;
-      for(let j=0;j<o.behaviors.length;j++){const b=o.behaviors[j];if(b.enabled!==0&&(b instanceof WaterSurface||b instanceof WaterBody)){this.surface=b;return;}}
+      for(let j=0;j<o.behaviors.length;j++){const b=o.behaviors[j];if(b.enabled!==0&&(b instanceof WaterSurface||(b instanceof WaterBody||b instanceof AdaptiveWater))){this.surface=b;return;}}
     }
   }
   private height(x:number,z:number):number {
     const w=this.surface;if(w===null||w.enabled===0||w.owner===null||w.owner.uiOwner===null||!activeInScene(w.owner.uiOwner.objects,w.owner))return NaN;
     if(w instanceof WaterSurface)return w.contains(x,z)?w.heightAt(x,z):NaN;
-    if(w instanceof WaterBody)return w.waterHeightAt(x,z);
+    if(w instanceof WaterBody||w instanceof AdaptiveWater)return w.waterHeightAt(x,z);
     return NaN;
   }
   update(dt:number):void {

@@ -1,4 +1,4 @@
-import { meshUpload,meshFree,materialFree } from "rts:egui";
+import { meshUpload,meshFree } from "rts:egui";
 import { FpsWorldField,FpsChunkWindow } from "../core/world_streaming";
 import { WorldChunkLoader } from "../core/world_chunk_loading";
 import { WorldGenerationProfile } from "../core/world_generation";
@@ -43,6 +43,7 @@ export class WorldStream {
   error:string="";disposed:boolean=false;visibleChunks:number=0;culledChunks:number=0;drawCalls:number=0;
   private win:number;private job:WorldChunkLoader|null=null;private pending:FpsWorldChunk|null=null;
   private materials:number[]=[];private drawBuffer:Float64Array=new Float64Array(DRAW_FLOATS);
+  private materialOwners:Material[]=[];
   constructor(win:number,seed:number,radius:number,profile?:WorldGenerationProfile){
     this.profile=WorldGenerationProfile.fromData(profile);
     this.chunkSize=createWorldGeneratorRegistry().chunkSize(this.profile.generator);
@@ -50,11 +51,14 @@ export class WorldStream {
     this.win=win;this.field=this.profile.biomes||this.profile.generator==="voxel"?new WorldBiomeField(seed,this.profile.biomeScale,this.profile.heightScale):new FpsWorldField(seed);
     this.window=new FpsChunkWindow(radius,this.chunkSize);this.collision=new FpsWorldCollision(this.chunkSize);
     this.cache=new FpsChunkCache(25,32*1024*1024,(chunk:any)=>{chunk.dispose(this.win);this.unloaded++;});
+    try {
     for(let i=0;i<FPS_WORLD_COLORS.length;i++){
       const m=new Material();m.pbr=1;m.roughness=i===10?.16:i===6?.25:.87;m.metallic=i===6?.45:0;
       if(i===7){m.emissiveR=2;m.emissiveG=.9;m.emissiveB=.25;}
+      this.materialOwners.push(m);
       this.materials.push(resolvePbrMaterial(win,m));
     }
+    } catch(error) { this.dispose(); throw error; }
     this.drawBuffer[5]=1;this.drawBuffer[6]=1;this.drawBuffer[7]=1;
   }
   move(x:number,z:number):void {
@@ -160,7 +164,8 @@ export class WorldStream {
     for(let i=0;i<this.chunks.length;i++)this.chunks[i].dispose(this.win);this.chunks.length=0;
     this.cache.clear();
     this.collision.clear();
-    for(let i=0;i<this.materials.length;i++)materialFree(this.win,this.materials[i]);this.materials.length=0;
+    for(let i=0;i<this.materialOwners.length;i++)this.materialOwners[i].releaseResources();
+    this.materialOwners.length=0;this.materials.length=0;
   }
 }
 /** @deprecated Use WorldStream com um WorldGenerationProfile. */

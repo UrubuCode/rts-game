@@ -33,3 +33,6 @@ prof.txt
 # que explicam.
 *.exe
 bench/out/
+
+# Geometria derivada; recriada pelo build.
+/assets/runtime-cache/models/

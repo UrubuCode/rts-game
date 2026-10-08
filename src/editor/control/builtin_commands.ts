@@ -100,7 +100,7 @@ export const BUILTIN_MANIFEST: ComandoInfo[] = [
     "animator <obj> state :: estado atual e tempo normalizado por camada, fade em andamento, erro do controlador :: animator 0 state",
     "animator <obj> params :: parametros do controlador (nome, tipo, valor) :: animator 0 params"]),
   c("anims", "esqueleto", MUTA_NAO, ["anims <obj> :: lista os clipes do modelo do Skeleton (nome + duracao) :: anims 0"]),
-  c("assets", "consulta", MUTA_NAO, ["assets errors [clear] :: texturas, modelos, ceu e esqueletos que nao carregaram (tipo, caminho, vezes, motivo) :: assets errors"]),
+  c("assets", "consulta", MUTA_NAO, ["assets resources :: recursos compartilhados, referencias, retencao e reutilizacao por categoria :: assets resources", "assets errors [clear] :: texturas, modelos, ceu e esqueletos que nao carregaram (tipo, caminho, vezes, motivo) :: assets errors"]),
   c("batch", "play", MUTA_NAO, [
     "batch begin :: abre um LOTE: os comandos seguintes viram UMA entrada de Desfazer; no primeiro [erro] o lote inteiro e desfeito e a resposta diz a linha :: batch begin",
     "batch end :: fecha o lote (1 entrada de Desfazer se a cena mudou) :: batch end",

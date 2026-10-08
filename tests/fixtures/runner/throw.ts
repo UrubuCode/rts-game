@@ -1,0 +1,1 @@
+throw new Error("RUNNER_EXPECTED_SYNC_FAILURE");

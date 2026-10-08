@@ -9,11 +9,12 @@
 
 import { scene, S } from "./control/session";
 import { materialFromData } from "../engine/core/material";
+import { MeshRenderer } from "../engine/core/meshrenderer";
 import { GameObject } from "../engine/core/gameobject";
 import { instantiatePrefab } from "./sceneio";
 import { sceneDocument } from "./scene_document";
 import { loadTexture } from "../engine/render/gpu3d";
-import { loadModel, isModelPath, SubMesh } from "../engine/render/model";
+import { acquireModel, isModelPath, SubMesh } from "../engine/render/model";
 import { screenToGround, screenToForward, snapv, SNAP_MOVE_STEP } from "./gizmo";
 import { subStr } from "./widgets";
 import { AudioSource } from "@scripts/audiosource";
@@ -122,9 +123,7 @@ function partToObject(sm: SubMesh, name: string, srcPath: string, partIdx: numbe
   const win = S.win;
   const go = new GameObject(name);
   go.setMesh(1, sm.cr, sm.cg, sm.cb);   // customMesh manda no render; meshKind é fallback
-  go.customMesh = sm.meshId;
-  go.meshPath = srcPath;
-  go.meshPart = partIdx;                // pra reconstruir a submesh certa no load
+  go.setModelResource(acquireModel(win, srcPath), srcPath, partIdx);                // pra reconstruir a submesh certa no load
   go.stationary = 1;
   if (sm.pbrMaterial !== null) go.addBehavior(materialFromData(sm.pbrMaterial.toData()));
   else if (sm.texPath.length > 0) {
@@ -158,7 +157,9 @@ export function instantiateAt(kind: string, path: string, pos: Float64Array | nu
     // render é 1 objeto → 1 mesh → 1 material, então CADA submesh vira um
     // GameObject; com mais de uma, elas nascem sob um nó-raiz que agrupa tudo
     // (mover/rotacionar a raiz move o modelo inteiro).
-    const parts = loadModel(win, path);
+    const lease = acquireModel(win, path);
+    try {
+    const parts = lease.value;
     if (parts.length === 0) return 0 - 1;
     let py: f64 = 1.0;
     let px: f64 = 0.0; let pz: f64 = 0.0;
@@ -187,6 +188,7 @@ export function instantiateAt(kind: string, path: string, pos: Float64Array | nu
     }
     S.selected = rootIdx;
     return rootIdx;
+    } finally { lease.release(); }
   } else if (kind === "tex") {
     // textura solta no VAZIO: cria um cubo já texturizado (aplicar num objeto
     // EXISTENTE é o outro caminho — applyTexToObject).
@@ -258,13 +260,15 @@ export function applyAudioToObject(idx: number, path: string): number {
 /// Também adota a cor/textura do material daquela parte. Devolve o mesh id (0 = falhou).
 export function applyMeshToObject(idx: number, path: string, win: number): number {
   if (idx < 0 || idx >= scene.objects.length) return 0;
-  const parts = loadModel(win, path);
-  if (parts.length === 0) return 0;
+  const lease = acquireModel(win, path);
+  const parts = lease.value;
+  if (parts.length === 0) { lease.release(); return 0; }
   const sm = parts[0];
   const o = scene.objects[idx];
-  o.customMesh = sm.meshId;
-  o.refreshCollide();
-  o.meshPath = path;
+  o.setModelResource(lease, path, 0);
+  if (o.rendIdx >= 0 && o.behaviors[o.rendIdx] instanceof MeshRenderer) {
+    const renderer = o.behaviors[o.rendIdx] as MeshRenderer; renderer.customMesh = sm.meshId;
+  }
   o.cr = sm.cr; o.cg = sm.cg; o.cb = sm.cb;
   if (sm.pbrMaterial !== null) {
     if (o.matIdx >= 0) o.removeBehavior(o.matIdx);

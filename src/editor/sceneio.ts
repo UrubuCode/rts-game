@@ -35,7 +35,7 @@ import { UIText } from "../engine/core/ui_text";
 import { UIButton } from "../engine/core/ui_button";
 import { hullForMesh } from "../engine/core/hullmesh";
 import { setLight, setAmbient } from "../engine/render/mesh";
-import { loadModel } from "../engine/render/model";
+import { acquireModel } from "../engine/render/model";
 import { restoreRegisteredComponent } from "@engine/generated/components";
 import { componentToData } from "../engine/components";
 import { componentMetadata } from "../engine/core/component_metadata";
@@ -161,6 +161,7 @@ function recreateBehaviorInner(sd: any): Behavior {
 /// SceneRef não são clonados (aparência vem dos campos; SceneRef é marcador).
 export function cloneObject(src: GameObject): GameObject {
   const g = src.cloneShallow();
+  try {
   let i = 0;
   while (i < src.behaviors.length) {
     const d = componentToData(src.behaviors[i]);
@@ -168,6 +169,7 @@ export function cloneObject(src: GameObject): GameObject {
     i = i + 1;
   }
   return g;
+  } catch (error) { discardAfterFailure([g]); throw error; }
 }
 
 /// Serializa 1 GameObject no descritor que buildObject lê (round-trip). Os
@@ -256,6 +258,21 @@ function validateVector(value: any, size: number, label: string): void {
   }
 }
 
+// Caminho frio: um disposer com falha não impede a limpeza dos outros objetos.
+function releaseObjects(objects: GameObject[]): void {
+  let failed = false; let failure: any = null;
+  for (let i = 0; i < objects.length; i++) {
+    try { objects[i].releaseResources(); }
+    catch (error) { if (!failed) { failed = true; failure = error; } }
+  }
+  if (failed) throw failure;
+}
+
+function discardAfterFailure(objects: GameObject[]): void {
+  try { releaseObjects(objects); }
+  catch (error) { console.error("Falha adicional no descarte da cena:", error); }
+}
+
 export function sceneFromJSON(s: string, sc?: Scene): void {
   const targetScene = sc !== undefined ? sc : scene;
   const data = JSON.parse(s);
@@ -268,6 +285,7 @@ export function sceneFromJSON(s: string, sc?: Scene): void {
   const next: GameObject[] = [];
   const idSet = buildIdSet(targetScene);
   let i = 0;
+  try {
   while (i < arr.length) {
     const item = arr[i];
     if (item === null || typeof item.name !== "string" || !Array.isArray(item.pos) || !Array.isArray(item.rot) || !Array.isArray(item.color)) throw new Error("Objeto invalido na cena: " + i);
@@ -286,23 +304,37 @@ export function sceneFromJSON(s: string, sc?: Scene): void {
     while (parent >= 0) { if (depth >= next.length) throw new Error("Hierarquia ciclica."); parent = next[parent].parent; depth = depth + 1; }
     i = i + 1;
   }
+  } catch (error) {
+    discardAfterFailure(next);
+    throw error;
+  }
   const previous = targetScene.objects.slice();
-  targetScene.clear();
+  targetScene.clear(false);
   try {
     i = 0; while (i < next.length) { targetScene.add(next[i]); i = i + 1; }
   } catch (error) {
-    targetScene.clear(); i = 0; while (i < previous.length) { targetScene.add(previous[i], false); i = i + 1; }
+    // Mount pode criar objetos adicionais antes de lançar.
+    const abandoned = next.slice();
+    for (let j = 0; j < targetScene.objects.length; j++) {
+      const object = targetScene.objects[j];
+      if (abandoned.indexOf(object) < 0) abandoned.push(object);
+    }
+    targetScene.clear(false);
+    discardAfterFailure(abandoned);
+    i = 0; while (i < previous.length) { targetScene.add(previous[i], false); i = i + 1; }
+    targetScene.computeWorld();
     throw error;
   }
   if (typeof data.name === "string") targetScene.name = data.name;
   copiarAmbiente(targetScene.ambiente, ambienteLido);
-  if (targetScene !== scene) return;
+  if (targetScene !== scene) { releaseObjects(previous); return; }
   if (Array.isArray(data.camera) && data.camera.length >= 5) {
     S.camX = data.camera[0]; S.camY = data.camera[1]; S.camZ = data.camera[2]; S.camYaw = data.camera[3]; S.camPitch = data.camera[4];
   }
   if (Array.isArray(data.light) && data.light.length >= 4) {
     S.lightX = data.light[0]; S.lightY = data.light[1]; S.lightZ = data.light[2]; S.lightAmb = data.light[3];
   }
+  releaseObjects(previous);
 }
 
 /// SALVA a cena inteira num arquivo JSON — fecha o loop com loadSceneFrom.
@@ -332,6 +364,7 @@ export function saveScene(path: string): number {
 export function buildObject(od: any, sc?: Scene, idSet?: Set<number>): GameObject {
   const targetScene = sc !== undefined ? sc : scene;
   const go = new GameObject(od.name);
+  try {
   if (od.active !== undefined) go.active = od.active;
   if (od.id !== undefined) {
     const isConflict = idSet !== undefined
@@ -362,13 +395,10 @@ export function buildObject(od: any, sc?: Scene, idSet?: Set<number>): GameObjec
   if (od.meshPath !== undefined && od.meshPath.length > 0) {
     go.meshPath = od.meshPath;
     if (fs.exists(od.meshPath)) {
-      const parts = loadModel(S.win, od.meshPath);
+      const lease = acquireModel(S.win, od.meshPath);
       let pidx = 0;
       if (od.meshPart !== undefined) pidx = od.meshPart | 0;
-      if (pidx >= 0 && pidx < parts.length) {
-        go.customMesh = parts[pidx].meshId;
-        go.meshPart = pidx;
-      }
+      go.setModelResource(lease, od.meshPath, pidx);
     }
   }
   const col = od.color;
@@ -390,11 +420,13 @@ export function buildObject(od: any, sc?: Scene, idSet?: Set<number>): GameObjec
     let si = 0;
     while (si < scr.length) {
       const b = recreateBehavior(scr[si]);
+      if (b instanceof MeshRenderer && b.customMesh > 0 && go.meshPath.length > 0) b.customMesh = go.customMesh;
       if (b.kind() >= 0) go.addBehavior(b);   // kind()>=0 sempre; guarda defensiva
       si = si + 1;
     }
   }
   return go;
+  } catch (error) { discardAfterFailure([go]); throw error; }
 }
 
 /// CENA DENTRO DE CENA (estilo Godot): instancia uma cena inteira ADITIVAMENTE,

@@ -3,12 +3,14 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { generateComponents, projectRoot } from './generate-components.mjs';
 import { findCompiler } from './rts-compiler.mjs';
+import { prepareModelCaches } from './prepare-model-cache.mjs';
 
 try {
   const [entry = 'main.ts', destination = 'build/RTSEditor.exe'] = process.argv.slice(2);
   const entryPath = path.resolve(projectRoot, entry);
   if (!fs.existsSync(entryPath)) throw new Error(`Entrada inexistente: ${entry}`);
   const compiler = findCompiler(projectRoot);
+  console.log(`[model-cache] ${prepareModelCaches(projectRoot)} modelos preparados`);
   console.log(`[components] ${generateComponents().length} classes descobertas`);
   fs.mkdirSync(path.dirname(path.resolve(projectRoot, destination)), { recursive: true });
   const result = spawnSync(compiler, ['compile', '--no-compiler', entry, destination], { cwd: projectRoot, stdio: 'inherit', env: { ...process.env, RTS_RUNTIME_RWK_ARCHIVE:path.join(path.dirname(compiler),'rts_runtime.lib') } });

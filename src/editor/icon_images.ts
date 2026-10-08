@@ -1,3 +1,4 @@
+import { resourceCache } from "@engine/core/resources";
 import fs from "@compat/fs";
 import { decodePNG } from "@engine/render/png";
 import { imagemEm, imagem, imagemId, registrarImagem } from "@compat/draw2d.ts";
@@ -16,7 +17,7 @@ export function decodeIconPNG(bytes: any): IconImage {
   const img = decodePNG(bytes, UI_ICONS.maxPixels);
   return new IconImage(img.width, img.height, img.pixels);
 }
-const iconCache = new Map<string, IconImage>();
+const iconCache = resourceCache<IconImage>("editor-icons");
 const iconFailures = new Map<string, boolean>();
 /// Ícone `name` do cache (carrega na primeira vez). Sem `try` aqui: roda por
 /// ícone por quadro, e no RTS a função que contém `try/catch` aloca a cada chamada.

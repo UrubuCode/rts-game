@@ -39,6 +39,9 @@ export class InspectorGUIEditor extends InspectorUI {
   /// Slider em arrasto que já tirou o snapshot de Desfazer: um passo por arrasto,
   /// não um por frame (cada snapshot serializa a cena inteira).
   slotArrasto: boolean[];
+  private fieldOwners: (Behavior | null)[] = [];
+  private fieldNames: string[] = [];
+  private fieldIndices: number[] = [];
   constructor(insp: Inspector) {
     super(); this.insp = insp; this.comp = null; this.chave = ""; this.y = 0; this.seq = 0; this.pose = new Float64Array(5);
     this.prefixos = []; this.slots = []; this.lista = 0; this.slot = 0;
@@ -57,6 +60,7 @@ export class InspectorGUIEditor extends InspectorUI {
       this.slotChave.push(this.chave + G.guiKey + this.seq);
       this.slotTexto.push(""); this.slotRotulo.push(""); this.slotSufixo.push(""); this.slotNum.push(0 - 1);
       this.slotRascunho.push(""); this.slotEditando.push(false); this.slotDono.push(null); this.slotArrasto.push(false);
+      this.fieldOwners.push(null); this.fieldNames.push(""); this.fieldIndices.push(-1);
       lista.push(this.slotChave.length - 1);
     }
     this.slot = lista[this.seq];
@@ -91,8 +95,15 @@ export class InspectorGUIEditor extends InspectorUI {
   colunaW(): number { return this.insp.width - L.padding * 2 - L.gap; }
   field(nome: string): void {
     const k = this.proxima();
+    // Campos fora da rolagem so participam do layout, sem consultar reflexao.
+    if (!this.insp.visible(this.y, L.rowH)) { this.y += L.rowH; return; }
     const c = this.comp as Behavior;
-    const i = indiceDoCampo(c, nome);
+    const slot = this.slot;
+    if (this.fieldOwners[slot] !== c || this.fieldNames[slot] !== nome) {
+      this.fieldOwners[slot] = c; this.fieldNames[slot] = nome;
+      this.fieldIndices[slot] = indiceDoCampo(c, nome);
+    }
+    const i = this.fieldIndices[slot];
     if (i < 0) this.insp.label(k, this.y, this.texto(G.unknownField, "", nome));
     else if (this.insp.visible(this.y, L.rowH)) this.insp.fieldRow(c, this.chave, i, this.y);
     this.y = this.y + L.rowH;

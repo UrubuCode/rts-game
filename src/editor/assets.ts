@@ -11,7 +11,7 @@ import fs from "../compat/fs.ts";
 import { PANEL, PANEL_DK, HEADER, BORDER, FIELD, TEXT, TEXT_DIM, SEL, HOVER, button, subStr, widgetRect, widgetMouse } from "./widgets";
 import { drawThumb, thumbAt } from "./thumbs";
 import { ProjectTree } from "./project_tree";
-import { AudioClip, clipInfo } from "../engine/audio/clip";
+import { acquireAudioClip, clipInfo } from "../engine/audio/clip";
 import { tocarPrevia, pararPrevia, vozTocando } from "../engine/audio/audio";
 import { bumpAssetIndex } from "./asset_index";
 import { UI_C, UI_WORKSPACE, UI_PROJECT_HEADER_H, UI_PROJECT_PATH_Y, UI_PROJECT_PATH_H,
@@ -149,9 +149,10 @@ function typeTag(t: number): string {
 
 /// "1,2 s" — decodifica UMA VEZ (no rescan), nunca por quadro. "" se não carregar.
 function duracaoLabel(path: string): string {
-  const c = AudioClip.load(path);
-  if (c === null) return "";
-  return c.duracao.toFixed(1).replace(".", ",") + " s";
+  const lease = acquireAudioClip(path);
+  if (lease === null) return "";
+  const label = lease.value.duracao.toFixed(1).replace(".", ",") + " s";
+  lease.release(); return label;
 }
 /// Toca/para a prévia 2D de um tile de áudio (duplo-clique, estilo Unity):
 /// clicar de novo no MESMO arquivo enquanto toca para; em outro, troca.
@@ -162,8 +163,9 @@ function togglePreviewAudio(path: string): void {
     return;
   }
   pararPrevia();
-  const c = AudioClip.load(path);
-  previewVoz = c !== null ? tocarPrevia(c, 1.0, 1.0) : 0;
+  const lease = acquireAudioClip(path);
+  previewVoz = lease !== null ? tocarPrevia(lease.value, 1.0, 1.0) : 0;
+  if (lease !== null) lease.release();
   previewPath = previewVoz !== 0 ? path : "";
 }
 

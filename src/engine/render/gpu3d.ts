@@ -1,3 +1,4 @@
+import { resourceCache, resourcePath } from "@engine/core/resources";
 // Engine RTS — caminho de render 3D por GPU (pipeline wgpu no rts-egui).
 //
 // Em vez de rasterizar por software (raster.ts/mesh.ts), sobe as meshes pra VRAM
@@ -28,7 +29,7 @@
 // PNGs usam o decoder da engine; o runtime fornece uploads de texturas.
 // O patch PBR inclui drawWater: instancia o buffer de compute sem readback.
 import {
-  meshUpload, textureUpload, setCamera, setLight, setShadow as eguiSetShadow,
+  meshUpload, meshFree, textureUpload, setCamera, setLight, setShadow as eguiSetShadow,
   drawWater as eguiDrawWater, drawMesh, drawMeshBatch, setVsync as eguiSetVsync,
   winWidth as eguiWinWidth, winHeight as eguiWinHeight,
   setLights as eguiSetLights, setSky as eguiSetSky, setFog as eguiSetFog,
@@ -60,6 +61,11 @@ let idSphereLow: number = 0;
 const meshRadii = new Map<number, number>();
 
 /// O raio envolvente da mesh `id`, em unidades de malha.
+/** Descarta tambem o metadado usado pelo culling. Chamar apos endFrame. */
+export function freeUploadedMesh(win: number, id: number): void {
+  meshFree(win, id); meshRadii.delete(id);
+}
+
 export function meshRadius(id: number): number {
   const r = meshRadii.get(id);
   if (r === undefined) return 0.87;
@@ -254,7 +260,7 @@ export function lowPolySphereId(): number { return idSphereLow; }
 // de singleton que o motor promove com class-tracking, então `.get/.set`
 // despacham mesmo lido/escrito de dentro de funções. (Uma janela só no editor;
 // se um dia houver várias, o cache viraria por-janela — o texId é da cena.)
-const texCache = new Map<string, number>();
+const texCache = resourceCache<number>("textures");
 
 /// Sobe pixels RGBA8 (sRGB) já decodificados → id de textura (≥2) usável como
 /// `tex` no drawGPU/drawGPUMesh. 0 em falha.
@@ -265,16 +271,16 @@ const texCache = new Map<string, number>();
 /// chega aqui direto. `key` só serve pro cache; passe `""` pra não memorizar.
 export function uploadTexture(win: number, pixels: Uint8Array, w: number, h: number, key: string): number {
   if (key.length > 0) {
-    const hit = texCache.get(win + ":" + key);
+    const hit = texCache.get(win + ":color:" + resourcePath(key));
     if (hit !== undefined && hit > 0) return hit;
   }
   const texId = textureUpload(win, pixels, w, h);
-  if (texId > 0 && key.length > 0) texCache.set(win + ":" + key, texId);
+  if (texId > 0 && key.length > 0) texCache.set(win + ":color:" + resourcePath(key), texId);
   return texId;
 }
 /// Publish a background-prepared native texture into the normal model cache.
 export function cacheTexture(win:number,path:string,id:number):void {
-  if(id>0)texCache.set(win+":"+path,id);
+  if(id>0)texCache.set(win+":color:"+resourcePath(path),id);
 }
 
 /// Carrega uma textura de IMAGEM do disco e devolve o id de GPU (cacheado pelo
@@ -288,7 +294,7 @@ export function cacheTexture(win:number,path:string,id:number):void {
 const LOAD_TEXTURE_MAX_PIXELS = 4096;
 
 export function loadTexture(win: number, path: string): number {
-  const hit = texCache.get(win + ":" + path);
+  const hit = texCache.get(win + ":color:" + resourcePath(path));
   if (hit !== undefined && hit > 0) return hit;
   if (path.indexOf("data:image/png;base64,") === 0) {
     const embedded = decodePNG(Buffer.from(path.substring(22), "base64"), LOAD_TEXTURE_MAX_PIXELS);
@@ -573,4 +579,14 @@ export function drawGPU(win: number, kind: number, px: number, py: number, pz: n
                         rx: number, ry: number, sx: number, sy: number, sz: number, color: number,
                         emissive: number, tex: number, tileArg?: number): void {
   drawGPUMesh(win, meshIdFor(kind), px, py, pz, rx, ry, sx, sy, sz, color, emissive, tex, tileArg);
+}
+
+/// Upload do cache de importacao; raio calculado no preparo, sem percorrer vertices.
+export function uploadPreparedMesh(win:number, vertices:Float32Array, indices:Uint32Array, radius:number):number {
+  const id=meshUpload(win,vertices,indices);
+  if(id>0)meshRadii.set(id,radius);
+  return id;
+}
+export function cachedTexture(win:number,path:string):number {
+  const id=texCache.get(win+":color:"+resourcePath(path));return id===undefined?0:id;
 }

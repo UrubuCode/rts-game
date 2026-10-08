@@ -27,6 +27,8 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:runner
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:components
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:runtime-contract
@@ -50,6 +52,8 @@ jobs:
       - name: Verificar capacidades e registro do jogo
         shell: pwsh
         run: |
+          npm run test:runtime-runner
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run runtime:check
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run check:game-build

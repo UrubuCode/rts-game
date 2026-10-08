@@ -1,6 +1,7 @@
+import { resourceCache, resourcePath, deferResourceDisposal } from "@engine/core/resources";
 // PBR maps have separate color/data upload paths. The cache includes the window
 // and encoding: one PNG used as color and data must create different GPU views.
-import { materialSet, textureUploadData, textureUpload } from "rts:egui";
+import { materialSet, materialFree, textureUploadData, textureUpload } from "rts:egui";
 import { Behavior } from "../core/behavior";
 import { Material } from "../core/material";
 import { decodePNG } from "./png";
@@ -9,10 +10,10 @@ import fs from "@compat/fs.ts";
 import { registrarFalhaAsset } from "../core/falhas";
 import { logWarn } from "../core/logger";
 
-const mapCache = new Map<string, number>();
+const mapCache = resourceCache<number>("textures");
 function mapTexture(win: number, path: string, data: boolean): number {
   if (path.length === 0) return 0;
-  const key = win + ":" + (data ? "data:" : "color:") + path;
+  const key = win + ":" + (data ? "data:" : "color:") + resourcePath(path);
   if (mapCache.has(key)) return mapCache.get(key) as number;
   return loadMap(win, path, data, key);
 }
@@ -55,10 +56,38 @@ export function resolvePbrMaterial(win: number, behavior: Behavior): number {
   let changed = m.gpuMaterial === 0;
   for (let i = 0; i < 11; i++) { if (s[i] !== m.gpuLast[i]) changed = true; }
   if (changed) {
-    const id = materialSet(win, m.gpuMaterial, s);
+    const id = shareMaterial(win, m);
     if (id === 0) throw new Error("Não foi possível criar material PBR; verifique os valores e o runtime.");
     m.gpuMaterial = id;
     for (let i = 0; i < 11; i++) m.gpuLast[i] = s[i];
   }
   return m.gpuMaterial;
+}
+
+/// Publica mapas preparados pelo worker, mantendo separado sRGB de dados lineares.
+export function cachePbrTexture(win:number,path:string,id:number,data:boolean):void {
+  mapCache.set(win+":"+(data?"data:":"color:")+resourcePath(path),id);
+}
+export function cachedPbrTexture(win:number,path:string,data:boolean):number {
+  const id=mapCache.get(win+":"+(data?"data:":"color:")+resourcePath(path));return id===undefined?0:id;
+}
+
+class SharedMaterial {
+  window:number;id:number;
+  constructor(win:number,state:Float64Array){
+    this.window=win;this.id=materialSet(win,0,state);
+    if(this.id===0)throw new Error("Falha ao criar material compartilhado");
+  }
+}
+const materials=resourceCache<SharedMaterial>("materials");
+function disposeSharedMaterial(resource:SharedMaterial):void {
+  deferResourceDisposal(resource.window,()=>materialFree(resource.window,resource.id));
+}
+function shareMaterial(win:number,m:Material):number {
+  let key=String(win);
+  for(let i=0;i<11;i++)key+=":"+m.gpuState[i];
+  const lease=materials.acquire(key,()=>new SharedMaterial(win,m.gpuState),disposeSharedMaterial);
+  const previous=m.gpuLease;m.gpuLease=lease;
+  if(previous!==null)previous.release();
+  return lease.value.id;
 }

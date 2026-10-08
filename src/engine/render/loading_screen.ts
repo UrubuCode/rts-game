@@ -4,6 +4,7 @@ import { winWidth, winHeight } from "./gpu3d";
 /** Lightweight loading UI. Call between beginFrame/endFrame; owns no event loop. */
 export class LoadingScreen {
   title:string="HORIZONTE";
+  caption:string="CIDADE AO P\u00d4R DO SOL";
   subtitle:string="Uma cidade ganha vida ao cair da tarde.";
   private width:number=0;private height:number=0;
   private shapes:any[]=[];private labels:any[]=[];
@@ -43,7 +44,7 @@ export class LoadingScreen {
     this.rect(0,h*.76,w,h*.24,0x101824ff);
     this.rect(margin,49*s,28*s,3*s,0xf4be86ff);
     this.text(margin+40*s,39*s,"RTS  /  WORLDS",14*s,0xf3e3d5ff);
-    this.text(margin,h*.27,"CIDADE AO PÔR DO SOL",12*s,0xf2b98cff);
+    this.text(margin,h*.27,this.caption,12*s,0xf2b98cff);
     this.text(margin,h*.32,this.title,64*s,0xfff0e4ff);
     this.text(margin,h*.32+83*s,this.subtitle,17*s,0xdccbc8ff);
     const y=h*.81;

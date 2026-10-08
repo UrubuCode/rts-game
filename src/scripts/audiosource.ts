@@ -15,7 +15,8 @@ import { Behavior, KIND_AUDIO, AUDIO_PAPEL_FONTE, FIELD_HINT_ENUM } from "@engin
 // components.mjs) — item 1 do brief de arquivos-universais. O tipo/extensões/
 // ícone somem daqui: ficam centralizados em UI_ASSET_KINDS (ui_config.ts).
 import type { InspectorUI } from "@engine/core/inspector_ui";
-import { AudioClip, toneClip, clipInfo, FORMAS_TOM } from "@engine/audio/clip";
+import { ResourceLease } from "@engine/core/resources";
+import { AudioClip, acquireAudioClip, taxaDosClipes, toneClip, clipInfo, FORMAS_TOM } from "@engine/audio/clip";
 import { tocarClipe, pararVoz, pausarVoz, vozTocando, vozSegundos, moverVoz, definirVolumeVoz, definirPitchVoz,
          definirGrupoVoz, definirMisturaVoz, audioEmJogo, tocarPrevia, pararPrevia, tocarNoPonto,
          vozTempoAudivel, vozAmostrasAudiveis } from "@engine/audio/audio";
@@ -97,6 +98,8 @@ export class AudioSource extends Behavior {
 
   /** @nonSerialized */
   private vozId: number = 0;
+  private clipLease: ResourceLease<AudioClip> | null = null;
+  private clipLeasePath: string = "";
   /** @nonSerialized */
   private pausada: boolean = false;
   /** @nonSerialized */
@@ -144,6 +147,7 @@ export class AudioSource extends Behavior {
     // sempre liga o modo Arquivo — como a Unity, escolher o clipe é o que
     // importa; ninguém espera continuar ouvindo o tom gerado depois disso.
     if (field === "clip" && this.clip !== "") this.modo = AS_MODO_ARQUIVO;
+    if (this.clipLeasePath !== this.clip || this.modo !== AS_MODO_ARQUIVO) this.releaseClip();
   }
 
   /// Cenas salvas sem `modo` (antes do item 1 do brief de áudio-arquivos):
@@ -156,10 +160,23 @@ export class AudioSource extends Behavior {
 
   /// O clipe a tocar: o arquivo (da cache) ou o tom gerado (da cache), conforme `modo`.
   private clipAtual(): AudioClip | null {
-    if (this.modo === AS_MODO_ARQUIVO) return this.clip !== "" ? AudioClip.load(this.clip) : null;
+    if (this.modo === AS_MODO_ARQUIVO) return this.fileClip();
+    this.releaseClip();
     const f = FORMAS_TOM.indexOf(this.forma);
     return toneClip(this.freq, this.dur, f >= 0 ? f : 0);
   }
+  private fileClip(): AudioClip | null {
+    if (this.clipLease !== null && this.clipLeasePath === this.clip && this.clipLease.value.taxa === taxaDosClipes()) return this.clipLease.value;
+    this.releaseClip();
+    if (this.clip === "") return null;
+    this.clipLease = acquireAudioClip(this.clip); this.clipLeasePath = this.clip;
+    return this.clipLease !== null ? this.clipLease.value : null;
+  }
+  private releaseClip(): void {
+    if (this.clipLease !== null) { this.clipLease.release(); this.clipLease = null; }
+    this.clipLeasePath = "";
+  }
+  releaseResources(): void { this.stop(); this.releaseClip(); }
   private resolverGrupo(): number {
     const v = mixerVersao();
     if (this.grupo !== this.grupoDe || v !== this.grupoVersao) {
@@ -246,7 +263,7 @@ export class AudioSource extends Behavior {
   onInspectorGUI(ui: InspectorUI): void {
     const m = Math.max(0, MODOS.indexOf(this.modo));
     const nm = ui.dropdown(AS_ROTULO_MODO, MODOS_ROTULOS, m);
-    if (nm !== m) this.modo = MODOS[nm];
+    if (nm !== m) { this.modo = MODOS[nm]; this.onValidate("modo"); }
     const arquivo = this.modo === AS_MODO_ARQUIVO;
     if (arquivo) ui.field("clip");
     ui.label(this.rotuloInfo());
@@ -277,7 +294,7 @@ export class AudioSource extends Behavior {
     if (this.infoDe !== chave) {
       this.infoDe = chave;
       if (this.modo !== AS_MODO_ARQUIVO || this.clip === "") this.infoRotulo = AS_SEM_CLIPE;
-      else { const c = AudioClip.load(this.clip); this.infoRotulo = c !== null ? clipInfo(c) : AS_CLIPE_FALHOU; }
+      else { const c = this.fileClip(); this.infoRotulo = c !== null ? clipInfo(c) : AS_CLIPE_FALHOU; }
     }
     return this.infoRotulo;
   }

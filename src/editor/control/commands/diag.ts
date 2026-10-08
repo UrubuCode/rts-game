@@ -1,3 +1,4 @@
+import { resourceStatistics } from "@engine/core/resources";
 // DIAGNÓSTICO pela porta de controle: `errors` (última exceção com a pilha e
 // os ganchos de editor desligados por falha), `prof frames [n]` (distribuição
 // do tempo de quadro), `gc` e `assets errors`. Só consultas: nada muda a cena.
@@ -109,6 +110,7 @@ function memoria(): string {
 
 /// assets errors [clear] — texturas, modelos, céu e esqueletos que não carregaram.
 export function cmdAssets(parts: string[]): string {
+  if(parts.length===2&&parts[1]==="resources")return "[resources] "+JSON.stringify(resourceStatistics());
   if (parts.length < 2 || parts[1] !== "errors" || parts.length > 3) return erroUso("assets");
   if (parts.length === 3) {
     if (parts[2] !== "clear") return erroUso("assets");

@@ -1,3 +1,4 @@
+import { resourceCache, resourcePath, ResourceLease, deferResourceDisposal } from "@engine/core/resources";
 // Engine RTS — LOADERS DE MODELO 3D (.obj/.mtl e .glb/.gltf).
 //
 // Todos produzem o mesmo resultado: um array de SUBMESHES, cada uma com um mesh
@@ -16,7 +17,9 @@ import type { Buf } from "@compat/buffer.ts";
 import math from "@compat/math.ts";
 import fs from "@compat/fs.ts";
 
-import { upload } from "./gpu3d";
+import { upload, uploadPreparedMesh, freeUploadedMesh } from "./gpu3d";
+import { createHash } from "node:crypto";
+import { readFileSync, existsSync } from "node:fs";
 import { Material } from "../core/material";
 import { gltfMaterial } from "./gltf_material";
 
@@ -38,9 +41,9 @@ export class SubMesh {
 // ── cache de modelo por path ────────────────────────────────────────────────
 // Um `const … = new Map()` de módulo é o padrão de singleton que o motor promove
 // com class-tracking, então .get/.set despacham mesmo lidos de dentro de função.
-const modelCache = new Map<string, SubMesh[]>();
+const modelCache = resourceCache<SubMesh[]>("models");
 
-/// Limpa o cache (só o mapa; os meshes seguem na VRAM). Útil ao trocar de projeto.
+/// Solta a retencao legada. Referencias ativas preservam as malhas.
 export function clearModelCache(): void { modelCache.clear(); }
 
 // ── utilidades de texto ─────────────────────────────────────────────────────
@@ -758,13 +761,70 @@ function endsWithCI(s: string, suf: string): boolean {
 
 /// Carrega QUALQUER formato suportado → submeshes na VRAM, com CACHE por path.
 /// Chamar 50 vezes o mesmo modelo = 1 parse + 1 upload.
+/** API legada: retem ate clearModelCache. Prefira acquireModel com release. */
 export function loadModel(win: i64, path: string): SubMesh[] {
-  const hit = modelCache.get(path);
-  if (hit !== undefined) return hit;
-  let parts: SubMesh[] = [];
+  const lease = acquireModel(win, path);
+  const parts = lease.value;
+  if (parts.length > 0) modelCache.set(win + ":" + resourcePath(path), parts);
+  lease.release();
+  return parts;
+}
+
+/** Uma unica carga por janela/caminho; ultimo proprietario descarta a geometria. */
+export function acquireModel(win: number, path: string): ResourceLease<SubMesh[]> {
+  return modelCache.acquire(win + ":" + resourcePath(path), () => readModel(win, path), parts => {
+    deferResourceDisposal(win, () => {
+      for (let i = 0; i < parts.length; i++) {
+        freeUploadedMesh(win, parts[i].meshId);
+        if (parts[i].pbrMaterial !== null) parts[i].pbrMaterial!.releaseResources();
+      }
+    });
+  });
+}
+function readModel(win: number, path: string): SubMesh[] {
+  let parts = readPreparedModel(win, path);
+  if (parts.length > 0) { console.log("[model-cache] " + path); return parts; }
   if (endsWithCI(path, ".obj")) parts = loadObjParts(win, path);
   else if (endsWithCI(path, ".glb") || endsWithCI(path, ".gltf")) parts = loadGltfParts(win, path);
-  if (parts.length > 0) modelCache.set(path, parts);
-  else registrarFalhaAsset("modelo", path, "nenhuma malha carregada (arquivo ausente, formato nao suportado ou vazio)");
+  if (parts.length === 0) registrarFalhaAsset("modelo", path, "nenhuma malha carregada (arquivo ausente, formato nao suportado ou vazio)");
   return parts;
+}
+
+// Cache derivado e validado por conteudo; ausente/obsoleto usa o importador normal.
+function readPreparedModel(win:number,path:string):SubMesh[] {
+  try { return readPreparedModelChecked(win,path); } catch(error) { console.warn("[model-cache] "+path+": "+String(error));return []; }
+}
+function readPreparedModelChecked(win:number,path:string):SubMesh[] {
+  const key=createHash("sha256").update(path).digest("hex").substring(0,24);
+  const prefix="assets/runtime-cache/models/"+key;
+  if(!existsSync(prefix+".json")||!existsSync(prefix+".bin"))return [];
+  const meta=JSON.parse(readFileSync(prefix+".json","utf8"));
+  if(meta.version!==1||meta.source!==path)return [];
+  for(let i=0;i<meta.dependencies.length;i++){
+    const d=meta.dependencies[i];
+    if(createHash("sha256").update(readFileSync(d.path)).digest("hex")!==d.sha256)return [];
+  }
+  const bytes=readFileSync(prefix+".bin");
+  if(createHash("sha256").update(bytes).digest("hex")!==meta.sha256)return [];
+  // Validar todas as partes antes de publicar qualquer recurso de GPU.
+  for(let i=0;i<meta.parts.length;i++){
+    const p=meta.parts[i];const end=p.offset+p.vertices*32+p.indices*4;
+    if(p.offset<0||p.offset%4!==0||p.vertices<1||p.indices<3||end>bytes.length||!Number.isFinite(p.radius))return [];
+  }
+  const out:SubMesh[]=[];
+  for(let i=0;i<meta.parts.length;i++){
+    const p=meta.parts[i];
+    const vertices=new Float32Array(bytes.buffer,bytes.byteOffset+p.offset,p.vertices*8);
+    const indices=new Uint32Array(bytes.buffer,bytes.byteOffset+p.offset+p.vertices*32,p.indices);
+    const id=uploadPreparedMesh(win,vertices,indices,p.radius);
+    if(id<=0)throw new Error("Upload do modelo preparado falhou");
+    const sm=new SubMesh(id,p.name);
+    sm.pbrMaterial=gltfMaterial(meta.gltf,p.material,dirOf(path));sm.texPath=sm.pbrMaterial.texturePath;
+    sm.cr=255;sm.cg=255;sm.cb=255;
+    const mat=meta.gltf.materials===undefined?undefined:meta.gltf.materials[p.material];
+    const color=mat===undefined||mat.pbrMetallicRoughness===undefined?undefined:mat.pbrMetallicRoughness.baseColorFactor;
+    if(color!==undefined){sm.cr=gltfColorByte(color[0]);sm.cg=gltfColorByte(color[1]);sm.cb=gltfColorByte(color[2]);}
+    out.push(sm);
+  }
+  return out;
 }

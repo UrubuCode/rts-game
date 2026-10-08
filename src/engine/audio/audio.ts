@@ -15,7 +15,8 @@
 // passam pelo mesmo caminho: há UM mixer.
 import audio, { AUDIO_REAL, AUDIO_NULO, STATS_FLOATS } from "@compat/audio.ts";
 import time from "@compat/time.ts";
-import { AudioClip, toneClip, definirTaxaDosClipes, clipPorId, FORMA_SENO, FORMA_QUADRADA, FORMA_RUIDO } from "./clip";
+import { ResourceLease } from "@engine/core/resources";
+import { AudioClip, retainAudioClip, toneClip, definirTaxaDosClipes, clipPorId, FORMA_SENO, FORMA_QUADRADA, FORMA_RUIDO } from "./clip";
 import { rolloffRef, rolloffMax, espGanhosVoz, ESP_GL, ESP_GR, ESP_LP, ESP_DIST, ESP_CORTE, ESP_FLOATS } from "./spatial";
 import { ganhoGrupo, grupoPausado } from "./mixer_grupos";
 import { D_POS, D_PASSO, D_CANAIS_SRC, D_CANAIS_DST, D_QUADROS, D_GL0, D_GR0, D_GL1, D_GR1, D_LP_COEF,
@@ -91,8 +92,9 @@ const auVozes = new Float64Array(MAX_VOZES * VOZ_FLOATS);
 const auVazio = new Float32Array(0);
 /// As amostras do clipe de cada voz, por slot (vai ao mixer por parâmetro).
 const auAmostras: Float32Array[] = [];
+const voiceLeases: (ResourceLease<AudioClip> | null)[] = [];
 let auIni = 0;
-while (auIni < MAX_VOZES) { auAmostras.push(auVazio); auIni = auIni + 1; }
+while (auIni < MAX_VOZES) { auAmostras.push(auVazio); voiceLeases.push(null); auIni = auIni + 1; }
 const auDesc = new Float64Array(DESC_FLOATS);
 auDesc[D_CANAIS_DST] = AU_CANAIS_PADRAO;
 const auNivel = new Float64Array(NIVEL_FLOATS);
@@ -163,10 +165,12 @@ let auTotalMixado: f64 = 0.0;
 let auAtrasoProximaVoz: number = 0;
 
 /// Agendamentos pendentes de `agendarEm` (PlayScheduled): `Float64Array`
-/// paralelo, sem alocar por chamada. `AGENDA_MAX` cabe folgado pro uso de
+/// paralelo. Clipes gerenciados adquirem uma referencia ao agendar. `AGENDA_MAX` cabe folgado pro uso de
 /// ritmo (uma trilha inteira agendada com antecedência) sem crescer.
 const AGENDA_MAX: number = 64;
 const agClipe: (AudioClip | null)[] = []; { let i = 0; while (i < AGENDA_MAX) { agClipe.push(null); i = i + 1; } }
+const scheduledLeases: (ResourceLease<AudioClip> | null)[] = [];
+{ let i = 0; while (i < AGENDA_MAX) { scheduledLeases.push(null); i = i + 1; } }
 const agAlvoQuadro = new Float64Array(AGENDA_MAX); // alvo em amostras DSP (mesma régua de `amostrasDsp()`)
 const agPedido = new Float64Array(AGENDA_MAX * PEDIDO_FLOATS);
 /// Id ESTÁVEL de cada agendamento pendente (ver `agendarEm`/`cancelarAgendado`
@@ -281,11 +285,14 @@ function auPasso(pitch: f64, taxaClipe: f64): f64 {
 
 /// Toca `clip` com o `pedido` (ver PEDIDO_*). Devolve o id (≥ 1) ou 0.
 export function tocarClipe(clip: AudioClip, pedido: Float64Array): number {
-  if (auDev === 0 || clip.quadros === 0) return 0;
+  if (auDev === 0 || clip.quadros === 0 || (clip.resourceKey !== "" && clipPorId(clip.id) !== clip)) return 0;
   const vz = auVozes;
   const v = auAlocar(vz);
   if (v < 0) return 0;
   const b = v * VOZ_FLOATS;
+  // Adquirir antes de substituir: a voz roubada pode ser o ultimo dono deste clipe.
+  const lease = retainAudioClip(clip);
+  releaseVoiceResource(v); voiceLeases[v] = lease;
   const geracao = vz[b + V_GERACAO] + 1.0;
   let k = 0;
   while (k < VOZ_FLOATS) { vz[b + k] = 0.0; k = k + 1; }
@@ -368,7 +375,7 @@ export function framesMixadosTotais(): f64 { return auTotalMixado; }
 /// descartado assim não deixa rastro pra cancelar (o id some da fila e não
 /// tem voz nenhuma pra mapear).
 export function agendarEm(clip: AudioClip, tempoDspAlvo: f64, pedido?: Float64Array): number {
-  if (auDev === 0 || clip.quadros === 0 || agN >= AGENDA_MAX) return 0;
+  if (auDev === 0 || clip.quadros === 0 || agN >= AGENDA_MAX || (clip.resourceKey !== "" && clipPorId(clip.id) !== clip)) return 0;
   // Converte o alvo AUDÍVEL (pós latência/calibração) pra régua MIXADA (a de
   // `auTotalMixado`/`rlSuaveAmostras`, ANTES de subtrair latência/calibração)
   // — o inverso de `amostrasDsp()`.
@@ -377,7 +384,7 @@ export function agendarEm(clip: AudioClip, tempoDspAlvo: f64, pedido?: Float64Ar
   const id = agProximoId;
   agProximoId = agProximoId + 1.0;
   agId[i] = id;
-  agClipe[i] = clip;
+  agClipe[i] = clip; scheduledLeases[i] = retainAudioClip(clip);
   agAlvoQuadro[i] = alvoQuadroMixado;
   const pb = i * PEDIDO_FLOATS;
   if (pedido !== undefined) { let k = 0; while (k < PEDIDO_FLOATS) { agPedido[pb + k] = pedido[k]; k = k + 1; } }
@@ -389,7 +396,9 @@ export function agendarEm(clip: AudioClip, tempoDspAlvo: f64, pedido?: Float64Ar
 /// buraco, sem alocar). Usado por `cancelarAgendado` e por
 /// `auProcessarAgenda` quando o alvo dispara.
 function agRemoverPendente(i: number): void {
+  const lease = scheduledLeases[i]; if (lease !== null) lease.release();
   agN = agN - 1;
+  scheduledLeases[i] = scheduledLeases[agN]; scheduledLeases[agN] = null;
   agClipe[i] = agClipe[agN]; agClipe[agN] = null;
   agAlvoQuadro[i] = agAlvoQuadro[agN];
   agId[i] = agId[agN];
@@ -482,7 +491,7 @@ export function pararVoz(id: number): void {
   if (b < 0) return;
   const estado = auVozes[b + V_ESTADO];
   if (estado === ESTADO_TOCANDO || estado === ESTADO_PAUSANDO) auVozes[b + V_ESTADO] = ESTADO_PARANDO;
-  else if (estado === ESTADO_PAUSADA) auVozes[b + V_ESTADO] = ESTADO_LIVRE; // já em ganho zero: sem clique
+  else if (estado === ESTADO_PAUSADA) { auVozes[b + V_ESTADO] = ESTADO_LIVRE; releaseVoiceResource(b / VOZ_FLOATS); } // ja silenciosa
 }
 /// Pausar: mesma rampa a zero, depois o slot CONGELA (não libera). Despausar
 /// retoma de onde a rampa parou — se o ganho ainda não chegou a zero, o alvo
@@ -551,9 +560,24 @@ export function definirPitchVoz(id: number, p: f64): void {
   auVozes[b + V_PITCH] = p;
   auVozes[b + V_PASSO] = auPasso(p, auTaxa);
 }
+function releaseVoiceResource(slot: number): void {
+  auAmostras[slot] = auVazio;
+  const lease = voiceLeases[slot];
+  if (lease !== null) { voiceLeases[slot] = null; lease.release(); }
+}
+function releaseFinishedVoiceResources(): void {
+  for (let v = 0; v < MAX_VOZES; v++) {
+    if (auVozes[v * VOZ_FLOATS + V_ESTADO] === ESTADO_LIVRE && auAmostras[v] !== auVazio) releaseVoiceResource(v);
+  }
+}
+function clearScheduledResources(): void {
+  while (agN > 0) agRemoverPendente(agN - 1);
+  agResN = 0; auAtrasoProximaVoz = 0;
+}
 export function pararTodas(): void {
   let v = 0;
-  while (v < MAX_VOZES) { auVozes[v * VOZ_FLOATS + V_ESTADO] = ESTADO_LIVRE; v = v + 1; }
+  while (v < MAX_VOZES) { auVozes[v * VOZ_FLOATS + V_ESTADO] = ESTADO_LIVRE; releaseVoiceResource(v); v = v + 1; }
+  clearScheduledResources();
   auPreviaId = 0;
 }
 /// Como `pararTodas`, mas sem clique (Ruling A6/A8): cada voz ativa pede o fim
@@ -565,12 +589,13 @@ export function pararTodas(): void {
 /// jogador (Play→Stop, `audio stop tudo`); `pararTodas` (imediata) continua
 /// só para `closeAudio`/teardown do dispositivo.
 export function pararTodasSuave(): void {
+  clearScheduledResources();
   let v = 0;
   while (v < MAX_VOZES) {
     const b = v * VOZ_FLOATS;
     const estado = auVozes[b + V_ESTADO];
     if (estado === ESTADO_TOCANDO || estado === ESTADO_PAUSANDO) auVozes[b + V_ESTADO] = ESTADO_PARANDO;
-    else if (estado === ESTADO_PAUSADA) auVozes[b + V_ESTADO] = ESTADO_LIVRE;
+    else if (estado === ESTADO_PAUSADA) { auVozes[b + V_ESTADO] = ESTADO_LIVRE; releaseVoiceResource(v); }
     v = v + 1;
   }
   auPreviaId = 0;
@@ -688,7 +713,11 @@ function mixInto(buf: Float32Array, quadros: number, vozes: Float64Array, amostr
       const grupo = vozes[b + V_GRUPO] | 0;
       let flags = vozes[b + V_FLAGS] | 0;
       if ((flags & FLAG_CONGELADA) !== 0) {
-        if (grupoPausado(grupo) !== 0) { v = v + 1; continue; } // ainda em pausa: nem mixa nem anda
+        if (grupoPausado(grupo) !== 0) {
+          if (estado === ESTADO_PARANDO) vozes[b + V_ESTADO] = ESTADO_LIVRE;
+          else if (estado === ESTADO_PAUSANDO) vozes[b + V_ESTADO] = ESTADO_PAUSADA;
+          v = v + 1; continue;
+        } // ja silenciosa: parar pode liberar mesmo com grupo pausado
         flags = flags & (0 - 1 - FLAG_CONGELADA);
         vozes[b + V_FLAGS] = flags; // despausou o GRUPO
         if (estado !== ESTADO_TOCANDO) {
@@ -779,6 +808,7 @@ function auProcessarAgenda(n: number): void {
     const idAgendado = agId[i];
     const pb = i * PEDIDO_FLOATS;
     const vozId = clip !== null ? tocarClipe(clip, agPedido.subarray(pb, pb + PEDIDO_FLOATS)) : 0;
+    auAtrasoProximaVoz = 0;
     // Remove o slot i da fila PENDENTE (troca com o último — sem buraco, sem
     // alocar); não avança `i`, o que veio da troca ainda não foi conferido.
     agRemoverPendente(i);
@@ -798,6 +828,7 @@ export function mixarBloco(quadros: number): number {
   auProcessarAgenda(n);
   atualizarAlvos(auVozes);
   const ativas = mixInto(auMix, n, auVozes, auAmostras);
+  releaseFinishedVoiceResources();
   auNivel[N_CANAIS] = auCanais; auNivel[N_QUADROS] = n;
   audio.mix_level(auMix, auNivel);
   auTotalMixado = auTotalMixado + n; // depois de mixar: a régua de agendarEm/V_INICIO_MIX conta o que JÁ mixou

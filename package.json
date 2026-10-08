@@ -16,7 +16,9 @@
     "build:game": "node tools/rts-build.mjs tools/game-build/entry.ts build/RTSGame.exe",
     "runtime:prepare": "node tools/prepare-runtime.mjs",
     "test:runtime-contract": "node --test tests/runtime-contract.test.mjs",
-    "runtime:check": "node tools/check-runtime.mjs"
+    "runtime:check": "node tools/check-runtime.mjs",
+    "test:runner": "node --test tests/checked-process.test.mjs",
+    "test:runtime-runner": "node tools/test-runtime-runner.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

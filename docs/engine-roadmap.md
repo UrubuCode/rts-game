@@ -1,6 +1,8 @@
 # Consolidação geral da engine
 
-Estado: em implementação. Base da revisão: `103e87a`.
+Estado: em implementação. Base histórica da revisão: `103e87a`.
+
+**Atualização de 08/10/2026:** a [auditoria da fundação](engine-foundation-audit-2026-10-08.md) confirmou divergência entre editor/jogo, carga parcialmente síncrona, referências de materiais retidas e hierarquia 3D incompleta. A ordem operacional vigente é o [plano F00–F12](engine-foundation-plan.md). A tabela E abaixo preserva o escopo histórico e não substitui os critérios de aceite novos.
 Este documento coordena o trabalho geral; o [plano naval](superpowers/plans/2026-10-02-water-navigation-foundation.md)
 fica subordinado às dependências compartilhadas, sem duplicar implementações.
 
@@ -9,16 +11,16 @@ fica subordinado às dependências compartilhadas, sem duplicar implementações
 | Etapa | Estado | Entrega / aceite |
 |---|---|---|
 | E01 | Em andamento | Runtime fixado, build AOT editor/jogo, smoke e bundle reproduzível; falhar antes de publicar combinação incompatível |
-| E02 | Pendente | Sondas completas, baseline controlado e profiler CPU/GPU/memória; eliminar alocações estáveis e corrigir regressões confirmadas |
-| E03 | Pendente | Transform com orientação completa compartilhada por hierarquia, render, picking, gizmos, serialização e física |
-| E04 | Pendente | Física angular, formas orientadas, contratos de backend e colisões contínuas nos casos críticos |
-| E05 | Pendente | Carregamento de modelos/texturas em background, cancelamento e upload fracionado com orçamento |
+| E02 | Parcial: sondas e profiler CPU | Sondas completas, baseline controlado e profiler CPU/GPU/memória; eliminar alocações estáveis e corrigir regressões confirmadas |
+| E03 | Incompleto, reproduzido na auditoria | Transform com orientação completa compartilhada por hierarquia, render, picking, gizmos, serialização e física |
+| E04 | Parcial | Física angular, formas orientadas, contratos de backend e colisões contínuas nos casos críticos |
+| E05 | Parcial: workers e cache, pausas restantes | Carregamento de modelos/texturas em background, cancelamento e upload fracionado com orçamento |
 | E06 | Pendente | Identidade estável de assets, referências, dependências, reimportação e migração de cenas |
-| E07 | Pendente | Terreno, vegetação, água, colisão e alterações persistentes sob o mesmo streaming/orçamento |
-| E08 | Pendente | Ações de entrada configuráveis e controlador de personagem reutilizável, com rampas/degraus/plataformas móveis |
-| E09 | Pendente | Busca de caminho, atualização por chunks, obstáculos dinâmicos e desvio de agentes com custo medido |
-| E10 | Pendente | Materiais transparentes, IBL/reflexos e sombras/LOD estáveis, com presets e orçamento gráfico |
-| E11 | Pendente | Replicação completa, autoridade, reconciliação e entrada tardia; expandir a rede existente |
+| E07 | Parcial, integração pendente | Terreno, vegetação, água, colisão e alterações persistentes sob o mesmo streaming/orçamento |
+| E08 | Parcial: input básico e WorldPlayer | Ações de entrada configuráveis e controlador de personagem reutilizável, com rampas/degraus/plataformas móveis |
+| E09 | Rotas autorais apenas | Busca de caminho, atualização por chunks, obstáculos dinâmicos e desvio de agentes com custo medido |
+| E10 | Parcial | Materiais transparentes, IBL/reflexos e sombras/LOD estáveis, com presets e orçamento gráfico |
+| E11 | Parcial: protocolo e componentes | Replicação completa, autoridade, reconciliação e entrada tardia; expandir a rede existente |
 | E12 | Pendente | Produzir e exportar dois jogos de gêneros diferentes usando os mesmos sistemas, sem copiar exceções das demos |
 
 Cada etapa terá mudanças pequenas, testes, métricas quando aplicável e atualização

@@ -63,6 +63,8 @@ import { pickAxis, axisMove, projPt, screenToGround, snapv, TOOL_MOVE, TOOL_ROTA
   GIZMO_ROTATE_PER_UNIT, SNAP_MOVE_STEP, SNAP_ROTATE_STEP } from "@editor/gizmo";
 import { selectedBoneTarget, boneWorldOriginInto, boneDrag } from "@editor/bone_gizmo";
 import { loadSceneFrom, instantiatePrefab, cloneObject } from "@editor/sceneio";
+import { SceneAssetLoadOperation } from "@engine/render/scene_asset_loading";
+import { LoadingScreen } from "@engine/render/loading_screen";
 import { instantiateAt, groundAt, pickAt, applyTexToObject, applyMeshToObject, applyAudioToObject, vistaDaSessao, assetMarkerKind, kindOfPathAll } from "@editor/dnd";
 import { history } from "@editor/undo";
 import { rigidBackendName } from "@engine/core/physics_backend";
@@ -153,6 +155,9 @@ let W = 1200;   // tamanho LÓGICO da janela — atualizado a cada frame (segue 
 let H = 720;
 const app = createAppAt(tituloJanela("Engine RTS — editor"), W, H, janelaX(120), janelaY(90));
 const WIN = app._win;
+// Modelos da cena inicial precisam de uma janela e renderer validos no upload.
+S.win = WIN;
+initMeshes(WIN);
 
 // layout do editor
 let HIER_W = UI_HIER_DEFAULT;        // painéis ajustáveis arrastando as divisórias
@@ -208,8 +213,30 @@ if (!fs.exists(sceneFile)) {
   io.print("[AVISO] nenhuma cena encontrada (" + sceneFile + ") — a pasta 'scenes/'");
   io.print("        precisa ficar AO LADO do executavel. Abrindo cena vazia.");
 } else {
-  try { loadSceneFrom(sceneFile); }
-  catch (error) { logError("Falha ao abrir cena inicial: " + String(error)); sceneFile = ""; }
+  let assetLoad:SceneAssetLoadOperation|null=null;
+  try {
+    const started=performance.now();
+    const screen=new LoadingScreen();screen.title="PREPARANDO O MUNDO";
+    screen.caption="EDITOR RTS";screen.subtitle="Modelos e materiais da sua cena.";
+    assetLoad=new SceneAssetLoadOperation(WIN,sceneFile);
+    let loadingFrames=0;
+    while(app.running()&&!assetLoad.done){
+      if(!app.beginFrame())break;
+      if(app.keyPressed(1)!==0){assetLoad.cancel();app.endFrame();break;}
+      screen.draw(WIN,assetLoad.label,assetLoad.progress*.95);
+      app.endFrame();
+      assetLoad.tick();loadingFrames++;
+    }
+    if(!app.running()||assetLoad.error.length>0){assetLoad.cancel();sceneFile="";}
+    else {
+      if(app.beginFrame()){screen.draw(WIN,"Montando a cena",.98);app.endFrame();}
+      const assetsMs=performance.now()-started;
+      loadSceneFrom(sceneFile);
+      assetLoad.release();
+      io.print("[loading] assets_ms="+assetsMs+" total_ms="+(performance.now()-started)+" frames="+loadingFrames+" max_step_ms="+assetLoad.maxStepMs);
+    }
+  }
+  catch (error) { if(assetLoad!==null)assetLoad.cancel();logError("Falha ao abrir cena inicial: " + String(error)); sceneFile = ""; }
 }
 
 // ── estado do editor ────────────────────────────────────────────────────────
@@ -532,7 +559,6 @@ let slotObjHotKind = "";
 let previewIdx = 0 - 1;
 let previewPay = "";
 
-initMeshes(WIN);
 assetsInit();
 ctrlServe(portaDeControle(process.env("RTS_CTRL_PORT")));   // RTS_CTRL_PORT troca a 7777 (dois editores, testes em paralelo)
 const host = instalarEditorReal();

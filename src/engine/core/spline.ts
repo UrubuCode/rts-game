@@ -1,6 +1,7 @@
 import { Behavior } from "./behavior";
 import type { InspectorUI } from "./inspector_ui";
 import type { Gizmos } from "./gizmos";
+const POINT_HANDLE_RADIUS:number=4;
 /**
  * @componentCategory Mundo
  * @componentDescription Curva editável reutilizável para rios, estradas e rotas.
@@ -108,7 +109,7 @@ export class Spline extends Behavior {
     const steps=(this.closed?this.count():this.count()-1)*8;
     g.color(0x33ccff);this.sample(0,this.a);this.toWorld(this.a);
     for(let i=1;i<=steps;i++){this.sample(i/steps,this.b);this.toWorld(this.b);g.line(this.a,this.b);for(let j=0;j<3;j++)this.a[j]=this.b[j];}
-    for(let i=0;i<this.count();i++){this.point(i,this.a);this.toWorld(this.a);g.color(i===this.pointIndex?0xffcc33:0x33ccff);g.wireSphere(this.a,.3);}
+    for(let i=0;i<this.count();i++){this.point(i,this.a);this.toWorld(this.a);g.color(i===this.pointIndex?0xffcc33:0x33ccff);g.pointHandle(this.a,POINT_HANDLE_RADIUS);}
   }
   toWorld(p:Float64Array):void{p[0]+=this.host.wx;p[1]+=this.host.wy;p[2]+=this.host.wz;}
 }

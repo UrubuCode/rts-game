@@ -1,3 +1,4 @@
+import { ResourceLease } from "./resources";
 // Engine RTS — Material: o component que define a APARÊNCIA do objeto (estilo o
 // Material/MeshRenderer do Unity). É um Behavior de DADOS (sem update): o render
 // lê dele (via dispatch virtual kind/matTexId/matEmissive/matTexMode) quando
@@ -40,6 +41,8 @@ export class Material extends Behavior {
   occlusionPath: string = "";
   emissivePath: string = "";
   // Runtime GPU caches: never serialized.
+  /** @nonSerialized */
+  gpuLease: ResourceLease<any> | null = null;
   gpuMaterial: number = 0;
   gpuWindow: number = 0;
   gpuState: Float64Array = new Float64Array(11);
@@ -60,6 +63,10 @@ export class Material extends Behavior {
   }
 
   typeName(): string { return "Material"; }
+  releaseResources():void {
+    if(this.gpuLease!==null){this.gpuLease.release();this.gpuLease=null;}
+    this.gpuMaterial=0;this.gpuWindow=0;
+  }
 
   // ── config numérica no inspector (a textura é setada via asset/ws, não aqui) ──
   fieldCount(): number { return 16; }

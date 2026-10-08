@@ -1,6 +1,7 @@
 import { Behavior } from "./behavior";
 import { WaterSurface } from "./water_surface";
 import { WaterBody } from "./water_body";
+import { AdaptiveWater } from "./adaptive_water";
 import { ProceduralWorld } from "./procedural_world";
 import { activeInScene } from "./gameobject";
 import { BODY_DYNAMIC } from "../rigid/materials";
@@ -42,10 +43,10 @@ export class Buoyancy extends Behavior {
         let h=NaN;
         if(b instanceof WaterSurface&&b.contains(t.px,t.pz))h=b.heightAt(t.px,t.pz);
         else if(b instanceof ProceduralWorld)h=b.waterHeightAt(t.px,t.pz);
-        else if(b instanceof WaterBody)h=b.waterHeightAt(t.px,t.pz);
+        else if((b instanceof WaterBody||b instanceof AdaptiveWater))h=b.waterHeightAt(t.px,t.pz);
         if(Number.isFinite(h)&&(!Number.isFinite(height)||h>height)){
           height=h;this.flowX=0;this.flowZ=0;
-          if(b instanceof WaterBody&&b.sample(t.px,t.pz,this.flow)){this.flowX=this.flow[2];this.flowZ=this.flow[3];}
+          if((b instanceof WaterBody||b instanceof AdaptiveWater)&&b.sample(t.px,t.pz,this.flow)){this.flowX=this.flow[2];this.flowZ=this.flow[3];}
         }
       }
     }

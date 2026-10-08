@@ -59,6 +59,18 @@ export class Gizmos {
   }
   color(rgb: number): void { this.cor = (rgb & 0xFFFFFF) * 256 + 255; }
   line(a: Float64Array, b: Float64Array): void { segmentoMundo(this, a, b); }
+  /// Marcador de ponto em pixels: quatro arestas, legivel mesmo distante.
+  pointHandle(c: Float64Array, radius: number): void {
+    if (projetar(this, c, this.pa) === 0) return;
+    garantirSegmentos(this, this.nSeg + 4);
+    const x=this.pa[0], y=this.pa[1], s=this.seg;
+    for(let i=0;i<4;i++) {
+      const k=(this.nSeg+i)*FLOATS_SEGMENTO, j=(i+1)%4;
+      s[k]=x+(i===0?-radius:i===2?radius:0); s[k+1]=y+(i===1?-radius:i===3?radius:0);
+      s[k+2]=x+(j===0?-radius:j===2?radius:0); s[k+3]=y+(j===1?-radius:j===3?radius:0); s[k+4]=this.cor;
+    }
+    this.nSeg+=4;
+  }
   wireSphere(c: Float64Array, r: number): void { circulo(this, c, r, 0); circulo(this, c, r, 1); circulo(this, c, r, 2); }
   /// Ápice `apice`, eixo `dir` (unitário), altura `comprimento`, abertura TOTAL `anguloGraus`.
   wireCone(apice: Float64Array, dir: Float64Array, comprimento: number, anguloGraus: number): void {

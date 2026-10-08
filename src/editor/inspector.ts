@@ -911,6 +911,7 @@ export class Inspector extends Behavior {
             const kind = object.rendIdx >= 0 ? object.behaviors[object.rendIdx].rMeshKind() : object.meshKind;
             const nextKind = kind % (UI_MESH_NAMES.length - 1) + 1;
             object.setMesh(nextKind, object.cr, object.cg, object.cb);
+            object.releaseModelResource();
             object.customMesh = 0; object.meshPath = ""; object.meshPart = 0;
             if (object.rendIdx >= 0) {
               const renderer: MeshRenderer = object.behaviors[object.rendIdx] as MeshRenderer;

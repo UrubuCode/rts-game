@@ -11,7 +11,7 @@ import { sampleClipInto } from "@engine/core/animation_player";
 import { RoutePath } from "@engine/core/route_path";
 import { RouteAgent } from "@engine/core/route_agent";
 import { TextureLoadOperation } from "@engine/render/texture_loading";
-import { loadSkeletonAsset } from "@engine/render/gltf_anim";
+import { acquireSkeletonAsset } from "@engine/render/gltf_anim";
 import { LoadingScreen } from "@engine/render/loading_screen";
 import { CityLayout } from "@engine/core/city_layout";
 import { RouteNode as FpsRouteNode, RouteMotion as FpsRouteAgent, ROUTE_WALK as FPS_ROUTE_WALK } from "@engine/core/route_motion";
@@ -196,10 +196,12 @@ for(let side=0;side<2;side++)for(let i=0;i<10;i++) {
   person.transform.setScale(1.8/2.7);
   person.transform.setPosition(x,0.16,z);
   const rig=new Skeleton("assets/kenney/personagens/character-"+fpsCityModels[(i+side)%4]+".glb");
-  loadSkeletonAsset(pbrWin,rig.modelPath,()=>{
+  const preparedRig=acquireSkeletonAsset(pbrWin,rig.modelPath,()=>{
     if(performance.now()-fpsCityLoadLast>=8)fpsCityLoading("Carregando pedestres",0.4+(side*10+i)/20*0.4);
   });
-  person.addBehavior(rig);person.addBehavior(path);person.addBehavior(route);pbrScene.add(person);rig.ensureAsset(pbrWin);
+  try {
+    person.addBehavior(rig);person.addBehavior(path);person.addBehavior(route);pbrScene.add(person);rig.ensureAsset(pbrWin);
+  } finally { preparedRig.release(); }
   route.update(i*0.37);
   if(rig.asset===null)throw new Error("Modelo de pedestre nao carregou");
   const walk=rig.asset.clipIndex("walk"),idle=rig.asset.clipIndex("idle");

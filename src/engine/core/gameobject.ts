@@ -2,6 +2,7 @@
 // Tem Transform, um tipo de mesh pro render pass, cor, e uma lista de Behaviors
 // (scripts). Ciclo: mount() (uma vez) → update(dt) (todo frame).
 
+import { ResourceLease } from "./resources";
 import { Transform } from "./transform";
 import { Behavior, KIND_COLLIDER, KIND_MATERIAL, KIND_RENDERER, KIND_UI, KIND_LIGHT, KIND_CAMERA, KIND_AUDIO } from "./behavior";
 import { Material } from "./material";
@@ -72,6 +73,7 @@ export class GameObject {
   emissive: number;    // 1 = brilha (não sombreado) — ex.: o Sol
   tex: number;         // textura procedural: 0 = nenhuma, 1 = xadrez (chão)
   textureId: number;   // (legado) id de textura de IMAGEM; 0 = sem. Preferir o component Material.
+  private modelLease: ResourceLease<any> | null = null;
   customMesh: number;  // (legado) id de mesh .obj; 0 = usa meshKind. Preferir o MeshRenderer.
   meshPath: string;    // path do modelo que gerou customMesh ("" = primitivo). Exibição + reload no load de cena.
   meshPart: number;    // qual SUBMESH do modelo (0 = a primeira/única). Modelos multi-material têm várias.
@@ -251,17 +253,44 @@ export class GameObject {
     this.getOrAddMaterial().setMatTexture(id, path);
   }
 
+  /** Adota uma referencia; adquirir a nova antes de soltar a anterior. */
+  setModelResource(lease: ResourceLease<any>, path: string, part: number): boolean {
+    if (lease.released || !Number.isInteger(part) || part < 0 || part >= lease.value.length) { lease.release(); return false; }
+    if (this.modelLease !== lease) this.releaseModelResource();
+    this.modelLease = lease; this.meshPath = path; this.meshPart = part;
+    this.customMesh = lease.value[part].meshId; this.refreshCollide();
+    return true;
+  }
+  releaseModelResource(): void {
+    if (this.modelLease === null) return;
+    const lease=this.modelLease;this.modelLease=null;this.customMesh=0;
+    this.refreshCollide();lease.release();
+  }
+  releaseResources(): void {
+    let failure:any=null;let failed=false;
+    for (let i = 0; i < this.behaviors.length; i++) {
+      try { this.behaviors[i].releaseResources(); } catch(error) { if(!failed){failure=error;failed=true;} }
+    }
+    try { this.releaseModelResource(); } catch(error) { if(!failed){failure=error;failed=true;} }
+    if(failed)throw failure;
+  }
+
   /// Remove o componente no índice `idx` (reconstrói o array sem ele).
   removeBehavior(idx: number): void {
     const next: Behavior[] = [];
+    let failure:any=null;let failed=false;
     let i = 0;
     while (i < this.behaviors.length) {
       if (i !== idx) next.push(this.behaviors[i]);
-      else { this.behaviors[i].releaseResources(); this.behaviors[i].owner = null; }
+      else {
+        try { this.behaviors[i].releaseResources(); } catch(error) { failure=error;failed=true; }
+        this.behaviors[i].owner=null;
+      }
       i = i + 1;
     }
     this.behaviors = next;
     this.refreshComponentCache();   // índices mudaram (array reconstruído) — recalcula
+    if(failed)throw failure;
   }
 
   /// Clona o objeto copiando transform + campos de aparência (mesh/cor/tex/emissivo/
@@ -275,6 +304,7 @@ export class GameObject {
     g.textureId = this.textureId; g.customMesh = this.customMesh;
     g.meshPath = this.meshPath;
     g.meshPart = this.meshPart;
+    if (this.modelLease !== null) g.modelLease = this.modelLease.retain();
     g.stationary = this.stationary;
     g.layer = this.layer;
     g.mask = this.mask;

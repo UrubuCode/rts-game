@@ -1,3 +1,4 @@
+import { flushResourceDisposals } from "../engine/core/resources";
 // `createAppAt` — o objeto `app` do motor antigo, sobre `rts:egui` + `rts:input`.
 //
 // `createAppAt` era um GLOBAL do motor antigo: abria a janela e devolvia um
@@ -187,7 +188,7 @@ export function createAppAt(titulo: string, w: number, h: number, x: number, y: 
       return alive;
     },
 
-    endFrame(): void { endFrame(win); },
+    endFrame(): void { endFrame(win); flushResourceDisposals(win); },
     close(): void { close(win); },
 
     delta(): number { return deltaMs; },

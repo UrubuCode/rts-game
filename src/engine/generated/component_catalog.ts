@@ -127,6 +127,13 @@ export const COMPONENT_CATALOG = [
     "source": "src/engine/core/route_path.ts"
   },
   {
+    "name": "AdaptiveWater",
+    "category": "Mundo",
+    "description": "Água por volume sobre Terrain, com fonte, enchimento e snapshot congelável.",
+    "keywords": "agua rio lago fonte simulacao volume snapshot",
+    "source": "src/engine/core/adaptive_water.ts"
+  },
+  {
     "name": "ProceduralWorld",
     "category": "Mundo",
     "description": "Mundo procedural com streaming, LOD e máscara de vegetação salva na cena.",
