@@ -60,6 +60,15 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:world
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Regressoes de corrotinas e animacao (sem janela)
+        shell: pwsh
+        run: |
+          node tools/rts-run.mjs tests/claude-test-corrotinas.ts
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node tools/rts-run.mjs tests/test_coroutine_lifecycle.ts
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node tools/rts-run.mjs tests/test_wave_demo.ts
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: AOT smoke e compilacao do editor e jogo
         shell: pwsh
         run: |

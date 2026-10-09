@@ -456,7 +456,9 @@ quadro atual".
     respeita pausa do Play, `step N` e `timescale` (o mesmo dt que `update(dt)`
     recebe).
   - `await this.waitForSecondsRealtime(s)` — espera `s` segundos de tempo REAL
-    (relógio de parede), sem escala.
+    (relógio de parede), sem escala. Guarda um prazo absoluto a partir da
+    chamada; a retomada acontece quando a cena volta a atualizar e o laço
+    drena as continuações. Não executa código enquanto o Play está pausado.
   - `await this.nextFrame()` / `await this.waitForFrames(n)` — espera 1 ou `n`
     quadros simulados (uma "chamada de `Scene.update`" cada).
   - `await this.waitUntil(() => condicao)` — a condição é checada uma vez por
@@ -467,6 +469,7 @@ quadro atual".
     (síncrono até o 1º `await`, como `StartCoroutine` na Unity) e devolve um
     handle numérico.
   - `this.stopCoroutine(handle)` — cancela UMA corrotina pelo handle.
+    Handles encerrados não são reutilizados: parar um handle antigo é inócuo.
   - `this.stopAllCoroutines()` — cancela todas as corrotinas vivas deste
     `Behavior`.
 
@@ -492,8 +495,10 @@ quadro atual".
     até 1 quadro de atraso depois de desligar (documentado, não instantâneo).
   - Destruir o objeto (`Scene.removeAt`) cancela na hora, síncrono.
   - Sair do Play (`Scene.clear`, que descarta as cópias simuladas e restaura
-    os originais) cancela TUDO na hora: uma corrotina pendente nunca retoma
-    tocando o objeto original restaurado.
+    os originais) cancela as corrotinas DAQUELA cena na hora: uma corrotina
+    pendente nunca retoma tocando o objeto original restaurado. Corrotinas de
+    outras cenas não são canceladas. A checagem também ocorre ao drenar uma
+    continuação que ficou pronta antes do cancelamento.
   - O cancelamento é um `await` que LANÇA um sinal interno específico — o
     corpo da corrotina se desenrola sem rodar mais nada, e `startCoroutine`
     engole esse sinal sem logar (não é erro). Qualquer OUTRO erro lançado pelo
@@ -506,6 +511,11 @@ quadro atual".
   que a espera terminou de contar. Um `step N` da porta de controle roda os N
   passos sem checkpoint entre eles: os temporizadores descontam certo a cada
   passo, mas os corpos só retomam no quadro seguinte do editor.
+
+- **Isolamento entre cenas:** atualizar a cena A só avança as esperas dos seus
+  componentes; atualizar ou limpar B não avança nem cancela A. A associação
+  segue o registro do objeto em `Scene.add`. Regressões de ciclo de vida e
+  isolamento: `tests/test_coroutine_lifecycle.ts`.
 
 - **Custo por quadro do laço principal**: `main.ts`/`game.ts` mantêm `frame()`
   SÍNCRONA e só pagam o checkpoint (`await coroutineResume()`) quando
