@@ -14,7 +14,7 @@ import { bodyTypeOf, BODY_STATIC, BODY_KINEMATIC, BODY_DYNAMIC, LAYER_DEFAULT, M
 import math from "@compat/math.ts";
 import { coletarLuzes, LUZ_DIST_INICIAL } from "./light";
 import { Ambiente } from "./ambiente";
-import { coroutineTick, coroutineStopAllOf, coroutineStopEverywhere } from "./coroutine_scheduler";
+import { coroutineTick, coroutineStopAllOf } from "./coroutine_scheduler";
 
 /// Fonte das VERSÕES de composição (ver `Scene.compVersion`). Uma sequência do
 /// MÓDULO e não um contador por cena: quem compara versões (o backend de
@@ -293,7 +293,7 @@ export class Scene {
     // `update` só roda quando (e com o dt que) o chamador decidir. A metade
     // assíncrona (`coroutineResume`, que de fato resume os corpos) é chamada
     // pelo laço de fora (main.ts/game.ts), uma vez por quadro.
-    coroutineTick(dt);
+    coroutineTick(dt, this);
   }
 
   count(): number {
@@ -303,15 +303,17 @@ export class Scene {
   /// Esvazia a cena (pra carregar outra por cima).
   // false apenas para transferencia temporaria: o chamador assume os objetos.
   clear(releaseResources: boolean = true): void {
-    // Cancela TODA corrotina viva antes de descartar os objetos — cobre a
+    // Cancela as corrotinas DESTA cena antes de descartar os objetos — cobre a
     // saída do Play (as cópias descartadas nunca retomam tocando o original
-    // restaurado, ver coroutine_scheduler.ts) e qualquer outra troca de cena.
-    coroutineStopEverywhere();
+    // restaurado, ver coroutine_scheduler.ts) e qualquer outra troca de cena,
+    // sem atingir corrotinas de outras cenas vivas.
     const disposing=this.objects.slice();
     let failure:any=null;let failed=false;
     let i = 0;
     while (i < disposing.length) {
       const obj=disposing[i];
+      let b = 0;
+      while (b < obj.behaviors.length) { coroutineStopAllOf(obj.behaviors[b]); b = b + 1; }
       if (releaseResources) {
         try { obj.releaseResources(); } catch(error) { if(!failed){failure=error;failed=true;} }
       }

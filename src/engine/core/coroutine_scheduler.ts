@@ -15,10 +15,10 @@
 //
 // Por isso este módulo tem DUAS metades:
 //
-//   1. `coroutineTick(dt)` — SÍNCRONA, chamada por `Scene.update` (o mesmo
+//   1. `coroutineTick(dt, scene)` — SÍNCRONA, chamada por `Scene.update` (o mesmo
 //      laço que atualiza os behaviors — dá pausa/step/timescale de graça,
 //      porque é exatamente quando `scene.update` roda ou não). Desconta o
-//      tempo/quadros de cada espera pendente e, quando uma fica pronta, só a
+//      tempo/quadros das esperas DAQUELA cena e, quando uma fica pronta, só a
 //      MOVE para uma fila de pendentes — não resolve a Promise ainda.
 //
 //   2. `coroutineResume()` — ASSÍNCRONA, chamada UMA vez por quadro pelo laço
@@ -59,7 +59,8 @@
 // A checagem é feita a cada `coroutineTick` (até 1 quadro de atraso depois de
 // desligar — documentado, não instantâneo). Destruir o objeto (`Scene.removeAt`)
 // e sair do Play (`Scene.clear`) cancelam na hora (síncrono, sem esperar o
-// próximo `coroutineTick`) via `stopAllCoroutinesOf`/`stopAllCoroutinesEverywhere`.
+// próximo `coroutineTick`) via `coroutineStopAllOf` dos componentes removidos.
+// Uma continuação já pronta também verifica cancelamento antes de retomar.
 //
 // O sinal de cancelamento é um `Promise.reject(COROUTINE_CANCELLED)`: o
 // `await` do usuário lança, a função async se desenrola (nenhum código do
@@ -78,6 +79,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import type { Behavior } from "./behavior";
+import type { UIOwner } from "./gameobject";
 import { logError } from "./logger";
 
 /// Rejeitado quando uma corrotina é cancelada (stopCoroutine/stopAllCoroutines,
@@ -160,6 +162,10 @@ let coAlive = new Uint8Array(coCap);
 let coCancelled = new Uint8Array(coCap);
 let coOwner: (Behavior | null)[] = new Array(coCap).fill(null);
 let coCurrentSlot = new Int32Array(coCap).fill(0 - 1);
+// Slots são reciclados; a identidade pública nunca é reciclada. Guardar um
+// handle encerrado não pode dar ao chamador controle sobre outra corrotina.
+let coHandles = new Float64Array(coCap);
+let nextHandle = 0;
 let freeC = new Int32Array(coCap);
 let freeCN = 0;
 let activeC = new Int32Array(coCap);
@@ -170,6 +176,7 @@ function growC(): void {
   const v2 = new Uint8Array(nova); v2.set(coAlive); coAlive = v2;
   const cc2 = new Uint8Array(nova); cc2.set(coCancelled); coCancelled = cc2;
   const s2 = new Int32Array(nova); s2.fill(0 - 1); s2.set(coCurrentSlot); coCurrentSlot = s2;
+  const h2 = new Float64Array(nova); h2.set(coHandles); coHandles = h2;
   const l2 = new Int32Array(nova); l2.set(freeC); freeC = l2;
   const a2 = new Int32Array(nova); a2.set(activeC); activeC = a2;
   const b2: (Behavior | null)[] = new Array(nova).fill(null);
@@ -185,6 +192,7 @@ function allocCoroutineId(owner: Behavior): number {
   if (freeCN === 0) growC();
   freeCN = freeCN - 1;
   const cid = freeC[freeCN];
+  coHandles[cid] = nextHandle; nextHandle = nextHandle + 1;
   coAlive[cid] = 1; coCancelled[cid] = 0; coOwner[cid] = owner; coCurrentSlot[cid] = 0 - 1;
   activeC[activeCN] = cid; activeCN = activeCN + 1;
   return cid;
@@ -214,7 +222,11 @@ function registerWait(owner: Behavior, kind: number, remaining: f64, predicate: 
   if (cid >= 0 && coCancelled[cid] !== 0) return Promise.reject(COROUTINE_CANCELLED);
   return new Promise<void>((resolve, reject) => {
     const slot = allocSlotW();
-    waitKind[slot] = kind; waitRemaining[slot] = remaining; waitOwner[slot] = owner;
+    waitKind[slot] = kind;
+    // Espera real guarda um prazo absoluto: o tick de outra cena não pode
+    // consumir o intervalo real desta, nem uma pausa apagar o tempo passado.
+    waitRemaining[slot] = kind === KIND_REALTIME ? performance.now() + remaining * 1000.0 : remaining;
+    waitOwner[slot] = owner;
     waitPredicate[slot] = predicate; waitResolve[slot] = resolve; waitReject[slot] = reject;
     waitCoroutineId[slot] = cid;
     if (cid >= 0) coCurrentSlot[cid] = slot;
@@ -258,7 +270,7 @@ export function coroutineStart(owner: Behavior, fn: () => Promise<void>): number
       }
     }
   );
-  return cid;
+  return coHandles[cid];
 }
 
 /// Move o slot da posição `pos` de `activeW` (SEM liberá-lo ainda) pra qual
@@ -305,20 +317,23 @@ function evalUntilPredicate(slot: number): number {
 /// timescale porque mais/menos passos rodam por segundo real). `dt` é o
 /// MESMO dt que os behaviors recebem (game time; em `game.ts` é o dt real do
 /// frame, sem conceito de timescale — que é exatamente "tempo de jogo" lá).
-export function coroutineTick(dt: f64): void {
+/// `scene` limita o avanço aos objetos registrados nela. Sem esse argumento,
+/// preserva a chamada global para chamadores diretos antigos do escalonador.
+export function coroutineTick(dt: f64, scene?: UIOwner): void {
   if (activeWN === 0) return;
   const now = performance.now();
-  let realDt = (now - lastRealMs) / 1000.0;
-  lastRealMs = now;
-  if (!(realDt >= 0.0) || realDt > 1.0) realDt = 0.0;
   let i = 0;
   while (i < activeWN) {
     const slot = activeW[i];
-    if (ownerInvalid(waitOwner[slot]) !== 0) { markPending(i, 1); continue; }
+    const owner = waitOwner[slot];
+    if (scene !== undefined && owner !== null && owner.owner !== null && owner.owner.uiOwner !== scene) {
+      i = i + 1; continue;
+    }
+    if (ownerInvalid(owner) !== 0) { markPending(i, 1); continue; }
     const k = waitKind[slot];
     let ready = false;
     if (k === KIND_TIME) { waitRemaining[slot] = waitRemaining[slot] - dt; ready = waitRemaining[slot] <= 0.0; }
-    else if (k === KIND_REALTIME) { waitRemaining[slot] = waitRemaining[slot] - realDt; ready = waitRemaining[slot] <= 0.0; }
+    else if (k === KIND_REALTIME) ready = now >= waitRemaining[slot];
     else if (k === KIND_FRAMES) { waitRemaining[slot] = waitRemaining[slot] - 1.0; ready = waitRemaining[slot] <= 0.0; }
     else {
       const r = evalUntilPredicate(slot);
@@ -329,7 +344,6 @@ export function coroutineTick(dt: f64): void {
     i = i + 1;
   }
 }
-let lastRealMs: f64 = 0.0;
 
 /// Checagem BARATA (sem alocar) pro laço externo (main.ts/game.ts) decidir se
 /// vale a pena pagar o checkpoint assíncrono este quadro: 1 quando
@@ -367,10 +381,16 @@ export async function coroutineResume(): Promise<void> {
   while (i < pendingResolveN) {
     const slot = pendingResolve[i];
     const fn = waitResolve[slot];
+    const reject = waitReject[slot];
     const cid = waitCoroutineId[slot];
+    // Entre tick e retomada pode haver Stop, destroy, disable, ou outra
+    // continuação que cancela esta. A fila pronta não autoriza ignorar isso.
+    const cancelled = ownerInvalid(waitOwner[slot]) !== 0 || (cid >= 0 && coCancelled[cid] !== 0);
     freeSlotW(slot);
     currentId = cid;
-    if (fn !== null) fn();
+    if (cancelled) {
+      if (reject !== null) reject(COROUTINE_CANCELLED);
+    } else if (fn !== null) fn();
     await CHECKPOINT;
     i = i + 1;
   }
@@ -383,9 +403,18 @@ const CHECKPOINT: Promise<void> = Promise.resolve();
 /// `startCoroutine`. Sem efeito se já terminou/não existe. O corpo desenrola
 /// no próximo `coroutineResume` (ver cabeçalho do arquivo).
 export function coroutineStop(handle: number): void {
-  if (handle < 0 || handle >= coCap || coAlive[handle] === 0) return;
-  coCancelled[handle] = 1;
-  const slot = coCurrentSlot[handle];
+  let i = 0;
+  while (i < activeCN) {
+    const cid = activeC[i];
+    if (coHandles[cid] === handle) { stopCoroutineId(cid); return; }
+    i = i + 1;
+  }
+}
+
+// Chamadores internos já têm o slot; evitam procurar o handle novamente.
+function stopCoroutineId(cid: number): void {
+  coCancelled[cid] = 1;
+  const slot = coCurrentSlot[cid];
   if (slot < 0) return;
   let pos = 0;
   while (pos < activeWN && activeW[pos] !== slot) pos = pos + 1;
@@ -398,14 +427,13 @@ export function coroutineStopAllOf(owner: Behavior): void {
   let i = 0;
   while (i < activeCN) {
     const cid = activeC[i];
-    if (coOwner[cid] === owner) coroutineStop(cid);
+    if (coOwner[cid] === owner) stopCoroutineId(cid);
     i = i + 1;
   }
 }
 
-/// Cancela TUDO — saída do Play (`Scene.clear`) e destruição de objeto
-/// (`Scene.removeAt`, que chama isto só pros behaviors do objeto removido via
-/// `coroutineStopAllOf` por behavior; isto aqui é o "clear geral").
+/// Cancela TUDO explicitamente. Limpar uma Scene usa coroutineStopAllOf por
+/// componente para preservar corrotinas de outras cenas (inclusive a UI).
 export function coroutineStopEverywhere(): void {
   while (activeWN > 0) markPending(activeWN - 1, 1);
   let i = 0;

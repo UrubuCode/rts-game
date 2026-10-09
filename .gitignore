@@ -36,3 +36,4 @@ bench/out/
 
 # Geometria derivada; recriada pelo build.
 /assets/runtime-cache/models/
+tools/__pycache__/

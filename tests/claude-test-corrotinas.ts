@@ -346,6 +346,7 @@ async function rodarTudo(): Promise<void> {
   io.print("");
   io.print("[resultado] " + pass + " ok, " + fail + " falhas");
   io.print(fail === 0 ? "[PASSOU]" : "[FALHOU]");
+  if (fail !== 0) throw new Error("Corrotinas: " + fail + " falhas");
 }
 
 await rodarTudo();
