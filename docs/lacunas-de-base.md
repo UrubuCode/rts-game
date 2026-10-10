@@ -151,13 +151,21 @@ cena cinemática em script enquanto não houver editor de sequência.
 
 ---
 
-## Antes de qualquer item desta lista
+## Rodar a suíte com o binário certo
 
-Há **6 testes vermelhos no `master`** (`claude-test-collider`,
-`claude-test-hullpack`, `test_model`, `test_audio3d`, `net-fps`,
-`fps-resistencia`). O `hullpack` sozinho tem 8 falhas em normais e
-profundidades de contato — é física de colisão, exatamente a base sobre a qual
-os itens 1, 4 e 5 vão ser construídos.
+O compilador do projeto é resolvido por `tools/rts-compiler.mjs`, e hoje ele
+aponta para `build/pbr-target/debug/rts.exe` — o runtime fixado em
+`runtime.lock.json`, com o patch de render PBR aplicado. **Não é** o
+`../rts/target/release/rts.exe`.
 
-Enquanto a suíte estiver vermelha, nenhuma dessas frentes consegue distinguir
-"quebrei agora" de "já estava quebrado".
+Isto não é detalhe de conveniência. Com o binário errado, 14 dos 16 testes que
+falham não falham por bug nenhum: falham com `textureLoadBegin is not a
+function`, `setExposure is not a function`, `eguiDrawWater is not a function`
+— o runtime antigo não tem as funções que o motor passou a usar. O
+`runtime-capabilities.ts` existe exatamente para dar esse diagnóstico numa
+linha, e `npm run runtime:check` o roda.
+
+Um levantamento anterior deste documento listou `claude-test-hullpack` como
+tendo 8 falhas em normais e profundidades de contato, e recomendou consertar a
+física antes de encostar em pathfinding. Era o binário errado: com o
+compilador do projeto, o `hullpack` passa 20/20.
