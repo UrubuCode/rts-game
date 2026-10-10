@@ -25,4 +25,25 @@ fs.write("build/async-cycle-test.json",JSON.stringify({objects:[{name:"a",parent
 const fpsCycle=new SceneLoadOperation("build/async-cycle-test.json",fpsLoadFactory);
 while(!fpsCycle.done&&Date.now()<fpsDeadline){fpsCycle.tick(2);time.sleep_ms(1);}
 fpsLoadCheck(fpsCycle.state==="failed"&&fpsCycle.result===null,"cyclic hierarchy accepted");
+// Cadeia LONGA e válida: o filho aponta para o seguinte, e o último é raiz.
+// A validação antiga subia a cadeia inteira por objeto — quadrático, e numa
+// cena desse tamanho ela nunca chegava a mandar o cabeçalho. O teste mede só
+// a VALIDAÇÃO: assim que o cabeçalho chega (estado sai de "reading") ela
+// passou, e a operação é cancelada antes de construir objeto nenhum.
+const FPS_CHAIN=100000;
+const fpsChainObjects=[];
+for(let i=0;i<FPS_CHAIN;i++)fpsChainObjects.push({name:"n"+i,parent:i===FPS_CHAIN-1?-1:i+1});
+fs.write("build/async-chain-test.json",JSON.stringify({objects:fpsChainObjects}));
+const fpsChain=new SceneLoadOperation("build/async-chain-test.json",fpsLoadFactory);
+const fpsChainStart=Date.now();
+const FPS_CHAIN_BUDGET_MS=20000;
+while(fpsChain.state==="reading"&&!fpsChain.done&&Date.now()-fpsChainStart<FPS_CHAIN_BUDGET_MS){
+  fpsChain.tick(2);time.sleep_ms(1);
+}
+const fpsChainMs=Date.now()-fpsChainStart;
+fpsLoadCheck(fpsChain.state!=="reading"&&!fpsChain.done,
+  "validacao da cadeia de "+FPS_CHAIN+" nao terminou em "+fpsChainMs+" ms (estado "+fpsChain.state+")");
+fpsLoadCheck(fpsChain.total===FPS_CHAIN,"cabecalho da cadeia veio com total errado: "+fpsChain.total);
+fpsChain.cancel();
+println("PASS scene-loading cadeia: "+FPS_CHAIN+" objetos validados em "+fpsChainMs+" ms");
 println("PASS scene-loading: worker load, monotonic progress, frame yielding, error and cancellation; ticks="+fpsTicks);
