@@ -74,7 +74,21 @@ draw();
 check(picker.browser.selected === 1, "mouse parado nao desfaz navegacao por teclado");
 app.key = 0;
 app.hoveredRow = 0 - 1;
-app.clickedRow = COMPONENT_CATEGORIES.indexOf("Scripts");
+// `clickedRow` é a posição VISÍVEL da linha (a ordem da chamada de
+// `clickable` dentro do draw), não o índice da categoria. A lista mostra no
+// máximo `maxRows` de cada vez, e quando as categorias passaram desse número
+// este teste parou de alcançar a última — clicava numa linha que não era
+// desenhada.
+//
+// Em vez de fixar `maxRows` aqui, rola até a categoria e deixa o próprio
+// picker limitar a rolagem; a posição visível sai da diferença.
+const scriptsIndex = COMPONENT_CATEGORIES.indexOf("Scripts");
+check(scriptsIndex >= 0, "a categoria Scripts existe no catalogo");
+picker.browser.scroll = scriptsIndex;
+app.clickedRow = 0 - 1;
+draw();   // este draw só limita a rolagem ao máximo possível
+check(scriptsIndex - picker.browser.scroll >= 0, "a rolagem passou da categoria");
+app.clickedRow = scriptsIndex - picker.browser.scroll;
 draw();
 check(picker.browser.category === "Scripts", "clique abre categoria");
 app.clickedRow = 0;
