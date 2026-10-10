@@ -18,13 +18,36 @@ try {
   if(data===null||!Array.isArray(data.objects))throw new Error("Scene must contain objects array");
   const objects=data.objects;
   if(objects.length>100000)throw new Error("Scene exceeds 100000 objects");
+  // Valida TODO descritor antes de seguir referência para outro objeto.
+  const parents=new Int32Array(objects.length);
   for(let i=0;i<objects.length;i++){
     if(isTerminating())break;
     const o=objects[i];
     if(o===null||typeof o.name!=="string")throw new Error("Invalid scene object "+i);
-    if(o.parent!==undefined&&(!Number.isInteger(o.parent)||o.parent<-1||o.parent>=objects.length||o.parent===i))throw new Error("Invalid parent at "+i);
-    let p=o.parent===undefined?-1:o.parent,depth=0;
-    while(p>=0){if(++depth>objects.length)throw new Error("Cyclic scene hierarchy");const a=objects[p];p=a.parent===undefined?-1:a.parent;}
+    const parent=o.parent===undefined?-1:o.parent;
+    if(!Number.isInteger(parent)||parent<-1||parent>=objects.length||parent===i)throw new Error("Invalid parent at "+i);
+    parents[i]=parent;
+  }
+  // 0 = não visto, 1 = no caminho atual, 2 = verificado. Cada aresta é
+  // visitada no máximo duas vezes. A versão anterior subia a cadeia INTEIRA
+  // por objeto: numa cena de 100000 em cadeia isso é quadrático, e travava a
+  // validação antes de qualquer erro aparecer.
+  const marks=new Uint8Array(objects.length);
+  for(let i=0;i<objects.length;i++){
+    if(isTerminating())break;
+    if(marks[i]!==0)continue;
+    let p=i;
+    while(p>=0&&marks[p]===0){
+      if(isTerminating())break;
+      marks[p]=1;p=parents[p];
+    }
+    if(isTerminating())break;
+    if(p>=0&&marks[p]===1)throw new Error("Cyclic scene hierarchy");
+    p=i;
+    while(p>=0&&marks[p]===1){
+      if(isTerminating())break;
+      marks[p]=2;p=parents[p];
+    }
   }
   if(!isTerminating()){
     parentPort.postMessage(JSON.stringify({kind:"header",name:data.name,ambiente:data.ambiente,total:objects.length}));
@@ -59,6 +82,13 @@ export class SceneLoadOperation {
   result:Scene|null=null;
   lastStepMs:number=0;
   maxStepMs:number=0;
+  /// Chamado pelo trabalho PESADO de asset (parse de GLB, decodificação de
+  /// PNG) durante a carga, para quem está desenhando uma tela de progresso
+  /// continuar desenhando. Esses leitores não se dividem em passos sem
+  /// reescrevê-los inteiros; o checkpoint deixa a janela viva por dentro
+  /// deles. Quem desenha aqui NÃO pode chamar `tick` de volta — a reentrância
+  /// é barrada por `ticking`.
+  checkpoint:(()=>void)|null=null;
   private worker:any;
   private staging:Scene=new Scene("Loading");
   private factory:(data:any)=>GameObject;
@@ -68,6 +98,8 @@ export class SceneLoadOperation {
   private end:boolean=false;
   private exited:boolean=false;
   private mountIndex:number=0;
+  private mountComponent:number=0;
+  private ticking:boolean=false;
   constructor(path:string,factory:(data:any)=>GameObject){
     this.factory=factory;
     this.worker=new Worker(SCENE_READER_SOURCE,{eval:true,workerData:{path:path}});
@@ -91,10 +123,16 @@ export class SceneLoadOperation {
     }catch(error){this.fail(String(error));}
   }
   tick(budgetMs:number=3):void {
-    if(this.done)return;
+    // Um hook de montagem pode chamar `tick` de volta (direto, ou por um
+    // checkpoint que desenha e processa eventos). Sem esta trava, o mesmo
+    // componente seria montado duas vezes.
+    if(this.done||this.ticking)return;
     const start=performance.now();
-    try{this.advance(Math.max(0.25,Math.min(16,budgetMs)),start);}
+    this.ticking=true;
+    const budget=Number.isFinite(budgetMs)?Math.max(0.25,Math.min(16,budgetMs)):3;
+    try{this.advance(budget,start);}
     catch(error){this.fail(String(error));}
+    finally{this.ticking=false;}
     this.lastStepMs=performance.now()-start;this.maxStepMs=Math.max(this.maxStepMs,this.lastStepMs);
   }
   private advance(budget:number,start:number):void {
@@ -102,15 +140,28 @@ export class SceneLoadOperation {
     if(this.done)return;
     while(this.row<this.rows.length){
       const object=this.factory(JSON.parse(this.rows[this.row]));
+      if(this.done)return; // a fábrica pode cancelar a operação
       this.staging.add(object,false);this.row++;this.completed++;
       this.progress=0.3+0.55*this.completed/Math.max(1,this.total);
       if(performance.now()-start>=budget)return;
     }
     if(this.end){
       this.state="activating";
+      // Por COMPONENTE, não por objeto: um objeto com vários componentes
+      // pesados não precisa montar todos no mesmo quadro. A ordem continua
+      // sendo a dos objetos e, dentro deles, a dos componentes, e componente
+      // desabilitado também monta — igual a `GameObject.mount()`.
       while(this.mountIndex<this.staging.objects.length){
-        this.staging.objects[this.mountIndex].mount();this.mountIndex++;
-        this.progress=0.85+0.14*this.mountIndex/Math.max(1,this.total);
+        const object=this.staging.objects[this.mountIndex];
+        if(this.mountComponent<object.behaviors.length){
+          const remaining=budget-(performance.now()-start);
+          if(remaining<=0)return;
+          const ready=object.behaviors[this.mountComponent].mountStep(remaining);
+          if(this.done)return;      // o hook cancelou
+          if(!ready)return;         // cedeu de propósito, mesmo com orçamento
+          this.mountComponent++;
+        }else{this.mountIndex++;this.mountComponent=0;}
+        this.progress=Math.max(this.progress,0.85+0.14*this.mountIndex/Math.max(1,this.total));
         if(performance.now()-start>=budget)return;
       }
       this.staging.computeWorld();this.result=this.staging;this.progress=1;this.state="ready";this.done=true;return;

@@ -82,6 +82,19 @@ export class Behavior {
 
   /// Chamado uma vez quando o objeto entra na cena (Awake/Start do Unity).
   mount(): void {}
+  /// Montagem COOPERATIVA, usada só pela carga assíncrona de cena.
+  ///
+  /// Devolver `false` cede a vez e o carregador chama de novo no próximo
+  /// tick; `true` conclui o componente. `budgetMs` é o tempo que sobra no
+  /// tick — o orçamento não interrompe uma chamada em andamento, então cada
+  /// passo precisa ser pequeno por conta própria.
+  ///
+  /// O padrão chama `mount()` uma vez, e é o que mantém todos os componentes
+  /// existentes funcionando sem mudança. Quem sobrescreve isto NÃO recebe
+  /// `mount()` do carregador; o `Scene.add` síncrono continua chamando
+  /// `mount()`, então um componente que atende aos dois caminhos precisa
+  /// compartilhar a preparação entre os dois métodos.
+  mountStep(budgetMs: number): boolean { this.mount(); return true; }
   /// Libera recursos externos ao remover componente/objeto ou trocar cena. Deve ser idempotente.
   releaseResources(): void {}
   /// Chamado todo frame com o delta em SEGUNDOS.

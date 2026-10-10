@@ -82,6 +82,9 @@ export class Scene {
   /// isto tira a colisão do caminho quente em vez de só deixá-la mais barata.
   lastX: f64[]; lastY: f64[]; lastZ: f64[];
   done: number[];                    // flags de "já computado" do computeWorld
+  /// Buffer da cadeia pendente do computeWorld; só a hierarquia fora de
+  /// ordem o usa, e é reaproveitado para não alocar por frame.
+  worldPath: number[];
   /// 1 = a lista de colisores (`cIdx`) precisa ser reconstruída. A coleta
   /// varre a cena inteira lendo um campo por objeto, e num cenário de RTS a
   /// composição quase nunca muda entre frames — só quando alguém entra, sai,
@@ -151,6 +154,7 @@ export class Scene {
     this.lastY = [];
     this.lastZ = [];
     this.done = [];
+    this.worldPath = [];
     this.trs = [];
     this.spatialIndex = null;
     this.contacts = new ContactEvents();
@@ -504,7 +508,7 @@ export class Scene {
     // vira uma leitura DINÂMICA de propriedade. Medido com 500 objetos × 300
     // frames: 3,8 s como método contra 1,1 s como função livre — 3,3x, com a
     // lógica idêntica.
-    computeWorldInto(this.objects, this.trs, this.done);
+    computeWorldInto(this.objects, this.trs, this.done, this.worldPath);
   }
 
   /// Colisão esfera-esfera entre objetos (raio = escala*0.5). Sobreposição:
@@ -1470,7 +1474,7 @@ function mfloor(v: f64): number {
 /// mesmo defeito que a versão sem carimbo teve.
 let cwSelo: f64 = 0.0;
 
-function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]): void {
+function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[], path: number[]): void {
   const n = objs.length;
   // O `done` guarda um CARIMBO DE FRAME e não um 0/1, e é isso que dispensa a
   // passada que o zerava. "Resolvido" passa a ser `done[i] === selo`, com um
@@ -1532,22 +1536,36 @@ function computeWorldInto(objs: GameObject[], trs: Transform[], done: number[]):
   }
   if (left === 0) return;   // caso comum: acabou numa passada
 
-  // Passadas extras só para os pendentes (hierarquia fora de ordem).
-  let pass = 0;
-  while (pass <= n) {
-    left = 0;
-    i = 0;
-    while (i < n) {
-      if (done[i] !== selo) {
-        const o = objs[i];
-        if (done[o.parent] === selo) { applyParentTo(o, objs[o.parent]); done[i] = selo; }
-        else left = 1;
+  // Hierarquia fora de ordem. A versão anterior repetia passadas sobre a cena
+  // INTEIRA enquanto sobrasse algum pendente: com o filho sempre antes do pai,
+  // isso é quadrático — 10000 objetos custavam 10000 passadas de 10000.
+  //
+  // Agora cada cadeia pendente é percorrida UMA vez até achar um ancestral já
+  // resolvido, e depois desenrolada do pai para o filho. O carimbo NEGATIVO
+  // marca "já estou neste caminho", que é o que fecha o ciclo sem contador: um
+  // objeto cuja cadeia volta nele mesmo para de ser visitado. Como antes, um
+  // objeto em ciclo mantém a última pose de mundo em vez de travar o editor —
+  // uma hierarquia mal editada não pode virar laço infinito.
+  i = 0;
+  while (i < n) {
+    if (done[i] !== selo && done[i] !== 0.0 - selo) {
+      path.length = 0;
+      let p = i;
+      while (p >= 0 && p < n && done[p] !== selo && done[p] !== 0.0 - selo) {
+        done[p] = 0.0 - selo; path.push(p); p = objs[p].parent;
       }
-      i = i + 1;
+      if (p >= 0 && p < n && done[p] === selo) {
+        let k = path.length - 1;
+        while (k >= 0) {
+          const child = path[k];
+          applyParentTo(objs[child], objs[objs[child].parent]);
+          done[child] = selo; k = k - 1;
+        }
+      }
     }
-    if (left === 0) return;
-    pass = pass + 1;
+    i = i + 1;
   }
+  path.length = 0;
 }
 
 /// Preenche `out` com os índices dos objetos COLIDÍVEIS (mesh + raiz) e devolve
@@ -1732,7 +1750,7 @@ function collectColliders(sc: Scene): void {
 /// rotacionado pelo YAW do pai). Só chama cos/sin quando o pai está de fato
 /// rotacionado — yaw 0 é o caso dominante e virava 2 chamadas trigonométricas
 /// por objeto. Função livre pelo mesmo motivo de `computeWorldInto`.
-function applyParentTo(o: GameObject, p: GameObject): void {
+export function applyParentTo(o: GameObject, p: GameObject): void {
   const t: Transform = o.transform;
   const pt: Transform = p.transform;
   const pyaw: f64 = pt.wry;
