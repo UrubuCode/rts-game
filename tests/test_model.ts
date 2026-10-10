@@ -93,9 +93,15 @@ io.print("== .GLB (binario: header + chunk JSON + chunk BIN, indices u16) ==");
     checkNear("  v0.x", p.verts[0], 0.0 - 1.0, 0.0001);
     checkNear("  v0.z", p.verts[2], 0.0 - 1.0, 0.0001);
     checkNear("  n0.y", p.verts[4], 1.0, 0.0001);
-    // baseColorFactor 0.9/0.2/0.15 -> 229/51/38
-    check("  cor R (baseColorFactor)", p.cr, 229);
-    check("  cor G", p.cg, 51);
+    // `baseColorFactor` do glTF é LINEAR por especificação, e o tint do motor
+    // é sRGB — `gltfColorByte` aplica a curva sRGB no meio. Multiplicar por
+    // 255 direto (0,9 -> 229) mostraria o material escuro demais.
+    //   0,9 -> 1,055*0,9^(1/2,4)-0,055 = 0,9547 -> 243
+    //   0,2 ->                           0,4846 -> 123
+    // O `Kd` do .mtl acima NÃO passa por isso, e é por isso que ele continua
+    // em 229/51: aquele valor já é cor de exibição.
+    check("  cor R (baseColorFactor)", p.cr, 243);
+    check("  cor G", p.cg, 123);
   }
 }
 
@@ -106,8 +112,9 @@ io.print("== .GLTF externo + MULTI-MATERIAL (2 primitives = 2 submeshes) ==");
   if (ps.length === 2) {
     check("  tris da parte 0", ps[0].triCount(), 1);
     check("  tris da parte 1", ps[1].triCount(), 1);
-    check("  cor da parte 0 (Verde G)", ps[0].cg, 204);
-    check("  cor da parte 1 (Azul B)", ps[1].cb, 229);
+    // Mesma curva sRGB: 0,8 -> 231 e 0,9 -> 243.
+    check("  cor da parte 0 (Verde G)", ps[0].cg, 231);
+    check("  cor da parte 1 (Azul B)", ps[1].cb, 243);
     check("  nomes distintos", ps[0].name === ps[1].name ? 0 : 1, 1);
     // As duas primitives COMPARTILHAM o accessor POSITION (6 vértices); o que
     // difere são os ÍNDICES — a 2ª usa byteOffset e aponta pro 2º triângulo.
